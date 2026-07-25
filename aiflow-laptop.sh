@@ -65,8 +65,12 @@ agy_write() {  # write-enabled agent run (execute/test/fix)
       --print-timeout "$AGY_TIMEOUT" "${m[@]}" -p "$1" < /dev/null
 }
 agy_read() {   # read-only run whose stdout we capture (explain)
+  # --mode plan keeps it read-only; --dangerously-skip-permissions is still required,
+  # because headless mode cannot prompt for the read/command permissions the prompt
+  # needs and auto-DENIES them, which yields an empty response rather than an error.
   local m=(); [ -n "$AGY_MODEL" ] && m=(--model "$AGY_MODEL")
-  agy --mode plan --print-timeout "$AGY_TIMEOUT" "${m[@]}" -p "$1" < /dev/null
+  agy --mode plan --dangerously-skip-permissions \
+      --print-timeout "$AGY_TIMEOUT" "${m[@]}" -p "$1" < /dev/null
 }
 
 preflight() {
@@ -343,8 +347,10 @@ do_explain() {
   if [ -s "$EXPLAIN_FILE" ]; then
     c_info "Walkthrough written to $EXPLAIN_FILE — your learning material. Read it before tests."
   else
-    c_warn "agy returned no output (known stdout-under-pipe issue on some versions)."
-    c_warn "Run interactively instead:  agy   then paste the explain prompt from this script."
+    c_warn "agy returned no output — read ITS error above, don't assume a cause."
+    c_warn "Common ones: a tool permission was auto-denied in headless mode (add"
+    c_warn "--dangerously-skip-permissions to agy_read), or this version drops stdout"
+    c_warn "under a pipe. To check the latter:  agy -p \"say OK\" | cat"
   fi
 }
 
