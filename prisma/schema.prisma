@@ -470,6 +470,11 @@ enum EnumDeliveryEventType {
 
 enum EnumCountryCode {
   US
+  GR
+  CA
+  GB
+  AU
+  MX
 }
 
 enum EnumDistanceUnit {
