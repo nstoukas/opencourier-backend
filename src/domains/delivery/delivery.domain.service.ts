@@ -332,12 +332,21 @@ export class DeliveryDomainService {
         }
         await this.deliveryEventService.processDeliveryEvent(confirmedEvent)
         break
-      case EnumDeliveryEventType.ACCEPTED:
+      case EnumDeliveryEventType.ACCEPTED: {
         if (!event.courierId) {
           throw new BadRequestException('courierId is required when submitting ACCEPTED to assign a courier')
         }
-        await this.deliveryEventService.offerDeliveryToCourierAsAdmin(event.deliveryId, event.courierId, message)
+        const delivery = await this.getByIdOrThrow(event.deliveryId)
+        if (
+          delivery.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
+          delivery.matchedCourierId === event.courierId
+        ) {
+          await this.acceptDelivery(event.deliveryId, event.courierId)
+        } else {
+          await this.deliveryEventService.offerDeliveryToCourierAsAdmin(event.deliveryId, event.courierId, message)
+        }
         break
+      }
       case EnumDeliveryEventType.DISPATCHED:
         const dispatchedEvent: DeliveryDispatchedEvent = {
           deliveryId: event.deliveryId,
