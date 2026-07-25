@@ -260,6 +260,20 @@ EOF
 
 ### ---- Phases --------------------------------------------------------------------
 
+# Capture the working diff for the explain/review phases.
+# `git diff` only shows TRACKED files, so brand-new files — often the most important
+# ones — would be invisible to the reviewer. Append each untracked file as a diff
+# against /dev/null. Uses --no-index so the index is never touched (staging new files
+# here would risk them being committed empty).
+capture_diff() {
+  git diff > "$DIFF_FILE"
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git diff --no-index -- /dev/null "$f" >> "$DIFF_FILE" 2>/dev/null || true
+  done < <(git ls-files --others --exclude-standard)
+}
+
 # Print whatever the failed call told us. The CLI reports some errors (bad model,
 # quota) on stdout rather than stderr, so fall back to stdout when stderr is empty.
 show_failure() {
@@ -317,12 +331,12 @@ do_execute() {
   fi
   c_info "EXECUTE — agy implements plan.md (auto-approved writes; clean git tree is your undo)"
   agy_write "$(execute_prompt)"
-  git diff > "$DIFF_FILE"
+  capture_diff
   c_info "Execution complete. Inspect with:  git diff   (also saved to $DIFF_FILE)"
 }
 
 do_explain() {
-  git diff > "$DIFF_FILE"
+  capture_diff
   [ -s "$DIFF_FILE" ] || { c_err "No changes to explain — run the execute phase first."; exit 1; }
   c_info "EXPLAIN — agy writes a beginner walkthrough of the diff"
   agy_read "$(explain_prompt)" > "$EXPLAIN_FILE" || true
@@ -352,7 +366,7 @@ do_test() {
 
 do_review() {
   c_info "REVIEW — Claude ($REVIEW_MODEL) cross-model pass, read-only"
-  git diff > "$DIFF_FILE"
+  capture_diff
   [ -f "$TESTOUT_FILE" ] || echo "(no test output captured)" > "$TESTOUT_FILE"
   claude -p "$(review_prompt)" \
     --model "$REVIEW_MODEL" \
