@@ -27,6 +27,7 @@ PLAN_FALLBACK_MODEL="${PLAN_FALLBACK_MODEL:-claude-opus-5}"  # used if PLAN_MODE
 REVIEW_MODEL="${REVIEW_MODEL:-claude-sonnet-4-6}"
 FIX_MODEL="${FIX_MODEL:-claude-sonnet-4-6}"      # used only with --escalate
 AGY_MODEL="${AGY_MODEL:-}"                       # empty = agy's default model
+AGY_TIMEOUT="${AGY_TIMEOUT:-30m}"                # agy --print-timeout (its default, 5m, is too short)
 TEST_CMD="${TEST_CMD:-yarn test}"                # backend uses yarn, not npm
 MAX_ITERS="${MAX_ITERS:-2}"
 
@@ -52,15 +53,20 @@ confirm() {
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
-# agy invocations. Flag names have drifted between releases (--yolo -> --headless
-# + --approve). If a call errors on a flag, run `agy --help` and adjust ONLY here.
+# agy invocations. Flag names drift between releases (--yolo -> --headless/--approve ->
+# the current set below). If a call errors on a flag, run `agy --help` and adjust ONLY here.
+#   -p                             non-interactive single prompt (this IS "headless")
+#   --mode accept-edits | plan     accept-edits = may write; plan = read-only
+#   --dangerously-skip-permissions the current spelling of the old "--approve all"
+#   --print-timeout                agy defaults to 5m, too short for a multi-step plan
 agy_write() {  # write-enabled agent run (execute/test/fix)
-  local m=(); [ -n "$AGY_MODEL" ] && m=(-m "$AGY_MODEL")
-  agy --headless --approve all "${m[@]}" -p "$1" < /dev/null
+  local m=(); [ -n "$AGY_MODEL" ] && m=(--model "$AGY_MODEL")
+  agy --mode accept-edits --dangerously-skip-permissions \
+      --print-timeout "$AGY_TIMEOUT" "${m[@]}" -p "$1" < /dev/null
 }
 agy_read() {   # read-only run whose stdout we capture (explain)
-  local m=(); [ -n "$AGY_MODEL" ] && m=(-m "$AGY_MODEL")
-  agy "${m[@]}" -p "$1" < /dev/null
+  local m=(); [ -n "$AGY_MODEL" ] && m=(--model "$AGY_MODEL")
+  agy --mode plan --print-timeout "$AGY_TIMEOUT" "${m[@]}" -p "$1" < /dev/null
 }
 
 preflight() {
