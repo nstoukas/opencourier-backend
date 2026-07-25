@@ -2,7 +2,8 @@
 #
 # aiflow-laptop.sh — OpenCourier Co-op pipeline (Antigravity CLI edition)
 #
-#   PLAN     -> Claude (Anthropic API)       : architecture & reasoning
+#   PLAN     -> Claude Fable 5               : architecture & reasoning
+#               (falls back to Claude Opus 5 if Fable produces no plan)
 #   EXECUTE  -> agy (Antigravity CLI)        : implementation
 #   EXPLAIN  -> agy                          : teaches YOU the diff
 #   TEST     -> agy                          : Jest test generation + run
@@ -22,6 +23,7 @@ set -euo pipefail
 
 ### ---- Config (override via environment) -------------------------------------
 PLAN_MODEL="${PLAN_MODEL:-claude-fable-5}"       # most capable model; planning only
+PLAN_FALLBACK_MODEL="${PLAN_FALLBACK_MODEL:-claude-opus-5}"  # used if PLAN_MODEL fails
 REVIEW_MODEL="${REVIEW_MODEL:-claude-sonnet-4-6}"
 FIX_MODEL="${FIX_MODEL:-claude-sonnet-4-6}"      # used only with --escalate
 AGY_MODEL="${AGY_MODEL:-}"                       # empty = agy's default model
@@ -80,7 +82,7 @@ do_doctor() {
   c_info "Checking location..."
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo "  [ok] inside a git repo"; else echo "  [FAIL] not a git repo — cd into opencourier-backend"; ok=0; fi
   [ -f "$RULES_FILE" ] && echo "  [ok] workspace rulebook at $RULES_FILE" || { echo "  [MISSING] $RULES_FILE — the merged CLAUDE.md belongs at the workspace root"; ok=0; }
-  [ -f "../memory.md" ] && echo "  [ok] ../memory.md present" || echo "  [WARN] no ../memory.md session log"
+  [ -f "../memory.md" ] && echo "  [ok] ../memory.md present" || echo "  [WARN] no ../memory.md cross-repo state file"
   [ -f package.json ] && echo "  [ok] package.json present" || echo "  [WARN] no package.json — is this the backend repo?"
 
   c_info "Checking agy responds non-interactively (stdout-drop check)..."
@@ -117,7 +119,9 @@ You are the PLANNING model for the OpenCourier Co-op backend. Do NOT write code.
 Task: $1
 
 First read ../CLAUDE.md (the workspace rulebook: co-op values, locked decisions, domain
-language, commands, boundaries) and skim ../memory.md (session log of prior changes).
+language, commands, boundaries) and skim ../memory.md (cross-repo state: the deviation
+ledger, active environment configuration, and work not yet committed). For the history
+of a specific file, read git log rather than ../memory.md.
 
 Then explore this repository as needed and produce a precise, self-contained
 implementation plan that a TypeScript BEGINNER operator can read, and that a different
@@ -156,8 +160,14 @@ Rules:
 - Do NOT write or modify tests — that happens in a separate phase.
 - Respect ../CLAUDE.md Boundaries: no applied-migration edits, no Stripe pin bump,
   no env/secrets, no lockfile regeneration, no hand-edits to the generated SDK.
-- When finished: print a bullet summary of every file changed and why, and append a
-  short dated entry describing the change to ../memory.md.
+- When finished: print a bullet summary of every file changed and why.
+- ../memory.md is NOT a changelog — git history is. Do not append a dated entry.
+  Edit it only in these two cases:
+    * You deviated from a locked decision in ../CLAUDE.md -> add one row to the
+      "Deviation ledger" table (what / where / why). Leave the Commit column empty;
+      the operator fills it in after committing.
+    * You changed environment configuration -> update "Active configuration",
+      recording the variable NAME and where its value lives, never the value itself.
 EOF
 }
 
@@ -236,18 +246,59 @@ unrelated code. If the reviewer is mistaken, leave the code as-is and add a one-
 "// AIFLOW-NOTE:" explaining why.
 
 When done: print a bullet list mapping each review item to the fix made (or why
-skipped), and append a short dated entry to ../memory.md.
+skipped). Do not append a dated entry to ../memory.md — git history is the changelog.
+Touch ../memory.md only if a fix introduced a new deviation from ../CLAUDE.md (add a
+row to the "Deviation ledger") or changed environment configuration.
 EOF
 }
 
 ### ---- Phases --------------------------------------------------------------------
 
+# Print whatever the failed call told us. The CLI reports some errors (bad model,
+# quota) on stdout rather than stderr, so fall back to stdout when stderr is empty.
+show_failure() {
+  local out="$1" err="$2"
+  if [ -s "$err" ]; then sed 's/^/    /' "$err" >&2
+  elif [ -s "$out" ]; then head -20 "$out" | sed 's/^/    /' >&2
+  else printf '    (no output on stdout or stderr)\n' >&2
+  fi
+}
+
+# Run the planner on one model. stdout -> $2, stderr -> $3, returns claude's exit code.
+run_planner() {
+  local model="$1" out="$2" err="$3"
+  claude -p "$(plan_prompt "$TASK")" \
+    --model "$model" \
+    --permission-mode plan > "$out" 2> "$err"
+}
+
 do_plan() {
   [ -n "${TASK:-}" ] || { c_err "Provide a task, e.g.:  ./aiflow-laptop.sh plan \"add a GET /courier/earnings-summary endpoint\""; exit 1; }
+  local tmp_out="$WORKDIR/plan.out" tmp_err="$WORKDIR/plan.err" rc
+
   c_info "PLAN — Claude ($PLAN_MODEL, read-only plan mode)"
-  claude -p "$(plan_prompt "$TASK")" \
-    --model "$PLAN_MODEL" \
-    --permission-mode plan > "$PLAN_FILE"
+  set +e; run_planner "$PLAN_MODEL" "$tmp_out" "$tmp_err"; rc=$?; set -e
+
+  # Any failure falls back — we can't reliably tell "out of credits" from an auth
+  # or network error without guessing at the CLI's error strings, so the error is
+  # printed and the fallback model gets a turn regardless of cause.
+  if [ "$rc" -ne 0 ] || [ ! -s "$tmp_out" ]; then
+    c_warn "$PLAN_MODEL produced no plan (exit $rc). Error was:"
+    show_failure "$tmp_out" "$tmp_err"
+    c_warn "Falling back to $PLAN_FALLBACK_MODEL."
+    set +e; run_planner "$PLAN_FALLBACK_MODEL" "$tmp_out" "$tmp_err"; rc=$?; set -e
+    if [ "$rc" -ne 0 ] || [ ! -s "$tmp_out" ]; then
+      c_err "$PLAN_FALLBACK_MODEL also failed (exit $rc):"
+      show_failure "$tmp_out" "$tmp_err"
+      c_err "No plan written — $PLAN_FILE left as it was."
+      exit 1
+    fi
+    c_info "Plan produced by fallback model $PLAN_FALLBACK_MODEL."
+  fi
+
+  # Only overwrite plan.md once we have a non-empty plan in hand.
+  mv "$tmp_out" "$PLAN_FILE"
+  rm -f "$tmp_err"
   c_info "Plan written to $PLAN_FILE"
   c_info "READ IT — especially '## For the operator'. Edit anything unclear before executing."
 }
