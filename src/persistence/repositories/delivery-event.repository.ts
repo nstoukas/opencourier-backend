@@ -7,6 +7,11 @@ import { IDeliveryEventRepository } from 'src/domains/delivery-event/interfaces/
 import { IDeliveryEventCreateInput } from 'src/domains/delivery-event/interfaces/IDeliveryEventCreateInput'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { CourierEarningsRow, CourierEarningsDeliveryRow } from 'src/domains/delivery-event/types/earnings-summary.type'
+// Deliberate import direction — do not "fix". Persistence may depend on the domain
+// layer (entities, types, pure utils), same as the entity/type imports above; domain
+// code never imports from persistence. formatDropoffAddress is the single shared
+// address rule, so duplicating it here would let the earnings summary and the
+// drill-down render the same delivery's address differently.
 import { formatDropoffAddress } from 'src/domains/delivery-event/utils/earnings-summary.util'
 
 @Injectable()

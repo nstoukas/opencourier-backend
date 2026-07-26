@@ -153,17 +153,26 @@ describe('earnings-summary.util', () => {
 
   describe('dedupeEarliestDropOff', () => {
     // Test Plan Section 1: dedupeEarliestDropOff
-    test('returns only the earliest drop-off event when multiple exist for the same deliveryId', () => {
-      // Setup two rows for del-1 with different timestamps
-      const rows = [
-        { deliveryId: 'del-1', droppedOffAt: new Date('2026-07-10T14:00:00Z') }, // Later
-        { deliveryId: 'del-1', droppedOffAt: new Date('2026-07-10T10:00:00Z') }, // Earlier
-      ]
+    test('keeps the entire earlier row — not just its timestamp — when duplicates share a deliveryId', () => {
+      // The rows differ in every field so this catches any mixing of fields
+      // between rows: this function decides whose compensation and tips count.
+      const earlier = {
+        deliveryId: 'del-1',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 800,
+        tips: 200,
+      }
+      const later = {
+        deliveryId: 'del-1',
+        droppedOffAt: new Date('2026-07-10T14:00:00Z'),
+        totalCompensation: 999,
+        tips: 50,
+      }
 
-      const result = dedupeEarliestDropOff(rows)
+      const result = dedupeEarliestDropOff([later, earlier])
 
-      expect(result).toHaveLength(1)
-      expect(result[0]?.droppedOffAt).toEqual(new Date('2026-07-10T10:00:00Z'))
+      // Whole-row equality: timestamp, compensation and tips all from `earlier`.
+      expect(result).toEqual([earlier])
     })
 
     test('passes through distinct delivery IDs without filtering', () => {
