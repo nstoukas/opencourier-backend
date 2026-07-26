@@ -288,7 +288,7 @@ export class AuthDomainService {
     return updatedUser.apiKey || apiKey
   }
 
-  private generateApiKey() {
+  generateApiKey() {
     return randomBytes(96).toString('hex')
   }
 }

@@ -3,6 +3,7 @@ import { ConfigPartnerRestApiModule } from './config/partner/config.partner.rest
 import { DeliveryQuotePartnerRestApiModule } from './delivery-quote/partner/delivery-quote.partner.rest-api.module'
 import { DeliveryPartnerRestApiModule } from './delivery/partner/delivery.partner.rest-api.module'
 import { AuthPartnerRestApiModule } from './auth/partner/auth.partner.rest-api.module'
+import { PartnerPartnerRestApiModule } from './partner/partner/partner.partner.rest-api.module'
 
 @Module({
   imports: [
@@ -10,6 +11,7 @@ import { AuthPartnerRestApiModule } from './auth/partner/auth.partner.rest-api.m
     ConfigPartnerRestApiModule,
     DeliveryQuotePartnerRestApiModule,
     DeliveryPartnerRestApiModule,
+    PartnerPartnerRestApiModule,
   ],
 })
 export class PartnerRestApiModule {}

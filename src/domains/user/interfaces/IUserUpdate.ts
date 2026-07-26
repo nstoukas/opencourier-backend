@@ -1,3 +1,4 @@
 export class IUserUpdate {
-	apiKey?: string | null
+  apiKey?: string | null
+  password?: string
 }

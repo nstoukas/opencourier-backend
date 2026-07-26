@@ -37,6 +37,10 @@ export class UserDomainService {
     return await this.userRepository.findByUsername(username)
   }
 
+  async update(userId: string, data: IUserUpdate) {
+    return this.userRepository.updateById(userId, data)
+  }
+
   async updateMe(user: UserEntity, data: IUserUpdate) {
     return this.userRepository.updateById(user.id, data)
   }

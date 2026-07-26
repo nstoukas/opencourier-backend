@@ -3,6 +3,7 @@ import { LocationRepository } from 'src/persistence/repositories/location.reposi
 import { LocationWhereArgs } from './types/location-where-args.type'
 import { ILocationFindOrCreate } from './interfaces/ILocationFindOrCreate'
 import { ILocationUpdate } from './interfaces/ILocationUpdate'
+import { ILocationCreate } from './interfaces/ILocationCreate'
 
 @Injectable()
 export class LocationDomainService {
@@ -19,6 +20,10 @@ export class LocationDomainService {
     const location = await this.locationRepository.findByIds(locationIds)
 
     return location
+  }
+
+  async create(input: ILocationCreate) {
+    return this.locationRepository.create(input)
   }
 
   async findOrCreate(input: ILocationFindOrCreate) {

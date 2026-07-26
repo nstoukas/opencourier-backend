@@ -115,6 +115,8 @@ model Location {
 
   pickupDeliveryQuotes  DeliveryQuote[] @relation(name: "pickupDeliveryQuotes")
   dropoffDeliveryQuotes DeliveryQuote[] @relation(name: "dropoffDeliveryQuotes")
+
+  partnerPickups Partner[] @relation(name: "partnerPickupLocation")
 }
 
 model Partner {
@@ -132,6 +134,9 @@ model Partner {
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  pickupLocationId String?
+  pickupLocation   Location? @relation(name: "partnerPickupLocation", fields: [pickupLocationId], references: [id], onDelete: SetNull)
 }
 
 model DeliveryQuote {
