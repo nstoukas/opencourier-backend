@@ -135,3 +135,9 @@ export const PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES = 90
 
 // Minutes to wait to cancel order in cases when order can still be recovered
 export const ORDER_PAYMENT_CANCELLATION_DELAY_MINUTES = 60
+
+// Display-only defaults/limits for the courier earnings report. They control what the
+// report shows and how much of the event ledger one request may scan — never anyone's pay.
+export const EARNINGS_SUMMARY_DEFAULT_WINDOW_DAYS = 30
+export const EARNINGS_SUMMARY_DEFAULT_TIMEZONE = 'UTC'
+export const EARNINGS_SUMMARY_MAX_WINDOW_DAYS = 366
