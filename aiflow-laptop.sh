@@ -239,7 +239,9 @@ Produce a Markdown review:
    pass rather than to verify behavior.
 5. Verdict — SHIP or FIX-NEEDED, plus the top 3 must-fix items (if any).
 
-Do not rewrite the code; just review.
+Do not rewrite the code; just review. Output ONLY the review itself in Markdown, in
+full, as your reply — it is captured from stdout. Do not write it to a file, do not
+summarise it, and do not offer to save it somewhere.
 EOF
 }
 
@@ -370,13 +372,29 @@ do_test() {
   run_suite
 }
 
+# Read-only is enforced by a tool ALLOWLIST, not by --permission-mode plan.
+# Plan mode made Claude treat the review as a "plan": it wrote the full text to
+# ~/.claude/plans/<name>.md and printed only a short summary, so $REVIEW_FILE got a
+# stub instead of the review (same class of bug as the empty-explain fix, 84c68c8).
+# The allowlist keeps the pass read-only while leaving stdout as the only output path.
+# Bash entries are scoped to inspection commands — the last review used them to verify
+# claims byte-level (od -c on EOF newlines), which is exactly the skepticism we want.
+REVIEW_TOOLS="${REVIEW_TOOLS:-Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(od:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(grep:*),Bash(ls:*),Bash(find:*)}"
+
 do_review() {
   c_info "REVIEW — Claude ($REVIEW_MODEL) cross-model pass, read-only"
   capture_diff
   [ -f "$TESTOUT_FILE" ] || echo "(no test output captured)" > "$TESTOUT_FILE"
   claude -p "$(review_prompt)" \
     --model "$REVIEW_MODEL" \
-    --permission-mode plan > "$REVIEW_FILE"
+    --allowedTools "$REVIEW_TOOLS" > "$REVIEW_FILE" || true
+  # A stub means the model withheld the review rather than printing it — treat a
+  # suspiciously small file as a failure instead of letting FIX run on half a brief.
+  if [ "$(wc -c < "$REVIEW_FILE")" -lt 500 ]; then
+    c_warn "$REVIEW_FILE is under 500 bytes — the review was probably not printed in full."
+    c_warn "Check for a stray plan file:  ls -t ~/.claude/plans | head"
+    c_warn "If the review landed there, copy it into $REVIEW_FILE before running fix."
+  fi
   c_info "Review written to $REVIEW_FILE"
   echo "----------------------------------------------------------------------"
   cat "$REVIEW_FILE"
