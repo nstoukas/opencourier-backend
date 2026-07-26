@@ -19,6 +19,9 @@ import { CourierUpdateStatusCourierInput } from './queries/courier-update-status
 import { CourierUpdateDeliverySettingCourierInput } from './queries/courier-update-delivery-setting.courier.input'
 import { EarningsSummaryCourierArgs } from './queries/earnings-summary.courier.args'
 import { EarningsSummaryCourierDto } from './dto/earnings-summary.courier.dto'
+import { EarningsDayCourierArgs } from './queries/earnings-day.courier.args'
+import { EarningsDayCourierDto } from './dto/earnings-day.courier.dto'
+import { EarningsDeliveryDetailCourierDto } from './dto/earnings-delivery-detail.courier.dto'
 import { isValidTimezone } from 'src/domains/delivery-event/utils/earnings-summary.util'
 import { convertToDate, dayjs } from 'src/core/utils/time'
 
@@ -75,6 +78,57 @@ export class CourierCourierRestApiController {
     const currency = await this.configDomainService.instanceConfig.getCurrency()
 
     return new EarningsSummaryCourierDto(days, { from, to, timezone, currency })
+  }
+
+  @common.Get('earnings/day')
+  @swagger.ApiOkResponse({ status: 200, type: EarningsDayCourierDto })
+  @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiOperation({ summary: 'Get completed deliveries for a single day' })
+  @Roles(EnumUserRole.COURIER)
+  async getMyEarningsDay(
+    @common.Query() args: EarningsDayCourierArgs,
+    @CurrentUserCourier() courier: CourierEntity
+  ): Promise<EarningsDayCourierDto> {
+    const timezone = args.timezone ?? EARNINGS_SUMMARY_DEFAULT_TIMEZONE
+    if (!isValidTimezone(timezone)) {
+      throw new common.BadRequestException('Unknown timezone')
+    }
+
+    const parsedDate = dayjs.tz(args.date, timezone)
+    if (!parsedDate.isValid() || parsedDate.format('YYYY-MM-DD') !== args.date) {
+      throw new common.BadRequestException('Invalid date')
+    }
+
+    const deliveries = await this.deliveryEventDomainService.getEarningsDeliveriesForCourierDay(
+      courier.id,
+      args.date,
+      timezone
+    )
+    const currency = await this.configDomainService.instanceConfig.getCurrency()
+
+    return new EarningsDayCourierDto(deliveries, { date: args.date, timezone, currency })
+  }
+
+  // @common.Param('deliveryId') extracts a path parameter from the request URL
+  @common.Get('earnings/delivery/:deliveryId')
+  @swagger.ApiOkResponse({ status: 200, type: EarningsDeliveryDetailCourierDto })
+  @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiOperation({ summary: 'Get earnings detail for a single completed delivery' })
+  @Roles(EnumUserRole.COURIER)
+  async getMyEarningsDeliveryDetail(
+    @common.Param('deliveryId') deliveryId: string,
+    @CurrentUserCourier() courier: CourierEntity
+  ): Promise<EarningsDeliveryDetailCourierDto> {
+    const detail = await this.deliveryEventDomainService.getEarningsDeliveryDetailForCourier(courier.id, deliveryId)
+    if (!detail) {
+      throw new common.NotFoundException('Completed delivery not found')
+    }
+
+    const currency = await this.configDomainService.instanceConfig.getCurrency()
+    return new EarningsDeliveryDetailCourierDto(detail, { currency })
   }
 
   /**

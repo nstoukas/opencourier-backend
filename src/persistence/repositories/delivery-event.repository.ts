@@ -6,7 +6,8 @@ import { EntityRepository } from '../EntityRepository'
 import { IDeliveryEventRepository } from 'src/domains/delivery-event/interfaces/IDeliveryEventRepository'
 import { IDeliveryEventCreateInput } from 'src/domains/delivery-event/interfaces/IDeliveryEventCreateInput'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
-import { CourierEarningsRow } from 'src/domains/delivery-event/types/earnings-summary.type'
+import { CourierEarningsRow, CourierEarningsDeliveryRow } from 'src/domains/delivery-event/types/earnings-summary.type'
+import { formatDropoffAddress } from 'src/domains/delivery-event/utils/earnings-summary.util'
 
 @Injectable()
 export class DeliveryEventRepository extends EntityRepository implements IDeliveryEventRepository {
@@ -60,6 +61,125 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     }))
   }
 
+  async findCompletedDeliveryRowsForCourier(
+    courierId: string,
+    from: Date,
+    to: Date
+  ): Promise<CourierEarningsDeliveryRow[]> {
+    const events = await this.prisma.deliveryEvent.findMany({
+      where: {
+        transitionSuccessful: true,
+        newStatus: EnumDeliveryStatus.DROPPED_OFF,
+        createdAt: {
+          gte: from,
+          lte: to,
+        },
+        delivery: {
+          is: {
+            courierId,
+          },
+        },
+      },
+      select: {
+        deliveryId: true,
+        createdAt: true,
+        delivery: {
+          select: {
+            totalCompensation: true,
+            tips: true,
+            pickupBusinessName: true,
+            dropoffLocation: {
+              select: {
+                formattedAddress: true,
+                street: true,
+                city: true,
+                state: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    })
+
+    return events.map((event) => this.mapEventToEarningsDeliveryRow(event))
+  }
+
+  async findCompletedDeliveryRowForCourierDelivery(
+    courierId: string,
+    deliveryId: string
+  ): Promise<CourierEarningsDeliveryRow | null> {
+    const events = await this.prisma.deliveryEvent.findMany({
+      where: {
+        transitionSuccessful: true,
+        newStatus: EnumDeliveryStatus.DROPPED_OFF,
+        deliveryId,
+        delivery: {
+          is: {
+            courierId,
+          },
+        },
+      },
+      select: {
+        deliveryId: true,
+        createdAt: true,
+        delivery: {
+          select: {
+            totalCompensation: true,
+            tips: true,
+            pickupBusinessName: true,
+            dropoffLocation: {
+              select: {
+                formattedAddress: true,
+                street: true,
+                city: true,
+                state: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      take: 1,
+    })
+
+    const firstEvent = events[0]
+    if (!firstEvent) {
+      return null
+    }
+
+    return this.mapEventToEarningsDeliveryRow(firstEvent)
+  }
+
+  private mapEventToEarningsDeliveryRow(event: {
+    deliveryId: string
+    createdAt: Date
+    delivery: {
+      totalCompensation: number | null
+      tips: number
+      pickupBusinessName: string
+      dropoffLocation: {
+        formattedAddress: string | null
+        street: string | null
+        city: string | null
+        state: string | null
+      } | null
+    }
+  }): CourierEarningsDeliveryRow {
+    return {
+      deliveryId: event.deliveryId,
+      droppedOffAt: event.createdAt,
+      totalCompensation: event.delivery.totalCompensation,
+      tips: event.delivery.tips,
+      pickupBusinessName: event.delivery.pickupBusinessName,
+      dropoffAddress: formatDropoffAddress(event.delivery.dropoffLocation),
+    }
+  }
+
   private toDomain(data: DeliveryEvent) {
     return new DeliveryEventEntity(data)
   }
@@ -68,3 +188,4 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return data.map((d) => this.toDomain(d))
   }
 }
+

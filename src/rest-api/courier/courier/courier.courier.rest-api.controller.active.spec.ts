@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { CourierCourierRestApiController } from './courier.courier.rest-api.controller'
 import { CourierDomainService } from '../../../domains/courier/courier.domain.service'
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
@@ -23,9 +23,11 @@ describe('CourierCourierRestApiController', () => {
   beforeEach(() => {
     mockCourierDomainService = {} as jest.Mocked<CourierDomainService>
 
-    // Mock DeliveryEventDomainService methods
+    // Mock DeliveryEventDomainService methods with safe default return values
     mockDeliveryEventDomainService = {
-      getEarningsSummaryForCourier: jest.fn(),
+      getEarningsSummaryForCourier: jest.fn().mockResolvedValue([]),
+      getEarningsDeliveriesForCourierDay: jest.fn().mockResolvedValue([]),
+      getEarningsDeliveryDetailForCourier: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<DeliveryEventDomainService>
 
     // Mock ConfigDomainService for fetching instance currency
@@ -130,4 +132,141 @@ describe('CourierCourierRestApiController', () => {
       await expect(controller.getMyEarningsSummary(args, mockCourier)).rejects.toThrow('from must be before to')
     })
   })
+
+  describe('getMyEarningsDay', () => {
+    // Test Plan Section 5: getMyEarningsDay
+    test('defaults timezone to UTC and returns DTO with summed totals and mapped deliveries', async () => {
+      // Mock domain service returning two deliveries for July 10
+      mockDeliveryEventDomainService.getEarningsDeliveriesForCourierDay.mockResolvedValue([
+        {
+          deliveryId: 'del-1',
+          droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+          dropoffAddress: 'Iasonos 12, Volos',
+          pickupBusinessName: 'Ta Koutsavakia',
+          compensation: 500,
+          tips: 100,
+          total: 600,
+        },
+        {
+          deliveryId: 'del-2',
+          droppedOffAt: new Date('2026-07-10T14:00:00Z'),
+          dropoffAddress: 'Ermou 4, Volos',
+          pickupBusinessName: 'O Gyros tis Elladas',
+          compensation: 700,
+          tips: 0,
+          total: 700,
+        },
+      ])
+
+      const result = await controller.getMyEarningsDay({ date: '2026-07-10' }, mockCourier)
+
+      // Verify domain service called with UTC default
+      expect(mockDeliveryEventDomainService.getEarningsDeliveriesForCourierDay).toHaveBeenCalledWith(
+        'courier-777',
+        '2026-07-10',
+        'UTC'
+      )
+
+      // Verify DTO fields and calculated day totals
+      expect(result.date).toBe('2026-07-10')
+      expect(result.timezone).toBe('UTC')
+      expect(result.currency).toBe('EUR')
+      expect(result.deliveryCount).toBe(2)
+      expect(result.compensation).toBe(1200) // 500 + 700
+      expect(result.tips).toBe(100) // 100 + 0
+      expect(result.total).toBe(1300) // 600 + 700
+      expect(result.deliveries).toHaveLength(2)
+    })
+
+    test('passes custom valid timezone to domain service', async () => {
+      mockDeliveryEventDomainService.getEarningsDeliveriesForCourierDay.mockResolvedValue([])
+
+      const args = { date: '2026-07-10', timezone: 'Europe/Athens' }
+      const result = await controller.getMyEarningsDay(args, mockCourier)
+
+      expect(mockDeliveryEventDomainService.getEarningsDeliveriesForCourierDay).toHaveBeenCalledWith(
+        'courier-777',
+        '2026-07-10',
+        'Europe/Athens'
+      )
+      expect(result.timezone).toBe('Europe/Athens')
+    })
+
+    test('throws BadRequestException when an invalid timezone is provided', async () => {
+      const args = { date: '2026-07-10', timezone: 'Invalid/Zone' }
+
+      await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow(BadRequestException)
+      await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow('Unknown timezone')
+    })
+
+    test('throws BadRequestException when an invalid calendar date is provided', async () => {
+      const args = { date: '2026-02-30' }
+
+      await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow(BadRequestException)
+      await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow('Invalid date')
+    })
+  })
+
+  describe('getMyEarningsDeliveryDetail', () => {
+    // Test Plan Section 6: getMyEarningsDeliveryDetail
+    test('returns delivery detail DTO when domain service resolves a completed delivery', async () => {
+      const mockDetail = {
+        deliveryId: 'del-abc',
+        droppedOffAt: new Date('2026-07-10T12:00:00Z'),
+        dropoffAddress: 'Iasonos 12, Volos',
+        pickupBusinessName: 'Ta Koutsavakia',
+        compensation: 650,
+        tips: 150,
+        total: 800,
+      }
+      mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mockResolvedValue(mockDetail)
+
+      const result = await controller.getMyEarningsDeliveryDetail('del-abc', mockCourier)
+
+      // Verify domain service called with logged in courier id and URL delivery id
+      expect(mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier).toHaveBeenCalledWith(
+        'courier-777',
+        'del-abc'
+      )
+
+      expect(result.deliveryId).toBe('del-abc')
+      expect(result.currency).toBe('EUR')
+      expect(result.compensation).toBe(650)
+      expect(result.tips).toBe(150)
+      expect(result.total).toBe(800)
+      expect(result.pickupBusinessName).toBe('Ta Koutsavakia')
+      expect(result.dropoffAddress).toBe('Iasonos 12, Volos')
+    })
+
+    test('throws NotFoundException when domain service returns null', async () => {
+      // Domain service returns null when delivery does not exist or belong to courier
+      mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mockResolvedValue(null)
+
+      await expect(controller.getMyEarningsDeliveryDetail('del-unknown', mockCourier)).rejects.toThrow(
+        NotFoundException
+      )
+      await expect(controller.getMyEarningsDeliveryDetail('del-unknown', mockCourier)).rejects.toThrow(
+        'Completed delivery not found'
+      )
+    })
+
+    test('always scopes query to authenticated courier ID from token', async () => {
+      mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mockResolvedValue({
+        deliveryId: 'del-abc',
+        droppedOffAt: new Date('2026-07-10T12:00:00Z'),
+        dropoffAddress: null,
+        pickupBusinessName: 'Test Biz',
+        compensation: 500,
+        tips: 0,
+        total: 500,
+      })
+
+      await controller.getMyEarningsDeliveryDetail('del-abc', mockCourier)
+
+      // Confirm first argument to domain service is logged in courier.id ('courier-777')
+      expect(mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mock.calls[0]?.[0]).toBe('courier-777')
+    })
+  })
 })
+
+

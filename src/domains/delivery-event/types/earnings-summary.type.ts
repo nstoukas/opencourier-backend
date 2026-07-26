@@ -14,3 +14,21 @@ export interface EarningsDaySummary {
   tips: number
   total: number // compensation + tips
 }
+
+// One completed delivery with the extra fields the drill-down screens need.
+export interface CourierEarningsDeliveryRow extends CourierEarningsRow {
+  dropoffAddress: string | null
+  pickupBusinessName: string
+}
+
+// One line item in the day drill-down (and the body of the detail endpoint).
+export interface EarningsDelivery {
+  deliveryId: string
+  droppedOffAt: Date
+  dropoffAddress: string | null
+  pickupBusinessName: string
+  compensation: number // totalCompensation ?? 0, integer cents
+  tips: number // integer cents
+  total: number // compensation + tips
+}
+

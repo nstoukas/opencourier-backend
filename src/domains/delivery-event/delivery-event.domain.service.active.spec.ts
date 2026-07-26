@@ -6,9 +6,11 @@ describe('DeliveryEventDomainService', () => {
   let mockRepository: jest.Mocked<DeliveryEventRepository>
 
   beforeEach(() => {
-    // Create minimal mock for DeliveryEventRepository with findSuccessfulDropOffRowsForCourier
+    // Create minimal mock for DeliveryEventRepository with findSuccessfulDropOffRowsForCourier and new drill-down methods
     mockRepository = {
       findSuccessfulDropOffRowsForCourier: jest.fn(),
+      findCompletedDeliveryRowsForCourier: jest.fn(),
+      findCompletedDeliveryRowForCourierDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryEventRepository>
 
     service = new DeliveryEventDomainService(mockRepository)
@@ -67,4 +69,68 @@ describe('DeliveryEventDomainService', () => {
       expect(result).toEqual([])
     })
   })
+
+  describe('getEarningsDeliveriesForCourierDay', () => {
+    test('computes day boundaries in timezone and maps deliveries for requested date', async () => {
+      const courierId = 'courier-123'
+      const date = '2026-07-10'
+      const timezone = 'Europe/Athens'
+
+      mockRepository.findCompletedDeliveryRowsForCourier.mockResolvedValue([
+        {
+          deliveryId: 'del-1',
+          droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+          totalCompensation: 500,
+          tips: 100,
+          pickupBusinessName: 'Ta Koutsavakia',
+          dropoffAddress: 'Iasonos 12, Volos',
+        },
+      ])
+
+      const result = await service.getEarningsDeliveriesForCourierDay(courierId, date, timezone)
+
+      // Check repository queried with completed delivery rows method
+      expect(mockRepository.findCompletedDeliveryRowsForCourier).toHaveBeenCalled()
+      expect(result).toHaveLength(1)
+      expect(result[0]?.deliveryId).toBe('del-1')
+      expect(result[0]?.compensation).toBe(500)
+      expect(result[0]?.tips).toBe(100)
+      expect(result[0]?.total).toBe(600)
+    })
+  })
+
+  describe('getEarningsDeliveryDetailForCourier', () => {
+    test('returns mapped EarningsDelivery when completed delivery row exists', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-1',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 600,
+        tips: 150,
+        pickupBusinessName: 'Ta Koutsavakia',
+        dropoffAddress: 'Iasonos 12, Volos',
+      })
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-1')
+
+      expect(mockRepository.findCompletedDeliveryRowForCourierDelivery).toHaveBeenCalledWith('courier-123', 'del-1')
+      expect(result).toEqual({
+        deliveryId: 'del-1',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        dropoffAddress: 'Iasonos 12, Volos',
+        pickupBusinessName: 'Ta Koutsavakia',
+        compensation: 600,
+        tips: 150,
+        total: 750,
+      })
+    })
+
+    test('returns null when delivery row is not found or not completed', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-missing')
+
+      expect(result).toBeNull()
+    })
+  })
 })
+
