@@ -26,6 +26,15 @@ export class CourierCompensationRepository
     })
   }
 
+  // Used only to undo an award that was written moments earlier for a reassignment that
+  // then did not take effect. Prisma throws P2025 if the row is already gone; the caller
+  // catches that and logs it rather than failing the request.
+  async deleteById(id: string): Promise<void> {
+    await this.prisma.courierCompensation.delete({
+      where: { id },
+    })
+  }
+
   async findRowsForCourierEarnings(
     courierId: string,
     from: Date,

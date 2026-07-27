@@ -28,7 +28,16 @@ import { ISubmitDeliveryEvent } from '../delivery-event/interfaces/ISubmitDelive
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { ConfigDomainService } from '../config/config.domain.service'
-import { resolveReassignmentPayout } from './utils/reassignment-payout.util'
+import {
+  resolveReassignmentPayout,
+  formatReassignmentAwardFailure,
+  ReassignmentAwardLogContext,
+  ReassignmentFailureStage,
+} from './utils/reassignment-payout.util'
+
+// How long a courier stays excluded from re-offers of one delivery. Both the add and the
+// remove below must use the same value, because re-saving the key resets its expiry.
+const REJECTED_LIST_TTL_SECONDS = 60 * 20
 
 @Injectable()
 export class DeliveryDomainService {
@@ -318,13 +327,32 @@ export class DeliveryDomainService {
     return updatedDelivery
   }
 
-  async addCourierToRejectedList(deliveryId: string, courierId: string) {
+  // Returns true only when this call is what put the courier on the list. The caller needs
+  // that: an entry left over from an earlier genuine rejection is not ours to remove.
+  async addCourierToRejectedList(deliveryId: string, courierId: string): Promise<boolean> {
     const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
     const rejectedCouriers = await this.cacheService.getOrDefault<Array<string>>(rejectedKey, [])
 
-    if (!rejectedCouriers.includes(courierId)) rejectedCouriers.push(courierId)
+    const alreadyRejected = rejectedCouriers.includes(courierId)
+    if (!alreadyRejected) rejectedCouriers.push(courierId)
 
-    await this.cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, 60 * 20)
+    await this.cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, REJECTED_LIST_TTL_SECONDS)
+
+    return !alreadyRejected
+  }
+
+  // Mirror of addCourierToRejectedList: drops one courier from this delivery's exclusion list
+  // and leaves everyone else on it. Only used to undo an entry this service added moments
+  // earlier for a reassignment that then did not happen.
+  async removeCourierFromRejectedList(deliveryId: string, courierId: string): Promise<void> {
+    const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
+    const rejectedCouriers = await this.cacheService.getOrDefault<Array<string>>(rejectedKey, [])
+
+    await this.cacheService.save<Array<string>>(
+      rejectedKey,
+      rejectedCouriers.filter((id) => id !== courierId),
+      REJECTED_LIST_TTL_SECONDS
+    )
   }
 
   async reassignDelivery(
@@ -365,7 +393,48 @@ export class DeliveryDomainService {
     )
     const currencyCode = delivery.currencyCode
 
-    await this.addCourierToRejectedList(deliveryId, droppedCourierId)
+    const awardMessage =
+      `Admin reassigned delivery from courier ${droppedCourierId} to courier ${newCourierId}; ` +
+      `payout policy ${policy} awards ${amount} ${currencyCode} (cents) to the dropped courier` +
+      (message ? `: ${message}` : '')
+
+    // Every failure path below logs these same five fields, so a lost award can be
+    // recreated from the log alone.
+    const logContext = { deliveryId, droppedCourierId, amount, currencyCode, policy }
+
+    // The award is written before the event on purpose. If this write fails, nothing has
+    // happened yet — the delivery is untouched and the admin can retry. Writing it after
+    // the event is what made a failed award unrecoverable: once the status is
+    // ASSIGNING_COURIER the state machine has no REASSIGNED transition back out.
+    let compensationId: string
+    try {
+      const compensation = await this.courierCompensationRepository.create({
+        amount,
+        currencyCode,
+        reason: EnumCourierCompensationReason.REASSIGNMENT,
+        policy,
+        message: awardMessage,
+        courierId: droppedCourierId,
+        deliveryId,
+      })
+      compensationId = compensation.id
+    } catch (error) {
+      this.logger.error(
+        formatReassignmentAwardFailure({ ...logContext, compensationId: null, stage: 'AWARD_WRITE_FAILED' }),
+        (error as Error).stack
+      )
+      throw error
+    }
+
+    // True only if this call is what excluded the dropped courier — see addCourierToRejectedList.
+    let droppedCourierWasExcludedByUs = false
+    try {
+      droppedCourierWasExcludedByUs = await this.addCourierToRejectedList(deliveryId, droppedCourierId)
+    } catch (error) {
+      // false: the rejected-list write is the thing that failed, so there is no entry of ours to undo.
+      await this.rollbackReassignmentAward(compensationId, 'REASSIGNMENT_DID_NOT_TAKE_EFFECT', logContext, false)
+      throw error
+    }
 
     const reassignedEvent: DeliveryReassignedEvent = {
       deliveryId,
@@ -373,35 +442,90 @@ export class DeliveryDomainService {
       actor: EnumEventActor.ADMIN,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId: newCourierId,
-      message:
-        `Admin reassigned delivery from courier ${droppedCourierId} to courier ${newCourierId}; ` +
-        `payout policy ${policy} awards ${amount} ${currencyCode} (cents) to the dropped courier` +
-        (message ? `: ${message}` : ''),
+      message: awardMessage,
     }
 
-    await this.deliveryEventService.processDeliveryEvent(reassignedEvent)
+    let reloadedDelivery
+    try {
+      await this.deliveryEventService.processDeliveryEvent(reassignedEvent)
+      reloadedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    } catch (error) {
+      // We cannot tell whether the reassignment landed, so keep the award (binding value 4:
+      // protect courier income) and log loudly enough for a human to settle it.
+      //
+      // Known tradeoff, recorded so it stays a decision and not an accident: this is the ONE
+      // failure path that is not idempotent. CourierCompensation has no unique constraint on
+      // (courierId, deliveryId, reason) and the earnings query sums every row, so an admin who
+      // retries after this error can end up with two REASSIGNMENT rows for the same drop. We
+      // accept the risk of paying a courier twice over the risk of not paying them at all; the
+      // REASSIGNMENT_OUTCOME_UNKNOWN log line tells a human which delivery to check.
+      this.logger.error(
+        formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' }),
+        (error as Error).stack
+      )
+      throw error
+    }
 
-    const reloadedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     if (
       reloadedDelivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER ||
       reloadedDelivery.matchedCourierId !== newCourierId
     ) {
+      // The event was silently dropped (no legal transition) or the pipeline swallowed an
+      // error. The dropped courier still has the delivery, so the award must not stand.
+      await this.rollbackReassignmentAward(
+        compensationId,
+        'REASSIGNMENT_DID_NOT_TAKE_EFFECT',
+        logContext,
+        droppedCourierWasExcludedByUs
+      )
+
       throw new CantUpdateDeliveryStatusError(
-        `Reassignment of delivery ${deliveryId} did not take effect; no compensation was recorded`
+        `Reassignment of delivery ${deliveryId} did not take effect; the compensation award was rolled back`
       )
     }
 
-    await this.courierCompensationRepository.create({
-      amount,
-      currencyCode,
-      reason: EnumCourierCompensationReason.REASSIGNMENT,
-      policy,
-      message: reassignedEvent.message,
-      courierId: droppedCourierId,
-      deliveryId,
-    })
-
     return reloadedDelivery
+  }
+
+  // Unwinds a reassignment attempt that did not happen: removes the award row, and — when we
+  // are the ones who added it — takes the dropped courier back off this delivery's rejected
+  // list, since they never actually lost the delivery.
+  // Deliberately never throws: the caller's own error is the one the admin should see, and a
+  // failed cleanup must not hide it. Each failed cleanup is logged under its own stage so the
+  // leftover is findable.
+  // Omit constructs a type with all properties of ReassignmentAwardLogContext except
+  // compensationId and stage.
+  private async rollbackReassignmentAward(
+    compensationId: string,
+    stage: ReassignmentFailureStage,
+    logContext: Omit<ReassignmentAwardLogContext, 'compensationId' | 'stage'>,
+    undoRejectedListEntry: boolean
+  ): Promise<void> {
+    this.logger.error(formatReassignmentAwardFailure({ ...logContext, compensationId, stage }))
+
+    try {
+      await this.courierCompensationRepository.deleteById(compensationId)
+    } catch (deleteError) {
+      this.logger.error(
+        formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'AWARD_ROLLBACK_FAILED' }),
+        (deleteError as Error).stack
+      )
+    }
+
+    if (!undoRejectedListEntry) return
+
+    try {
+      await this.removeCourierFromRejectedList(logContext.deliveryId, logContext.droppedCourierId)
+    } catch (cacheError) {
+      this.logger.error(
+        formatReassignmentAwardFailure({
+          ...logContext,
+          compensationId,
+          stage: 'REJECTED_LIST_ROLLBACK_FAILED',
+        }),
+        (cacheError as Error).stack
+      )
+    }
   }
 
   async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string) {

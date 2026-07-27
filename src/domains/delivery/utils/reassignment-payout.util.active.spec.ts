@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
-import { resolveReassignmentPayout } from './reassignment-payout.util'
+import {
+  resolveReassignmentPayout,
+  formatReassignmentAwardFailure,
+  ReassignmentFailureStage,
+} from './reassignment-payout.util'
 
 describe('reassignment-payout.util', () => {
   const defaultMenu: Record<string, number> = {
@@ -88,6 +92,144 @@ describe('reassignment-payout.util', () => {
       expect(() => resolveReassignmentPayout(invalidMenu, 'NEGATIVE_PAY', undefined, 500)).toThrow(BadRequestException)
       // Non-finite percentage
       expect(() => resolveReassignmentPayout(invalidMenu, 'NAN_PAY', undefined, 500)).toThrow(BadRequestException)
+    })
+  })
+
+  // Test Plan Cases 1-5: formatReassignmentAwardFailure helper formatting tests
+  describe('formatReassignmentAwardFailure', () => {
+    const stages: ReassignmentFailureStage[] = [
+      'AWARD_WRITE_FAILED',
+      'REASSIGNMENT_DID_NOT_TAKE_EFFECT',
+      'REASSIGNMENT_OUTCOME_UNKNOWN',
+      'AWARD_ROLLBACK_FAILED',
+      'REJECTED_LIST_ROLLBACK_FAILED',
+    ]
+
+    // Test Plan Case 1: Includes deliveryId, droppedCourierId, amount, currencyCode, and policy for all 5 stages
+    test('includes deliveryId, droppedCourierId, amount, currencyCode, and policy for all failure stages', () => {
+      stages.forEach((stage) => {
+        const output = formatReassignmentAwardFailure({
+          deliveryId: 'del-123',
+          droppedCourierId: 'courier-456',
+          amount: 350,
+          currencyCode: 'EUR',
+          policy: 'FULL_COMPENSATION',
+          compensationId: 'comp-789',
+          stage,
+        })
+
+        expect(output).toContain('deliveryId=del-123')
+        expect(output).toContain('droppedCourierId=courier-456')
+        expect(output).toContain('amount=350')
+        expect(output).toContain('currencyCode=EUR')
+        expect(output).toContain('policy=FULL_COMPENSATION')
+      })
+    })
+
+    // Test Plan Case 2: Line starts with REASSIGNMENT_AWARD followed by stage name
+    test('starts line with REASSIGNMENT_AWARD followed by the stage name for easy log searching', () => {
+      stages.forEach((stage) => {
+        const output = formatReassignmentAwardFailure({
+          deliveryId: 'del-123',
+          droppedCourierId: 'courier-456',
+          amount: 350,
+          currencyCode: 'EUR',
+          policy: 'FULL_COMPENSATION',
+          compensationId: 'comp-789',
+          stage,
+        })
+
+        expect(output.startsWith(`REASSIGNMENT_AWARD ${stage}`)).toBe(true)
+      })
+    })
+
+    // Test Plan Case 3: compensationId rendering (null vs string)
+    test('renders compensationId=none when compensationId is null, and verbatim string when provided', () => {
+      const nullOutput = formatReassignmentAwardFailure({
+        deliveryId: 'del-123',
+        droppedCourierId: 'courier-456',
+        amount: 350,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: null,
+        stage: 'AWARD_WRITE_FAILED',
+      })
+      expect(nullOutput).toContain('compensationId=none')
+
+      const idOutput = formatReassignmentAwardFailure({
+        deliveryId: 'del-123',
+        droppedCourierId: 'courier-456',
+        amount: 350,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: 'comp-abc',
+        stage: 'AWARD_WRITE_FAILED',
+      })
+      expect(idOutput).toContain('compensationId=comp-abc')
+    })
+
+    // Test Plan Case 4: Distinct recovery actions for specific stages
+    test('provides distinct recovery action guidance in log message for each stage', () => {
+      const writeFailed = formatReassignmentAwardFailure({
+        deliveryId: 'del-1',
+        droppedCourierId: 'c-1',
+        amount: 100,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: null,
+        stage: 'AWARD_WRITE_FAILED',
+      })
+      expect(writeFailed).toContain('admin can safely retry')
+
+      const rollbackFailed = formatReassignmentAwardFailure({
+        deliveryId: 'del-1',
+        droppedCourierId: 'c-1',
+        amount: 100,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: 'comp-1',
+        stage: 'AWARD_ROLLBACK_FAILED',
+      })
+      expect(rollbackFailed).toContain('delete it manually')
+
+      const outcomeUnknown = formatReassignmentAwardFailure({
+        deliveryId: 'del-1',
+        droppedCourierId: 'c-1',
+        amount: 100,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: 'comp-1',
+        stage: 'REASSIGNMENT_OUTCOME_UNKNOWN',
+      })
+      expect(outcomeUnknown).toContain('award row was KEPT')
+
+      const rejectedListRollbackFailed = formatReassignmentAwardFailure({
+        deliveryId: 'del-1',
+        droppedCourierId: 'c-1',
+        amount: 100,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: 'comp-1',
+        stage: 'REJECTED_LIST_ROLLBACK_FAILED',
+      })
+      expect(rejectedListRollbackFailed).toContain('excluded from re-offers')
+      expect(rejectedListRollbackFailed).toContain('20 minutes')
+    })
+
+    // Test Plan Case 5: amount is logged raw in cents
+    test('logs amount raw in cents without decimal formatting', () => {
+      const output = formatReassignmentAwardFailure({
+        deliveryId: 'del-123',
+        droppedCourierId: 'courier-456',
+        amount: 350,
+        currencyCode: 'EUR',
+        policy: 'FULL_COMPENSATION',
+        compensationId: 'comp-789',
+        stage: 'AWARD_WRITE_FAILED',
+      })
+
+      expect(output).toContain('amount=350')
+      expect(output).not.toContain('amount=3.50')
     })
   })
 })
