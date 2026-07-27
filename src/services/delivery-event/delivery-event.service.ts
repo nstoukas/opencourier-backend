@@ -85,6 +85,34 @@ export class DeliveryEventService {
         return
       }
 
+      if (deliveryEvent.type === EnumDeliveryEventType.REASSIGNED) {
+        const newCourierId = deliveryEvent.courierId
+        if (!newCourierId) throw new NotFoundException('Courier ID is required for reassignment')
+        const droppedCourierId = dbDelivery.courierId // capture BEFORE clearing
+        const newCourier = await this.courierRepository.findByIdOrThrow(newCourierId)
+
+        // Drop the old rider, offer to the new one. The new rider must still accept.
+        await this.deliveryRepository.update(deliveryId, { courierId: null, matchedCourierId: newCourierId })
+
+        // Recompute amounts for the new matched courier (same as the ASSIGNING_COURIER case).
+        const deliveryAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+          deliveryId,
+        })
+        const { totalCost, totalCompensation, fee, feePercentage } = deliveryAmounts
+        await this.updateDeliveryAmounts(deliveryId, totalCost, totalCompensation, fee, feePercentage)
+
+        // Sets status via the state machine result, saves the DeliveryEvent, notifies partner.
+        const updatedDelivery = await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+
+        // The delivery no longer carries the dropped rider's id, so notifyCourier inside
+        // updateDeliveryAndSendNotifications did not reach them — tell them explicitly.
+        if (droppedCourierId) {
+          await this.notifyCourier(droppedCourierId, updatedDelivery, newStatus, currentStatus, deliveryEvent)
+        }
+        await this.websocketDispatcher.sendOfferToCourier(newCourier.userId, new DeliveryCourierDto(updatedDelivery))
+        return
+      }
+
       switch (newStatus) {
         case EnumDeliveryStatus.CREATED: {
           this.logger.log(`Delivery ${deliveryEvent.deliveryId} was created by: ${deliveryEvent.actor}`)

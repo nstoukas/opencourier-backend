@@ -21,6 +21,22 @@ export interface CourierEarningsDeliveryRow extends CourierEarningsRow {
   pickupBusinessName: string
 }
 
+export interface CourierCompensationRow {
+  deliveryId: string
+  amount: number
+  createdAt: Date
+}
+
+export interface CourierCompensationDeliveryRow extends CourierCompensationRow {
+  pickupBusinessName: string | null
+  dropoffLocation: {
+    formattedAddress: string | null
+    street: string | null
+    city: string | null
+    state: string | null
+  } | null
+}
+
 // One line item in the day drill-down (and the body of the detail endpoint).
 export interface EarningsDelivery {
   deliveryId: string
@@ -30,5 +46,6 @@ export interface EarningsDelivery {
   compensation: number // totalCompensation ?? 0, integer cents
   tips: number // integer cents
   total: number // compensation + tips
+  kind?: 'REASSIGNMENT_COMPENSATION'
 }
 

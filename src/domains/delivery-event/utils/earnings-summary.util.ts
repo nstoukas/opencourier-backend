@@ -4,6 +4,8 @@ import {
   EarningsDaySummary,
   CourierEarningsDeliveryRow,
   EarningsDelivery,
+  CourierCompensationRow,
+  CourierCompensationDeliveryRow,
 } from '../types/earnings-summary.type'
 
 export function isValidTimezone(tz: string): boolean {
@@ -60,26 +62,54 @@ export function toEarningsDelivery(row: CourierEarningsDeliveryRow): EarningsDel
   }
 }
 
+// Maps a compensation row (e.g. dropped rider payout) to EarningsDelivery.
+// droppedOffAt here is "when the money was awarded" — field name kept for backwards compatibility.
+export function compensationToEarningsDelivery(row: CourierCompensationDeliveryRow): EarningsDelivery {
+  return {
+    deliveryId: row.deliveryId,
+    droppedOffAt: row.createdAt,
+    dropoffAddress: formatDropoffAddress(row.dropoffLocation),
+    pickupBusinessName: row.pickupBusinessName ?? '',
+    compensation: row.amount,
+    tips: 0,
+    total: row.amount,
+    kind: 'REASSIGNMENT_COMPENSATION',
+  }
+}
+
 // Precondition: timezone already validated by isValidTimezone (same note as summarizeEarningsByDay).
 // Dedupes (step 2), keeps only rows whose droppedOffAt falls on `date` in `timezone`
 // (dayjs(row.droppedOffAt).tz(timezone).format('YYYY-MM-DD') === date), sorts by
-// droppedOffAt ascending, maps with toEarningsDelivery.
+// droppedOffAt ascending, maps with toEarningsDelivery. Merges compensation entries.
 export function listEarningsDeliveriesForDay(
   rows: CourierEarningsDeliveryRow[],
   date: string, // 'YYYY-MM-DD'
-  timezone: string
+  timezone: string,
+  compensationRows: CourierCompensationDeliveryRow[] = []
 ): EarningsDelivery[] {
   const dedupedRows = dedupeEarliestDropOff(rows)
-  const matchingRows = dedupedRows.filter(
+  const matchingDropOffRows = dedupedRows.filter(
     (row) => dayjs(row.droppedOffAt).tz(timezone).format('YYYY-MM-DD') === date
   )
-  matchingRows.sort((a, b) => a.droppedOffAt.getTime() - b.droppedOffAt.getTime())
-  return matchingRows.map(toEarningsDelivery)
+  const dropOffEntries = matchingDropOffRows.map(toEarningsDelivery)
+
+  const matchingCompRows = compensationRows.filter(
+    (row) => dayjs(row.createdAt).tz(timezone).format('YYYY-MM-DD') === date
+  )
+  const compEntries = matchingCompRows.map(compensationToEarningsDelivery)
+
+  const combined = [...dropOffEntries, ...compEntries]
+  combined.sort((a, b) => a.droppedOffAt.getTime() - b.droppedOffAt.getTime())
+  return combined
 }
 
 // Precondition: `timezone` must be a value `isValidTimezone` accepts — dayjs throws a
 // RangeError on anything else.
-export function summarizeEarningsByDay(rows: CourierEarningsRow[], timezone: string): EarningsDaySummary[] {
+export function summarizeEarningsByDay(
+  rows: CourierEarningsRow[],
+  timezone: string,
+  compensationRows: CourierCompensationRow[] = []
+): EarningsDaySummary[] {
   const dedupedRows = dedupeEarliestDropOff(rows)
   const byDayMap = new Map<string, EarningsDaySummary>()
 
@@ -102,6 +132,25 @@ export function summarizeEarningsByDay(rows: CourierEarningsRow[], timezone: str
       daySummary.compensation += comp
       daySummary.tips += tips
       daySummary.total += comp + tips
+    }
+  }
+
+  for (const compRow of compensationRows) {
+    const dateStr = dayjs(compRow.createdAt).tz(timezone).format('YYYY-MM-DD')
+    const amount = compRow.amount
+
+    const daySummary = byDayMap.get(dateStr)
+    if (!daySummary) {
+      byDayMap.set(dateStr, {
+        date: dateStr,
+        deliveryCount: 0,
+        compensation: amount,
+        tips: 0,
+        total: amount,
+      })
+    } else {
+      daySummary.compensation += amount
+      daySummary.total += amount
     }
   }
 

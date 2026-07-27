@@ -1,4 +1,9 @@
-import { CourierEarningsRow, CourierEarningsDeliveryRow } from '../types/earnings-summary.type'
+import {
+  CourierEarningsRow,
+  CourierEarningsDeliveryRow,
+  CourierCompensationRow,
+  CourierCompensationDeliveryRow,
+} from '../types/earnings-summary.type'
 import {
   isValidTimezone,
   summarizeEarningsByDay,
@@ -148,6 +153,85 @@ describe('earnings-summary.util', () => {
 
       const dates = result.map((day) => day.date)
       expect(dates).toEqual(['2026-07-10', '2026-07-11', '2026-07-12'])
+    })
+
+    // Test Plan Case 8: Drop-off rows AND compensation rows
+    test('adds compensation rows to compensation and total without mutating deliveryCount or tips', () => {
+      const dropOffRows: CourierEarningsRow[] = [
+        {
+          deliveryId: 'del-1',
+          droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+          totalCompensation: 500,
+          tips: 100,
+        },
+      ]
+      const compRows: CourierCompensationRow[] = [
+        {
+          deliveryId: 'del-reassigned-1',
+          createdAt: new Date('2026-07-10T15:00:00Z'),
+          amount: 350,
+        },
+      ]
+
+      const result = summarizeEarningsByDay(dropOffRows, 'UTC', compRows)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        date: '2026-07-10',
+        deliveryCount: 1, // untouched: only 1 completed delivery
+        compensation: 850, // 500 + 350
+        tips: 100, // untouched
+        total: 950, // 850 + 100
+      })
+    })
+
+    // Test Plan Case 9: Compensation row on a day with no drop-offs
+    test('creates a day summary with deliveryCount: 0 when compensation row exists on a day with no drop-offs', () => {
+      const compRows: CourierCompensationRow[] = [
+        {
+          deliveryId: 'del-reassigned-2',
+          createdAt: new Date('2026-07-15T12:00:00Z'),
+          amount: 400,
+        },
+      ]
+
+      const result = summarizeEarningsByDay([], 'UTC', compRows)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        date: '2026-07-15',
+        deliveryCount: 0,
+        compensation: 400,
+        tips: 0,
+        total: 400,
+      })
+    })
+
+    // Test Plan Case 10: Two compensation rows for the same deliveryId
+    test('counts multiple compensation rows for the same deliveryId without deduplicating them', () => {
+      const compRows: CourierCompensationRow[] = [
+        {
+          deliveryId: 'del-reassigned-multi',
+          createdAt: new Date('2026-07-10T10:00:00Z'),
+          amount: 200,
+        },
+        {
+          deliveryId: 'del-reassigned-multi',
+          createdAt: new Date('2026-07-10T14:00:00Z'),
+          amount: 150,
+        },
+      ]
+
+      const result = summarizeEarningsByDay([], 'UTC', compRows)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        date: '2026-07-10',
+        deliveryCount: 0,
+        compensation: 350, // 200 + 150
+        tips: 0,
+        total: 350,
+      })
     })
   })
 
@@ -369,12 +453,60 @@ describe('earnings-summary.util', () => {
     test('returns empty array when given no rows', () => {
       expect(listEarningsDeliveriesForDay([], '2026-07-10', 'UTC')).toEqual([])
     })
+
+    // Test Plan Case 11: Merges compensation entries into day delivery list
+    test('merges compensation entries into day delivery list sorted ascending by timestamp', () => {
+      const dropOffRows: CourierEarningsDeliveryRow[] = [
+        {
+          deliveryId: 'del-completed-1',
+          droppedOffAt: new Date('2026-07-10T16:00:00Z'),
+          totalCompensation: 500,
+          tips: 100,
+          pickupBusinessName: 'Pizza Place',
+          dropoffAddress: 'Address 1',
+        },
+      ]
+      const compRows: CourierCompensationDeliveryRow[] = [
+        {
+          deliveryId: 'del-reassigned-1',
+          createdAt: new Date('2026-07-10T10:00:00Z'), // Earlier than dropoff
+          amount: 300,
+          pickupBusinessName: 'Burger Joint',
+          dropoffLocation: {
+            formattedAddress: 'Address 2',
+            street: 'St 2',
+            city: 'Volos',
+            state: 'Thessaly',
+          },
+        },
+      ]
+
+      const result = listEarningsDeliveriesForDay(dropOffRows, '2026-07-10', 'UTC', compRows)
+
+      expect(result).toHaveLength(2)
+
+      // First entry is the earlier compensation row
+      expect(result[0]).toEqual({
+        deliveryId: 'del-reassigned-1',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        dropoffAddress: 'Address 2',
+        pickupBusinessName: 'Burger Joint',
+        compensation: 300,
+        tips: 0,
+        total: 300,
+        kind: 'REASSIGNMENT_COMPENSATION',
+      })
+
+      // Second entry is the drop-off row
+      expect(result[1]?.deliveryId).toBe('del-completed-1')
+      expect(result[1]?.kind).toBeUndefined()
+    })
   })
 
   describe('Consistency invariant (transparency guarantee)', () => {
-    // Test Plan Section 4: Consistency invariant
-    test('guarantees that day list details sum up exactly to summary totals for every day', () => {
-      const rows: CourierEarningsDeliveryRow[] = [
+    // Test Plan Case 12: Consistency invariant with mixed drop-off + compensation fixtures
+    test('guarantees that day list details sum up exactly to summary totals for every day including mixed compensation rows', () => {
+      const dropOffRows: CourierEarningsDeliveryRow[] = [
         {
           deliveryId: 'del-1',
           droppedOffAt: new Date('2026-07-10T10:00:00Z'),
@@ -399,25 +531,34 @@ describe('earnings-summary.util', () => {
           pickupBusinessName: 'Store C',
           dropoffAddress: 'Street 3',
         },
+      ]
+
+      const compRows: CourierCompensationDeliveryRow[] = [
         {
-          // Duplicate event for del-1 to verify deduplication consistency across both
-          deliveryId: 'del-1',
-          droppedOffAt: new Date('2026-07-10T12:00:00Z'),
-          totalCompensation: 500,
-          tips: 100,
-          pickupBusinessName: 'Store A',
-          dropoffAddress: 'Street 1',
+          deliveryId: 'del-comp-1',
+          createdAt: new Date('2026-07-10T12:00:00Z'),
+          amount: 350,
+          pickupBusinessName: 'Store D',
+          dropoffLocation: { formattedAddress: 'Street 4', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-comp-2',
+          createdAt: new Date('2026-07-11T14:00:00Z'),
+          amount: 250,
+          pickupBusinessName: 'Store E',
+          dropoffLocation: null,
         },
       ]
 
       const timezone = 'Europe/Athens'
-      const summaryDays = summarizeEarningsByDay(rows, timezone)
+      const summaryDays = summarizeEarningsByDay(dropOffRows, timezone, compRows)
 
       for (const daySummary of summaryDays) {
-        const dayDeliveries = listEarningsDeliveriesForDay(rows, daySummary.date, timezone)
+        const dayDeliveries = listEarningsDeliveriesForDay(dropOffRows, daySummary.date, timezone, compRows)
 
-        // Count match
-        expect(dayDeliveries.length).toBe(daySummary.deliveryCount)
+        // Count of entries WITHOUT kind equals deliveryCount
+        const completedCount = dayDeliveries.filter((d) => !d.kind).length
+        expect(completedCount).toBe(daySummary.deliveryCount)
 
         // Sum matches
         const summedCompensation = dayDeliveries.reduce((sum, d) => sum + d.compensation, 0)
@@ -446,4 +587,3 @@ describe('earnings-summary.util', () => {
     })
   })
 })
-

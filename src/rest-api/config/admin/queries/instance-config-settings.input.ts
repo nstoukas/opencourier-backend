@@ -28,4 +28,6 @@ export class InstanceConfigSettingsInput {
   currency?: EnumCurrency
   details?: InstanceDetails
   registeredRegistries?: string[]
+  reassignmentPayoutPolicies?: Record<string, number>
+  reassignmentPayoutDefaultPolicy?: string
 }

@@ -8,6 +8,8 @@ import {
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
   EnumQuoteToDeliveryConversionServiceType,
+  FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
+  FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types/index'
 
 export async function seedInitialInstanceConfig(prisma: PrismaClient) {
@@ -46,7 +48,9 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     quoteToDeliveryConversionType: EnumQuoteToDeliveryConversionServiceType.SIMPLE,
     details,
     updatedAt: new Date().toISOString(),
-    registeredRegistries: []
+    registeredRegistries: [],
+    reassignmentPayoutPolicies: FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
+    reassignmentPayoutDefaultPolicy: FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
   }
 
   for (const [key, value] of Object.entries(initialConfigsData)) {

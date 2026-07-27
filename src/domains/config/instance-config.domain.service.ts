@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, BadRequestException } from '@nestjs/common'
 import { ConfigRepository } from '../../persistence/repositories/config.repository'
 import { isRecordNotFoundError } from 'src/prisma.util'
 import {
@@ -29,6 +29,8 @@ import {
   InstanceConfigSettings,
   InstanceDetails,
   convertToKM,
+  FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
+  FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types/index'
 import { ConfigService } from '@nestjs/config'
 import { ConfigKey } from 'src/shared-types/index'
@@ -56,6 +58,8 @@ export class InstanceConfigDomainService {
     const details = await this.getDetails()
     const updatedAt = await this.getUpdatedAt()
     const registeredRegistries = await this.getRegisteredRegistries()
+    const reassignmentPayoutPolicies = await this.getReassignmentPayoutPolicies()
+    const reassignmentPayoutDefaultPolicy = await this.getReassignmentPayoutDefaultPolicy()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -82,6 +86,8 @@ export class InstanceConfigDomainService {
       details,
       updatedAt,
       registeredRegistries,
+      reassignmentPayoutPolicies,
+      reassignmentPayoutDefaultPolicy,
     }
   }
 
@@ -156,6 +162,49 @@ export class InstanceConfigDomainService {
     }
     if (data.registeredRegistries) {
       await this.configRepository.saveByKey(ConfigKey.REGISTERED_REGISTRIES, JSON.stringify(data.registeredRegistries))
+    }
+
+    // Explicit undefined checks permit saving empty objects or falsy policy settings as voted by members
+    if (data.reassignmentPayoutPolicies !== undefined) {
+      const isObject =
+        typeof data.reassignmentPayoutPolicies === 'object' &&
+        data.reassignmentPayoutPolicies !== null &&
+        !Array.isArray(data.reassignmentPayoutPolicies)
+      const validValues =
+        isObject &&
+        Object.values(data.reassignmentPayoutPolicies).every(
+          (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100
+        )
+      if (!isObject || !validValues) {
+        throw new BadRequestException(
+          'Invalid reassignmentPayoutPolicies: each policy value must be a finite number between 0 and 100'
+        )
+      }
+    }
+
+    if (data.reassignmentPayoutDefaultPolicy !== undefined) {
+      const activePolicies =
+        data.reassignmentPayoutPolicies !== undefined
+          ? data.reassignmentPayoutPolicies
+          : await this.getReassignmentPayoutPolicies()
+      if (!Object.prototype.hasOwnProperty.call(activePolicies, data.reassignmentPayoutDefaultPolicy)) {
+        throw new BadRequestException(
+          `Invalid default policy '${data.reassignmentPayoutDefaultPolicy}': must be a key in reassignmentPayoutPolicies`
+        )
+      }
+    }
+
+    if (data.reassignmentPayoutPolicies !== undefined) {
+      await this.configRepository.saveByKey(
+        ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+        JSON.stringify(data.reassignmentPayoutPolicies)
+      )
+    }
+    if (data.reassignmentPayoutDefaultPolicy !== undefined) {
+      await this.configRepository.saveByKey(
+        ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+        data.reassignmentPayoutDefaultPolicy
+      )
     }
 
     // Update the updated_at timestamp whenever config is changed
@@ -366,6 +415,42 @@ export class InstanceConfigDomainService {
 
   async setRegisteredRegistries(registries: string[]): Promise<void> {
     await this.configRepository.saveByKey(ConfigKey.REGISTERED_REGISTRIES, JSON.stringify(registries))
+  }
+
+  async getReassignmentPayoutPolicies(): Promise<Record<string, number>> {
+    const config = await this.getConfigValueOrDefault(
+      ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+      () => FALLBACK_REASSIGNMENT_PAYOUT_POLICIES
+    )
+    const val = config.value
+    let parsed: unknown = val
+    if (typeof val === 'string') {
+      try {
+        parsed = JSON.parse(val)
+      } catch (e) {
+        parsed = null
+      }
+    }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Object.values(parsed as Record<string, unknown>).every(
+        (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100
+      )
+    ) {
+      return parsed as Record<string, number>
+    }
+    this.logger.warn(`Invalid reassignmentPayoutPolicies in config, falling back to default.`)
+    return FALLBACK_REASSIGNMENT_PAYOUT_POLICIES
+  }
+
+  async getReassignmentPayoutDefaultPolicy(): Promise<string> {
+    const config = await this.getConfigValueOrDefault(
+      ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+      () => FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
+    )
+    return typeof config.value === 'string' ? config.value : FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
   }
 
   async getConfigValueOrDefault(

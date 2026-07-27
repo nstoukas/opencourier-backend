@@ -26,8 +26,9 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
   }
 
   // Attribution is by the delivery's *current* courierId — DeliveryEvent has no courier
-  // column. That is safe because DROPPED_OFF is terminal in the state machine, so no event
-  // can reassign a completed delivery; a direct write to Delivery.courierId would, though.
+  // column. That remains safe because DROPPED_OFF is terminal in the state machine, so no event
+  // can reassign a completed delivery (REASSIGNED is legal only from ongoing statuses); a rider
+  // dropped mid-flight is paid via CourierCompensation, summed by the earnings pipeline alongside these rows.
   async findSuccessfulDropOffRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsRow[]> {
     const events = await this.prisma.deliveryEvent.findMany({
       where: {

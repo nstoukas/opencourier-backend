@@ -67,6 +67,12 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: String, isArray: true, nullable: true })
   registeredRegistries: string[]
 
+  @ApiProperty({ type: Object, nullable: true })
+  reassignmentPayoutPolicies: Record<string, number>
+
+  @ApiProperty({ type: String, nullable: true })
+  reassignmentPayoutDefaultPolicy: string
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -89,5 +95,7 @@ export class InstanceConfigSettingsDto {
     this.details = data.details && typeof data.details === 'object' ? (data.details as InstanceDetails) : null
     this.updatedAt = data.updatedAt ? (data.updatedAt as string) : null
     this.registeredRegistries = Array.isArray(data.registeredRegistries) ? (data.registeredRegistries as string[]) : []
+    this.reassignmentPayoutPolicies = data.reassignmentPayoutPolicies
+    this.reassignmentPayoutDefaultPolicy = data.reassignmentPayoutDefaultPolicy
   }
 }

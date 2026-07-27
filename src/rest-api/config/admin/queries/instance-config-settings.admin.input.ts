@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsEnum, IsNumber, IsOptional, IsObject } from 'class-validator'
+import { IsArray, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -101,4 +101,14 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsOptional()
   @IsArray()
   registeredRegistries?: string[]
+
+  @ApiProperty({ type: Object, required: false })
+  @IsOptional()
+  @IsObject()
+  reassignmentPayoutPolicies?: Record<string, number>
+
+  @ApiProperty({ type: String, required: false })
+  @IsOptional()
+  @IsString()
+  reassignmentPayoutDefaultPolicy?: string
 }

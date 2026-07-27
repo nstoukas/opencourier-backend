@@ -9,6 +9,7 @@ import { DeliveryAdminPaginatedDto } from './dtos/delivery.admin.paginated.dto'
 import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
 import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
 import { DeliverySubmitEventAdminInput } from './queries/delivery-submit-event.admin.input'
+import { DeliveryReassignAdminInput } from './queries/delivery-reassign.admin.input'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('deliveries')
@@ -67,6 +68,27 @@ export class DeliveryAdminRestApiController {
     @common.Body() data: DeliverySubmitEventAdminInput
   ): Promise<DeliveryAdminDto> {
     const result = await this.deliveryDomainService.submitDeliveryEvent(data)
+    return new DeliveryAdminDto(result)
+  }
+
+  @common.Post(':id/reassign')
+  @swagger.ApiBody({ type: DeliveryReassignAdminInput })
+  @swagger.ApiOkResponse({ type: DeliveryAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiForbiddenResponse({
+    type: errors.ForbiddenException,
+  })
+  @Roles(EnumUserRole.ADMIN)
+  async reassignDelivery(
+    @common.Param('id') id: string,
+    @common.Body() data: DeliveryReassignAdminInput
+  ): Promise<DeliveryAdminDto> {
+    const result = await this.deliveryDomainService.reassignDelivery(
+      id,
+      data.courierId,
+      data.payoutPolicy,
+      data.message
+    )
     return new DeliveryAdminDto(result)
   }
 }

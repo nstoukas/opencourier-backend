@@ -30,6 +30,11 @@ export interface DeliveryCanceledEvent extends BaseDeliveryEvent {
 export interface DeliveryFailedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FAILED
 }
+export interface DeliveryReassignedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REASSIGNED
+  courierId: string
+}
+
 
 export interface DeliveryFulfilledEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FULFILLED
@@ -77,6 +82,7 @@ export type DeliveryEvent =
   | DeliveryDroppedOffEvent
   | DeliveryCanceledEvent
   | DeliveryFailedEvent
+  | DeliveryReassignedEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

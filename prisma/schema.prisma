@@ -71,6 +71,7 @@ model Courier {
   Transfer              Transfer[]
   locationNotes         LocationNote[]
   locationNoteReactions LocationNoteReaction[]
+  courierCompensations  CourierCompensation[]
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
@@ -257,9 +258,10 @@ model Delivery {
   partner         Partner?      @relation(fields: [partnerId], references: [id])
   delivery        DeliveryQuote @relation(fields: [deliveryQuoteId], references: [id], onDelete: Cascade)
 
-  payment       Payment[]
-  deliveryEvent DeliveryEvent[]
-  locationNote  LocationNote[]
+  payment              Payment[]
+  deliveryEvent        DeliveryEvent[]
+  locationNote         LocationNote[]
+  courierCompensations CourierCompensation[]
 
   @@unique([idempotencyKey, partnerId])
 }
@@ -471,6 +473,31 @@ enum EnumDeliveryEventType {
   PICKED_UP
   ON_THE_WAY
   FAILED
+  REASSIGNED
+}
+
+enum EnumCourierCompensationReason {
+  REASSIGNMENT
+}
+
+// A payment owed to a courier that is NOT attached to a DROPPED_OFF event —
+// e.g. the payout awarded to a rider dropped by an admin reassignment.
+model CourierCompensation {
+  id           String                        @id @default(cuid())
+  amount       Int // cents
+  currencyCode String                        @postgres.VarChar(255)
+  reason       EnumCourierCompensationReason
+  policy       String // the policy key from the votable Config menu, e.g. FULL_COMPENSATION
+  message      String?
+  courierId    String
+  courier      Courier                       @relation(fields: [courierId], references: [id])
+  deliveryId   String
+  delivery     Delivery                      @relation(fields: [deliveryId], references: [id])
+  createdAt    DateTime                      @default(now())
+
+  // Earnings queries filter by courier + date range; DeliveryEvent's missing
+  // createdAt index is a known mistake — do not repeat it here.
+  @@index([courierId, createdAt])
 }
 
 enum EnumCountryCode {

@@ -27,6 +27,8 @@ export type InstanceConfigSettings = {
   details: InstanceDetails
   updatedAt: string | null
   registeredRegistries: string[]
+  reassignmentPayoutPolicies: Record<string, number>
+  reassignmentPayoutDefaultPolicy: string
 }
 
 export type InstanceDetails = {
@@ -85,7 +87,21 @@ export enum ConfigKey {
   DETAILS = 'details',
   UPDATED_AT = 'updatedAt',
   REGISTERED_REGISTRIES = 'registeredRegistries',
+  REASSIGNMENT_PAYOUT_POLICIES = 'reassignmentPayoutPolicies',
+  REASSIGNMENT_PAYOUT_DEFAULT_POLICY = 'reassignmentPayoutDefaultPolicy',
 }
+
+// Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).
+// The operative, member-votable values live in the Config table.
+// Policy values are percentage of totalCompensation (piece-rate):
+// FULL_COMPENSATION = 100% (worker-centered default), HALF_COMPENSATION = 50%, NO_COMPENSATION = 0%.
+// Tips are excluded as they stay with whoever completes the delivery.
+export const FALLBACK_REASSIGNMENT_PAYOUT_POLICIES: Record<string, number> = {
+  FULL_COMPENSATION: 100,
+  HALF_COMPENSATION: 50,
+  NO_COMPENSATION: 0,
+}
+export const FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY = 'FULL_COMPENSATION'
 
 export type ConfigMap = {
   [key in ConfigKey]?: string | number | boolean | null | InstanceDetails | string[]

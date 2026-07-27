@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
-import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
+import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason } from '@prisma/types'
 import { IDeliveryUpdate } from './interfaces/IDeliveryUpdate'
 import { IDeliveryCreate } from './interfaces/IDeliveryCreate'
 import { EventEmitter2 } from '@nestjs/event-emitter'
@@ -21,8 +21,14 @@ import {
   DeliveryFailedEvent,
   DeliveryPickedUpEvent,
   DeliveryRejectedEvent,
+  DeliveryReassignedEvent,
+  DELIVERY_ONGOING_STATUSES,
 } from 'src/shared-types/index'
 import { ISubmitDeliveryEvent } from '../delivery-event/interfaces/ISubmitDeliveryEvent'
+import { CourierRepository } from 'src/persistence/repositories/courier.repository'
+import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
+import { ConfigDomainService } from '../config/config.domain.service'
+import { resolveReassignmentPayout } from './utils/reassignment-payout.util'
 
 @Injectable()
 export class DeliveryDomainService {
@@ -31,7 +37,10 @@ export class DeliveryDomainService {
     private deliveryRepository: DeliveryRepository,
     private eventEmitter: EventEmitter2,
     private cacheService: CacheService,
-    private deliveryEventService: DeliveryEventService
+    private deliveryEventService: DeliveryEventService,
+    private courierRepository: CourierRepository,
+    private courierCompensationRepository: CourierCompensationRepository,
+    private configDomainService: ConfigDomainService
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -318,10 +327,89 @@ export class DeliveryDomainService {
     await this.cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, 60 * 20)
   }
 
+  async reassignDelivery(
+    deliveryId: string,
+    newCourierId: string,
+    payoutPolicy?: string,
+    message?: string
+  ) {
+    const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+
+    if (!DELIVERY_ONGOING_STATUSES.includes(delivery.status)) {
+      throw new CantUpdateDeliveryStatusError(
+        `Delivery ${deliveryId} is in status ${delivery.status} and cannot be reassigned`
+      )
+    }
+
+    const droppedCourierId = delivery.courierId
+    if (!droppedCourierId) {
+      throw new CantUpdateDeliveryStatusError(
+        `Delivery ${deliveryId} has no assigned courier to reassign from`
+      )
+    }
+
+    if (newCourierId === droppedCourierId) {
+      throw new BadRequestException('Delivery is already assigned to this courier')
+    }
+
+    await this.courierRepository.findByIdOrThrow(newCourierId)
+
+    const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
+    const defaultPolicy = await this.configDomainService.instanceConfig.getReassignmentPayoutDefaultPolicy()
+
+    const { policy, amount } = resolveReassignmentPayout(
+      menu,
+      defaultPolicy,
+      payoutPolicy,
+      delivery.totalCompensation
+    )
+    const currencyCode = delivery.currencyCode
+
+    await this.addCourierToRejectedList(deliveryId, droppedCourierId)
+
+    const reassignedEvent: DeliveryReassignedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.REASSIGNED,
+      actor: EnumEventActor.ADMIN,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId: newCourierId,
+      message:
+        `Admin reassigned delivery from courier ${droppedCourierId} to courier ${newCourierId}; ` +
+        `payout policy ${policy} awards ${amount} ${currencyCode} (cents) to the dropped courier` +
+        (message ? `: ${message}` : ''),
+    }
+
+    await this.deliveryEventService.processDeliveryEvent(reassignedEvent)
+
+    const reloadedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    if (
+      reloadedDelivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER ||
+      reloadedDelivery.matchedCourierId !== newCourierId
+    ) {
+      throw new CantUpdateDeliveryStatusError(
+        `Reassignment of delivery ${deliveryId} did not take effect; no compensation was recorded`
+      )
+    }
+
+    await this.courierCompensationRepository.create({
+      amount,
+      currencyCode,
+      reason: EnumCourierCompensationReason.REASSIGNMENT,
+      policy,
+      message: reassignedEvent.message,
+      courierId: droppedCourierId,
+      deliveryId,
+    })
+
+    return reloadedDelivery
+  }
+
   async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string) {
     const actor = EnumEventActor.ADMIN
 
     switch (event.eventType) {
+      case EnumDeliveryEventType.REASSIGNED:
+        throw new BadRequestException('Use POST /api/admin/v1/deliveries/:id/reassign to reassign a delivery')
       case EnumDeliveryEventType.CONFIRMED:
         const confirmedEvent: DeliveryConfirmedEvent = {
           deliveryId: event.deliveryId,

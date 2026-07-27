@@ -27,6 +27,7 @@ export class ConfigAdminRestApiController {
     type: InstanceConfigSettingsAdminInput,
   })
   @swagger.ApiOkResponse({ type: InstanceConfigSettingsDto })
+  @Roles(EnumUserRole.ADMIN)
   async setInstanceConfig(@common.Body() data: InstanceConfigSettingsAdminInput): Promise<InstanceConfigSettingsDto> {
     const result = await this.configDomainService.instanceConfig.setInstanceConfigSettings(data)
     return new InstanceConfigSettingsDto(result)

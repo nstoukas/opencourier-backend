@@ -28,6 +28,9 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ type: String, description: 'Instance currency code, e.g. EUR' })
   currency: string
 
+  @ApiProperty({ required: false, type: String, description: 'Optional line item kind, e.g. REASSIGNMENT_COMPENSATION' })
+  kind?: string
+
   constructor(delivery: EarningsDelivery, meta: { currency: string }) {
     this.deliveryId = delivery.deliveryId
     this.droppedOffAt = delivery.droppedOffAt
@@ -37,5 +40,6 @@ export class EarningsDeliveryDetailCourierDto {
     this.tips = delivery.tips
     this.total = delivery.total
     this.currency = meta.currency
+    this.kind = delivery.kind
   }
 }
