@@ -12,7 +12,6 @@ import { UserInfoPartnerDto } from './dtos/user-info.partner.dto'
 import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
 import { Roles } from 'src/decorators/roles.decorator'
 import { UsernameLoginPartnerInput } from './queries/username-login.partner.input'
-import { RegisterPartnerInput } from './queries/register.partner.input'
 import { Public } from 'src/decorators/public.decorator'
 
 @swagger.ApiBearerAuth()
@@ -35,15 +34,6 @@ export class AuthPartnerRestApiController {
       throw new errors.ForbiddenException('You are not allowed to login as partner')
     }
 
-    return new UserInfoPartnerDto(result)
-  }
-
-  @Post('register')
-  @Public()
-  @swagger.ApiOkResponse({ type: UserInfoPartnerDto })
-  @swagger.ApiOperation({ summary: 'Create a partner account and return partner credentials' })
-  async register(@Body() body: RegisterPartnerInput): Promise<UserInfoPartnerDto> {
-    const result = await this.authDomainService.registerPartner(body)
     return new UserInfoPartnerDto(result)
   }
 

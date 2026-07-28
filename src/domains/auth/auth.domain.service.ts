@@ -119,42 +119,6 @@ export class AuthDomainService {
     })
   }
 
-  async registerPartner(input: { email: string; password: string; partnerName?: string }) {
-    const email = input.email.trim().toLowerCase()
-
-    const userExists = await this.userDomainService.findUserWithEmail(email)
-
-    if (userExists) {
-      throw new errors.UserExistsException('A partner with this email already exists')
-    }
-
-    const hashedPassword = await this.passwordService.hash(input.password)
-    const apiKey = this.generateApiKey()
-
-    const user = await this.userDomainService.create({
-      email,
-      password: hashedPassword,
-      role: [EnumUserRole.PARTNER],
-      apiKey,
-    })
-
-    await this.partnerDomainService.create({
-      name: input.partnerName?.trim() || email,
-      userId: user.id,
-    })
-
-    const session = await this.tokenService.createEmailAuthSession({
-      sub: user.id,
-      email: user.email || '',
-      role: user.role,
-    })
-
-    return assign({
-      session,
-      user,
-    })
-  }
-
   async refreshTokens(userId: string, refreshToken: string) {
     const payload = this.tokenService.decodeRefreshToken(refreshToken)
 
