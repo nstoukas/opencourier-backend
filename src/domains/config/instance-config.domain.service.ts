@@ -142,11 +142,24 @@ export class InstanceConfigDomainService {
 
     // Case B: A new menu was provided without specifying a new default policy key.
     if (data.reassignmentPayoutPolicies !== undefined && data.reassignmentPayoutDefaultPolicy === undefined) {
-      const storedDefault = await this.getReassignmentPayoutDefaultPolicy()
-      if (!Object.prototype.hasOwnProperty.call(data.reassignmentPayoutPolicies, storedDefault)) {
+      const storedDefault = await this.getStoredReassignmentPayoutDefaultPolicy()
+      // What the system will actually use — the stored row if there is one, otherwise the
+      // in-code fallback. This is the same value the old code checked, so accept/reject is unchanged.
+      const effectiveDefault = storedDefault ?? FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
+
+      if (!Object.prototype.hasOwnProperty.call(data.reassignmentPayoutPolicies, effectiveDefault)) {
         const allowedKeys = Object.keys(data.reassignmentPayoutPolicies).join(', ')
+
+        // Two different problems, two different fixes: change a row that exists, versus
+        // store a default for the first time.
+        const explanation =
+          storedDefault !== null
+            ? `the stored default policy '${storedDefault}' is not a key in the new menu`
+            : `this instance has no stored default policy, so the built-in fallback '${FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY}' applies, and it is not a key in the new menu`
+
         throw new BadRequestException(
-          `Cannot save reassignmentPayoutPolicies: the stored default policy '${storedDefault}' is not a key in the new menu. Allowed policies: ${allowedKeys}. Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies to change both.`
+          `Cannot save reassignmentPayoutPolicies: ${explanation}. Allowed policies: ${allowedKeys}. ` +
+            `Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies to set both in one request.`
         )
       }
     }
@@ -462,12 +475,19 @@ export class InstanceConfigDomainService {
     return FALLBACK_REASSIGNMENT_PAYOUT_POLICIES
   }
 
+  // Returns the default policy as actually stored in the Config table, or null when no
+  // usable row exists. `private` = only this class can call it; the public getter below
+  // keeps its old behaviour for every other caller.
+  private async getStoredReassignmentPayoutDefaultPolicy(): Promise<string | null> {
+    const config = await this.getConfigValueOrDefault(ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY, null)
+    return typeof config.value === 'string' ? config.value : null
+  }
+
   async getReassignmentPayoutDefaultPolicy(): Promise<string> {
-    const config = await this.getConfigValueOrDefault(
-      ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
-      () => FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
-    )
-    return typeof config.value === 'string' ? config.value : FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
+    const stored = await this.getStoredReassignmentPayoutDefaultPolicy()
+    // `??` returns the right-hand side only for null/undefined — an empty stored string is
+    // still returned as-is, exactly as before.
+    return stored ?? FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
   }
 
   async getConfigValueOrDefault(

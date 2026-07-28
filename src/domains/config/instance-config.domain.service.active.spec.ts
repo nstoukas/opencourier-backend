@@ -2,7 +2,12 @@ import { BadRequestException } from '@nestjs/common'
 import { InstanceConfigDomainService } from './instance-config.domain.service'
 import { ConfigRepository } from '../../persistence/repositories/config.repository'
 import { ConfigService } from '@nestjs/config'
-import { ConfigKey, EnumCurrency, FALLBACK_REASSIGNMENT_PAYOUT_POLICIES } from 'src/shared-types'
+import {
+  ConfigKey,
+  EnumCurrency,
+  FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
+  FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+} from 'src/shared-types'
 import { ConfigEntity } from './entities/config.entity'
 
 describe('InstanceConfigDomainService', () => {
@@ -56,6 +61,18 @@ describe('InstanceConfigDomainService', () => {
     const notFoundError = new Error('Record not found in config table')
     notFoundError.name = 'NotFoundError'
 
+    // Helper for default-only update tests where only a stored menu exists
+    const storedMenuOnly = async (key: string) => {
+      if (key === ConfigKey.REASSIGNMENT_PAYOUT_POLICIES) {
+        return new ConfigEntity({
+          key: ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+          value: JSON.stringify({ FULL_COMPENSATION: 100, HALF_COMPENSATION: 50 }),
+          type: 'object',
+        })
+      }
+      throw notFoundError
+    }
+
     it('throws BadRequestException when saving policy values out of range', async () => {
       await expect(
         service.setInstanceConfigSettings({
@@ -93,38 +110,66 @@ describe('InstanceConfigDomainService', () => {
         throw notFoundError
       })
 
-      // Attempt to save a menu that drops 'HALF_COMPENSATION' without sending a new default
-      await expect(
-        service.setInstanceConfigSettings({
-          reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
-        })
-      ).rejects.toThrow(BadRequestException)
+      // Run the rejected write once and keep the error, inspecting it directly
+      const error = await service
+        .setInstanceConfigSettings({ reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 } })
+        .catch((e) => e)
 
-      await expect(
-        service.setInstanceConfigSettings({
-          reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
-        })
-      ).rejects.toMatchObject({
-        message: expect.stringContaining('HALF_COMPENSATION'),
+      expect(error).toBeInstanceOf(BadRequestException)
+      expect(error.message).toContain('the stored default policy')
+      expect(error.message).toContain('HALF_COMPENSATION')
+      expect(error.message).toContain('FULL_COMPENSATION')
+      expect(error.message).toContain(
+        'Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies'
+      )
+    })
+
+    it('names the in-code fallback, not a stored row, when no default policy has ever been stored (Case B)', async () => {
+      configRepository.getByKey.mockImplementation(async () => {
+        throw notFoundError
       })
 
-      await expect(
-        service.setInstanceConfigSettings({
-          reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
-        })
-      ).rejects.toMatchObject({
-        message: expect.stringContaining('FULL_COMPENSATION'),
-      })
+      const error = await service
+        .setInstanceConfigSettings({ reassignmentPayoutPolicies: { NO_COMPENSATION: 0 } })
+        .catch((e) => e)
 
-      await expect(
-        service.setInstanceConfigSettings({
-          reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
-        })
-      ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          'Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies'
-        ),
-      })
+      expect(error).toBeInstanceOf(BadRequestException)
+      expect(error.message).toContain('no stored default policy')
+      expect(error.message).toContain(FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY)
+      expect(error.message).toContain('NO_COMPENSATION')
+      expect(error.message).toContain(
+        'Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies'
+      )
+      expect(error.message).not.toContain('the stored default policy')
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('accepts a default-only update when the key is on the stored menu', async () => {
+      configRepository.getByKey.mockImplementation(storedMenuOnly)
+
+      await service.setInstanceConfigSettings({ reassignmentPayoutDefaultPolicy: 'HALF_COMPENSATION' })
+
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(
+        ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+        'HALF_COMPENSATION'
+      )
+      expect(configRepository.saveByKey).not.toHaveBeenCalledWith(
+        ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+        expect.anything()
+      )
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
+    })
+
+    it('rejects a default-only update when the key is not on the stored menu', async () => {
+      configRepository.getByKey.mockImplementation(storedMenuOnly)
+
+      const error = await service
+        .setInstanceConfigSettings({ reassignmentPayoutDefaultPolicy: 'NO_COMPENSATION' })
+        .catch((e) => e)
+
+      expect(error).toBeInstanceOf(BadRequestException)
+      expect(error.message).toContain('NO_COMPENSATION')
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
     })
 
     // Test Plan A Case 2: A rejected write leaves the Config table untouched
