@@ -105,6 +105,53 @@ export class InstanceConfigDomainService {
   }
 
   async setInstanceConfigSettings(data: InstanceConfigSettingsInput): Promise<InstanceConfigSettings> {
+    // Phase 1 — validate everything first. A rejected write must leave the Config table
+    // completely untouched, so no saveByKey may run before this block has passed.
+
+    // Explicit undefined checks permit saving empty objects or falsy policy settings as voted by members
+    if (data.reassignmentPayoutPolicies !== undefined) {
+      const isObject =
+        typeof data.reassignmentPayoutPolicies === 'object' &&
+        data.reassignmentPayoutPolicies !== null &&
+        !Array.isArray(data.reassignmentPayoutPolicies)
+      const validValues =
+        isObject &&
+        Object.values(data.reassignmentPayoutPolicies).every(
+          (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100
+        )
+      if (!isObject || !validValues) {
+        throw new BadRequestException(
+          'Invalid reassignmentPayoutPolicies: each policy value must be a finite number between 0 and 100'
+        )
+      }
+    }
+
+    // Case A: A new default policy key was explicitly provided by the caller.
+    if (data.reassignmentPayoutDefaultPolicy !== undefined) {
+      const activePolicies =
+        data.reassignmentPayoutPolicies !== undefined
+          ? data.reassignmentPayoutPolicies
+          : await this.getReassignmentPayoutPolicies()
+      // Object.prototype.hasOwnProperty.call checks if key is an own property on the object, avoiding inherited prototype properties like 'constructor'
+      if (!Object.prototype.hasOwnProperty.call(activePolicies, data.reassignmentPayoutDefaultPolicy)) {
+        throw new BadRequestException(
+          `Invalid default policy '${data.reassignmentPayoutDefaultPolicy}': must be a key in reassignmentPayoutPolicies`
+        )
+      }
+    }
+
+    // Case B: A new menu was provided without specifying a new default policy key.
+    if (data.reassignmentPayoutPolicies !== undefined && data.reassignmentPayoutDefaultPolicy === undefined) {
+      const storedDefault = await this.getReassignmentPayoutDefaultPolicy()
+      if (!Object.prototype.hasOwnProperty.call(data.reassignmentPayoutPolicies, storedDefault)) {
+        const allowedKeys = Object.keys(data.reassignmentPayoutPolicies).join(', ')
+        throw new BadRequestException(
+          `Cannot save reassignmentPayoutPolicies: the stored default policy '${storedDefault}' is not a key in the new menu. Allowed policies: ${allowedKeys}. Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies to change both.`
+        )
+      }
+    }
+
+    // Phase 2 — write validated settings to the database repository.
     if (data.courierMatcherType) {
       await this.configRepository.saveByKey(ConfigKey.COURIER_MATCHER_TYPE, data.courierMatcherType)
     }
@@ -162,36 +209,6 @@ export class InstanceConfigDomainService {
     }
     if (data.registeredRegistries) {
       await this.configRepository.saveByKey(ConfigKey.REGISTERED_REGISTRIES, JSON.stringify(data.registeredRegistries))
-    }
-
-    // Explicit undefined checks permit saving empty objects or falsy policy settings as voted by members
-    if (data.reassignmentPayoutPolicies !== undefined) {
-      const isObject =
-        typeof data.reassignmentPayoutPolicies === 'object' &&
-        data.reassignmentPayoutPolicies !== null &&
-        !Array.isArray(data.reassignmentPayoutPolicies)
-      const validValues =
-        isObject &&
-        Object.values(data.reassignmentPayoutPolicies).every(
-          (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100
-        )
-      if (!isObject || !validValues) {
-        throw new BadRequestException(
-          'Invalid reassignmentPayoutPolicies: each policy value must be a finite number between 0 and 100'
-        )
-      }
-    }
-
-    if (data.reassignmentPayoutDefaultPolicy !== undefined) {
-      const activePolicies =
-        data.reassignmentPayoutPolicies !== undefined
-          ? data.reassignmentPayoutPolicies
-          : await this.getReassignmentPayoutPolicies()
-      if (!Object.prototype.hasOwnProperty.call(activePolicies, data.reassignmentPayoutDefaultPolicy)) {
-        throw new BadRequestException(
-          `Invalid default policy '${data.reassignmentPayoutDefaultPolicy}': must be a key in reassignmentPayoutPolicies`
-        )
-      }
     }
 
     if (data.reassignmentPayoutPolicies !== undefined) {

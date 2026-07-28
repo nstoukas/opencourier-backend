@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, InternalServerErrorException } from '@nestjs/common'
 import {
   resolveReassignmentPayout,
   formatReassignmentAwardFailure,
@@ -60,7 +60,7 @@ describe('reassignment-payout.util', () => {
     })
 
     test('throws BadRequestException listing allowed keys when requested key is not on menu', () => {
-      // Admin requests non-existent policy key
+      // Admin explicitly requests non-existent policy key -> Bad Request (400)
       expect(() =>
         resolveReassignmentPayout(defaultMenu, 'FULL_COMPENSATION', 'SUPER_COMPENSATION', 500)
       ).toThrow(BadRequestException)
@@ -68,30 +68,45 @@ describe('reassignment-payout.util', () => {
       try {
         resolveReassignmentPayout(defaultMenu, 'FULL_COMPENSATION', 'INVALID_KEY', 500)
       } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException)
         expect(err.message).toContain('Allowed policies: FULL_COMPENSATION, HALF_COMPENSATION, NO_COMPENSATION')
       }
     })
 
-    test('throws BadRequestException when default policy key itself is not on the menu', () => {
-      // Default key missing from menu
+    test('throws InternalServerErrorException when default policy key itself is not on the menu', () => {
+      // Stored default key missing from menu -> Server Config Error (500)
       expect(() =>
         resolveReassignmentPayout(defaultMenu, 'MISSING_DEFAULT', undefined, 500)
-      ).toThrow(BadRequestException)
+      ).toThrow(InternalServerErrorException)
+
+      try {
+        resolveReassignmentPayout(defaultMenu, 'MISSING_DEFAULT', undefined, 500)
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(InternalServerErrorException)
+        expect(err.message).toContain("Instance config error: the configured default reassignment payout policy 'MISSING_DEFAULT' is not on the votable menu")
+        expect(err.message).toContain('reassignmentPayoutDefaultPolicy')
+      }
     })
 
-    test('throws BadRequestException when policy percentage is negative or greater than 100 or non-numeric', () => {
+    test('throws InternalServerErrorException when policy percentage is negative or greater than 100 or non-numeric', () => {
+      // Broken percentage in stored menu -> Server Config Error (500) regardless of who requested it
       const invalidMenu: Record<string, number> = {
         OVER_PAY: 150,
         NEGATIVE_PAY: -10,
         NAN_PAY: NaN,
       }
 
-      // Percentage > 100
-      expect(() => resolveReassignmentPayout(invalidMenu, 'OVER_PAY', undefined, 500)).toThrow(BadRequestException)
-      // Percentage < 0
-      expect(() => resolveReassignmentPayout(invalidMenu, 'NEGATIVE_PAY', undefined, 500)).toThrow(BadRequestException)
-      // Non-finite percentage
-      expect(() => resolveReassignmentPayout(invalidMenu, 'NAN_PAY', undefined, 500)).toThrow(BadRequestException)
+      // Percentage > 100 (defaulted and requested)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'OVER_PAY', undefined, 500)).toThrow(InternalServerErrorException)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'FULL_COMPENSATION', 'OVER_PAY', 500)).toThrow(InternalServerErrorException)
+
+      // Percentage < 0 (defaulted and requested)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'NEGATIVE_PAY', undefined, 500)).toThrow(InternalServerErrorException)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'FULL_COMPENSATION', 'NEGATIVE_PAY', 500)).toThrow(InternalServerErrorException)
+
+      // Non-finite percentage (defaulted and requested)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'NAN_PAY', undefined, 500)).toThrow(InternalServerErrorException)
+      expect(() => resolveReassignmentPayout(invalidMenu, 'FULL_COMPENSATION', 'NAN_PAY', 500)).toThrow(InternalServerErrorException)
     })
   })
 
