@@ -25,6 +25,15 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return this.toDomain(result)
   }
 
+  // Tie-break with id: createdAt has millisecond resolution, so id ensures deterministic order if multiple events land in the same millisecond.
+  async findManyByDeliveryId(deliveryId: string): Promise<DeliveryEventEntity[]> {
+    const rows = await this.prisma.deliveryEvent.findMany({
+      where: { deliveryId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    return this.toDomainMany(rows)
+  }
+
   // Attribution is by the delivery's *current* courierId — DeliveryEvent has no courier
   // column. That remains safe because DROPPED_OFF is terminal in the state machine, so no event
   // can reassign a completed delivery (REASSIGNED is legal only from ongoing statuses); a rider

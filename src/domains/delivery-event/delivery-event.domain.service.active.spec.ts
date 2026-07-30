@@ -10,6 +10,7 @@ describe('DeliveryEventDomainService', () => {
   beforeEach(() => {
     // Create minimal mock for DeliveryEventRepository
     mockRepository = {
+      findManyByDeliveryId: jest.fn(),
       findSuccessfulDropOffRowsForCourier: jest.fn(),
       findCompletedDeliveryRowsForCourier: jest.fn(),
       findCompletedDeliveryRowForCourierDelivery: jest.fn(),
@@ -23,6 +24,19 @@ describe('DeliveryEventDomainService', () => {
     } as unknown as jest.Mocked<CourierCompensationRepository>
 
     service = new DeliveryEventDomainService(mockRepository, mockCompensationRepository)
+  })
+
+  describe('getEventHistoryForDelivery', () => {
+    test('delegates directly to repository findManyByDeliveryId', async () => {
+      const deliveryId = 'del-event-history-1'
+      const mockEvents = [{ id: 'evt-1' } as any]
+      mockRepository.findManyByDeliveryId.mockResolvedValue(mockEvents)
+
+      const result = await service.getEventHistoryForDelivery(deliveryId)
+
+      expect(mockRepository.findManyByDeliveryId).toHaveBeenCalledWith(deliveryId)
+      expect(result).toEqual(mockEvents)
+    })
   })
 
   describe('getEarningsSummaryForCourier', () => {

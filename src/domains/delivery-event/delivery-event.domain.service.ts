@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { dayjs } from 'src/core/utils/time'
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
+import { DeliveryEventEntity } from './entities/delivery-event.entity'
 import { EarningsDaySummary, EarningsDelivery } from './types/earnings-summary.type'
 import {
   summarizeEarningsByDay,
@@ -17,6 +18,10 @@ export class DeliveryEventDomainService {
     private deliveryEventRepository: DeliveryEventRepository,
     private courierCompensationRepository: CourierCompensationRepository
   ) {}
+
+  async getEventHistoryForDelivery(deliveryId: string): Promise<DeliveryEventEntity[]> {
+    return this.deliveryEventRepository.findManyByDeliveryId(deliveryId)
+  }
 
   async getEarningsSummaryForCourier(
     courierId: string,

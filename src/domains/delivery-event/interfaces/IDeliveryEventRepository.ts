@@ -4,6 +4,7 @@ import { CourierEarningsRow, CourierEarningsDeliveryRow } from '../types/earning
 
 export interface IDeliveryEventRepository {
   create(data: IDeliveryEventCreateInput): Promise<DeliveryEventEntity>
+  findManyByDeliveryId(deliveryId: string): Promise<DeliveryEventEntity[]>
   findSuccessfulDropOffRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsRow[]>
   findCompletedDeliveryRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsDeliveryRow[]>
   findCompletedDeliveryRowForCourierDelivery(courierId: string, deliveryId: string): Promise<CourierEarningsDeliveryRow | null>
