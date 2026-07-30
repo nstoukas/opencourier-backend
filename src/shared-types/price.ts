@@ -13,8 +13,7 @@ export function penniesToFloat(pennyPrice: number): number {
   return roundToTwoDecimals(pennyPrice / 100)
 }
 
-export const parsePrice = (price: number | undefined) => {
-  if (!price) return '$0'
-
-  return `$${(price / 100).toFixed(2)}`
-}
+// A parsePrice() lived here that hardcoded '$'. The backend stores integer minor units
+// and reports a currency alongside them (InstanceConfigDomainService.getCurrency, and
+// each record's own currencyCode) — it should not be rendering symbols at all.
+// These two converters do no formatting, so they stay.
