@@ -3,7 +3,6 @@ import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
   EnumCourierMatcherType,
-  EnumCurrency,
   EnumDeliveryDurationCalculationType,
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
@@ -11,6 +10,7 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types/index'
+import { SEEDED_INSTANCE_CURRENCY } from './instance-currency'
 
 export async function seedInitialInstanceConfig(prisma: PrismaClient) {
   const details = {
@@ -44,7 +44,7 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     defaultMaxWorkingHours: 8,
     defaultDietaryRestrictions: [EnumCourierDietaryRestrictions.NONE],
     distanceUnit: EnumDistanceUnit.KILOMETERS,
-    currency: EnumCurrency.USD,
+    currency: SEEDED_INSTANCE_CURRENCY,
     quoteToDeliveryConversionType: EnumQuoteToDeliveryConversionServiceType.SIMPLE,
     details,
     updatedAt: new Date().toISOString(),

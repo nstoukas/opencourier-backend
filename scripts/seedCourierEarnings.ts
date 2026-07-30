@@ -10,6 +10,8 @@ import {
   EnumEventActor,
   PrismaClient,
 } from '@prisma/types'
+import { ConfigKey } from 'src/shared-types/index'
+import { resolveInstanceCurrency } from 'src/db-seeds/instance-currency'
 
 const prisma = new PrismaClient()
 
@@ -90,9 +92,10 @@ async function main() {
   }
 
   // One currency per instance, read from the votable Config so seeded rows agree with
-  // whatever the co-op has set rather than hard-coding USD.
-  const currencyConfig = await prisma.config.findUnique({ where: { key: 'currency' } })
-  const currency = currencyConfig?.value ?? 'USD'
+  // whatever the co-op has set rather than hard-coding a currency. Falls back to the seeded
+  // instance default when the Config row is missing.
+  const currencyConfig = await prisma.config.findUnique({ where: { key: ConfigKey.CURRENCY } })
+  const currency = resolveInstanceCurrency(currencyConfig?.value)
 
   console.log(`Seeding ${DELIVERIES.length} completed deliveries for ${COURIER_EMAIL} (${currency})`)
 

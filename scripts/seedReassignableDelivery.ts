@@ -10,6 +10,8 @@ import {
   EnumEventActor,
   PrismaClient,
 } from '@prisma/types'
+import { ConfigKey } from 'src/shared-types/index'
+import { resolveInstanceCurrency } from 'src/db-seeds/instance-currency'
 
 const prisma = new PrismaClient()
 
@@ -29,6 +31,11 @@ async function main() {
 
   const partner = await prisma.partner.findFirst({ where: { name: 'Souvlaki tou Nikou' } })
   if (!partner) throw new Error('Expected the test restaurant "Souvlaki tou Nikou" to exist (unit 1 fixture).')
+
+  // One currency per instance, read from the votable Config so the fixture stays correct
+  // whatever the members have voted — rather than baking a literal into a test fixture.
+  const currencyConfig = await prisma.config.findUnique({ where: { key: ConfigKey.CURRENCY } })
+  const currency = resolveInstanceCurrency(currencyConfig?.value)
 
   const existing = await prisma.delivery.findFirst({ where: { idempotencyKey: IDEMPOTENCY_KEY } })
   if (existing) {
@@ -58,7 +65,7 @@ async function main() {
       quote: 8,
       quoteRangeFrom: 800,
       quoteRangeTo: 800,
-      currency: 'USD',
+      currency,
       duration: 900,
       distance: 2.1,
       distanceUnit: EnumDistanceUnit.KILOMETERS,
@@ -79,7 +86,7 @@ async function main() {
       dropoffLocationId: dropoff.id,
       // ACCEPTED: a courier is committed, which is what makes it reassignable.
       status: EnumDeliveryStatus.ACCEPTED,
-      currencyCode: 'USD',
+      currencyCode: currency,
       courierId: user.courier.id,
       partnerId: partner.id,
       deliveryQuoteId: quote.id,
@@ -107,7 +114,7 @@ async function main() {
   console.log(`Delivery ${delivery.id}`)
   console.log(`  status            ACCEPTED`)
   console.log(`  courier           ${COURIER_EMAIL} (${user.courier.id})`)
-  console.log(`  totalCompensation ${delivery.totalCompensation}c, tips ${delivery.tips}c`)
+  console.log(`  totalCompensation ${delivery.totalCompensation}c, tips ${delivery.tips}c (${currency})`)
 }
 
 main()
