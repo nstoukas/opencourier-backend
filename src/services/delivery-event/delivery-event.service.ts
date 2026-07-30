@@ -250,7 +250,12 @@ export class DeliveryEventService {
         `Delivery status transition failed for event ${JSON.stringify(deliveryEvent)}:  ${error}`,
         (error as Error).stack
       )
-      await this.saveDeliveryEvent(deliveryEvent, false, currentStatus, newStatus, (error as Error).message)
+      await this.saveDeliveryEvent(deliveryEvent, {
+        transitionSuccessful: false,
+        oldStatus: currentStatus, // the status the Delivery was in when the attempt failed
+        newStatus, // the status the state machine said the attempt was heading for
+        message: (error as Error).message,
+      })
     }
   }
 
@@ -300,7 +305,11 @@ export class DeliveryEventService {
           : `Admin offered delivery to courier ${courierId}`,
       }
 
-      await this.saveDeliveryEvent(auditEvent, true, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus)
+      await this.saveDeliveryEvent(auditEvent, {
+        transitionSuccessful: true,
+        oldStatus,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
 
       if (updatedDelivery.partnerId) {
         await this.notifyPartner(
@@ -337,7 +346,11 @@ export class DeliveryEventService {
       additionalDeliveryData
     )
 
-    await this.saveDeliveryEvent(deliveryEvent, true, newStatus, oldStatus)
+    await this.saveDeliveryEvent(deliveryEvent, {
+      transitionSuccessful: true,
+      oldStatus,
+      newStatus,
+    })
 
     if (updatedDelivery.partnerId) {
       await this.notifyPartner(updatedDelivery.partnerId, newStatus, oldStatus, deliveryEvent)
@@ -408,21 +421,27 @@ export class DeliveryEventService {
     }
   }
 
+  // The three trailing values used to be positional parameters. Two of them were
+  // EnumDeliveryStatus, so passing them in the wrong order still compiled — and the
+  // failure path did exactly that, writing every failed row's statuses backwards.
+  // An object parameter forces each value to be named at the call site.
   private async saveDeliveryEvent(
     deliveryEvent: DeliveryEvent,
-    transitionSuccessful: boolean,
-    targetStatus?: EnumDeliveryStatus,
-    oldStatus?: EnumDeliveryStatus,
-    message?: string
+    outcome: {
+      transitionSuccessful: boolean
+      oldStatus?: EnumDeliveryStatus // the status the Delivery was actually in
+      newStatus?: EnumDeliveryStatus // the status this event moved it to, or tried to
+      message?: string
+    }
   ) {
     return await this.deliveryEventRepository.create({
       actor: deliveryEvent.actor,
       eventSource: deliveryEvent.source,
-      message: message || deliveryEvent.message || null,
-      newStatus: targetStatus || null,
-      oldStatus: oldStatus || null,
+      message: outcome.message || deliveryEvent.message || null,
+      newStatus: outcome.newStatus || null,
+      oldStatus: outcome.oldStatus || null,
       deliveryId: deliveryEvent.deliveryId,
-      transitionSuccessful,
+      transitionSuccessful: outcome.transitionSuccessful,
       type: deliveryEvent.type,
     })
   }
