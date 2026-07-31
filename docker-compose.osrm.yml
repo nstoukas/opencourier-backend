@@ -1,0 +1,12 @@
+version: '3'
+services:
+  osrm:
+    container_name: opencourier-osrm
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    # --algorithm mld matches the extract/partition/customize pipeline in docs/osrm-routing.md.
+    command: osrm-routed --algorithm mld /data/greece-latest.osrm
+    volumes:
+      - ./osrm/data:/data
+    ports:
+      - ${OSRM_PORT}:5000
+    restart: unless-stopped

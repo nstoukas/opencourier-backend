@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { EnumDistanceUnit } from '@prisma/types'
 import { IGeoCalculationInput } from './interfaces/IGeoCalculationInput'
 import { IGeoCalculationService } from './interfaces/IGeoCalculationService'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { convertKilometresToDistanceUnit } from './utils/distance-unit.util'
 
 @Injectable()
 export class HaversineGeoCalculationService implements IGeoCalculationService {
@@ -29,10 +29,6 @@ export class HaversineGeoCalculationService implements IGeoCalculationService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     const distance = R * c // Distance in kilometers
 
-    if (distanceUnit === EnumDistanceUnit.MILES) {
-      return distance * 0.621371 // Convert to miles
-    }
-
-    return Promise.resolve(Math.round(distance * 1000) / 1000)
+    return convertKilometresToDistanceUnit(distance, distanceUnit)
   }
 }

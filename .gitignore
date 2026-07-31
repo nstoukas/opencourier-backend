@@ -17,3 +17,4 @@ yarn.lock
 check-delivery.ts
 .aiflow/
 plan.md
+osrm/data/

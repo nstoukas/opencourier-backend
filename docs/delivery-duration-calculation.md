@@ -63,13 +63,16 @@ If you have the admin-web setup:
 
 ### Implementations:
 
-Currently we have 1 implementation:
+Currently we have 2 implementations:
 
 - `SimpleDeliveryDurationCalculationService` -> `EnumDeliveryDurationCalculationType.SIMPLE`
   (This is mostly used in development and for testing)
   - It calculates the distance between pickup and dropoff location (Uses the GeoCalculationModule)
   - Multiplies it by 2 (minutes per kilometer).
   - Returns the number of minutes.
+- `OsrmDeliveryDurationCalculationService` -> `EnumDeliveryDurationCalculationType.OSRM`
+  - Calculates road distance and driving duration using OSRM with a moped routing profile.
+  - Returns routed driving time in minutes with no pickup or handover buffer.
 
 ### Adding a new implementation
 

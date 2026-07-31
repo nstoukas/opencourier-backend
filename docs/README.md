@@ -5,3 +5,4 @@
   - [Courier compensation](./courier-compensation.md)
   - [Quote calculation](./quote-calculation.md)
   - [Delivery duration calculation](./delivery-duration-calculation.md)
+- [OSRM road routing](./osrm-routing.md)

@@ -29,6 +29,7 @@
     "docker:shovel": "docker-compose -f docker-compose.shovel.yml up -d",
     "docker:reset-shovel": "docker-compose -f docker-compose.shovel.yml down -v && docker-compose -f docker-compose.shovel.yml build && yarn docker:shovel",
     "docker:minio": "docker-compose -f docker-compose.minio.yml up -d",
+    "docker:osrm": "docker compose -f docker-compose.osrm.yml up -d",
     "docker:bull-board": "docker-compose -f docker-compose.bull-monitor.yml up -d",
     "docker:build": "docker build .",
     "docker:clean": "docker system prune -a -f --volumes",
