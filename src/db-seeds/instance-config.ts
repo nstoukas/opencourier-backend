@@ -11,6 +11,10 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types/index'
 import { SEEDED_INSTANCE_CURRENCY } from './instance-currency'
+import {
+  SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT,
+  SEEDED_MINIMUM_COURIER_PAY,
+} from './instance-pay-defaults'
 
 export async function seedInitialInstanceConfig(prisma: PrismaClient) {
   const details = {
@@ -31,7 +35,7 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
 
   const initialConfigsData = {
     courierMatcherType: EnumCourierMatcherType.COURIER_SENIORITY,
-    quoteCalculationType: EnumQuoteCalculationType.CUSTOM,
+    quoteCalculationType: EnumQuoteCalculationType.BY_DISTANCE,
     geoCalculationType: EnumGeoCalculationType.HAVERSINE,
     deliveryDurationCalculationType: EnumDeliveryDurationCalculationType.SIMPLE,
     courierCompensationCalculationType: EnumCourierCompensationCalculationType.FROM_QUOTE_FROM,
@@ -39,8 +43,9 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     maxDriftDistance: 0,
     quoteExpirationMinutes: 10,
     feePercentageAmount: 10,
+    quoteRatePerDistanceUnit: SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT,
     defaultCourierPayRate: 1,
-    defaultMinimumCourierPay: 1,
+    defaultMinimumCourierPay: SEEDED_MINIMUM_COURIER_PAY,
     defaultMaxWorkingHours: 8,
     defaultDietaryRestrictions: [EnumCourierDietaryRestrictions.NONE],
     distanceUnit: EnumDistanceUnit.KILOMETERS,

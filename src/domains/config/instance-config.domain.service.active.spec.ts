@@ -8,6 +8,7 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types'
+import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
 
 describe('InstanceConfigDomainService', () => {
@@ -253,4 +254,113 @@ describe('InstanceConfigDomainService', () => {
       expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
     })
   })
+
+  describe('quoteRatePerDistanceUnit', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    // E1. getQuoteRatePerDistanceUnit() returns stored value when present
+    it('returns stored quoteRatePerDistanceUnit when present in config repository', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT,
+          value: '150',
+          type: 'number',
+        })
+      )
+
+      const rate = await service.getQuoteRatePerDistanceUnit()
+      expect(rate).toBe(150)
+    })
+
+    // E2. Falls back to DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT when row is missing
+    it('falls back to fileConfigService default when stored row is missing', async () => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+      fileConfigService.get.mockReturnValue('150')
+
+      const rate = await service.getQuoteRatePerDistanceUnit()
+
+      expect(rate).toBe(150)
+      expect(fileConfigService.get).toHaveBeenCalledWith(DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT)
+    })
+
+    // E3. Fractional stored value '87.5' returns 87.5 (not truncated by parseInt)
+    it('preserves fractional rates like 87.5 without truncating via parseInt', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT,
+          value: '87.5',
+          type: 'number',
+        })
+      )
+
+      const rate = await service.getQuoteRatePerDistanceUnit()
+      expect(rate).toBe(87.5)
+    })
+
+    // E4. setInstanceConfigSettings({ quoteRatePerDistanceUnit: 0 }) calls saveByKey with 0
+    it('saves a voted rate of 0 when explicitly passed to setInstanceConfigSettings', async () => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+
+      await service.setInstanceConfigSettings({ quoteRatePerDistanceUnit: 0 })
+
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, 0)
+    })
+
+    // E5. setInstanceConfigSettings({}) does not call saveByKey for rate key
+    it('does not touch quoteRatePerDistanceUnit when not present in input payload', async () => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+
+      await service.setInstanceConfigSettings({})
+
+      expect(configRepository.saveByKey).not.toHaveBeenCalledWith(
+        ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT,
+        expect.anything()
+      )
+    })
+
+    // E6. getInstanceConfigSettings() includes quoteRatePerDistanceUnit in result
+    it('includes quoteRatePerDistanceUnit in getInstanceConfigSettings output', async () => {
+      configRepository.getByKey.mockImplementation(async (key: string) => {
+        if (key === ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT) {
+          return new ConfigEntity({
+            key: ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT,
+            value: '150',
+            type: 'number',
+          })
+        }
+        throw notFoundError
+      })
+
+      const settings = await service.getInstanceConfigSettings()
+      expect(settings.quoteRatePerDistanceUnit).toBe(150)
+    })
+  })
+
+  describe('defaultMinimumCourierPay', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    it('saves a voted floor of 0 when explicitly passed to setInstanceConfigSettings', async () => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+
+      await service.setInstanceConfigSettings({ defaultMinimumCourierPay: 0 })
+
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, 0)
+    })
+
+    it('preserves fractional floor values like 250.5 without truncating via parseInt', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.DEFAULT_MINIMUM_COURIER_PAY,
+          value: '250.5',
+          type: 'number',
+        })
+      )
+
+      const floor = await service.getDefaultMinimumCourierPay()
+      expect(floor).toBe(250.5)
+    })
+  })
 })
+

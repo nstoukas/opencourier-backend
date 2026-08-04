@@ -72,23 +72,36 @@ If you have the admin-web setup:
 - Go to `Instance configuration`
 - Change the `Quote calculation type`
 
+### Quote rate configuration & unit scaling
+
+The rate used for distance-based quotes is configured in the `Config` table key `quoteRatePerDistanceUnit` (with fallback `DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT` in `.env`).
+
+- `quoteRatePerDistanceUnit` represents minor currency units per one `Config.distanceUnit` (e.g., 150 = EUR 1.50 per kilometre when `distanceUnit` is `KILOMETERS`).
+- Rate and distance unit are coupled by definition: switching `distanceUnit` between `KILOMETERS` and `MILES` rescales every calculated quote by 1.609× without changing the rate value itself.
+
+### Courier pay floor (`defaultMinimumCourierPay`)
+
+Courier compensation (piece rate) for a delivery is derived from `quoteRangeFrom`. To protect courier earnings on short trips, `defaultMinimumCourierPay` in the `Config` table acts as a floor on courier compensation (applied in `SimpleCourierCompensationService`).
+
+- The pay floor applies to courier compensation, **not** to the customer's delivery quote.
+- If a delivery quote is lower than `defaultMinimumCourierPay`, the courier is paid the floor amount, and the co-op / instance absorbs the difference (logged per delivery).
+
 ### Implementations:
 
 Currently we have 3 implementations:
 
 - `CustomQuoteCalculationService` -> `EnumQuoteCalculationType.CUSTOM`
-  (This is mostly used in development and for testing)
-  - It chooses a random distance.
-  - Multiplies it by `DELIVERY_QUOTE_PER_MILE` that is set in the .env.
-  - Returns the amount.
+  (This is a development stub)
+  - Ignores distance and calculates a random quote (`Math.random() * rate * 100.3`).
+  - Logs a `logger.warn` on every call warning that prices and courier pay are randomized.
 - `SimpleQuoteCalculationService` -> `EnumQuoteCalculationType.BY_DISTANCE`
-  - Calculates the distance between the pickup and dropoff locations.
-  - Multiplies the distance by the `DELIVERY_QUOTE_PER_MILE` that is set in the .env
+  - Calculates the distance between pickup and dropoff locations in `Config.distanceUnit`.
+  - Multiplies the distance by `quoteRatePerDistanceUnit` from `Config`.
   - Returns the amount.
 - `SurgeQuoteCalculationService` -> `EnumQuoteCalculationType.SURGE`
-  - Calculates the distance between the pickup and dropoff locations.
-  - Multiplies the distance by the `DELIVERY_QUOTE_PER_MILE` that is set in the .env
-  - Based on the time of day it changes readjusts the amount.
+  - Calculates the distance between pickup and dropoff locations in `Config.distanceUnit`.
+  - Multiplies the distance by `quoteRatePerDistanceUnit` from `Config`.
+  - Based on the time of day, readjusts the amount.
     - From 10PM to 6AM it multiplies the amount by 1.5 (50% more).
   - Returns the amount.
 

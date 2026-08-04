@@ -1,24 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { DELIVERY_QUOTE_PER_MILE } from 'src/constants'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
+import { calculateDistanceQuote } from './utils/distance-quote.util'
 
 @Injectable()
 export class SurgeQuoteCalculationService implements IQuoteCalculationService {
   private readonly logger = new Logger(SurgeQuoteCalculationService.name)
-  private quotePerMile: number
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly configDomainService: ConfigDomainService,
     private readonly geoCalculationService: GeoCalculationService
-  ) {
-    if (!this.configService.get(DELIVERY_QUOTE_PER_MILE)) {
-      throw new Error('DELIVERY_QUOTE_PER_MILE env variable is required')
-    }
-    this.quotePerMile = Number(this.configService.get(DELIVERY_QUOTE_PER_MILE))
-  }
+  ) {}
 
   async calculateDeliveryQuote(input: IQuoteCalculationInput) {
     const { pickupLocation, dropoffLocation, pickupReadyAt } = input
@@ -34,7 +28,8 @@ export class SurgeQuoteCalculationService implements IQuoteCalculationService {
       },
     })
 
-    let quote = distance * this.quotePerMile
+    const ratePerDistanceUnit = await this.configDomainService.instanceConfig.getQuoteRatePerDistanceUnit()
+    let quote = calculateDistanceQuote(distance, ratePerDistanceUnit)
 
     // depending on time of day, we may want to add a surge multiplier.
     const hour = pickupReadyAt?.getHours()

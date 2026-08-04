@@ -18,6 +18,10 @@ export type InstanceConfigSettings = {
   maxDriftDistance: number | null
   quoteExpirationMinutes: number | null
   feePercentageAmount: number | null
+  // Price of one Config.distanceUnit of travel, in minor currency units (e.g. 150 = EUR 1.50
+  // per kilometre when distanceUnit is KILOMETERS). A fairness parameter: it lives here, in
+  // the Config table, so members can vote it — never in code.
+  quoteRatePerDistanceUnit: number | null
   defaultCourierPayRate: number | null
   defaultMinimumCourierPay: number | null
   defaultMaxWorkingHours: number | null
@@ -70,6 +74,7 @@ export enum ConfigKey {
   PARTNER_APP_MIN_VERSION = 'partnerAppMinVersion',
   COURIER_MATCHER_TYPE = 'courierMatcherType',
   QUOTE_CALCULATION_TYPE = 'quoteCalculationType',
+  QUOTE_RATE_PER_DISTANCE_UNIT = 'quoteRatePerDistanceUnit',
   QUOTE_TO_DELIVERY_CONVERSION_TYPE = 'quoteToDeliveryConversionType',
   DELIVERY_DURATION_CALCULATION_TYPE = 'deliveryDurationCalculationType',
   GEO_CALCULATION_TYPE = 'geoCalculationType',

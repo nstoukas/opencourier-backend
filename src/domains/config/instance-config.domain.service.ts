@@ -11,6 +11,7 @@ import {
   DEFAULT_GEO_CALCULATION_TYPE,
   DEFAULT_MAX_ASSIGNMENT_DISTANCE,
   DEFAULT_QUOTE_CALCULATION_TYPE,
+  DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT,
   DEFAULT_QUOTE_TO_DELIVERY_CONVERSION_TYPE,
   DEFAULT_QUOTE_TO_DELIVERY_MAX_DISTANCE_DRIFT,
   DELIVERY_QUOTE_EXPIRATION_MINUTES,
@@ -53,6 +54,7 @@ export class InstanceConfigDomainService {
     const maxDriftDistance = await this.getMaxDriftDistance()
     const quoteExpirationMinutes = await this.getQuoteExpirationMinutes()
     const feePercentageAmount = await this.getFeePercentageAmount()
+    const quoteRatePerDistanceUnit = await this.getQuoteRatePerDistanceUnit()
     const distanceUnit = await this.getDistanceUnit()
     const currency = await this.getCurrency()
     const details = await this.getDetails()
@@ -77,6 +79,7 @@ export class InstanceConfigDomainService {
       maxDriftDistance,
       quoteExpirationMinutes,
       feePercentageAmount,
+      quoteRatePerDistanceUnit,
       defaultCourierPayRate,
       defaultMinimumCourierPay,
       defaultMaxWorkingHours,
@@ -195,11 +198,17 @@ export class InstanceConfigDomainService {
     if (data.feePercentageAmount) {
       await this.configRepository.saveByKey(ConfigKey.FEE_PERCENTAGE_AMOUNT, data.feePercentageAmount)
     }
+    // !== undefined, not a truthy check: 0 is a legitimate voted rate (a flat minimum with no
+    // distance component), and `if (data.x)` would silently discard it.
+    if (data.quoteRatePerDistanceUnit !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
+    }
 
     if (data.defaultCourierPayRate) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_COURIER_PAY_RATE, data.defaultCourierPayRate)
     }
-    if (data.defaultMinimumCourierPay) {
+    // !== undefined, not a truthy check: 0 is a legitimate voted floor (no floor), and `if (data.x)` would silently discard it.
+    if (data.defaultMinimumCourierPay !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, data.defaultMinimumCourierPay)
     }
     if (data.defaultMaxWorkingHours) {
@@ -320,6 +329,16 @@ export class InstanceConfigDomainService {
       : (feePercentageAmount.value as number)
   }
 
+  async getQuoteRatePerDistanceUnit(): Promise<number> {
+    const quoteRate = await this.getConfigValueOrDefault(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, () =>
+      this.fileConfigService.get(DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT)
+    )
+
+    // Number(), not parseInt() — a voted rate may legitimately be fractional (e.g. 87.5
+    // minor units per km), and parseInt would silently truncate it to 87.
+    return Number(quoteRate.value)
+  }
+
   async getMaxAssignmentDistance(): Promise<number | null> {
     const maxAssignmentDistance = await this.getConfigValueOrDefault(
       ConfigKey.MAX_ASSIGNMENT_DISTANCE,
@@ -367,7 +386,7 @@ export class InstanceConfigDomainService {
     const defaultMinimumCourierPay = await this.getConfigValueOrDefault(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, null)
 
     return typeof defaultMinimumCourierPay.value === 'string'
-      ? parseInt(defaultMinimumCourierPay.value)
+      ? Number(defaultMinimumCourierPay.value)
       : (defaultMinimumCourierPay.value as number)
   }
 

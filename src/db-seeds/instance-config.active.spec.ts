@@ -73,4 +73,62 @@ describe('seedInitialInstanceConfig', () => {
 
     expect(currencyCreateCall).toBeUndefined()
   })
+
+  // F1. quoteCalculationType is seeded as 'BY_DISTANCE' with type: 'string'
+  it('seeds quoteCalculationType as BY_DISTANCE with string type', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const quoteTypeCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'quoteCalculationType'
+    )
+
+    expect(quoteTypeCall).toBeDefined()
+    expect(quoteTypeCall[0].data.value).toBe('BY_DISTANCE')
+    expect(quoteTypeCall[0].data.type).toBe('string')
+  })
+
+  // F2. quoteRatePerDistanceUnit is seeded as '150' with type: 'number'
+  it('seeds quoteRatePerDistanceUnit as 150 with number type', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const rateCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'quoteRatePerDistanceUnit'
+    )
+
+    expect(rateCall).toBeDefined()
+    expect(rateCall[0].data.value).toBe('150')
+    expect(rateCall[0].data.type).toBe('number')
+  })
+
+  // F3. defaultMinimumCourierPay is seeded as '250' with type: 'number'
+  it('seeds defaultMinimumCourierPay as 250 with number type', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const minPayCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'defaultMinimumCourierPay'
+    )
+
+    expect(minPayCall).toBeDefined()
+    expect(minPayCall[0].data.value).toBe('250')
+    expect(minPayCall[0].data.type).toBe('number')
+  })
+
+  // F4. Existing quoteCalculationType row is not overwritten
+  it('does not overwrite an existing quoteCalculationType config row if one already exists', async () => {
+    mockFindUnique.mockImplementation(async ({ where }: { where: { key: string } }) => {
+      if (where.key === 'quoteCalculationType') {
+        return { key: 'quoteCalculationType', value: 'CUSTOM', type: 'string' }
+      }
+      return null
+    })
+
+    await seedInitialInstanceConfig(prismaStub)
+
+    const quoteTypeCreateCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'quoteCalculationType'
+    )
+
+    expect(quoteTypeCreateCall).toBeUndefined()
+  })
 })
+

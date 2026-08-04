@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { DELIVERY_QUOTE_PER_MILE } from 'src/constants'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
@@ -8,20 +7,21 @@ import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
 @Injectable()
 export class CustomQuoteCalculationService implements IQuoteCalculationService {
   private readonly logger = new Logger(CustomQuoteCalculationService.name)
-  private quotePerMile: number
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly configDomainService: ConfigDomainService,
     private readonly geoCalculationService: GeoCalculationService
-  ) {
-    if (!this.configService.get(DELIVERY_QUOTE_PER_MILE)) {
-      throw new Error('DELIVERY_QUOTE_PER_MILE env variable is required')
-    }
-    this.quotePerMile = Number(this.configService.get(DELIVERY_QUOTE_PER_MILE))
-  }
+  ) {}
 
-  calculateDeliveryQuote(input: IQuoteCalculationInput) {
-    const quote = Math.random() * this.quotePerMile * 100.3
+  async calculateDeliveryQuote(input: IQuoteCalculationInput) {
+    const ratePerDistanceUnit = await this.configDomainService.instanceConfig.getQuoteRatePerDistanceUnit()
+    const quote = Math.random() * ratePerDistanceUnit * 100.3
+
+    this.logger.warn(
+      'quoteCalculationType=CUSTOM: this quote is a RANDOM number and ignores the delivery distance. ' +
+        'With courierCompensationCalculationType=FROM_QUOTE_FROM it is also the courier’s pay. ' +
+        'Development only — set quoteCalculationType=BY_DISTANCE for a real instance.'
+    )
 
     return Promise.resolve({
       quoteRangeFrom: quote,

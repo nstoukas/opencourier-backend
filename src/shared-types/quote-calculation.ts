@@ -7,5 +7,5 @@ export enum EnumQuoteCalculationType {
 export const QUOTE_CALCULATION_TYPE_TO_HUMAN: Record<EnumQuoteCalculationType, string> = {
   BY_DISTANCE: 'By distance',
   SURGE: 'Surge pricing',
-  CUSTOM: 'Custom implementation, random distance (For development)',
+  CUSTOM: '⚠ Random prices — DEVELOPMENT ONLY (ignores distance; randomises courier pay)',
 }

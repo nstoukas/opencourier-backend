@@ -1,24 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { DELIVERY_QUOTE_PER_MILE } from 'src/constants'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
+import { calculateDistanceQuote } from './utils/distance-quote.util'
 
 @Injectable()
 export class SimpleQuoteCalculationService implements IQuoteCalculationService {
   private readonly logger = new Logger(SimpleQuoteCalculationService.name)
-  private quotePerMile: number
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly configDomainService: ConfigDomainService,
     private readonly geoCalculationService: GeoCalculationService
-  ) {
-    if (!this.configService.get(DELIVERY_QUOTE_PER_MILE)) {
-      throw new Error('DELIVERY_QUOTE_PER_MILE env variable is required')
-    }
-    this.quotePerMile = Number(this.configService.get(DELIVERY_QUOTE_PER_MILE))
-  }
+  ) {}
 
   async calculateDeliveryQuote(input: IQuoteCalculationInput) {
     const { pickupLocation, dropoffLocation } = input
@@ -34,11 +28,12 @@ export class SimpleQuoteCalculationService implements IQuoteCalculationService {
       },
     })
 
-    const quote = distance * this.quotePerMile
+    // `distance` is already expressed in Config.distanceUnit (GeoCalculationService converts it),
+    // and the rate is defined per that same unit — so the two agree by construction. The old code
+    // multiplied a kilometre count by a rate named "per mile".
+    const ratePerDistanceUnit = await this.configDomainService.instanceConfig.getQuoteRatePerDistanceUnit()
+    const quote = calculateDistanceQuote(distance, ratePerDistanceUnit)
 
-    return Promise.resolve({
-      quoteRangeFrom: quote,
-      quoteRangeTo: quote,
-    })
+    return { quoteRangeFrom: quote, quoteRangeTo: quote }
   }
 }

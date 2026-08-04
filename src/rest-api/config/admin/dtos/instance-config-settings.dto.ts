@@ -50,6 +50,9 @@ export class InstanceConfigSettingsDto {
   feePercentageAmount: number | null
 
   @ApiProperty({ type: Number, nullable: true })
+  quoteRatePerDistanceUnit: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
   defaultCourierPayRate: number | null
 
   @ApiProperty({ type: Number, nullable: true })
@@ -88,9 +91,12 @@ export class InstanceConfigSettingsDto {
     this.maxDriftDistance = data.maxDriftDistance ? (data.maxDriftDistance as number) : null
     this.quoteExpirationMinutes = data.quoteExpirationMinutes ? (data.quoteExpirationMinutes as number) : null
     this.feePercentageAmount = data.feePercentageAmount ? (data.feePercentageAmount as number) : null
+    // ?? null, not `x ? x : null` — a voted rate of 0 must read back as 0, not as null.
+    this.quoteRatePerDistanceUnit = data.quoteRatePerDistanceUnit ?? null
 
     this.defaultCourierPayRate = data.defaultCourierPayRate ? (data.defaultCourierPayRate as number) : null
-    this.defaultMinimumCourierPay = data.defaultMinimumCourierPay ? (data.defaultMinimumCourierPay as number) : null
+    // ?? null, not `x ? x : null` — a voted floor of 0 must read back as 0, not as null.
+    this.defaultMinimumCourierPay = data.defaultMinimumCourierPay ?? null
     this.defaultMaxWorkingHours = data.defaultMaxWorkingHours ? (data.defaultMaxWorkingHours as number) : null
     this.details = data.details && typeof data.details === 'object' ? (data.details as InstanceDetails) : null
     this.updatedAt = data.updatedAt ? (data.updatedAt as string) : null
