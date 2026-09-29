@@ -99,6 +99,8 @@ are the exceptions, each kept additive or as narrow as possible:
   idempotent. `67b709c`
 - Re-runnable pickup address for the seeded partner "Nosh" (inside the Volos polygon).
   `587767b`
+- Re-runnable seed for the "Souvlaki tou Nikou" test restaurant, which was first made by hand
+  and lost on every `db:fresh`. `e107d16`
 - `aiflow` cross-model pipeline script (Claude plans and reviews, `agy` executes). It was
   later moved to the workspace root. `b2c5305`, `1640d57`, `8f15f9d`, `77c9eda`,
   `84c68c8`, `4287155`, `fc6a3a6`, `64cfee3`
