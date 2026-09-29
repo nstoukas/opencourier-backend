@@ -138,6 +138,8 @@ are the exceptions, each kept additive or as narrow as possible:
   which the guard didn't recognise. The spec that would have caught this was misnamed, so
   Jest never ran it. `3928443`
 - A saved minimum-pay value of `0` was silently ignored. `0dedb32`
+- The partner seed gave every instance upstream's fixed API key, which is public in upstream's
+  history. It now generates a random key, and a re-seed replaces the old one. `2260c39`
 
 ## Removed
 
