@@ -13,8 +13,8 @@ Scope row 49 (zero is a valid value for every co-op setting) was built on the br
 `fix/zero-valid-settings` and merged into this one on 30 September. With it the suite is at
 **292 passing tests**; typecheck is clean and lint is unchanged.
 
-Scope row 51 (the delivery fee as a base fee plus a per km fee, spec 0001) is on the branch
-`feat/base-fee-per-km`, not merged yet. With it the suite is at **315 passing tests**; typecheck
+Scope row 51 (the delivery fee as a base fee plus a per km fee, spec 0001) was built on the branch
+`feat/base-fee-per-km` and merged in on 1 October. With it the suite is at **315 passing tests**; typecheck
 is clean and lint is unchanged.
 
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
