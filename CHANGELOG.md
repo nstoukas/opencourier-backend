@@ -9,8 +9,8 @@ Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipe
 (31 commits, 25 July – 5 August 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
-Scope row 49 (zero is a valid value for every co-op setting) sits on the branch
-`fix/zero-valid-settings`, three commits on top of that branch. With it the suite is at
+Scope row 49 (zero is a valid value for every co-op setting) was built on the branch
+`fix/zero-valid-settings` and merged into this one on 30 September. With it the suite is at
 **292 passing tests**; typecheck is clean and lint is unchanged.
 
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
