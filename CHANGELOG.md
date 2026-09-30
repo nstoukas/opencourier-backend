@@ -13,6 +13,10 @@ Scope row 49 (zero is a valid value for every co-op setting) was built on the br
 `fix/zero-valid-settings` and merged into this one on 30 September. With it the suite is at
 **292 passing tests**; typecheck is clean and lint is unchanged.
 
+Scope row 51 (the delivery fee as a base fee plus a per km fee, spec 0001) is on the branch
+`feat/base-fee-per-km`, not merged yet. With it the suite is at **315 passing tests**; typecheck
+is clean and lint is unchanged.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -33,6 +37,7 @@ are the exceptions, each kept additive or as narrow as possible:
 | Removed public `POST /api/partner/v1/auth/register` | Anyone could create a partner account with a working API key. | `ed3b762` |
 | `GET /api/admin/v1/deliveries/:deliveryId/events` | Delivery events were written but nothing could read them. | `44e0250` |
 | `saveDeliveryEvent` takes named options | Two same-typed status arguments were passed in reverse. | `2595d68` |
+| `DeliveryQuote` gains required `baseFee` and `distanceFee`; one new migration fills older quotes (base 0, distance = the old price) | A rider's pay must be auditable from the delivery's own quote, and the co-op fee was being counted twice. | `a484994` |
 
 ---
 
@@ -113,6 +118,33 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Changed
 
+- **The delivery fee is now a base fee plus a per km fee** (scope row 51, spec 0001).
+  `a484994`, `579109d`
+  - Each quote stores its two parts in whole cents: `baseFee`, from the new `quoteBaseFee`
+    setting, and `distanceFee`, the distance times `quoteRatePerDistanceUnit`. The customer
+    price is the two parts plus the co-op fee %, added once on top. Worked example: base 200,
+    0.71 km at 150 per km, 10% fee gives 338 charged and 307 paid.
+  - The rider is paid exactly the two parts, read from the stored quote. The co-op fee is
+    never inside rider pay. Before, the fee was counted twice: the quote price already
+    included it, the rider was paid that whole price, and the offer added the fee again on
+    top for the customer.
+  - A delivery's pay, fee, fee % and total all come from its quote, on every path (the
+    matcher's offer, an admin's offer and a reassignment). Changing a setting after the quote
+    no longer changes that delivery.
+  - `quoteBaseFee` is editable from admin. `0` is allowed; a negative, a fraction of a cent or
+    an empty value is refused with a message naming the setting. It is seeded as 200, with the
+    fallback `DEFAULT_QUOTE_BASE_FEE=200`. ⚠ 200 is a placeholder awaiting a member vote.
+  - A bad stored base fee (possible only by editing the database) stops quoting with an
+    error, so it can never be paid out. The admin settings and public metadata still load,
+    showing the base fee as empty, so it can be fixed from admin. `579109d`
+  - The public `/metadata` now shows `quoteBaseFee` and `quoteRatePerDistanceUnit`, so riders
+    can read how their pay is built.
+  - The admin delivery detail (`GET /api/admin/v1/deliveries/:deliveryId`) adds `baseFee`,
+    `distanceFee` and `feePercentage`. The list endpoint sends `null` for the two parts.
+  - `SURGE` quotes store a base fee of 0, so their whole price is the distance part (surge
+    itself is removed in scope row 52).
+  - Older quotes read as base 0 and distance equal to their old price. Older deliveries keep
+    the amounts they were given.
 - **Pricing is now distance-based instead of random.** `0dedb32`
   - The live instance used to quote with `Math.random()`, and with
     `FROM_QUOTE_FROM` that random number was also the rider's pay. `BY_DISTANCE` is now
@@ -163,6 +195,9 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Removed
 
+- **The minimum courier pay floor** (`defaultMinimumCourierPay`): the setting, its fallback,
+  the seed and the public metadata field. The base fee now protects short trips. A 0.14 km
+  trip pays 200 + 21 = 221, where the floor used to make it 250. `a484994`
 - Public partner self-registration endpoint (see the core-change table). `ed3b762`
 - `parsePrice`, an unused helper that hard-coded `$`. `f4add7b`
 
@@ -176,7 +211,12 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Known open items
 
-- Pricing rate and pay floor await ratification by a member vote.
+- The quote rate and the base fee (150 per km and 200 per delivery) await ratification by a
+  member vote.
+- The base fee has no upper limit. Above 2147483647 cents it would save, then make every quote
+  fail on the 32 bit column (deferred to scope row 53 with the fee % ceiling).
+- A bad stored base fee makes a partner's quote request return a generic 500; the message
+  naming `quoteBaseFee` is only in the server log.
 - The fee % has no upper limit, so a mistyped extra zero in admin would multiply every price
   (scope row 53, waiting for the co-op to choose the ceiling).
 - Rotate the upstream dev credentials in `local.env` before any real deployment.
