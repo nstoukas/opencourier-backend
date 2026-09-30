@@ -37,6 +37,35 @@ import { ConfigService } from '@nestjs/config'
 import { ConfigKey } from 'src/shared-types/index'
 import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 
+// Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
+// Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
+// below with `!== undefined`, never `if (data.x)`: a truthy check silently drops a 0.
+const NUMERIC_SETTING_RULES: {
+  // keyof = the name of one of the input's fields, so a typo here fails typecheck.
+  key: keyof InstanceConfigSettingsInput
+  whyZeroIsRefused: string | null
+}[] = [
+  { key: 'feePercentageAmount', whyZeroIsRefused: null },
+  { key: 'quoteRatePerDistanceUnit', whyZeroIsRefused: null },
+  { key: 'defaultCourierPayRate', whyZeroIsRefused: null },
+  { key: 'defaultMinimumCourierPay', whyZeroIsRefused: null },
+  { key: 'maxDriftDistance', whyZeroIsRefused: null },
+  {
+    key: 'maxAssignmentDistance',
+    // Not "zero km": the courier queries read a 0 limit as no limit at all.
+    whyZeroIsRefused: 'the matcher reads 0 as "no limit" and would offer deliveries to couriers at any distance',
+  },
+  {
+    key: 'quoteExpirationMinutes',
+    // calculateDeliveryQuoteExpiration throws on 0, so every quote request would fail.
+    whyZeroIsRefused: 'a quote would expire the moment it is made, so no delivery could be booked',
+  },
+  {
+    key: 'defaultMaxWorkingHours',
+    whyZeroIsRefused: 'a courier given this default would have no time to work',
+  },
+]
+
 @Injectable()
 export class InstanceConfigDomainService {
   private readonly logger = new Logger(InstanceConfigDomainService.name)
@@ -167,7 +196,27 @@ export class InstanceConfigDomainService {
       }
     }
 
+    // Numeric settings: negatives are never valid. Zero is a real co-op choice for some
+    // (a 0% fee) and would break quoting or matching for others, so those refuse it and say why.
+    for (const rule of NUMERIC_SETTING_RULES) {
+      const value = data[rule.key]
+      if (value === undefined) {
+        continue
+      }
+      // typeof also catches null: the ValidationPipe's @IsOptional lets a JSON null through.
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new BadRequestException(`${rule.key} must be a number`)
+      }
+      if (value < 0) {
+        throw new BadRequestException(`${rule.key} cannot be negative`)
+      }
+      if (value === 0 && rule.whyZeroIsRefused !== null) {
+        throw new BadRequestException(`${rule.key} cannot be 0: ${rule.whyZeroIsRefused}`)
+      }
+    }
+
     // Phase 2 — write validated settings to the database repository.
+    // Numeric settings use !== undefined, never `if (data.x)`: see NUMERIC_SETTING_RULES.
     if (data.courierMatcherType) {
       await this.configRepository.saveByKey(ConfigKey.COURIER_MATCHER_TYPE, data.courierMatcherType)
     }
@@ -189,29 +238,26 @@ export class InstanceConfigDomainService {
         data.courierCompensationCalculationType
       )
     }
-    if (data.maxAssignmentDistance) {
+    if (data.maxAssignmentDistance !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.MAX_ASSIGNMENT_DISTANCE, data.maxAssignmentDistance)
     }
-    if (data.quoteExpirationMinutes) {
+    if (data.quoteExpirationMinutes !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.QUOTE_EXPIRATION_MINUTES, data.quoteExpirationMinutes)
     }
-    if (data.feePercentageAmount) {
+    if (data.feePercentageAmount !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.FEE_PERCENTAGE_AMOUNT, data.feePercentageAmount)
     }
-    // !== undefined, not a truthy check: 0 is a legitimate voted rate (a flat minimum with no
-    // distance component), and `if (data.x)` would silently discard it.
     if (data.quoteRatePerDistanceUnit !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
     }
 
-    if (data.defaultCourierPayRate) {
+    if (data.defaultCourierPayRate !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_COURIER_PAY_RATE, data.defaultCourierPayRate)
     }
-    // !== undefined, not a truthy check: 0 is a legitimate voted floor (no floor), and `if (data.x)` would silently discard it.
     if (data.defaultMinimumCourierPay !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, data.defaultMinimumCourierPay)
     }
-    if (data.defaultMaxWorkingHours) {
+    if (data.defaultMaxWorkingHours !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_MAX_WORKING_HOURS, data.defaultMaxWorkingHours)
     }
     if (data.defaultDietaryRestrictions) {
@@ -223,7 +269,7 @@ export class InstanceConfigDomainService {
     if (data.currency) {
       await this.configRepository.saveByKey(ConfigKey.CURRENCY, data.currency)
     }
-    if (data.maxDriftDistance) {
+    if (data.maxDriftDistance !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.MAX_DRIFT_DISTANCE, data.maxDriftDistance)
     }
     if (data.details) {

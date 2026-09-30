@@ -10,6 +10,7 @@ import {
 } from 'src/shared-types'
 import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
+import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 
 describe('InstanceConfigDomainService', () => {
   let service: InstanceConfigDomainService
@@ -360,6 +361,146 @@ describe('InstanceConfigDomainService', () => {
 
       const floor = await service.getDefaultMinimumCourierPay()
       expect(floor).toBe(250.5)
+    })
+  })
+
+  describe('numeric setting rules (NUMERIC_SETTING_RULES)', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    beforeEach(() => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+    })
+
+    describe('zero-allowed numeric settings', () => {
+      const allowedSettings: Array<{ key: keyof InstanceConfigSettingsInput; configKey: ConfigKey }> = [
+        { key: 'feePercentageAmount', configKey: ConfigKey.FEE_PERCENTAGE_AMOUNT },
+        { key: 'quoteRatePerDistanceUnit', configKey: ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT },
+        { key: 'defaultCourierPayRate', configKey: ConfigKey.DEFAULT_COURIER_PAY_RATE },
+        { key: 'defaultMinimumCourierPay', configKey: ConfigKey.DEFAULT_MINIMUM_COURIER_PAY },
+        { key: 'maxDriftDistance', configKey: ConfigKey.MAX_DRIFT_DISTANCE },
+      ]
+
+      allowedSettings.forEach(({ key, configKey }) => {
+        it(`allows zero (0) for ${key} and saves it to repository`, async () => {
+          // Setting 0 should call configRepository.saveByKey with 0
+          await service.setInstanceConfigSettings({ [key]: 0 })
+
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(configKey, 0)
+        })
+      })
+    })
+
+    describe('zero-refused numeric settings', () => {
+      it('refuses 0 for maxAssignmentDistance with clear explanation', async () => {
+        // Zero in maxAssignmentDistance means no limit in matcher, so it must be refused
+        const promise = service.setInstanceConfigSettings({ maxAssignmentDistance: 0 })
+
+        await expect(promise).rejects.toThrow(BadRequestException)
+        await expect(promise).rejects.toThrow(
+          'maxAssignmentDistance cannot be 0: the matcher reads 0 as "no limit" and would offer deliveries to couriers at any distance'
+        )
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+
+      it('refuses 0 for quoteExpirationMinutes with clear explanation', async () => {
+        // Zero expiration minutes causes instant expiry on quote creation
+        const promise = service.setInstanceConfigSettings({ quoteExpirationMinutes: 0 })
+
+        await expect(promise).rejects.toThrow(BadRequestException)
+        await expect(promise).rejects.toThrow(
+          'quoteExpirationMinutes cannot be 0: a quote would expire the moment it is made, so no delivery could be booked'
+        )
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+
+      it('refuses 0 for defaultMaxWorkingHours with clear explanation', async () => {
+        // Zero working hours leaves courier no time to work
+        const promise = service.setInstanceConfigSettings({ defaultMaxWorkingHours: 0 })
+
+        await expect(promise).rejects.toThrow(BadRequestException)
+        await expect(promise).rejects.toThrow(
+          'defaultMaxWorkingHours cannot be 0: a courier given this default would have no time to work'
+        )
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('negative numeric settings rejection', () => {
+      const allNumericKeys: Array<keyof InstanceConfigSettingsInput> = [
+        'feePercentageAmount',
+        'quoteRatePerDistanceUnit',
+        'defaultCourierPayRate',
+        'defaultMinimumCourierPay',
+        'maxDriftDistance',
+        'maxAssignmentDistance',
+        'quoteExpirationMinutes',
+        'defaultMaxWorkingHours',
+      ]
+
+      allNumericKeys.forEach((key) => {
+        it(`rejects negative values for ${key}`, async () => {
+          // Negative values are invalid for all numeric settings
+          const promise = service.setInstanceConfigSettings({ [key]: -5 })
+
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${key} cannot be negative`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+      })
+    })
+
+    describe('invalid non-number types rejection', () => {
+      const allNumericKeys: Array<keyof InstanceConfigSettingsInput> = [
+        'feePercentageAmount',
+        'quoteRatePerDistanceUnit',
+        'defaultCourierPayRate',
+        'defaultMinimumCourierPay',
+        'maxDriftDistance',
+        'maxAssignmentDistance',
+        'quoteExpirationMinutes',
+        'defaultMaxWorkingHours',
+      ]
+
+      allNumericKeys.forEach((key) => {
+        it(`rejects null value for ${key} with "must be a number"`, async () => {
+          // JSON null is passed by @IsOptional(), service must reject it
+          const promise = service.setInstanceConfigSettings({ [key]: null as any })
+
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${key} must be a number`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+
+        it(`rejects NaN value for ${key}`, async () => {
+          // NaN is not a finite number
+          const promise = service.setInstanceConfigSettings({ [key]: NaN })
+
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${key} must be a number`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+      })
+    })
+
+    describe('truthy check guard', () => {
+      it('fails if numeric setting saves switch back to truthy checks (if (data.x)) instead of !== undefined', async () => {
+        // Test all zero-allowed settings in a single payload of zeros
+        await service.setInstanceConfigSettings({
+          feePercentageAmount: 0,
+          quoteRatePerDistanceUnit: 0,
+          defaultCourierPayRate: 0,
+          defaultMinimumCourierPay: 0,
+          maxDriftDistance: 0,
+        })
+
+        // Assert each key was saved as 0, proving none was dropped by a truthy check
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.FEE_PERCENTAGE_AMOUNT, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.DEFAULT_COURIER_PAY_RATE, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.MAX_DRIFT_DISTANCE, 0)
+      })
     })
   })
 })

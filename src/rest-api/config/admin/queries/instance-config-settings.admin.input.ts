@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsEnum, IsNumber, IsOptional, IsObject, IsString, Min } from 'class-validator'
+import { IsArray, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -72,9 +72,6 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
-  // A negative rate would pay a courier to not travel. This is the only @Min in the file;
-  // the other numeric fields are pre-existing and out of scope.
-  @Min(0)
   quoteRatePerDistanceUnit?: number
 
   @ApiProperty({ type: Number, required: false })
