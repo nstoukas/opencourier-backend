@@ -9,6 +9,10 @@ Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipe
 (31 commits, 25 July – 5 August 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
+Scope row 49 (zero is a valid value for every co-op setting) sits on the branch
+`fix/zero-valid-settings`, three commits on top of that branch. With it the suite is at
+**292 passing tests**; typecheck is clean and lint is unchanged.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -140,6 +144,20 @@ are the exceptions, each kept additive or as narrow as possible:
   which the guard didn't recognise. The spec that would have caught this was misnamed, so
   Jest never ran it. `3928443`
 - A saved minimum-pay value of `0` was silently ignored. `0dedb32`
+- **A `0` is now kept for every co-op number setting, or refused with the reason** (scope
+  row 49). Six settings were saved with `if (data.x)`, so a `0` was dropped while admin said
+  "saved": a vote for a 0% fee never reached a quote. `8840ce2`
+  - Fee %, courier pay rate and drift distance save `0` and read it back as `0` (the admin
+    response used to turn a stored `0` into `null`).
+  - Max assignment distance, quote expiry and max working hours refuse `0` with a message
+    that says why. For the distance it is not "zero km": the courier search reads `0` as no
+    limit at all, so deliveries would be offered to couriers at any distance.
+  - All eight number settings (those six plus the quote rate and minimum pay) refuse a
+    negative or an empty value. Everything is checked before anything is written, so a
+    refused request changes nothing.
+  - One table in the config service, `NUMERIC_SETTING_RULES`, holds every number setting and
+    whether `0` is allowed. The tests are generated from it, so a setting added to the table
+    gets its checks automatically. `3fa465c`
 - The partner seed gave every instance upstream's fixed API key, which is public in upstream's
   history. It now generates a random key, and a re-seed replaces the old one. `2260c39`
 
@@ -159,6 +177,8 @@ are the exceptions, each kept additive or as narrow as possible:
 ## Known open items
 
 - Pricing rate and pay floor await ratification by a member vote.
+- The fee % has no upper limit, so a mistyped extra zero in admin would multiply every price
+  (scope row 53, waiting for the co-op to choose the ceiling).
 - Rotate the upstream dev credentials in `local.env` before any real deployment.
 - The earnings repository query is still mocked in tests and needs an integration test.
 - A `@@index([createdAt, newStatus])` on `DeliveryEvent` is worth adding (schema change).
