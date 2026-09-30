@@ -40,7 +40,8 @@ import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/i
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
 // below with `!== undefined`, never `if (data.x)`: a truthy check silently drops a 0.
-const NUMERIC_SETTING_RULES: {
+// Exported so the tests can walk this table: each rule gets its own zero and negative checks.
+export const NUMERIC_SETTING_RULES: {
   // keyof = the name of one of the input's fields, so a typo here fails typecheck.
   key: keyof InstanceConfigSettingsInput
   whyZeroIsRefused: string | null
