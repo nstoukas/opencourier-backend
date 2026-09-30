@@ -1,12 +1,10 @@
 import { SimpleCourierCompensationService } from './simple-courier-compensation.service'
-import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryQuoteRepository } from 'src/persistence/repositories/delivery-quote.repository'
 
 describe('SimpleCourierCompensationService', () => {
   let service: SimpleCourierCompensationService
-  let configDomainService: jest.Mocked<ConfigDomainService>
   let courierRepository: jest.Mocked<CourierRepository>
   let deliveryRepository: jest.Mocked<DeliveryRepository>
   let deliveryQuoteRepository: jest.Mocked<DeliveryQuoteRepository>
@@ -18,15 +16,9 @@ describe('SimpleCourierCompensationService', () => {
 
   const sampleCourier = { id: 'courier-1' }
   const sampleDelivery = { id: 'delivery-1', deliveryQuoteId: 'quote-1' }
-  const sampleQuote = { id: 'quote-1', quoteRangeFrom: 21 }
+  const sampleQuote = { id: 'quote-1', baseFee: 200, distanceFee: 107 }
 
   beforeEach(() => {
-    configDomainService = {
-      instanceConfig: {
-        getDefaultMinimumCourierPay: jest.fn().mockResolvedValue(250),
-      },
-    } as any
-
     courierRepository = {
       findById: jest.fn().mockResolvedValue(sampleCourier),
     } as any
@@ -40,75 +32,40 @@ describe('SimpleCourierCompensationService', () => {
     } as any
 
     service = new SimpleCourierCompensationService(
-      configDomainService,
       courierRepository,
       deliveryRepository,
       deliveryQuoteRepository
     )
   })
 
-  // D1. Quote quoteRangeFrom = 21, defaultMinimumCourierPay = 250 -> returns 250
-  it('binds minimum courier pay floor when quote compensation is below floor', async () => {
-    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', quoteRangeFrom: 21 } as any)
-    ;(configDomainService.instanceConfig.getDefaultMinimumCourierPay as jest.Mock).mockResolvedValue(250)
+  // AC-3: Pays quote.baseFee + quote.distanceFee
+  it('returns rider pay as quote.baseFee + quote.distanceFee', async () => {
+    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', baseFee: 200, distanceFee: 107 } as any)
 
     const compensation = await service.calculateCourierCompensationForDelivery(sampleInput)
 
-    expect(compensation).toBe(250)
+    expect(compensation).toBe(307)
   })
 
-  // D2. Quote quoteRangeFrom = 900, floor 250 -> returns 900
-  it('returns raw quote compensation when it exceeds minimum pay floor', async () => {
-    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', quoteRangeFrom: 900 } as any)
-    ;(configDomainService.instanceConfig.getDefaultMinimumCourierPay as jest.Mock).mockResolvedValue(250)
+  // AC-5: No floor: a 0.14 km trip pays 200 + 21 = 221, not 250
+  it('pays 221 (200 base + 21 distance) for a 0.14 km trip without applying a floor of 250', async () => {
+    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', baseFee: 200, distanceFee: 21 } as any)
 
     const compensation = await service.calculateCourierCompensationForDelivery(sampleInput)
 
-    expect(compensation).toBe(900)
+    expect(compensation).toBe(221)
   })
 
-  // D3. Floor null -> returns quoteRangeFrom unchanged
-  it('returns quoteRangeFrom unchanged when minimum courier pay is null', async () => {
-    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', quoteRangeFrom: 21 } as any)
-    ;(configDomainService.instanceConfig.getDefaultMinimumCourierPay as jest.Mock).mockResolvedValue(null)
+  // AC-3 zero case: base 0 and distance 0 returns 0
+  it('returns 0 when both baseFee and distanceFee are 0', async () => {
+    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', baseFee: 0, distanceFee: 0 } as any)
 
     const compensation = await service.calculateCourierCompensationForDelivery(sampleInput)
 
-    expect(compensation).toBe(21)
+    expect(compensation).toBe(0)
   })
 
-  // D4. When floor binds, logger.warn is called once with delivery id, both amounts, and absorbed difference
-  it('emits a warning log when minimum courier pay floor binds with delivery details', async () => {
-    const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation(() => {})
-    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', quoteRangeFrom: 21 } as any)
-    ;(configDomainService.instanceConfig.getDefaultMinimumCourierPay as jest.Mock).mockResolvedValue(250)
-
-    await service.calculateCourierCompensationForDelivery(sampleInput)
-
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    const warnMessage = warnSpy.mock.calls[0]![0]
-    expect(warnMessage).toContain('delivery-1')
-    expect(warnMessage).toContain('quote 21')
-    expect(warnMessage).toContain('raised to 250')
-    expect(warnMessage).toContain('difference of 229')
-
-    warnSpy.mockRestore()
-  })
-
-  // D5. When floor does not bind, no warn log is emitted
-  it('does not emit a warning log when minimum pay floor does not bind', async () => {
-    const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation(() => {})
-    deliveryQuoteRepository.findById.mockResolvedValue({ id: 'quote-1', quoteRangeFrom: 900 } as any)
-    ;(configDomainService.instanceConfig.getDefaultMinimumCourierPay as jest.Mock).mockResolvedValue(250)
-
-    await service.calculateCourierCompensationForDelivery(sampleInput)
-
-    expect(warnSpy).not.toHaveBeenCalled()
-
-    warnSpy.mockRestore()
-  })
-
-  // D6. Existing not-found paths (courier, delivery, quote) still reject with current messages
+  // Existing not-found paths (courier, delivery, quote) still reject with current messages
   it('rejects when courier is not found', async () => {
     courierRepository.findById.mockResolvedValue(null)
 

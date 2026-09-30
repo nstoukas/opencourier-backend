@@ -8,9 +8,8 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types'
-import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT } from 'src/constants'
+import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT, DEFAULT_QUOTE_BASE_FEE } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
-import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 
 describe('InstanceConfigDomainService', () => {
   let service: InstanceConfigDomainService
@@ -24,7 +23,7 @@ describe('InstanceConfigDomainService', () => {
     } as any
 
     fileConfigService = {
-      get: jest.fn().mockReturnValue('default_value'),
+      get: jest.fn().mockReturnValue('200'),
     } as any
 
     service = new InstanceConfigDomainService(configRepository, fileConfigService)
@@ -338,29 +337,91 @@ describe('InstanceConfigDomainService', () => {
     })
   })
 
-  describe('defaultMinimumCourierPay', () => {
+  describe('quoteBaseFee (AC-4)', () => {
     const notFoundError = new Error('Record not found in config table')
     notFoundError.name = 'NotFoundError'
 
-    it('saves a voted floor of 0 when explicitly passed to setInstanceConfigSettings', async () => {
+    beforeEach(() => {
       configRepository.getByKey.mockRejectedValue(notFoundError)
-
-      await service.setInstanceConfigSettings({ defaultMinimumCourierPay: 0 })
-
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, 0)
     })
 
-    it('preserves fractional floor values like 250.5 without truncating via parseInt', async () => {
+    it('returns stored quoteBaseFee when present as integer', async () => {
       configRepository.getByKey.mockResolvedValue(
         new ConfigEntity({
-          key: ConfigKey.DEFAULT_MINIMUM_COURIER_PAY,
-          value: '250.5',
+          key: ConfigKey.QUOTE_BASE_FEE,
+          value: '200',
           type: 'number',
         })
       )
 
-      const floor = await service.getDefaultMinimumCourierPay()
-      expect(floor).toBe(250.5)
+      const baseFee = await service.getQuoteBaseFee()
+      expect(baseFee).toBe(200)
+    })
+
+    it('falls back to DEFAULT_QUOTE_BASE_FEE when row is missing', async () => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+      fileConfigService.get.mockReturnValue('200')
+
+      const baseFee = await service.getQuoteBaseFee()
+
+      expect(baseFee).toBe(200)
+      expect(fileConfigService.get).toHaveBeenCalledWith(DEFAULT_QUOTE_BASE_FEE)
+    })
+
+    it('throws when stored quoteBaseFee is not a whole number of cents (e.g. "12.5")', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_BASE_FEE,
+          value: '12.5',
+          type: 'number',
+        })
+      )
+
+      await expect(service.getQuoteBaseFee()).rejects.toThrow(
+        'quoteBaseFee must be a whole number of cents, 0 or more (found 12.5)'
+      )
+    })
+
+    it('throws when stored quoteBaseFee is invalid text (e.g. "abc")', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_BASE_FEE,
+          value: 'abc',
+          type: 'string',
+        })
+      )
+
+      await expect(service.getQuoteBaseFee()).rejects.toThrow(
+        'quoteBaseFee must be a whole number of cents, 0 or more (found abc)'
+      )
+    })
+
+    it('throws when stored quoteBaseFee is empty string ""', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_BASE_FEE,
+          value: '',
+          type: 'string',
+        })
+      )
+
+      await expect(service.getQuoteBaseFee()).rejects.toThrow(
+        'quoteBaseFee must be a whole number of cents, 0 or more (found )'
+      )
+    })
+
+    it('refuses fractional quoteBaseFee of 12.5 in setInstanceConfigSettings with clear message naming quoteBaseFee', async () => {
+      const promise = service.setInstanceConfigSettings({ quoteBaseFee: 12.5 })
+
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow('quoteBaseFee must be a whole number of cents')
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('saves a base fee of 0 when explicitly passed to setInstanceConfigSettings', async () => {
+      await service.setInstanceConfigSettings({ quoteBaseFee: 0 })
+
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_BASE_FEE, 0)
     })
   })
 
@@ -493,5 +554,3 @@ describe('InstanceConfigDomainService', () => {
     })
   })
 })
-
-

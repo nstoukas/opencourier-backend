@@ -28,8 +28,8 @@ describe('InstanceConfigSettingsDto', () => {
     quoteExpirationMinutes: 15,
     feePercentageAmount: 10,
     quoteRatePerDistanceUnit: 150,
+    quoteBaseFee: 200,
     defaultCourierPayRate: 300,
-    defaultMinimumCourierPay: 250,
     defaultMaxWorkingHours: 8,
     details: {} as InstanceDetails,
     updatedAt: '2026-09-30T12:00:00.000Z',
@@ -47,8 +47,8 @@ describe('InstanceConfigSettingsDto', () => {
       quoteExpirationMinutes: 0,
       feePercentageAmount: 0,
       quoteRatePerDistanceUnit: 0,
+      quoteBaseFee: 0,
       defaultCourierPayRate: 0,
-      defaultMinimumCourierPay: 0,
       defaultMaxWorkingHours: 0,
     }
 
@@ -60,8 +60,8 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.quoteExpirationMinutes).toBe(0)
     expect(dto.feePercentageAmount).toBe(0)
     expect(dto.quoteRatePerDistanceUnit).toBe(0)
+    expect(dto.quoteBaseFee).toBe(0)
     expect(dto.defaultCourierPayRate).toBe(0)
-    expect(dto.defaultMinimumCourierPay).toBe(0)
     expect(dto.defaultMaxWorkingHours).toBe(0)
   })
 
@@ -74,8 +74,8 @@ describe('InstanceConfigSettingsDto', () => {
       quoteExpirationMinutes: null,
       feePercentageAmount: null,
       quoteRatePerDistanceUnit: null,
+      quoteBaseFee: null,
       defaultCourierPayRate: null,
-      defaultMinimumCourierPay: null,
       defaultMaxWorkingHours: null,
     }
 
@@ -86,8 +86,14 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.quoteExpirationMinutes).toBeNull()
     expect(dto.feePercentageAmount).toBeNull()
     expect(dto.quoteRatePerDistanceUnit).toBeNull()
+    expect(dto.quoteBaseFee).toBeNull()
     expect(dto.defaultCourierPayRate).toBeNull()
-    expect(dto.defaultMinimumCourierPay).toBeNull()
     expect(dto.defaultMaxWorkingHours).toBeNull()
+  })
+
+  // AC-5: Verifies that InstanceConfigSettingsDto has no defaultMinimumCourierPay property
+  it('has no defaultMinimumCourierPay property on dto (AC-5)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect((dto as any).defaultMinimumCourierPay).toBeUndefined()
   })
 })

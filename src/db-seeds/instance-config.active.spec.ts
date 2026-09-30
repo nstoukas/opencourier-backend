@@ -100,6 +100,24 @@ describe('seedInitialInstanceConfig', () => {
     expect(rateCall[0].data.type).toBe('number')
   })
 
+  // AC-8. quoteBaseFee is seeded as '200' with type: 'number' and no defaultMinimumCourierPay
+  it('seeds quoteBaseFee as 200 with number type and does not seed defaultMinimumCourierPay (AC-8)', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const baseFeeCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'quoteBaseFee'
+    )
+
+    expect(baseFeeCall).toBeDefined()
+    expect(baseFeeCall[0].data.value).toBe('200')
+    expect(baseFeeCall[0].data.type).toBe('number')
+
+    const minPayCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'defaultMinimumCourierPay'
+    )
+    expect(minPayCall).toBeUndefined()
+  })
+
   // F4. Existing quoteCalculationType row is not overwritten
   it('does not overwrite an existing quoteCalculationType config row if one already exists', async () => {
     mockFindUnique.mockImplementation(async ({ where }: { where: { key: string } }) => {
@@ -118,4 +136,3 @@ describe('seedInitialInstanceConfig', () => {
     expect(quoteTypeCreateCall).toBeUndefined()
   })
 })
-

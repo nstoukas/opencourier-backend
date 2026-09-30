@@ -2,6 +2,7 @@ import { CustomQuoteCalculationService } from './custom-quote-calculation.servic
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { QUOTE_CALCULATION_TYPE_TO_HUMAN, EnumQuoteCalculationType } from 'src/shared-types'
+import { roundMoney } from 'src/core/utils/money'
 
 describe('CustomQuoteCalculationService', () => {
   let service: CustomQuoteCalculationService
@@ -43,5 +44,13 @@ describe('CustomQuoteCalculationService', () => {
   it('contains DEVELOPMENT ONLY in human-readable metadata label for CUSTOM', () => {
     const humanLabel = QUOTE_CALCULATION_TYPE_TO_HUMAN[EnumQuoteCalculationType.CUSTOM]
     expect(humanLabel).toContain('DEVELOPMENT ONLY')
+  })
+
+  // AC-2 zero cases: CUSTOM returns baseFee 0 and rounded distanceFee equal to roundMoney(quote)
+  it('returns baseFee 0 and rounded distanceFee equal to rounded quote price', async () => {
+    const result = await service.calculateDeliveryQuote(sampleInput)
+
+    expect(result.baseFee).toBe(0)
+    expect(result.distanceFee).toBe(roundMoney(result.quoteRangeFrom))
   })
 })
