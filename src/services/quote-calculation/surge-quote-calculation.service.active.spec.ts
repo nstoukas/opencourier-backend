@@ -34,4 +34,30 @@ describe('SurgeQuoteCalculationService', () => {
     expect(result.distanceFee).toBe(300) // 2 km * 150
     expect(result.baseFee + result.distanceFee).toBe(result.quoteRangeFrom)
   })
+
+  it('rounds distanceFee to whole cents (107) for fractional daytime calculation (0.71 km at 150)', async () => {
+    geoCalculationService.calculateDistance.mockResolvedValue(0.71)
+
+    const result = await service.calculateDeliveryQuote({
+      ...sampleInput,
+      pickupReadyAt: new Date('2026-09-30T12:00:00.000Z'),
+    })
+
+    expect(result.baseFee).toBe(0)
+    expect(result.distanceFee).toBe(107) // 0.71 * 150 = 106.5 -> 107
+    expect(Number.isInteger(result.distanceFee)).toBe(true)
+  })
+
+  it('rounds distanceFee to whole cents (160) for night SURGE calculation (0.71 km at 150 x 1.5)', async () => {
+    geoCalculationService.calculateDistance.mockResolvedValue(0.71)
+
+    const result = await service.calculateDeliveryQuote({
+      ...sampleInput,
+      pickupReadyAt: new Date('2026-09-30T23:00:00.000Z'),
+    })
+
+    expect(result.baseFee).toBe(0)
+    expect(result.distanceFee).toBe(160) // 0.71 * 150 * 1.5 = 159.75 -> 160
+    expect(Number.isInteger(result.distanceFee)).toBe(true)
+  })
 })

@@ -150,6 +150,23 @@ describe('DeliveryCalculationService', () => {
       expect(result.quoteRangeTo).toBe(330)
       expect(result.feePercentage).toBe(10)
     })
+
+    it('calculates customer price from parts only (200 + 107 + 10% = 338) ignoring price service quoteRangeFrom/To (AC-2)', async () => {
+      quoteCalculationService.calculateDeliveryQuote.mockResolvedValue({
+        baseFee: 200,
+        distanceFee: 107,
+        quoteRangeFrom: 999.4,
+        quoteRangeTo: 999.4,
+      })
+      ;(configDomainService.instanceConfig.getFeePercentageAmount as jest.Mock).mockResolvedValue(10)
+
+      const result = await service.calculateDeliveryQuoteAmount(sampleInput)
+
+      expect(result.baseFee).toBe(200)
+      expect(result.distanceFee).toBe(107)
+      expect(result.quoteRangeFrom).toBe(338)
+      expect(result.quoteRangeTo).toBe(338)
+    })
   })
 
   describe('AC-3: calculateDeliveryAmountsForMatchedCourier reads from stored quote', () => {

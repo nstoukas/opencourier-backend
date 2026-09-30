@@ -423,6 +423,28 @@ describe('InstanceConfigDomainService', () => {
 
       expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_BASE_FEE, 0)
     })
+
+    it('refuses negative quoteBaseFee of -1 in setInstanceConfigSettings with clear message naming quoteBaseFee (AC-4)', async () => {
+      const promise = service.setInstanceConfigSettings({ quoteBaseFee: -1 })
+
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow('quoteBaseFee')
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('refuses null quoteBaseFee in setInstanceConfigSettings with clear message naming quoteBaseFee (AC-4)', async () => {
+      const promise = service.setInstanceConfigSettings({ quoteBaseFee: null } as any)
+
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow('quoteBaseFee')
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('has an entry in NUMERIC_SETTING_RULES for quoteBaseFee with mustBeWholeCents true', () => {
+      const rule = NUMERIC_SETTING_RULES.find((r) => r.key === 'quoteBaseFee')
+      expect(rule).toBeDefined()
+      expect(rule?.mustBeWholeCents).toBe(true)
+    })
   })
 
   describe('numeric setting rules (NUMERIC_SETTING_RULES)', () => {
