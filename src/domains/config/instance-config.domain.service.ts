@@ -89,7 +89,14 @@ export class InstanceConfigDomainService {
     const quoteExpirationMinutes = await this.getQuoteExpirationMinutes()
     const feePercentageAmount = await this.getFeePercentageAmount()
     const quoteRatePerDistanceUnit = await this.getQuoteRatePerDistanceUnit()
-    const quoteBaseFee = await this.getQuoteBaseFee()
+    // A bad stored base fee must stop quoting (getQuoteBaseFee throws), but not this reader:
+    // it feeds the admin settings page, where the value gets fixed, and the public metadata.
+    // So here it reads as null, which the admin page shows as an empty box, and a warning is logged.
+    // .catch() on a promise turns the error into a fallback value instead of failing the await.
+    const quoteBaseFee = await this.getQuoteBaseFee().catch((error: Error) => {
+      this.logger.warn(error.message)
+      return null
+    })
     const distanceUnit = await this.getDistanceUnit()
     const currency = await this.getCurrency()
     const details = await this.getDetails()
