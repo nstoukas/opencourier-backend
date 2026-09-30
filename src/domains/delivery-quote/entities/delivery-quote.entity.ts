@@ -6,6 +6,9 @@ export class DeliveryQuoteEntity implements DeliveryQuote {
   quoteRangeFrom: number
   quoteRangeTo: number
   feePercentage: number
+  // The two parts the rider is paid, in whole cents (spec 0001).
+  baseFee: number
+  distanceFee: number
   currency: string
   duration: number
   distance: number
@@ -41,6 +44,8 @@ export class DeliveryQuoteEntity implements DeliveryQuote {
     this.quoteRangeFrom = data.quoteRangeFrom
     this.quoteRangeTo = data.quoteRangeTo
     this.feePercentage = data.feePercentage
+    this.baseFee = data.baseFee
+    this.distanceFee = data.distanceFee
     this.currency = data.currency
     this.duration = data.duration
     this.distance = data.distance

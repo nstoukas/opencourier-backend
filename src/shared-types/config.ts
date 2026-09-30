@@ -22,8 +22,10 @@ export type InstanceConfigSettings = {
   // per kilometre when distanceUnit is KILOMETERS). A fairness parameter: it lives here, in
   // the Config table, so members can vote it — never in code.
   quoteRatePerDistanceUnit: number | null
+  // Fixed part of every delivery's price, in whole cents (200 = EUR 2.00), paid to the rider in
+  // full on top of the distance part. Set by the co-op like the rate above (spec 0001).
+  quoteBaseFee: number | null
   defaultCourierPayRate: number | null
-  defaultMinimumCourierPay: number | null
   defaultMaxWorkingHours: number | null
   defaultDietaryRestrictions: EnumCourierDietaryRestrictions | null
   distanceUnit: EnumDistanceUnit | null
@@ -53,7 +55,6 @@ export type InstanceDetails = {
 
 export type InstanceCourierDefaults = {
   defaultCourierPayRate: number | null
-  defaultMinimumCourierPay: number | null
   defaultMaxWorkingHours: number | null
   defaultDietaryRestrictions: EnumCourierDietaryRestrictions | null
 }
@@ -75,6 +76,7 @@ export enum ConfigKey {
   COURIER_MATCHER_TYPE = 'courierMatcherType',
   QUOTE_CALCULATION_TYPE = 'quoteCalculationType',
   QUOTE_RATE_PER_DISTANCE_UNIT = 'quoteRatePerDistanceUnit',
+  QUOTE_BASE_FEE = 'quoteBaseFee',
   QUOTE_TO_DELIVERY_CONVERSION_TYPE = 'quoteToDeliveryConversionType',
   DELIVERY_DURATION_CALCULATION_TYPE = 'deliveryDurationCalculationType',
   GEO_CALCULATION_TYPE = 'geoCalculationType',
@@ -83,7 +85,6 @@ export enum ConfigKey {
   MAX_ASSIGNMENT_DISTANCE = 'maxAssignmentDistance',
   QUOTE_EXPIRATION_MINUTES = 'quoteExpirationMinutes',
   DEFAULT_COURIER_PAY_RATE = 'defaultCourierPayRate',
-  DEFAULT_MINIMUM_COURIER_PAY = 'defaultMinimumCourierPay',
   DEFAULT_MAX_WORKING_HOURS = 'defaultMaxWorkingHours',
   DEFAULT_DIETARY_RESTRICTIONS = 'defaultDietaryRestrictions',
   DISTANCE_UNIT = 'distanceUnit',

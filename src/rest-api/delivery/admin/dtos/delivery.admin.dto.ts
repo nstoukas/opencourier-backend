@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 
 export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
@@ -111,6 +112,17 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Number, nullable: true })
   totalCompensation: number | null
 
+  // The two parts of the rider's pay, from the delivery's quote (spec 0001). Only the
+  // get by id endpoint loads the quote; every other endpoint sends null here.
+  @ApiProperty({ type: Number, nullable: true })
+  baseFee: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  distanceFee: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  feePercentage: number | null
+
   @ApiProperty({ type: [String] })
   pickupTypes: string[]
 
@@ -159,7 +171,8 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date })
   createdAt: Date
 
-  constructor(data: DeliveryEntity) {
+  // `quote?` = optional: the list and event endpoints build this DTO without loading a quote.
+  constructor(data: DeliveryEntity, quote?: DeliveryQuoteEntity) {
     this.id = data.id
     this.pickupName = data.pickupName
     this.pickupPhoneNumber = data.pickupPhoneNumber
@@ -198,6 +211,9 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.pay = data.pay
     this.tips = data.tips
     this.totalCompensation = data.totalCompensation
+    this.baseFee = quote?.baseFee ?? null
+    this.distanceFee = quote?.distanceFee ?? null
+    this.feePercentage = data.feePercentage
     this.pickupTypes = data.pickupTypes
     this.imageType = data.imageType
     this.imageName = data.imageName

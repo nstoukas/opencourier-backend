@@ -4,6 +4,7 @@ import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
 import { calculateDistanceQuote } from './utils/distance-quote.util'
+import { roundMoney } from 'src/core/utils/money'
 
 @Injectable()
 export class SimpleQuoteCalculationService implements IQuoteCalculationService {
@@ -32,8 +33,11 @@ export class SimpleQuoteCalculationService implements IQuoteCalculationService {
     // and the rate is defined per that same unit — so the two agree by construction. The old code
     // multiplied a kilometre count by a rate named "per mile".
     const ratePerDistanceUnit = await this.configDomainService.instanceConfig.getQuoteRatePerDistanceUnit()
-    const quote = calculateDistanceQuote(distance, ratePerDistanceUnit)
+    // Each part is rounded to whole cents on its own, so the parts always add up exactly.
+    const distanceFee = roundMoney(calculateDistanceQuote(distance, ratePerDistanceUnit))
+    const baseFee = await this.configDomainService.instanceConfig.getQuoteBaseFee()
+    const quote = baseFee + distanceFee
 
-    return { quoteRangeFrom: quote, quoteRangeTo: quote }
+    return { quoteRangeFrom: quote, quoteRangeTo: quote, baseFee, distanceFee }
   }
 }

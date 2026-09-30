@@ -65,6 +65,9 @@ async function main() {
       quote: 8,
       quoteRangeFrom: 800,
       quoteRangeTo: 800,
+      // The two parts the rider is paid (spec 0001). The fee % is 0 here, so they sum to the price.
+      baseFee: 200,
+      distanceFee: 600,
       currency,
       duration: 900,
       distance: 2.1,

@@ -40,11 +40,16 @@ class ConfigDto {
   @ApiProperty({ type: Number, nullable: true })
   feePercentageAmount: number | null
 
+  // How rider pay is built (spec 0001), public so riders can check it: base fee plus distance
+  // times this rate, both in minor currency units.
   @ApiProperty({ type: Number, nullable: true })
-  defaultCourierPayRate: number | null
+  quoteBaseFee: number | null
 
   @ApiProperty({ type: Number, nullable: true })
-  defaultMinimumCourierPay: number | null
+  quoteRatePerDistanceUnit: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  defaultCourierPayRate: number | null
 
   @ApiProperty({ type: Number, nullable: true })
   defaultMaxWorkingHours: number | null
@@ -112,8 +117,9 @@ export class MetadataPublicDto {
       maxDriftDistance: data.maxDriftDistance ?? null,
       quoteExpirationMinutes: data.quoteExpirationMinutes ?? null,
       feePercentageAmount: data.feePercentageAmount ?? null,
+      quoteBaseFee: data.quoteBaseFee ?? null,
+      quoteRatePerDistanceUnit: data.quoteRatePerDistanceUnit ?? null,
       defaultCourierPayRate: data.defaultCourierPayRate ?? null,
-      defaultMinimumCourierPay: data.defaultMinimumCourierPay ?? null,
       defaultMaxWorkingHours: data.defaultMaxWorkingHours ?? null,
       defaultDietaryRestrictions: data.defaultDietaryRestrictions ?? null,
       distanceUnit: data.distanceUnit ?? null,

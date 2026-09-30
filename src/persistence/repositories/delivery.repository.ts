@@ -11,6 +11,7 @@ import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreate } from 'src/domains/delivery/interfaces/IDeliveryCreate'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
+import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 
 export type PrismaDeliveryWithLocations = Delivery & {
   pickupLocation: Location | null
@@ -72,6 +73,20 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
 
     return this.toDomain(delivery)
+  }
+
+  // The delivery plus the quote it was priced from, for the admin price breakdown (spec 0001).
+  async findByIdOrThrowWithQuote(deliveryId: string) {
+    const delivery = await this.prisma.delivery.findUniqueOrThrow({
+      where: { id: deliveryId },
+      // The schema names the Delivery -> DeliveryQuote relation `delivery`; it is the quote.
+      include: { delivery: true },
+    })
+
+    // Split the included quote off, so the delivery entity gets only its own columns.
+    const { delivery: quote, ...deliveryFields } = delivery
+
+    return { delivery: this.toDomain(deliveryFields), quote: new DeliveryQuoteEntity(quote) }
   }
 
   async findByIdOrThrowWithLocations(deliveryId: string, otherFilters?: DeliveryWhereArgs) {

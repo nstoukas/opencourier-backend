@@ -5,6 +5,8 @@ export interface IDeliveryQuoteCreate {
   quoteRangeFrom: number
   quoteRangeTo: number
   feePercentage?: number
+  baseFee: number
+  distanceFee: number
   currency: string
   duration: number
   distance: number

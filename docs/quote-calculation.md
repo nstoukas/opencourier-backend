@@ -20,8 +20,10 @@ and returns `DeliveryQuoteAmountResultWithFeePercentage` as output.
 
 ```TS
 interface DeliveryQuoteAmountResultWithFeePercentage {
-	quoteRangeFrom: number;
+	quoteRangeFrom: number; // the customer price: baseFee + distanceFee + the co-op fee
 	quoteRangeTo: number;
+	baseFee: number;
+	distanceFee: number;
 	feePercentage: number;
 }
 ```
@@ -55,7 +57,8 @@ pickupReadyAt: The timestamp when the delivery will be ready for pickup.
 Output: DeliveryQuoteAmountResult
 quoteRangeFrom: The from range.
 quoteRangeTo: The to range.
-feePercentage: The fee percentage that was applied.
+baseFee: The fixed part of the rider's pay, in whole cents.
+distanceFee: The distance part of the rider's pay, in whole cents.
 ```
 
 ### Switch implementation
@@ -79,12 +82,20 @@ The rate used for distance-based quotes is configured in the `Config` table key 
 - `quoteRatePerDistanceUnit` represents minor currency units per one `Config.distanceUnit` (e.g., 150 = EUR 1.50 per kilometre when `distanceUnit` is `KILOMETERS`).
 - Rate and distance unit are coupled by definition: switching `distanceUnit` between `KILOMETERS` and `MILES` rescales every calculated quote by 1.609× without changing the rate value itself.
 
-### Courier pay floor (`defaultMinimumCourierPay`)
+### Base fee, rider pay and the co-op fee (spec 0001)
 
-Courier compensation (piece rate) for a delivery is derived from `quoteRangeFrom`. To protect courier earnings on short trips, `defaultMinimumCourierPay` in the `Config` table acts as a floor on courier compensation (applied in `SimpleCourierCompensationService`).
+Every quote is built from two parts, both stored on `DeliveryQuote` in whole cents:
 
-- The pay floor applies to courier compensation, **not** to the customer's delivery quote.
-- If a delivery quote is lower than `defaultMinimumCourierPay`, the courier is paid the floor amount, and the co-op / instance absorbs the difference (logged per delivery).
+- `baseFee`: the `Config` key `quoteBaseFee` when the quote is made (fallback `DEFAULT_QUOTE_BASE_FEE` in `.env`).
+- `distanceFee`: `round(distance × quoteRatePerDistanceUnit)`.
+
+The customer price (`quoteRangeFrom` and `quoteRangeTo`) is `baseFee + distanceFee + round((baseFee + distanceFee) × feePercentage / 100)`. The co-op fee is counted once, on top.
+
+The rider is paid `baseFee + distanceFee` (`SimpleCourierCompensationService`), with no fee inside it and no floor: the base fee protects short trips. When a delivery is offered or reassigned, its pay, fee, fee % and total cost are all read from its stored quote, so changing a setting later never changes a delivery that already exists.
+
+Worked example: base 200, 0.71 km at 150 per km, fee 10%. Distance fee 107, rider pay 307, co-op fee 31, customer price 338.
+
+`SURGE` and `CUSTOM` quotes get a base fee of 0, and their whole price is the distance part.
 
 ### Implementations:
 
@@ -96,8 +107,8 @@ Currently we have 3 implementations:
   - Logs a `logger.warn` on every call warning that prices and courier pay are randomized.
 - `SimpleQuoteCalculationService` -> `EnumQuoteCalculationType.BY_DISTANCE`
   - Calculates the distance between pickup and dropoff locations in `Config.distanceUnit`.
-  - Multiplies the distance by `quoteRatePerDistanceUnit` from `Config`.
-  - Returns the amount.
+  - Multiplies the distance by `quoteRatePerDistanceUnit` from `Config` (the distance fee).
+  - Adds `quoteBaseFee` from `Config` (the base fee), and returns both parts.
 - `SurgeQuoteCalculationService` -> `EnumQuoteCalculationType.SURGE`
   - Calculates the distance between pickup and dropoff locations in `Config.distanceUnit`.
   - Multiplies the distance by `quoteRatePerDistanceUnit` from `Config`.

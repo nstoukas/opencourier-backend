@@ -3,6 +3,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
+import { roundMoney } from 'src/core/utils/money'
 
 @Injectable()
 export class CustomQuoteCalculationService implements IQuoteCalculationService {
@@ -23,9 +24,12 @@ export class CustomQuoteCalculationService implements IQuoteCalculationService {
         'Development only — set quoteCalculationType=BY_DISTANCE for a real instance.'
     )
 
+    // Development only, so spec 0001 gives it no base fee: its whole price is the distance part.
     return Promise.resolve({
       quoteRangeFrom: quote,
       quoteRangeTo: quote,
+      baseFee: 0,
+      distanceFee: roundMoney(quote),
     })
   }
 }

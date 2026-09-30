@@ -143,9 +143,13 @@ model Partner {
 model DeliveryQuote {
   id             String           @id @default(cuid())
   quote          Float?
+  // The customer price: baseFee + distanceFee + the co-op fee part (spec 0001).
   quoteRangeFrom Int
   quoteRangeTo   Int
   feePercentage  Float            @default(0)
+  // The two parts the rider is paid, in whole cents, fixed when the quote is made.
+  baseFee        Int
+  distanceFee    Int
   currency       String           @postgres.VarChar(255)
   duration       Int
   distance       Float

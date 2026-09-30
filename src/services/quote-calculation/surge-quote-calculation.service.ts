@@ -4,6 +4,7 @@ import { IQuoteCalculationInput } from './interfaces/IQuoteCalculationInput'
 import { GeoCalculationService } from '../geo-calculation/geo-calculation.service'
 import { IQuoteCalculationService } from './interfaces/IQuoteCalculationService'
 import { calculateDistanceQuote } from './utils/distance-quote.util'
+import { roundMoney } from 'src/core/utils/money'
 
 @Injectable()
 export class SurgeQuoteCalculationService implements IQuoteCalculationService {
@@ -37,9 +38,13 @@ export class SurgeQuoteCalculationService implements IQuoteCalculationService {
       quote = quote * 1.5
     }
 
+    // Spec 0001 leaves surge pricing unchanged (it is being removed in its own row), so it gets
+    // no base fee: its whole price is the distance part.
     return Promise.resolve({
       quoteRangeFrom: quote,
       quoteRangeTo: quote,
+      baseFee: 0,
+      distanceFee: roundMoney(quote),
     })
   }
 }

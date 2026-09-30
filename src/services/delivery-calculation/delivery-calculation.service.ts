@@ -12,6 +12,7 @@ import { IDeliveryAmountsCalculationsInput } from './interfaces/IDeliveryAmounts
 import { CourierCompensationService } from '../courier-compensation/courier-compensation.service'
 import { IDeliveryAmountsCalculationsResult } from './interfaces/IDeliveryAmountsCalculationsResult'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
+import { DeliveryQuoteRepository } from 'src/persistence/repositories/delivery-quote.repository'
 import { roundMoney } from 'src/core/utils/money'
 
 interface DeliveryQuoteAmountResultWithFeePercentage extends DeliveryQuoteAmountResult {
@@ -25,6 +26,7 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
   constructor(
     private readonly configDomainService: ConfigDomainService,
     private readonly deliveryRepository: DeliveryRepository,
+    private readonly deliveryQuoteRepository: DeliveryQuoteRepository,
     private readonly geoCalculationService: GeoCalculationService,
     private readonly quoteCalculationService: QuoteCalculationService,
     private readonly courierCompensationService: CourierCompensationService,
@@ -53,13 +55,20 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
       pickupReadyAt: pickupReadyAt,
     })
 
+    // Spec 0001: the customer price is built from the two parts the rider is paid, plus the
+    // co-op fee, added once on top. The price services' own totals are not used here.
+    const { baseFee, distanceFee } = quote
+    const riderPay = baseFee + distanceFee
+
     const feePercentage = await this.configDomainService.instanceConfig.getFeePercentageAmount()
-    const quoteFromWithFee = this.addFeeToAmount(quote.quoteRangeFrom, feePercentage)
-    const quoteToWithFee = this.addFeeToAmount(quote.quoteRangeTo, feePercentage)
+    const coopFee = this.calculateCoopFee(riderPay, feePercentage)
+    const customerPrice = riderPay + coopFee
 
     return {
-      quoteRangeFrom: roundMoney(quoteFromWithFee.amount),
-      quoteRangeTo: roundMoney(quoteToWithFee.amount),
+      quoteRangeFrom: customerPrice,
+      quoteRangeTo: customerPrice,
+      baseFee,
+      distanceFee,
       feePercentage: feePercentage,
     }
   }
@@ -81,21 +90,26 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
       throw new BadRequestException('Delivery not found')
     }
 
+    // The rider's pay: the quote's base fee plus distance fee, with no fee inside it.
     const courierCompensation = await this.courierCompensationService.calculateCourierCompensationForDelivery({
       courierId: delivery.matchedCourierId,
       deliveryId: deliveryId,
     })
 
-    const feePercentage = await this.configDomainService.instanceConfig.getFeePercentageAmount()
-
-    const totalCostCalculation = this.addFeeToAmount(courierCompensation, feePercentage)
+    // Everything else comes from the stored quote too, never from today's settings, so a fee %
+    // changed after the quote was made cannot change what this delivery costs or pays.
+    const quote = await this.deliveryQuoteRepository.findById(delivery.deliveryQuoteId)
+    if (!quote) {
+      this.logger.error(`Delivery quote not found: ${delivery.deliveryQuoteId}`)
+      throw new BadRequestException('Delivery quote not found')
+    }
 
     return {
       deliveryId: deliveryId,
-      totalCompensation: roundMoney(courierCompensation),
-      totalCost: roundMoney(totalCostCalculation.amount),
-      fee: roundMoney(totalCostCalculation.fee),
-      feePercentage: feePercentage,
+      totalCompensation: courierCompensation,
+      totalCost: quote.quoteRangeFrom,
+      fee: quote.quoteRangeFrom - (quote.baseFee + quote.distanceFee),
+      feePercentage: quote.feePercentage,
     }
   }
 
@@ -144,30 +158,13 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
     return Promise.resolve(dropoffEta)
   }
 
-  private addFeeToAmount(amount: number, feePercentage: number): { amount: number; fee: number } {
-    if (amount <= 0) {
-      return {
-        amount: 0,
-        fee: 0,
-      }
+  // The co-op's share, in whole cents, charged to the customer on top of the rider's pay.
+  // Worked example from spec 0001: rider pay 307 at 10% gives round(30.7) = 31.
+  private calculateCoopFee(riderPay: number, feePercentage: number): number {
+    if (riderPay <= 0 || feePercentage <= 0) {
+      return 0
     }
 
-    if (feePercentage <= 0) {
-      return {
-        amount,
-        fee: 0,
-      }
-    }
-
-    let total = amount * (1 + feePercentage / 100)
-    total = Math.round(total * 1000) / 1000
-
-    let fee = total - amount
-    fee = Math.round(fee * 1000) / 1000
-
-    return {
-      amount: total,
-      fee,
-    }
+    return roundMoney((riderPay * feePercentage) / 100)
   }
 }

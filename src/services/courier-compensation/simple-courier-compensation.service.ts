@@ -1,18 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { ICourierCompensationService } from './interfaces/ICourierCompensationService'
 import { ICourierCompensationForDeliveryInput } from './interfaces/ICourierCompensationForDeliveryInput'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryQuoteRepository } from 'src/persistence/repositories/delivery-quote.repository'
-import { applyMinimumCourierPay } from './utils/minimum-courier-pay.util'
 
 @Injectable()
 export class SimpleCourierCompensationService implements ICourierCompensationService {
   private readonly logger = new Logger(SimpleCourierCompensationService.name)
 
   constructor(
-    private readonly configDomainService: ConfigDomainService,
     private readonly courierRepository: CourierRepository,
     private readonly deliveryRepository: DeliveryRepository,
     private readonly deliveryQuoteRepository: DeliveryQuoteRepository
@@ -46,19 +43,9 @@ export class SimpleCourierCompensationService implements ICourierCompensationSer
       return Promise.reject(new Error(`Delivery quote not found: ${delivery.deliveryQuoteId}`))
     }
 
-    const minimumCourierPay = await this.configDomainService.instanceConfig.getDefaultMinimumCourierPay()
-    const compensation = applyMinimumCourierPay(deliveryQuote.quoteRangeFrom, minimumCourierPay)
-
-    if (compensation > deliveryQuote.quoteRangeFrom) {
-      // The customer was quoted less than the floor. The difference is the instance's to absorb,
-      // so it is logged per delivery rather than left to be inferred from two tables.
-      this.logger.warn(
-        `Minimum courier pay applied to delivery ${deliveryId}: quote ${deliveryQuote.quoteRangeFrom} ` +
-          `raised to ${compensation} (defaultMinimumCourierPay=${minimumCourierPay}). ` +
-          `The instance absorbs the difference of ${compensation - deliveryQuote.quoteRangeFrom}.`
-      )
-    }
-
-    return compensation
+    // Spec 0001: the rider is paid both parts of the quote in full, the base fee plus the
+    // distance fee. The co-op fee is on top of this, never taken out of it, and there is no
+    // floor: the base fee now does that job.
+    return deliveryQuote.baseFee + deliveryQuote.distanceFee
   }
 }

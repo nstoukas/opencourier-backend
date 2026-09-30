@@ -53,10 +53,10 @@ export class InstanceConfigSettingsDto {
   quoteRatePerDistanceUnit: number | null
 
   @ApiProperty({ type: Number, nullable: true })
-  defaultCourierPayRate: number | null
+  quoteBaseFee: number | null
 
   @ApiProperty({ type: Number, nullable: true })
-  defaultMinimumCourierPay: number | null
+  defaultCourierPayRate: number | null
 
   @ApiProperty({ type: Number, nullable: true })
   defaultMaxWorkingHours: number | null
@@ -93,9 +93,9 @@ export class InstanceConfigSettingsDto {
     this.quoteExpirationMinutes = data.quoteExpirationMinutes ?? null
     this.feePercentageAmount = data.feePercentageAmount ?? null
     this.quoteRatePerDistanceUnit = data.quoteRatePerDistanceUnit ?? null
+    this.quoteBaseFee = data.quoteBaseFee ?? null
 
     this.defaultCourierPayRate = data.defaultCourierPayRate ?? null
-    this.defaultMinimumCourierPay = data.defaultMinimumCourierPay ?? null
     this.defaultMaxWorkingHours = data.defaultMaxWorkingHours ?? null
     this.details = data.details && typeof data.details === 'object' ? (data.details as InstanceDetails) : null
     this.updatedAt = data.updatedAt ? (data.updatedAt as string) : null

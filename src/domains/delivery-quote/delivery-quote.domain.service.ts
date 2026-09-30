@@ -56,7 +56,7 @@ export class DeliveryQuoteDomainService {
       timeOfDay: new Date(),
     }
 
-    const { quoteRangeFrom, quoteRangeTo, feePercentage } =
+    const { quoteRangeFrom, quoteRangeTo, feePercentage, baseFee, distanceFee } =
       await this.deliveryCalculationService.calculateDeliveryQuoteAmount(deliveryQuoteCalculationData)
     const distance = await this.deliveryCalculationService.calculateDeliveryQuoteDistance(deliveryQuoteCalculationData)
     const expiresAt = await this.deliveryCalculationService.calculateDeliveryQuoteExpiration(
@@ -77,6 +77,8 @@ export class DeliveryQuoteDomainService {
       quoteRangeFrom,
       quoteRangeTo,
       feePercentage,
+      baseFee,
+      distanceFee,
       expiresAt,
       duration: durationMinutes,
       distance,

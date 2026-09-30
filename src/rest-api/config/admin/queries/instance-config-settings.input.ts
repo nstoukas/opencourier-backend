@@ -20,9 +20,9 @@ export class InstanceConfigSettingsInput {
   quoteExpirationMinutes?: number
   feePercentageAmount?: number
   quoteRatePerDistanceUnit?: number
+  quoteBaseFee?: number
   maxDriftDistance?: number
   defaultCourierPayRate?: number
-  defaultMinimumCourierPay?: number
   defaultMaxWorkingHours?: number
   defaultDietaryRestrictions?: EnumCourierDietaryRestrictions[]
   distanceUnit?: EnumDistanceUnit

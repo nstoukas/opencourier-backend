@@ -74,15 +74,16 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   quoteRatePerDistanceUnit?: number
 
+  // Whole cents, 0 or more. The whole cents check lives in NUMERIC_SETTING_RULES, not here.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
-  defaultCourierPayRate?: number
+  quoteBaseFee?: number
 
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
-  defaultMinimumCourierPay?: number
+  defaultCourierPayRate?: number
 
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

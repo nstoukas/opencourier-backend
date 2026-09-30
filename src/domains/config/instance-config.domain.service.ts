@@ -10,6 +10,7 @@ import {
   DEFAULT_FEE_PERCENTAGE_AMOUNT,
   DEFAULT_GEO_CALCULATION_TYPE,
   DEFAULT_MAX_ASSIGNMENT_DISTANCE,
+  DEFAULT_QUOTE_BASE_FEE,
   DEFAULT_QUOTE_CALCULATION_TYPE,
   DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT,
   DEFAULT_QUOTE_TO_DELIVERY_CONVERSION_TYPE,
@@ -45,11 +46,14 @@ export const NUMERIC_SETTING_RULES: {
   // keyof = the name of one of the input's fields, so a typo here fails typecheck.
   key: keyof InstanceConfigSettingsInput
   whyZeroIsRefused: string | null
+  // `?` = optional; leave it out for settings that may hold a fraction (a rate of 87.5 per km).
+  mustBeWholeCents?: boolean
 }[] = [
   { key: 'feePercentageAmount', whyZeroIsRefused: null },
   { key: 'quoteRatePerDistanceUnit', whyZeroIsRefused: null },
+  // 0 is allowed: a base fee of 0 is a real (if poor) choice the members may vote.
+  { key: 'quoteBaseFee', whyZeroIsRefused: null, mustBeWholeCents: true },
   { key: 'defaultCourierPayRate', whyZeroIsRefused: null },
-  { key: 'defaultMinimumCourierPay', whyZeroIsRefused: null },
   { key: 'maxDriftDistance', whyZeroIsRefused: null },
   {
     key: 'maxAssignmentDistance',
@@ -85,6 +89,7 @@ export class InstanceConfigDomainService {
     const quoteExpirationMinutes = await this.getQuoteExpirationMinutes()
     const feePercentageAmount = await this.getFeePercentageAmount()
     const quoteRatePerDistanceUnit = await this.getQuoteRatePerDistanceUnit()
+    const quoteBaseFee = await this.getQuoteBaseFee()
     const distanceUnit = await this.getDistanceUnit()
     const currency = await this.getCurrency()
     const details = await this.getDetails()
@@ -95,7 +100,6 @@ export class InstanceConfigDomainService {
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
-    const defaultMinimumCourierPay = await this.getDefaultMinimumCourierPay()
     const defaultMaxWorkingHours = await this.getDefaultMaxWorkingHours()
     const defaultDietaryRestrictions = await this.getDefaultDietaryRestrictions()
 
@@ -110,8 +114,8 @@ export class InstanceConfigDomainService {
       quoteExpirationMinutes,
       feePercentageAmount,
       quoteRatePerDistanceUnit,
+      quoteBaseFee,
       defaultCourierPayRate,
-      defaultMinimumCourierPay,
       defaultMaxWorkingHours,
       defaultDietaryRestrictions,
       distanceUnit,
@@ -211,6 +215,9 @@ export class InstanceConfigDomainService {
       if (value < 0) {
         throw new BadRequestException(`${rule.key} cannot be negative`)
       }
+      if (rule.mustBeWholeCents && !Number.isInteger(value)) {
+        throw new BadRequestException(`${rule.key} must be a whole number of cents`)
+      }
       if (value === 0 && rule.whyZeroIsRefused !== null) {
         throw new BadRequestException(`${rule.key} cannot be 0: ${rule.whyZeroIsRefused}`)
       }
@@ -251,12 +258,12 @@ export class InstanceConfigDomainService {
     if (data.quoteRatePerDistanceUnit !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
     }
+    if (data.quoteBaseFee !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.QUOTE_BASE_FEE, data.quoteBaseFee)
+    }
 
     if (data.defaultCourierPayRate !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_COURIER_PAY_RATE, data.defaultCourierPayRate)
-    }
-    if (data.defaultMinimumCourierPay !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, data.defaultMinimumCourierPay)
     }
     if (data.defaultMaxWorkingHours !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DEFAULT_MAX_WORKING_HOURS, data.defaultMaxWorkingHours)
@@ -386,6 +393,25 @@ export class InstanceConfigDomainService {
     return Number(quoteRate.value)
   }
 
+  // The base fee every new quote carries, in whole cents. Unlike the rate above it throws on a
+  // bad value instead of passing it on: a base fee of NaN or 12.5 would be stored on the quote
+  // and paid to the rider, so it is better that the quote fails loudly.
+  async getQuoteBaseFee(): Promise<number> {
+    const baseFee = await this.getConfigValueOrDefault(ConfigKey.QUOTE_BASE_FEE, () =>
+      this.fileConfigService.get(DEFAULT_QUOTE_BASE_FEE)
+    )
+
+    // Number('') and Number(null) are both 0, so an empty value is caught before converting.
+    const raw = baseFee.value
+    const value = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN
+
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`quoteBaseFee must be a whole number of cents, 0 or more (found ${String(raw)})`)
+    }
+
+    return value
+  }
+
   async getMaxAssignmentDistance(): Promise<number | null> {
     const maxAssignmentDistance = await this.getConfigValueOrDefault(
       ConfigKey.MAX_ASSIGNMENT_DISTANCE,
@@ -427,14 +453,6 @@ export class InstanceConfigDomainService {
     return typeof defaultCourierPayRate.value === 'string'
       ? parseInt(defaultCourierPayRate.value)
       : (defaultCourierPayRate.value as number)
-  }
-
-  async getDefaultMinimumCourierPay(): Promise<number | null> {
-    const defaultMinimumCourierPay = await this.getConfigValueOrDefault(ConfigKey.DEFAULT_MINIMUM_COURIER_PAY, null)
-
-    return typeof defaultMinimumCourierPay.value === 'string'
-      ? Number(defaultMinimumCourierPay.value)
-      : (defaultMinimumCourierPay.value as number)
   }
 
   async getDefaultMaxWorkingHours(): Promise<number | null> {

@@ -143,6 +143,10 @@ async function main() {
         quote: spec.pay / 100,
         quoteRangeFrom: spec.pay,
         quoteRangeTo: spec.pay,
+        // Split the way the spec 0001 migration filled older quotes: no base fee, the whole
+        // pay as the distance part, so the parts still sum to the price.
+        baseFee: 0,
+        distanceFee: spec.pay,
         currency,
         duration: 900,
         distance: 2.4,

@@ -5,5 +5,5 @@
 /** Price of one Config.distanceUnit, in minor currency units. 150 = EUR 1.50 per kilometre. */
 export const SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT = 150
 
-/** Floor under a courier's pay for one delivery, in minor currency units. 250 = EUR 2.50. */
-export const SEEDED_MINIMUM_COURIER_PAY = 250
+/** Base fee per delivery, paid to the rider in full, in whole cents. 200 = EUR 2.00 (spec 0001). */
+export const SEEDED_QUOTE_BASE_FEE = 200

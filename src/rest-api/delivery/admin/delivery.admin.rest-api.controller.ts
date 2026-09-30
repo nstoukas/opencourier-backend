@@ -53,9 +53,10 @@ export class DeliveryAdminRestApiController {
   @swagger.ApiOperation({ summary: 'Get delivery by id' })
   @Roles(EnumUserRole.ADMIN)
   async getDelivery(@common.Param('deliveryId') deliveryId: string): Promise<DeliveryAdminDto> {
-    const deliveries = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+    // Loads the quote too, so the page can show how the price and the rider's pay were built.
+    const { delivery, quote } = await this.deliveryDomainService.getByIdOrThrowWithQuote(deliveryId)
 
-    const dto = new DeliveryAdminDto(deliveries)
+    const dto = new DeliveryAdminDto(delivery, quote)
     return dto
   }
 
