@@ -410,6 +410,86 @@ describe('InstanceConfigDomainService', () => {
       )
     })
 
+    it('throws when stored quoteBaseFee is a negative string (e.g. "-1")', async () => {
+      configRepository.getByKey.mockResolvedValue(
+        new ConfigEntity({
+          key: ConfigKey.QUOTE_BASE_FEE,
+          value: '-1',
+          type: 'number',
+        })
+      )
+
+      await expect(service.getQuoteBaseFee()).rejects.toThrow(
+        'quoteBaseFee must be a whole number of cents, 0 or more (found -1)'
+      )
+    })
+
+    describe('getInstanceConfigSettings resilience against bad stored base fee', () => {
+      const badValues = ['12.5', '-1', '', 'abc']
+
+      badValues.forEach((badValue) => {
+        it(`returns quoteBaseFee null in getInstanceConfigSettings when stored quoteBaseFee is invalid ("${badValue}"), leaving other settings intact`, async () => {
+          configRepository.getByKey.mockImplementation(async (key: string) => {
+            if (key === ConfigKey.QUOTE_BASE_FEE) {
+              return new ConfigEntity({
+                key: ConfigKey.QUOTE_BASE_FEE,
+                value: badValue,
+                type: 'string',
+              })
+            }
+            if (key === ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT) {
+              return new ConfigEntity({
+                key: ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT,
+                value: '150',
+                type: 'number',
+              })
+            }
+            throw notFoundError
+          })
+
+          const settings = await service.getInstanceConfigSettings()
+
+          // Bad base fee returns null so the admin settings page can load and be fixed
+          expect(settings.quoteBaseFee).toBeNull()
+          // Other settings are still returned normally
+          expect(settings.quoteRatePerDistanceUnit).toBe(150)
+          expect(settings.currency).toBeDefined()
+        })
+      })
+
+      it('returns numeric quoteBaseFee in getInstanceConfigSettings for valid stored value (e.g. 200)', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.QUOTE_BASE_FEE) {
+            return new ConfigEntity({
+              key: ConfigKey.QUOTE_BASE_FEE,
+              value: '200',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.quoteBaseFee).toBe(200)
+      })
+
+      it('returns numeric quoteBaseFee in getInstanceConfigSettings for valid zero stored value (0)', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.QUOTE_BASE_FEE) {
+            return new ConfigEntity({
+              key: ConfigKey.QUOTE_BASE_FEE,
+              value: '0',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.quoteBaseFee).toBe(0)
+      })
+    })
+
     it('refuses fractional quoteBaseFee of 12.5 in setInstanceConfigSettings with clear message naming quoteBaseFee', async () => {
       const promise = service.setInstanceConfigSettings({ quoteBaseFee: 12.5 })
 
