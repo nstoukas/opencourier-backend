@@ -1,6 +1,31 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
+import { getMetadataStorage } from 'class-validator'
 import { InstanceConfigSettingsAdminInput } from './instance-config-settings.admin.input'
 import { NUMERIC_SETTING_RULES } from 'src/domains/config/instance-config.domain.service'
+
+// Derive the list of number fields from class-validator metadata for InstanceConfigSettingsAdminInput
+const storage = getMetadataStorage()
+const targetMetadatas = storage.getTargetValidationMetadatas(
+  InstanceConfigSettingsAdminInput,
+  '',
+  false,
+  false
+)
+
+const dtoNumberFields = Array.from(
+  new Set(
+    targetMetadatas
+      .filter((m) => {
+        const constraints = storage.getTargetValidatorConstraints(m.constraintCls || [])
+        return (
+          constraints.some((c) => c.name === 'isNumber') ||
+          m.type === 'isNumber' ||
+          (m as any).name === 'isNumber'
+        )
+      })
+      .map((m) => m.propertyName)
+  )
+)
 
 describe('InstanceConfigSettingsAdminInput validation', () => {
   // Real Nest ValidationPipe built with exact options from src/main.ts
@@ -85,16 +110,33 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
   })
 
   describe('Clause 3: Guard - fails if an empty value is ever saved as 0 again', () => {
-    // Walks NUMERIC_SETTING_RULES exported from src/domains/config/instance-config.domain.service.ts
-    // For EVERY key in it, pushes { [key]: '' } through real ValidationPipe expecting 400.
-    NUMERIC_SETTING_RULES.forEach((rule) => {
-      it(`guard pins rule key '${rule.key}': empty string is refused with 400`, async () => {
+    it('asserts DTO number fields set equals NUMERIC_SETTING_RULES keys set (both directions)', () => {
+      const ruleKeys = NUMERIC_SETTING_RULES.map((r) => r.key as string)
+
+      // Direction 1: Every DTO @IsNumber() field must exist in NUMERIC_SETTING_RULES
+      const missingInRules = dtoNumberFields.filter((field) => !ruleKeys.includes(field))
+      expect(missingInRules).toEqual([])
+      dtoNumberFields.forEach((field) => {
+        expect(ruleKeys).toContain(field)
+      })
+
+      // Direction 2: Every NUMERIC_SETTING_RULES key must exist as a DTO @IsNumber() field
+      const missingInDto = ruleKeys.filter((key) => !dtoNumberFields.includes(key))
+      expect(missingInDto).toEqual([])
+      ruleKeys.forEach((key) => {
+        expect(dtoNumberFields).toContain(key)
+      })
+    })
+
+    // For EVERY field derived from DTO metadata, push { [field]: '' } through real ValidationPipe expecting 400
+    dtoNumberFields.forEach((field) => {
+      it(`guard pins DTO field '${field}': empty string is refused with 400`, async () => {
         const promise = pipe.transform(
-          { [rule.key]: '' },
+          { [field]: '' },
           { type: 'body', metatype: InstanceConfigSettingsAdminInput }
         )
         await expect(promise).rejects.toBeInstanceOf(BadRequestException)
-        await expect(promise).rejects.toThrow(`${rule.key} cannot be empty`)
+        await expect(promise).rejects.toThrow(`${field} cannot be empty`)
       })
     })
   })
