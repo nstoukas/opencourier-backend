@@ -29,5 +29,9 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - An event with no legal transition from the current status is dropped with only a log warning.
 - A delivery's pay, fee, fee % and total come from its stored `DeliveryQuote`, never from the
   current settings, so changing a pay setting only affects quotes made afterwards.
+- The global `ValidationPipe` converts body fields to their declared type before any check runs,
+  so `Number('')` makes an empty value a real 0. Every number setting on
+  `InstanceConfigSettingsAdminInput` needs `@RefuseIfNotSentAsNumber()` and an entry in
+  `NUMERIC_SETTING_RULES`; a test fails if either is missing.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
