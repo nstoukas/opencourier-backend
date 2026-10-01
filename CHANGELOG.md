@@ -17,6 +17,10 @@ Scope row 51 (the delivery fee as a base fee plus a per km fee, spec 0001) was b
 `feat/base-fee-per-km` and merged in on 1 October. With it the suite is at **315 passing tests**; typecheck
 is clean and lint is unchanged.
 
+Scope row 56 (an empty setting is refused, not saved as 0) was built on the branch
+`fix/refuse-empty-settings` and merged in on 1 October. With it the suite is at **373 passing tests**;
+typecheck is clean and lint is unchanged.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -190,6 +194,21 @@ are the exceptions, each kept additive or as narrow as possible:
   - One table in the config service, `NUMERIC_SETTING_RULES`, holds every number setting and
     whether `0` is allowed. The tests are generated from it, so a setting added to the table
     gets its checks automatically. `3fa465c`
+- **An empty number setting is refused instead of saved as `0`** (scope row 56). The global
+  `ValidationPipe` converts each field to its declared type before any check runs, and
+  `Number('')` is `0`, so `{"quoteBaseFee": ""}` sent to the admin config API was saved as a base
+  fee of 0 and reported as saved. Only the admin page's own field stopped it. `25736ff`
+  - All eight number settings now answer an empty or blank value with a 400 that names the
+    setting, for example `quoteBaseFee cannot be empty`, and nothing is saved.
+  - ⚠ A value that is not a real JSON number is refused too, with `<setting> must be sent as a
+    number`. That covers `false` and `[]`, which also turned into `0`, and a number sent as a
+    string, such as `"5"`, which used to be converted and saved. The admin page always sends
+    real numbers.
+  - A real `0` still saves wherever row 49 allows it.
+  - The row 49 and row 51 entries above say an empty value is refused. Through the API that
+    was only true of `null`, not of an empty string, until this fix.
+  - A test reads every number field from the admin input class and fails if one lacks the
+    check, or is missing from `NUMERIC_SETTING_RULES`. `72a6757`, `5f6feba`
 - The partner seed gave every instance upstream's fixed API key, which is public in upstream's
   history. It now generates a random key, and a re-seed replaces the old one. `2260c39`
 
