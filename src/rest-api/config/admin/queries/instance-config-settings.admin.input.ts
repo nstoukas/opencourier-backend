@@ -11,6 +11,7 @@ import {
   EnumQuoteCalculationType,
   InstanceDetails,
 } from 'src/shared-types/index'
+import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
 import { InstanceConfigSettingsInput } from './instance-config-settings.input'
 
 export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsInput {
@@ -49,45 +50,54 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsEnum(EnumCurrency)
   currency?: EnumCurrency
 
+  // Every number setting below needs @RefuseIfNotSentAsNumber(): without it an empty value saves as 0.
   @ApiProperty({ required: false, type: Number })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   maxAssignmentDistance?: number
 
   @ApiProperty({ required: false, type: Number })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   maxDriftDistance?: number
 
   @ApiProperty({ required: false, type: Number })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   quoteExpirationMinutes?: number
 
   @ApiProperty({ required: false, type: Number })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   feePercentageAmount?: number
 
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   quoteRatePerDistanceUnit?: number
 
   // Whole cents, 0 or more. The whole cents check lives in NUMERIC_SETTING_RULES, not here.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   quoteBaseFee?: number
 
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   defaultCourierPayRate?: number
 
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
+  @RefuseIfNotSentAsNumber()
   defaultMaxWorkingHours?: number
 
   @ApiProperty({ enum: EnumCourierDietaryRestrictions, required: false, isArray: true })
