@@ -12,7 +12,7 @@ import { DeliveryPartnerDto } from './dtos/delivery.partner.dto'
 import { DeliveryFindManyPartnerArgs } from './queries/delivery-find-many.partner.args'
 import { DeliveryPartnerPaginatedDto } from './dtos/delivery.partner.paginated.dto'
 import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.input'
-import { DeliveryMatchingService } from 'src/services/delivery-matching/delivery-matching.service'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
 
 @swagger.ApiBearerAuth()
@@ -21,7 +21,7 @@ import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
 export class DeliveryPartnerRestApiController {
   constructor(
     private readonly deliveryPartnerRestApiService: DeliveryPartnerRestApiService,
-    private readonly testDeliveryMatchingService: DeliveryMatchingService
+    private readonly deliveryEventService: DeliveryEventService
   ) {}
 
   @common.Get('')
@@ -158,8 +158,16 @@ export class DeliveryPartnerRestApiController {
   @swagger.ApiOperation({ summary: 'Test endpoint: assigning courier for delivery' })
   @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
-  async findCourier(@common.Param('deliveryId') deliveryId: string): Promise<any> {
-    const courier = await this.testDeliveryMatchingService.matchDeliveryToCourier(deliveryId)
+  async findCourier(
+    @common.Param('deliveryId') deliveryId: string,
+    @CurrentUserPartner() partner: PartnerEntity
+  ): Promise<any> {
+    // A partner may only trigger an offer for its own delivery (row 61 review). This throws the same
+    // 404 for an unknown id and for another partner's delivery, so the route tells neither apart.
+    await this.deliveryPartnerRestApiService.getByIdWithRelations(deliveryId, partner.id)
+
+    // The real offer step (offeredAt, OFFERED event, expiry timer), never a bare matchedCourierId.
+    const courier = await this.deliveryEventService.offerWaitingDeliveryNow(deliveryId)
 
     if (!courier) {
       throw new errors.NotFoundException('No couriers are available.')

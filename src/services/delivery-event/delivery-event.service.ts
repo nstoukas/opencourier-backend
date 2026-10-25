@@ -722,6 +722,28 @@ export class DeliveryEventService {
     }
   }
 
+  // For the two upstream test routes (partner `test/:deliveryId/assign-courier`, admin
+  // `testing/match-delivery-to-courier`). They used to write matchedCourierId on its own, with no
+  // offeredAt, no OFFERED row and no timer; now they run the same offer step as real matching, so
+  // the invariant "offeredAt is set if and only if matchedCourierId is set" holds for them too.
+  // Returns the rider offered and the delivery, or undefined when nobody is free (which is recorded
+  // like any other "nobody free", with its backstop retry).
+  async offerWaitingDeliveryNow(deliveryId: string) {
+    const result = await this.offerToNextCourier(deliveryId)
+    if (result === 'NO_COURIER') {
+      await this.recordNoCourierAvailable(deliveryId)
+      return undefined
+    }
+    if (result === 'NOT_WAITING') {
+      throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} is not waiting for a rider`)
+    }
+
+    const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    if (!delivery.matchedCourierId) return undefined // answered or moved on in the meantime
+    const courier = await this.courierRepository.findByIdOrThrow(delivery.matchedCourierId)
+    return { courier, delivery }
+  }
+
   // An accept that took the offer and then did not go through gives the offer back with its old
   // deadline (DeliveryDomainService.acceptDelivery). The expiry job may have run meanwhile, found
   // the offer taken and done nothing, so a new timer is set for the same deadline; a deadline that

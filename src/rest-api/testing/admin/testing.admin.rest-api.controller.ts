@@ -4,7 +4,7 @@ import * as errors from 'src/errors'
 import { EnumUserRole } from '@prisma/types'
 import { Roles } from 'src/decorators/roles.decorator'
 import { ADMIN_API_V1_PREFIX } from 'src/constants'
-import { DeliveryMatchingService } from 'src/services/delivery-matching/delivery-matching.service'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { TestDeliveryCreateAdminInput } from './dtos/test-delivery-create.admin.input'
 import { TestingAdminRestApiService } from './testing.admin.rest-api.service'
 
@@ -14,7 +14,7 @@ import { TestingAdminRestApiService } from './testing.admin.rest-api.service'
 export class TestingAdminRestApiController {
   constructor(
     private readonly testAdminRestApiService: TestingAdminRestApiService,
-    private readonly deliveryMatchingService: DeliveryMatchingService
+    private readonly deliveryEventService: DeliveryEventService
   ) {}
 
   @common.Post('match-delivery-to-courier/:deliveryId')
@@ -27,7 +27,8 @@ export class TestingAdminRestApiController {
   @swagger.ApiOperation({ summary: 'Test endpoint: assigning courier for delivery' })
   @Roles(EnumUserRole.ADMIN)
   async findCourier(@common.Param('deliveryId') deliveryId: string): Promise<any> {
-    const courier = await this.deliveryMatchingService.matchDeliveryToCourier(deliveryId)
+    // The real offer step (offeredAt, OFFERED event, expiry timer), never a bare matchedCourierId.
+    const courier = await this.deliveryEventService.offerWaitingDeliveryNow(deliveryId)
 
     if (!courier) {
       throw new errors.NotFoundException('No couriers are available.')
