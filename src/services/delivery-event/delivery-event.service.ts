@@ -449,9 +449,10 @@ export class DeliveryEventService {
     }
   }
 
-  // A rider became free (went Online, or finished a delivery): offer the deliveries nobody could
-  // take, the longest waiting first, until one finds nobody (AC-7, flow 5). Never throws, for the
-  // same reason as above.
+  // A rider became free (went Online, or finished a delivery): offer the longest waiting delivery
+  // that someone can take (AC-7, flow 5). One rider coming free frees one moped, so the loop stops
+  // at the first offer that goes out; the other waiting deliveries keep their backstop retries.
+  // Never throws, for the same reason as above.
   async matchWaitingDeliveries(): Promise<void> {
     let waitingIds: string[]
     try {
@@ -469,8 +470,13 @@ export class DeliveryEventService {
         this.logger.error(`Offering waiting delivery ${deliveryId} failed: ${error}`, (error as Error).stack)
         continue
       }
-      // Nobody for this one means, most likely, nobody for the rest either. Their backstop retries
-      // are still pending, so stopping here loses nothing.
+      // One offer per rider coming free (scope row 61 review): without this stop the same rider was
+      // offered every waiting delivery in a row. The busy rule in the matcher now also counts an open
+      // offer, so this is a second belt for two matchers running at once.
+      if (result === 'OFFERED') break
+      // Nobody for this one most likely means nobody for the rest. Not certain (a newer delivery may
+      // sit near a rider the 20 km rule kept from this one), but every waiting delivery has its own
+      // backstop retry pending, which finds that rider within noCourierRetrySeconds.
       if (result === 'NO_COURIER') break
     }
   }

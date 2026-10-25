@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { Courier, CourierSetting, EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
+import {
+  Courier,
+  CourierSetting,
+  EnumCourierDeliverySetting,
+  EnumCourierStatus,
+  EnumDeliveryStatus,
+  Prisma,
+} from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -17,15 +24,24 @@ import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
 
 // A rider is busy, and gets no new offer, while any delivery of theirs is in one of
 // DELIVERY_ONGOING_STATUSES (accepted, dispatched, arrived at pickup, picked up, on the way,
-// arrived at drop off). Both matchers below use this one subquery, so the list of busy
-// statuses lives in exactly one place (scope row 62). It is correlated with the outer
-// "Courier" row, so it only works inside a query that selects FROM "Courier".
+// arrived at drop off), or while they hold an open offer they have not answered yet (a delivery
+// still ASSIGNING_COURIER whose matchedCourierId is them; scope row 61, decision 62.2). One moped,
+// one job: without the second half, a rider coming free was offered every waiting delivery at once.
+// Both matchers below use this one subquery, so the busy rule lives in exactly one place (scope
+// row 62). It is correlated with the outer "Courier" row, so it only works inside a query that
+// selects FROM "Courier".
 export function busyCourierDeliverySubQuery(): Prisma.Sql {
   return Prisma.sql`
       SELECT 1
       FROM "Delivery"
-      WHERE "Delivery"."courierId" = "Courier"."id"
-      AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
+      WHERE (
+        "Delivery"."courierId" = "Courier"."id"
+        AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
+      ) OR (
+        "Delivery"."matchedCourierId" = "Courier"."id"
+        AND "Delivery"."courierId" IS NULL
+        AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
+      )
     `
 }
 
