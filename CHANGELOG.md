@@ -21,6 +21,10 @@ Scope row 56 (an empty setting is refused, not saved as 0) was built on the bran
 `fix/refuse-empty-settings` and merged in on 1 October. With it the suite is at **373 passing tests**;
 typecheck is clean and lint is unchanged.
 
+Scope row 62 (busy riders get no second offer) was built on the branch
+`fix/busy-riders-no-second-offer` and merged in on 25 October (`3ae819c`). With it the suite is at
+**381 passing tests**; typecheck is clean and lint is unchanged.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -209,6 +213,27 @@ are the exceptions, each kept additive or as narrow as possible:
     was only true of `null`, not of an empty string, until this fix.
   - A test reads every number field from the admin input class and fails if one lacks the
     check, or is missing from `NUMERIC_SETTING_RULES`. `72a6757`, `5f6feba`
+- **A rider on a delivery is no longer offered a second one** (scope row 62). The two
+  matchers each kept their own list of busy statuses, and both had gaps. The nearest rider
+  matcher counted only `CREATED`, `DISPATCHED` and `PICKED_UP`, so a rider who had just
+  accepted, was waiting at the restaurant, was on the way or was at the door looked free. The
+  seniority matcher had `ACCEPTED` but missed the other three. `5f5cc9e`
+  - Both matchers now share one subquery, `busyCourierDeliverySubQuery()`, built from
+    `DELIVERY_ONGOING_STATUSES`: accepted, dispatched, arrived at pickup, picked up, on the
+    way and arrived at drop off. The same list already drives admin reassignment and the
+    courier app's in progress list.
+  - A rider whose deliveries are all dropped off, cancelled or failed can be offered work
+    again. A reassigned rider is free again too, since `REASSIGNED` clears `courierId`.
+  - `CREATED` left the busy check. It never mattered, because a `CREATED` delivery has no
+    rider yet.
+  - Tests check that both matchers send exactly the six statuses, and an existing test ties
+    the list to every status in the enum, so a new status must be placed on one side.
+    `cca5310`
+- Both matchers returned the rider's `courierLocation` with latitude and longitude swapped.
+  PostGIS lists a point as `[longitude, latitude]`, which `getCurrentLocation` already read
+  correctly. Nothing reads `courierLocation` yet, so no match or price was affected; the row 62
+  test had pinned the swap with mock data in the same wrong order, and now uses real GeoJSON
+  order. `56ec681`
 - The partner seed gave every instance upstream's fixed API key, which is public in upstream's
   history. It now generates a random key, and a re-seed replaces the old one. `2260c39`
 
@@ -238,6 +263,11 @@ are the exceptions, each kept additive or as narrow as possible:
   naming `quoteBaseFee` is only in the server log.
 - The fee % has no upper limit, so a mistyped extra zero in admin would multiply every price
   (scope row 53, waiting for the co-op to choose the ceiling).
+- A rider whose phone is ringing with an unanswered offer is not yet counted as busy, because
+  an offer sets only `matchedCourierId`. Two deliveries matched seconds apart can go to the
+  same rider (left to scope row 61, server side offer expiry).
+- `Delivery` has no index on `courierId`, which the busy subquery runs for every rider in
+  range. `@@index([courierId, status])` is worth adding (schema change).
 - Rotate the upstream dev credentials in `local.env` before any real deployment.
 - The earnings repository query is still mocked in tests and needs an integration test.
 - A `@@index([createdAt, newStatus])` on `DeliveryEvent` is worth adding (schema change).
