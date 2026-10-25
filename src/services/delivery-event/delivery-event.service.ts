@@ -157,21 +157,38 @@ export class DeliveryEventService {
         const droppedCourierId = dbDelivery.courierId // capture BEFORE clearing
         const newCourier = await this.courierRepository.findByIdOrThrow(newCourierId)
 
+        // Amounts for the new rider first, then the offer, so a failed calculation leaves the
+        // delivery with its old rider rather than half moved (spec 0002, flow 1).
+        const { totalCost, totalCompensation, fee, feePercentage } =
+          await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+            deliveryId,
+            courierId: newCourierId,
+          })
+
         // Drop the old rider, offer to the new one. The new rider must still accept.
         // An admin's offer has no deadline (spec 0002, AC-3): offerExpiresAt stays null.
-        await this.deliveryRepository.update(deliveryId, {
-          courierId: null,
-          matchedCourierId: newCourierId,
-          offeredAt: new Date(),
-          offerExpiresAt: null,
-        })
-
-        // Recompute amounts for the new matched courier (same as the ASSIGNING_COURIER case).
-        const deliveryAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+        // Written only if the delivery is still where it was read (same status, same rider), so a
+        // status change the old rider sent meanwhile is not overwritten (row 61 review). A miss
+        // throws, and the catch below records this REASSIGNED as a failed transition.
+        const moved = await this.deliveryRepository.updateIfMatches(
           deliveryId,
-        })
-        const { totalCost, totalCompensation, fee, feePercentage } = deliveryAmounts
-        await this.updateDeliveryAmounts(deliveryId, totalCost, totalCompensation, fee, feePercentage)
+          { status: currentStatus, courierId: droppedCourierId },
+          {
+            courierId: null,
+            matchedCourierId: newCourierId,
+            offeredAt: new Date(),
+            offerExpiresAt: null,
+            totalCost,
+            totalCompensation,
+            fee,
+            feePercentage,
+          }
+        )
+        if (!moved) {
+          throw new CantUpdateDeliveryStatusError(
+            `Delivery ${deliveryId} changed while it was being reassigned; nothing was moved`
+          )
+        }
 
         // Sets status via the state machine result, saves the DeliveryEvent, notifies partner.
         const updatedDelivery = await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
@@ -357,6 +374,13 @@ export class DeliveryEventService {
       offeredAt: delivery.offeredAt,
       offerExpiresAt: delivery.offerExpiresAt,
     }
+    // The open offer this one replaces, if another rider holds one: they are told it moved (below).
+    const replacedCourierId =
+      delivery.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
+      delivery.matchedCourierId &&
+      delivery.matchedCourierId !== courierId
+        ? delivery.matchedCourierId
+        : null
 
     // Amounts first, then the offer, so a failed calculation leaves no offer behind.
     const deliveryAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
@@ -365,19 +389,38 @@ export class DeliveryEventService {
     })
     const { totalCost, totalCompensation, fee, feePercentage } = deliveryAmounts
 
-    // An admin's offer never expires (spec 0002, AC-3), whatever the setting: offerExpiresAt null.
-    await this.deliveryRepository.update(deliveryId, {
-      matchedCourierId: courierId,
-      offeredAt: new Date(),
-      offerExpiresAt: null,
-      totalCost,
-      totalCompensation,
-      fee,
-      feePercentage,
-    })
+    // The race rule (spec 0002) applies to the admin override too: written only if the delivery is
+    // still as it was read (same status, nobody took it, the same offer or none open), and the
+    // status goes in the same write, so a rider's accept landing in between can never be undone by
+    // a later status write. An admin's offer never expires (AC-3), whatever the setting.
+    const offeredAt = new Date()
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      {
+        status: delivery.status,
+        courierId: null,
+        matchedCourierId: delivery.matchedCourierId,
+        offeredAt: delivery.offeredAt,
+      },
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerExpiresAt: null,
+        totalCost,
+        totalCompensation,
+        fee,
+        feePercentage,
+      }
+    )
+    if (!written) {
+      throw new CantUpdateDeliveryStatusError(
+        `Delivery ${deliveryId} changed while you were offering it (a rider answered or it moved on); reload and try again`
+      )
+    }
 
     try {
-      const updatedDelivery = await this.updateDeliveryStatus(deliveryId, EnumDeliveryStatus.ASSIGNING_COURIER)
+      const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
       const auditEvent: DeliveryConfirmedEvent = {
         deliveryId,
@@ -394,7 +437,7 @@ export class DeliveryEventService {
         oldStatus,
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
-      await this.saveOfferedEvent(deliveryId, courierId, EnumEventActor.ADMIN, null)
+      await this.saveOfferedEvent(deliveryId, courierId, EnumEventActor.ADMIN, null, replacedCourierId)
       // The delivery is no longer waiting, so its backstop retry is not needed.
       await this.removeNoCourierRetry(deliveryId)
 
@@ -409,8 +452,28 @@ export class DeliveryEventService {
 
       await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(updatedDelivery))
     } catch (error) {
-      await this.deliveryRepository.update(deliveryId, previousOffer)
+      // Give the previous offer back, but only if this admin offer is still the one in place (a rider
+      // may have accepted it meanwhile, and that must stand).
+      await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courierId, offeredAt, courierId: null },
+        previousOffer
+      )
       throw error
+    }
+
+    // The rider whose open offer was replaced drops it from their screen now. Their own expiry job,
+    // if any, finds the offer changed and does nothing. They are not put on the skip list: an admin
+    // moved the offer, the rider did nothing (value 5).
+    if (replacedCourierId) {
+      try {
+        const replacedCourier = await this.courierRepository.findById(replacedCourierId)
+        if (replacedCourier) {
+          await this.websocketDispatcher.sendOfferEnded(replacedCourier.userId, { deliveryId, reason: 'MOVED' })
+        }
+      } catch (error) {
+        this.logger.error(`Could not tell courier ${replacedCourierId} that the offer of ${deliveryId} moved: ${error}`)
+      }
     }
   }
 
@@ -783,21 +846,24 @@ export class DeliveryEventService {
   }
 
   // One OFFERED row per offer (AC-2): who was offered, by whom (SYSTEM or ADMIN), and the deadline.
+  // `replacedCourierId` names the rider whose open offer an admin moved to this one, so the timeline
+  // shows that offer ending without an OFFER_EXPIRED, which would read as the rider's miss.
   private async saveOfferedEvent(
     deliveryId: string,
     courierId: string,
     actor: EnumEventActor,
-    offerExpiresAt: Date | null
+    offerExpiresAt: Date | null,
+    replacedCourierId: string | null = null
   ): Promise<void> {
+    const deadline = offerExpiresAt ? `answer by ${offerExpiresAt.toISOString()}` : 'no deadline'
+    const replaced = replacedCourierId ? `; moved by an admin from the open offer to courier ${replacedCourierId}` : ''
     const offeredEvent: DeliveryOfferedEvent = {
       deliveryId,
       type: EnumDeliveryEventType.OFFERED,
       actor,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: offerExpiresAt
-        ? `Offered to courier ${courierId}, answer by ${offerExpiresAt.toISOString()}`
-        : `Offered to courier ${courierId}, no deadline`,
+      message: `Offered to courier ${courierId}, ${deadline}${replaced}`,
     }
     await this.saveDeliveryEvent(offeredEvent, {
       transitionSuccessful: true,
@@ -913,21 +979,6 @@ export class DeliveryEventService {
     }
 
     return updatedDelivery
-  }
-
-  private async updateDeliveryAmounts(
-    deliveryId: string,
-    totalCost: number,
-    totalCompensation: number,
-    fee: number,
-    feePercentage: number
-  ) {
-    await this.deliveryRepository.update(deliveryId, {
-      totalCost,
-      totalCompensation,
-      fee,
-      feePercentage,
-    })
   }
 
   private async notifyPartner(

@@ -18,7 +18,8 @@ export enum NotificationEventType {
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
-export type OfferEndedReason = 'EXPIRED' | 'OFFLINE'
+// MOVED: an admin gave the offer to another rider (row 61 review).
+export type OfferEndedReason = 'EXPIRED' | 'OFFLINE' | 'MOVED'
 
 export interface OfferEndedMessage {
   deliveryId: string
