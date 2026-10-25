@@ -57,12 +57,11 @@ import { AuthApiKeyGuard } from './guards/auth-api-key.guard'
 import { AuthHttpGuard } from './guards/auth-http.guard'
 import { AuthRefreshHttpGuard } from './guards/auth-refresh-http.guard'
 import { RolesGuard } from './guards/roles.guard'
-import { AblyModule } from './integrations/ably/ably.module'
+import { selectWebsocketDispatcherModule } from './services/websocket/select-websocket-dispatcher-module'
 import { PersistenceModule } from './persistence/persistence.module'
 import { DeliveryMatchingModule } from './services/delivery-matching/delivery-matching.module'
 import { GeoCalculationModule } from './services/geo-calculation/geo-calculation.module'
 import { PartnerWebhookModule } from './services/partner-webhooks/partner-webhooks.module'
-import { SocketIOModule } from './services/socketio/socketio.module'
 
 const DOMAIN_MODULES: ModuleMetadata['imports'] = [
   AuthDomainModule,
@@ -106,11 +105,7 @@ if (process.env.NODE_ENV === 'development') {
   // INTEGRATION_MODULES.push(GcpStorageModule)
 }
 
-if (process.env.WEBSOCKET_DISPATCHER === 'ably') {
-  INTEGRATION_MODULES.push(AblyModule)
-} else {
-  INTEGRATION_MODULES.push(SocketIOModule)
-}
+INTEGRATION_MODULES.push(selectWebsocketDispatcherModule(process.env.WEBSOCKET_DISPATCHER))
 
 @Module({
   imports: [
