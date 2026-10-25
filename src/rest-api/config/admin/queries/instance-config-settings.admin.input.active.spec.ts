@@ -140,4 +140,46 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
       })
     })
   })
+
+  describe('Clause 4: Boolean settings guard (@RefuseIfNotSentAsBoolean, AC-10)', () => {
+    const invalidBooleanValues = ['false', '', null, 0, 'true', 1, [], {}]
+
+    invalidBooleanValues.forEach((invalidValue) => {
+      it(`refuses non-boolean ${JSON.stringify(invalidValue)} for offerExpiryEnabled with BadRequestException naming the setting`, async () => {
+        const promise = pipe.transform(
+          { offerExpiryEnabled: invalidValue },
+          { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+        )
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('offerExpiryEnabled must be sent as true or false')
+      })
+    })
+
+    it('passes real JSON boolean true untouched for offerExpiryEnabled', async () => {
+      const result = (await pipe.transform(
+        { offerExpiryEnabled: true },
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.offerExpiryEnabled).toBe(true)
+    })
+
+    it('passes real JSON boolean false untouched for offerExpiryEnabled', async () => {
+      const result = (await pipe.transform(
+        { offerExpiryEnabled: false },
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.offerExpiryEnabled).toBe(false)
+    })
+
+    it('leaves offerExpiryEnabled undefined when left out from body', async () => {
+      const result = (await pipe.transform(
+        {},
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.offerExpiryEnabled).toBeUndefined()
+    })
+  })
 })

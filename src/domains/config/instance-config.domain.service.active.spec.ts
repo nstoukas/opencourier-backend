@@ -613,6 +613,156 @@ describe('InstanceConfigDomainService', () => {
         })
       })
     })
+
+    describe('minimum numeric settings boundary rejection', () => {
+      NUMERIC_SETTING_RULES.filter((rule) => rule.min !== undefined).forEach((rule) => {
+        it(`rejects value below min for ${rule.key} (${rule.min! - 1}) naming setting`, async () => {
+          const promise = service.setInstanceConfigSettings({ [rule.key]: rule.min! - 1 })
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${rule.key} must be ${rule.min} or more`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+
+        it(`accepts exact min boundary value for ${rule.key} (${rule.min})`, async () => {
+          await service.setInstanceConfigSettings({ [rule.key]: rule.min })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.min)
+        })
+      })
+    })
+
+    describe('maximum numeric settings boundary rejection', () => {
+      NUMERIC_SETTING_RULES.filter((rule) => rule.max !== undefined).forEach((rule) => {
+        it(`rejects value above max for ${rule.key} (${rule.max! + 1}) naming setting`, async () => {
+          const promise = service.setInstanceConfigSettings({ [rule.key]: rule.max! + 1 })
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${rule.key} must be ${rule.max} or less`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+
+        it(`accepts exact max boundary value for ${rule.key} (${rule.max})`, async () => {
+          await service.setInstanceConfigSettings({ [rule.key]: rule.max })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.max)
+        })
+      })
+    })
+
+    describe('integer requirement rejection', () => {
+      NUMERIC_SETTING_RULES.filter((rule) => rule.mustBeInteger).forEach((rule) => {
+        it(`rejects fractional value for ${rule.key} (60.5) naming setting`, async () => {
+          const promise = service.setInstanceConfigSettings({ [rule.key]: 60.5 })
+          await expect(promise).rejects.toThrow(BadRequestException)
+          await expect(promise).rejects.toThrow(`${rule.key} must be a whole number`)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        })
+      })
+    })
+
+    describe('offerExpiryEnabled saving', () => {
+      it('saves false for offerExpiryEnabled (not dropped by a truthy check)', async () => {
+        await service.setInstanceConfigSettings({ offerExpiryEnabled: false })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, false)
+      })
+
+      it('saves true for offerExpiryEnabled', async () => {
+        await service.setInstanceConfigSettings({ offerExpiryEnabled: true })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, true)
+      })
+
+      it('refuses non-boolean offerExpiryEnabled if sent to domain service', async () => {
+        const promise = service.setInstanceConfigSettings({ offerExpiryEnabled: 'false' as any })
+        await expect(promise).rejects.toThrow(BadRequestException)
+        await expect(promise).rejects.toThrow('offerExpiryEnabled must be true or false')
+      })
+    })
+  })
+
+  describe('offer expiry getters (AC-10)', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    it('getOfferExpiryEnabled: returns false on missing row, true on true, false on false or non-boolean', async () => {
+      // 1. Missing row -> default false
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+      expect(await service.getOfferExpiryEnabled()).toBe(false)
+
+      // 2. Stored true -> true
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_ENABLED, value: 'true', type: 'boolean' })
+      )
+      expect(await service.getOfferExpiryEnabled()).toBe(true)
+
+      // 3. Stored false -> false
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_ENABLED, value: 'false', type: 'boolean' })
+      )
+      expect(await service.getOfferExpiryEnabled()).toBe(false)
+
+      // 4. Stored invalid string -> false
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_ENABLED, value: 'something', type: 'string' })
+      )
+      expect(await service.getOfferExpiryEnabled()).toBe(false)
+    })
+
+    it('getOfferExpirySeconds: returns 60 on missing row, stored value if valid, and default 60 if out of range or fractional', async () => {
+      // 1. Missing row -> default 60
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+      expect(await service.getOfferExpirySeconds()).toBe(60)
+
+      // 2. Stored valid (45) -> 45
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_SECONDS, value: '45', type: 'number' })
+      )
+      expect(await service.getOfferExpirySeconds()).toBe(45)
+
+      // 3. Stored below min (19) -> fallback to default 60
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_SECONDS, value: '19', type: 'number' })
+      )
+      expect(await service.getOfferExpirySeconds()).toBe(60)
+
+      // 4. Stored above max (301) -> fallback to default 60
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_SECONDS, value: '301', type: 'number' })
+      )
+      expect(await service.getOfferExpirySeconds()).toBe(60)
+
+      // 5. Stored fractional (60.5) -> fallback to default 60
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.OFFER_EXPIRY_SECONDS, value: '60.5', type: 'number' })
+      )
+      expect(await service.getOfferExpirySeconds()).toBe(60)
+    })
+
+    it('getNoCourierRetrySeconds: returns 30 on missing row, stored value if valid, and default 30 if out of range or fractional', async () => {
+      // 1. Missing row -> default 30
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+      expect(await service.getNoCourierRetrySeconds()).toBe(30)
+
+      // 2. Stored valid (15) -> 15
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.NO_COURIER_RETRY_SECONDS, value: '15', type: 'number' })
+      )
+      expect(await service.getNoCourierRetrySeconds()).toBe(15)
+
+      // 3. Stored below min (9) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.NO_COURIER_RETRY_SECONDS, value: '9', type: 'number' })
+      )
+      expect(await service.getNoCourierRetrySeconds()).toBe(30)
+
+      // 4. Stored above max (301) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.NO_COURIER_RETRY_SECONDS, value: '301', type: 'number' })
+      )
+      expect(await service.getNoCourierRetrySeconds()).toBe(30)
+
+      // 5. Stored fractional (15.5) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.NO_COURIER_RETRY_SECONDS, value: '15.5', type: 'number' })
+      )
+      expect(await service.getNoCourierRetrySeconds()).toBe(30)
+    })
   })
 
   describe('read-back of stored 0 values', () => {

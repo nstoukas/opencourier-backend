@@ -35,6 +35,7 @@ describe('DeliveryDomainService', () => {
       findByDeliveryQuoteId: jest.fn(),
       findManyPaginated: jest.fn(),
       update: jest.fn(),
+      updateIfMatches: jest.fn().mockResolvedValue(true),
       create: jest.fn(),
     } as unknown as jest.Mocked<DeliveryRepository>
 
@@ -572,19 +573,36 @@ describe('DeliveryDomainService', () => {
     })
   })
 
-  // Test Plan Item 10: rejectDelivery is unaffected
+  // Test Plan Item 10: rejectDelivery uses updateIfMatches (spec 0002)
   describe('rejectDelivery', () => {
-    test('adds courier to rejected list and processes REJECTED event', async () => {
+    test('adds courier to rejected list and processes REJECTED event on successful conditional update', async () => {
+      const offeredAt = new Date()
       const delivery = {
         id: 'del-reject',
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         matchedCourierId: 'courier-1',
+        offeredAt,
+        courierId: null,
       }
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(delivery as any)
-      mockDeliveryRepository.update.mockResolvedValueOnce(delivery as any)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
 
       await service.rejectDelivery('del-reject', 'courier-1')
 
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        'del-reject',
+        {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: 'courier-1',
+          offeredAt,
+          courierId: null,
+        },
+        {
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+        }
+      )
       expect(mockCacheService.save).toHaveBeenCalledWith(
         expect.stringContaining('del-reject'),
         ['courier-1'],
@@ -598,6 +616,25 @@ describe('DeliveryDomainService', () => {
         courierId: 'courier-1',
         message: 'Courier courier-1 rejected delivery del-reject',
       })
+    })
+
+    test('throws 409 OfferHasEndedException when conditional update returns false (count 0)', async () => {
+      const offeredAt = new Date()
+      const delivery = {
+        id: 'del-reject-stale',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-1',
+        offeredAt,
+        courierId: null,
+      }
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(delivery as any)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+
+      await expect(service.rejectDelivery('del-reject-stale', 'courier-1')).rejects.toThrow(
+        'This offer has ended'
+      )
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
   })
 

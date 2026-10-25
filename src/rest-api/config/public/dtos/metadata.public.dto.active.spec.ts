@@ -60,4 +60,12 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     const dto = new MetadataPublicDto(baseData)
     expect((dto.config as any).defaultMinimumCourierPay).toBeUndefined()
   })
+
+  // Spec 0002, AC-10: public metadata exposes offer expiry settings
+  it('exposes offerExpiryEnabled, offerExpirySeconds, and noCourierRetrySeconds on public metadata (AC-10)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect(dto.config.offerExpiryEnabled).toBe(false)
+    expect(dto.config.offerExpirySeconds).toBe(60)
+    expect(dto.config.noCourierRetrySeconds).toBe(30)
+  })
 })

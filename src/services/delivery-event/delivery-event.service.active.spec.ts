@@ -54,6 +54,8 @@ describe('DeliveryEventService', () => {
     mockDeliveryRepository = {
       findByIdOrThrow: jest.fn(),
       update: jest.fn(),
+      updateIfMatches: jest.fn().mockResolvedValue(true),
+      findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockDeliveryEventRepository = {
@@ -294,9 +296,10 @@ describe('DeliveryEventService', () => {
 
       await service.offerDeliveryToCourierAsAdmin('del-offer', 'courier-1', 'Admin offer note')
 
-      // Assert CONFIRMED event is created with oldStatus: CREATED and newStatus: ASSIGNING_COURIER
-      expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
-      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+      // Assert CONFIRMED and OFFERED events are created (spec 0002: admin offer writes CONFIRMED and OFFERED)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(2)
+      expect(mockDeliveryEventRepository.create).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({
           deliveryId: 'del-offer',
           type: EnumDeliveryEventType.CONFIRMED,
@@ -306,6 +309,20 @@ describe('DeliveryEventService', () => {
           newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
           transitionSuccessful: true,
           message: 'Admin offered delivery to courier courier-1: Admin offer note',
+        })
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          deliveryId: 'del-offer',
+          type: EnumDeliveryEventType.OFFERED,
+          actor: EnumEventActor.ADMIN,
+          courierId: 'courier-1',
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          transitionSuccessful: true,
+          message: 'Offered to courier courier-1, no deadline',
         })
       )
     })

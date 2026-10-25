@@ -69,4 +69,27 @@ describe('stateMachine', () => {
     const combined = [...expectedOngoingStatuses, ...expectedNonOngoingStatuses]
     expect(allEnumStatuses.sort()).toEqual(combined.sort())
   })
+
+  // Test Plan Case 5: Spec 0002 offer expiry self-transitions in ASSIGNING_COURIER
+  test('keeps delivery in ASSIGNING_COURIER on OFFERED, OFFER_EXPIRED, and NO_COURIER_AVAILABLE', () => {
+    const offerEvents = [
+      EnumDeliveryEventType.OFFERED,
+      EnumDeliveryEventType.OFFER_EXPIRED,
+      EnumDeliveryEventType.NO_COURIER_AVAILABLE,
+    ]
+
+    for (const eventType of offerEvents) {
+      // 1. Transition within ASSIGNING_COURIER stays in ASSIGNING_COURIER
+      expect(STATE_MACHINE[EnumDeliveryStatus.ASSIGNING_COURIER].on[eventType]).toBe(
+        EnumDeliveryStatus.ASSIGNING_COURIER
+      )
+
+      // 2. No other status allows these events
+      for (const status of Object.values(EnumDeliveryStatus)) {
+        if (status !== EnumDeliveryStatus.ASSIGNING_COURIER) {
+          expect(STATE_MACHINE[status].on[eventType]).toBeUndefined()
+        }
+      }
+    }
+  })
 })

@@ -99,4 +99,12 @@ describe('InstanceConfigSettingsDto', () => {
     const dto = new InstanceConfigSettingsDto(baseConfigData)
     expect((dto as any).defaultMinimumCourierPay).toBeUndefined()
   })
+
+  // Spec 0002, AC-10: InstanceConfigSettingsDto exposes offer expiry settings
+  it('exposes offerExpiryEnabled, offerExpirySeconds, and noCourierRetrySeconds (AC-10)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.offerExpiryEnabled).toBe(false)
+    expect(dto.offerExpirySeconds).toBe(60)
+    expect(dto.noCourierRetrySeconds).toBe(30)
+  })
 })
