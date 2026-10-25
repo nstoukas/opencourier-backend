@@ -41,7 +41,7 @@ import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
-import { addCourierToRejectedList } from '../cache/rejected-couriers'
+import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cache/rejected-couriers'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -560,29 +560,49 @@ export class DeliveryEventService {
       stillThisOffer.offerExpiresAt = { lte: new Date() }
     }
 
-    const ended = await this.deliveryRepository.updateIfMatches(deliveryId, stillThisOffer, {
-      matchedCourierId: null,
-      offeredAt: null,
-      offerExpiresAt: null,
-    })
-    if (!ended) {
-      this.logger.log(`Offer of delivery ${deliveryId} to courier ${courierId} had already changed; nothing ended`)
-      return false
-    }
-
-    // Skipped for this delivery like a decline (the same 20 min list). Nothing else about the rider
-    // changes: no count, no status change (value 5). A failed write here must not stop the
-    // delivery moving on, so it is logged and the rider may simply be offered it again.
+    // Skipped for this delivery like a decline (the same 20 min list). Added BEFORE the offer is
+    // cleared, so a matcher running in between (a rider coming Online, a retry) cannot offer the
+    // delivery straight back to this rider. Nothing else about the rider changes: no count, no
+    // status change (value 5). A failed write here must not stop the delivery moving on, so it is
+    // logged and the rider may simply be offered it again.
+    let addedToSkipList = false
     try {
-      await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
       this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
     }
 
+    let ended: boolean
+    try {
+      ended = await this.deliveryRepository.updateIfMatches(deliveryId, stillThisOffer, {
+        matchedCourierId: null,
+        offeredAt: null,
+        offerExpiresAt: null,
+      })
+    } catch (error) {
+      if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
+      throw error
+    }
+    if (!ended) {
+      // The offer had already changed, so this rider's turn did not end here. Take back only the
+      // entry this call added; one left over from an earlier decline is not ours to remove.
+      if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
+      this.logger.log(`Offer of delivery ${deliveryId} to courier ${courierId} had already changed; nothing ended`)
+      return false
+    }
+
+    // From here the offer is gone. Every step below is guarded on its own, so a failure in one (the
+    // rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
+    // row and nobody looking for a rider. The processor never retries a job, so nothing else would.
+
     // Tell the rider first, so their screen drops the offer before matching takes its time.
-    const courier = await this.courierRepository.findById(courierId)
-    if (courier) {
-      await this.websocketDispatcher.sendOfferEnded(courier.userId, { deliveryId, reason })
+    try {
+      const courier = await this.courierRepository.findById(courierId)
+      if (courier) {
+        await this.websocketDispatcher.sendOfferEnded(courier.userId, { deliveryId, reason })
+      }
+    } catch (error) {
+      this.logger.error(`Could not tell courier ${courierId} that the offer of ${deliveryId} ended: ${error}`)
     }
 
     const expiredEvent: DeliveryOfferExpiredEvent = {
@@ -594,8 +614,55 @@ export class DeliveryEventService {
       message,
     }
     // Saves OFFER_EXPIRED and offers the delivery to the next rider, like a decline.
-    await this.processDeliveryEvent(expiredEvent)
+    try {
+      await this.processDeliveryEvent(expiredEvent)
+    } catch (error) {
+      this.logger.error(`Recording OFFER_EXPIRED for delivery ${deliveryId} failed: ${error}`, (error as Error).stack)
+    }
+
+    // If that left the delivery waiting with nobody offered (matching failed, or nobody is free),
+    // make sure a backstop retry is pending, so it is matched again later.
+    await this.ensureBackstopIfStillWaiting(deliveryId)
     return true
+  }
+
+  // Never throws. A failed read still sets the retry: the retry job checks the delivery itself and
+  // does nothing if it is offered or taken by then.
+  private async ensureBackstopIfStillWaiting(deliveryId: string): Promise<void> {
+    try {
+      const delivery = await this.deliveryRepository.findById(deliveryId)
+      const stillWaiting =
+        delivery?.status === EnumDeliveryStatus.ASSIGNING_COURIER && !delivery.matchedCourierId && !delivery.courierId
+      if (!stillWaiting) return
+    } catch (error) {
+      this.logger.error(`Could not check whether delivery ${deliveryId} still waits: ${error}`)
+    }
+    await this.scheduleNoCourierRetry(deliveryId)
+  }
+
+  // Never throws: undoing a skip list entry is cleanup, and its failure only means the rider sits
+  // out this one delivery for up to 20 minutes.
+  private async undoSkipListEntry(deliveryId: string, courierId: string): Promise<void> {
+    try {
+      await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(`Could not take courier ${courierId} off the skip list of ${deliveryId}: ${error}`)
+    }
+  }
+
+  // An accept that took the offer and then did not go through gives the offer back with its old
+  // deadline (DeliveryDomainService.acceptDelivery). The expiry job may have run meanwhile, found
+  // the offer taken and done nothing, so a new timer is set for the same deadline; a deadline that
+  // has already passed ends the offer after the grace. Two timers for one offer are harmless: the
+  // second finds the offer gone and does nothing. Never throws.
+  async rearmOfferExpiry(deliveryId: string, courierId: string, offeredAt: Date, offerExpiresAt: Date) {
+    await this.scheduleOfferExpiry(
+      deliveryId,
+      courierId,
+      offeredAt,
+      offerExpiresAt.getTime() - Date.now(),
+      `-rearm-${Date.now()}`
+    )
   }
 
   // After a triggering event: offer to the next rider, or record that nobody is free and set the
@@ -654,16 +721,28 @@ export class DeliveryEventService {
     }
 
     this.logger.log(`Delivery ${deliveryId} is being offered to courier: ${courier.id}`)
-    await this.saveOfferedEvent(deliveryId, courier.id, EnumEventActor.SYSTEM, offerExpiresAt)
+
+    // From here the offer is written. Each step below is guarded on its own, so one failing cannot
+    // skip the others, above all the expiry timer, which is what ends an offer nobody answers.
+    try {
+      await this.saveOfferedEvent(deliveryId, courier.id, EnumEventActor.SYSTEM, offerExpiresAt)
+    } catch (error) {
+      this.logger.error(`Could not record OFFERED for delivery ${deliveryId}: ${error}`, (error as Error).stack)
+    }
 
     if (expirySeconds !== null) {
-      await this.scheduleOfferExpiry(deliveryId, courier.id, offeredAt, expirySeconds)
+      await this.scheduleOfferExpiry(deliveryId, courier.id, offeredAt, expirySeconds * 1000)
     }
     await this.removeNoCourierRetry(deliveryId)
 
-    const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
-    this.logger.log(`Sending offer to courier: ${courier.id}`)
-    await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(updatedDelivery))
+    try {
+      const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      this.logger.log(`Sending offer to courier: ${courier.id}`)
+      await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(updatedDelivery))
+    } catch (error) {
+      // The phone still finds the offer on its next fetch of new deliveries.
+      this.logger.error(`Could not send the offer of ${deliveryId} to courier ${courier.id}: ${error}`)
+    }
     return 'OFFERED'
   }
 
@@ -742,12 +821,24 @@ export class DeliveryEventService {
 
   // Timer helpers. A failure to talk to Redis is logged, never thrown: it must not undo an offer
   // or a status change that already happened. Without its timer an offer rings on like expiry off.
-  private async scheduleOfferExpiry(deliveryId: string, courierId: string, offeredAt: Date, seconds: number) {
+  // `untilDeadlineMs` is the time left until the offer's deadline; the job runs the network grace
+  // after it. `jobIdSuffix` gives a re-armed timer an id of its own, because BullMQ ignores an add
+  // whose id is still in the queue (the first job may be running at that very moment).
+  private async scheduleOfferExpiry(
+    deliveryId: string,
+    courierId: string,
+    offeredAt: Date,
+    untilDeadlineMs: number,
+    jobIdSuffix = ''
+  ) {
     try {
       await this.bullMQService.addJob<OfferExpiryJobPayload>(
         'offer-expiry',
         { deliveryId, courierId, offeredAt: offeredAt.toISOString() },
-        { delay: (seconds + OFFER_EXPIRY_GRACE_SECONDS) * 1000, jobId: offerExpiryJobId(deliveryId, offeredAt) }
+        {
+          delay: Math.max(0, untilDeadlineMs) + OFFER_EXPIRY_GRACE_SECONDS * 1000,
+          jobId: `${offerExpiryJobId(deliveryId, offeredAt)}${jobIdSuffix}`,
+        }
       )
     } catch (error) {
       this.logger.error(`Could not set the expiry timer of delivery ${deliveryId}: ${error}`)
@@ -757,10 +848,12 @@ export class DeliveryEventService {
   // Remove, then add: at most one backstop is pending per delivery, whatever triggered it. The id
   // carries the time because BullMQ ignores an add whose id still exists, and the job that calls
   // this from its own handler still exists while it runs.
+  // A failed remove does not stop the add: an extra pending retry is harmless (it finds the delivery
+  // offered and does nothing, and the next remove cleans it up), a missing one leaves it stuck.
   private async scheduleNoCourierRetry(deliveryId: string) {
+    await this.removeNoCourierRetry(deliveryId)
     try {
       const seconds = await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()
-      await this.bullMQService.removeDelayedJobsWithIdPrefix(noCourierRetryJobIdPrefix(deliveryId))
       await this.bullMQService.addJob<NoCourierRetryJobPayload>(
         'no-courier-retry',
         { deliveryId },

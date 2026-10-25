@@ -171,11 +171,21 @@ export class DeliveryDomainService {
     // give the offer back exactly as it was, deadline included, so it is not stuck half taken.
     const afterAccept = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     if (afterAccept.status === EnumDeliveryStatus.ASSIGNING_COURIER && afterAccept.courierId === courierId) {
-      await this.deliveryRepository.updateIfMatches(
+      const givenBack = await this.deliveryRepository.updateIfMatches(
         deliveryId,
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
         { courierId: null, offerExpiresAt: delivery.offerExpiresAt }
       )
+      // A deadline given back needs a timer behind it: the original expiry job may have run while
+      // the offer was taken and done nothing (it only ends an offer nobody has taken).
+      if (givenBack && delivery.offeredAt && delivery.offerExpiresAt) {
+        await this.deliveryEventService.rearmOfferExpiry(
+          deliveryId,
+          courierId,
+          delivery.offeredAt,
+          delivery.offerExpiresAt
+        )
+      }
       throw new DeliveryCantBeAcceptedException(`Delivery ${deliveryId} could not be accepted, please try again`)
     }
 
@@ -193,24 +203,39 @@ export class DeliveryDomainService {
       throw new OfferHasEndedException()
     }
 
-    // End the offer in one conditional update (all three offer fields are cleared together), so a
-    // decline and the expiry job racing for the same offer cannot both act on it.
-    const declined = await this.deliveryRepository.updateIfMatches(
-      deliveryId,
-      {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        matchedCourierId: courierId,
-        offeredAt: delivery.offeredAt,
-        courierId: null,
-      },
-      { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
-    )
-    if (!declined) {
-      throw new OfferHasEndedException()
+    // Put the courier on this delivery's skip list BEFORE the offer is cleared, so a matcher running
+    // in between (a rider coming Online, a retry) cannot offer it straight back to them. True only
+    // when this call added them, so a failed decline below takes back only its own entry. A failed
+    // write is logged, not thrown: the decline must still go through.
+    let addedToSkipList = false
+    try {
+      addedToSkipList = await this.addCourierToRejectedList(deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
     }
 
-    // Add the courier to the rejected list for this delivery
-    await this.addCourierToRejectedList(deliveryId, courierId)
+    // End the offer in one conditional update (all three offer fields are cleared together), so a
+    // decline and the expiry job racing for the same offer cannot both act on it.
+    let declined: boolean
+    try {
+      declined = await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offeredAt: delivery.offeredAt,
+          courierId: null,
+        },
+        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+      )
+    } catch (error) {
+      if (addedToSkipList) await this.removeCourierFromRejectedList(deliveryId, courierId)
+      throw error
+    }
+    if (!declined) {
+      if (addedToSkipList) await this.removeCourierFromRejectedList(deliveryId, courierId)
+      throw new OfferHasEndedException()
+    }
 
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,
