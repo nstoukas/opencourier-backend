@@ -16,6 +16,9 @@ import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.serv
 import { DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
 import { DeliveryCalculationService } from '../delivery-calculation/delivery-calculation.service'
 import { DeliveryDispatchedEvent, DeliveryDroppedOffEvent, DeliveryEvent } from 'src/shared-types'
+import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { CacheService } from '../cache/cache.service'
 
 describe('DeliveryEventService', () => {
   let service: DeliveryEventService
@@ -87,7 +90,17 @@ describe('DeliveryEventService', () => {
       mockTaskBusService,
       mockPartnerWebhookService,
       mockDeliveryMatchingService,
-      mockDeliveryCalculationService
+      mockDeliveryCalculationService,
+      // Spec 0002 added three dependencies (job timers, settings, skip list).
+      { addJob: jest.fn(), removeDelayedJobsWithIdPrefix: jest.fn() } as unknown as BullMQService,
+      {
+        instanceConfig: {
+          getOfferExpiryEnabled: jest.fn().mockResolvedValue(false),
+          getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
+          getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+        },
+      } as unknown as ConfigDomainService,
+      { getOrDefault: jest.fn().mockResolvedValue([]), save: jest.fn() } as unknown as CacheService
     )
   })
 

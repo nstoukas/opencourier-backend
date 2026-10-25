@@ -9,6 +9,7 @@ import {
 import { CourierDomainService } from '../../../domains/courier/courier.domain.service'
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { CourierUpdateCurrentLocationCourierInput } from './queries/courier-update-current-location.courier.input'
 import * as errors from 'src/errors'
 import { EnumUserRole } from '@prisma/types'
@@ -37,7 +38,8 @@ export class CourierCourierRestApiController {
   constructor(
     private readonly courierDomainService: CourierDomainService,
     private readonly deliveryEventDomainService: DeliveryEventDomainService,
-    private readonly configDomainService: ConfigDomainService
+    private readonly configDomainService: ConfigDomainService,
+    private readonly deliveryEventService: DeliveryEventService
   ) {}
 
   @common.Get('earnings-summary')
@@ -201,6 +203,8 @@ export class CourierCourierRestApiController {
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<void> {
     await this.courierDomainService.updateStatus(courier.id, data.status)
+    // Spec 0002: going Offline ends this rider's open offers; going Online matches waiting deliveries.
+    await this.deliveryEventService.handleCourierStatusChanged(courier.id, data.status)
   }
 
   @common.Patch('delivery-setting')

@@ -36,6 +36,9 @@ describe('InstanceConfigSettingsDto', () => {
     registeredRegistries: [],
     reassignmentPayoutPolicies: { FULL: 100 },
     reassignmentPayoutDefaultPolicy: 'FULL',
+    offerExpiryEnabled: false,
+    offerExpirySeconds: 60,
+    noCourierRetrySeconds: 30,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

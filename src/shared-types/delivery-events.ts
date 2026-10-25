@@ -36,6 +36,24 @@ export interface DeliveryReassignedEvent extends BaseDeliveryEvent {
 }
 
 
+// Spec 0002. An offer went out to `courierId` (actor SYSTEM for matching, ADMIN for an admin offer).
+// Recorded by DeliveryEventService itself, never emitted through processDeliveryEvent.
+export interface DeliveryOfferedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.OFFERED
+  courierId: string
+}
+// The offer to `courierId` ended unanswered: its deadline passed, or the rider went offline.
+// Emitted through processDeliveryEvent, which then offers the delivery to the next rider.
+// Never a REJECTED, so expiries can never be counted as refusals (value 5).
+export interface DeliveryOfferExpiredEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.OFFER_EXPIRED
+  courierId: string
+}
+// Matching found no free rider. Names no rider. Recorded once per waiting spell.
+export interface DeliveryNoCourierAvailableEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.NO_COURIER_AVAILABLE
+}
+
 export interface DeliveryFulfilledEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FULFILLED
 }
@@ -83,6 +101,9 @@ export type DeliveryEvent =
   | DeliveryCanceledEvent
   | DeliveryFailedEvent
   | DeliveryReassignedEvent
+  | DeliveryOfferedEvent
+  | DeliveryOfferExpiredEvent
+  | DeliveryNoCourierAvailableEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

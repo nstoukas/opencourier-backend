@@ -72,6 +72,9 @@ model Courier {
   locationNotes         LocationNote[]
   locationNoteReactions LocationNoteReaction[]
   courierCompensations  CourierCompensation[]
+  // Events that name this rider (OFFERED, OFFER_EXPIRED), spec 0002. Read only on a
+  // delivery's own timeline; never grouped by rider (binding value 5).
+  deliveryEvents        DeliveryEvent[]
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
@@ -252,6 +255,10 @@ model Delivery {
   // Delivery matching data
   rejectedByCouriers String[] @default([])
   matchedCourierId   String?
+  // When the open offer to matchedCourierId went out, and when it ends on its own (spec 0002).
+  // offerExpiresAt null = it never expires (expiry off, or an admin offer).
+  offeredAt          DateTime?
+  offerExpiresAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -282,6 +289,10 @@ model DeliveryEvent {
 
   delivery   Delivery @relation(fields: [deliveryId], references: [id])
   deliveryId String
+
+  // The rider an OFFERED or OFFER_EXPIRED event is about; null on every other event (spec 0002).
+  courier   Courier? @relation(fields: [courierId], references: [id])
+  courierId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -478,6 +489,9 @@ enum EnumDeliveryEventType {
   ON_THE_WAY
   FAILED
   REASSIGNED
+  OFFERED
+  OFFER_EXPIRED
+  NO_COURIER_AVAILABLE
 }
 
 enum EnumCourierCompensationReason {
@@ -587,6 +601,7 @@ enum EnumEventActor {
   COURIER
   ADMIN
   PARTNER
+  SYSTEM
 }
 
 enum EnumLocationNoteActor {

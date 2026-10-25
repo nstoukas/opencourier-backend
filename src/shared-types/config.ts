@@ -35,6 +35,12 @@ export type InstanceConfigSettings = {
   registeredRegistries: string[]
   reassignmentPayoutPolicies: Record<string, number>
   reassignmentPayoutDefaultPolicy: string
+  // Offer expiry (spec 0002), set by co-op representatives. When on, the server ends an
+  // automatic offer nobody answered after offerExpirySeconds and offers the delivery to the next
+  // rider. noCourierRetrySeconds is how often a delivery nobody could take is matched again.
+  offerExpiryEnabled: boolean
+  offerExpirySeconds: number
+  noCourierRetrySeconds: number
 }
 
 export type InstanceDetails = {
@@ -95,6 +101,9 @@ export enum ConfigKey {
   REGISTERED_REGISTRIES = 'registeredRegistries',
   REASSIGNMENT_PAYOUT_POLICIES = 'reassignmentPayoutPolicies',
   REASSIGNMENT_PAYOUT_DEFAULT_POLICY = 'reassignmentPayoutDefaultPolicy',
+  OFFER_EXPIRY_ENABLED = 'offerExpiryEnabled',
+  OFFER_EXPIRY_SECONDS = 'offerExpirySeconds',
+  NO_COURIER_RETRY_SECONDS = 'noCourierRetrySeconds',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).

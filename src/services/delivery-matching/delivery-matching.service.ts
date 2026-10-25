@@ -18,7 +18,26 @@ export class DeliveryMatchingService {
     private readonly cacheService: CacheService
   ) {}
 
+  // Finds a courier AND writes them as the delivery's matchedCourierId. Only the two test
+  // endpoints use this now; real offers go through findCourierForDelivery, because the offer step
+  // (DeliveryEventService) must write matchedCourierId together with offeredAt and the amounts.
   async matchDeliveryToCourier(deliveryId: string) {
+    const result = await this.findCourierForDelivery(deliveryId)
+    if (!result) return
+
+    const updatedDelivery = await this.deliveryRepository.update(deliveryId, {
+      matchedCourierId: result.courier.id,
+    })
+
+    return {
+      courier: result.courier,
+      delivery: updatedDelivery,
+    }
+  }
+
+  // Finds the courier the configured matcher picks for this delivery, skipping everyone on its
+  // skip list, and writes nothing. Returns undefined when nobody is free.
+  async findCourierForDelivery(deliveryId: string) {
     this.logger.log(`Matching Delivery ${deliveryId} to courier`)
 
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -65,14 +84,9 @@ export class DeliveryMatchingService {
     const courier = await this.courierDomainService.getByIdOrThrow(result.courierId)
     this.logger.log(`Matched courier: ${courier.firstName} ${courier.lastName}`)
 
-    const updatedDelivery = await this.deliveryRepository.update(delivery.id, {
-      // matchedCourierId: null,
-      matchedCourierId: courier.id,
-    })
-
     return {
       courier,
-      delivery: updatedDelivery,
+      delivery,
     }
   }
 

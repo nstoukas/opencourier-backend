@@ -16,6 +16,13 @@ import {
   DEFAULT_QUOTE_TO_DELIVERY_CONVERSION_TYPE,
   DEFAULT_QUOTE_TO_DELIVERY_MAX_DISTANCE_DRIFT,
   DELIVERY_QUOTE_EXPIRATION_MINUTES,
+  DEFAULT_OFFER_EXPIRY_ENABLED,
+  DEFAULT_OFFER_EXPIRY_SECONDS,
+  DEFAULT_NO_COURIER_RETRY_SECONDS,
+  OFFER_EXPIRY_SECONDS_MIN,
+  OFFER_EXPIRY_SECONDS_MAX,
+  NO_COURIER_RETRY_SECONDS_MIN,
+  NO_COURIER_RETRY_SECONDS_MAX,
 } from 'src/constants'
 import {
   EnumCourierCompensationCalculationType,
@@ -49,6 +56,11 @@ export const NUMERIC_SETTING_RULES: {
   whyZeroIsRefused: string | null
   // `?` = optional; leave it out for settings that may hold a fraction (a rate of 87.5 per km).
   mustBeWholeCents?: boolean
+  // A whole number that is not money (seconds, say). Same check as mustBeWholeCents, worded for it.
+  mustBeInteger?: boolean
+  // Inclusive limits. Each one's message names the setting and the allowed range.
+  min?: number
+  max?: number
 }[] = [
   { key: 'feePercentageAmount', whyZeroIsRefused: null },
   { key: 'quoteRatePerDistanceUnit', whyZeroIsRefused: null },
@@ -69,6 +81,21 @@ export const NUMERIC_SETTING_RULES: {
   {
     key: 'defaultMaxWorkingHours',
     whyZeroIsRefused: 'a courier given this default would have no time to work',
+  },
+  // Offer expiry (spec 0002). The 20 s floor gives a rider on a moped time to pull over safely.
+  {
+    key: 'offerExpirySeconds',
+    whyZeroIsRefused: 'an offer would end the moment it reaches the rider',
+    mustBeInteger: true,
+    min: OFFER_EXPIRY_SECONDS_MIN,
+    max: OFFER_EXPIRY_SECONDS_MAX,
+  },
+  {
+    key: 'noCourierRetrySeconds',
+    whyZeroIsRefused: 'a delivery nobody can take would be matched again without any pause',
+    mustBeInteger: true,
+    min: NO_COURIER_RETRY_SECONDS_MIN,
+    max: NO_COURIER_RETRY_SECONDS_MAX,
   },
 ]
 
@@ -105,6 +132,9 @@ export class InstanceConfigDomainService {
     const registeredRegistries = await this.getRegisteredRegistries()
     const reassignmentPayoutPolicies = await this.getReassignmentPayoutPolicies()
     const reassignmentPayoutDefaultPolicy = await this.getReassignmentPayoutDefaultPolicy()
+    const offerExpiryEnabled = await this.getOfferExpiryEnabled()
+    const offerExpirySeconds = await this.getOfferExpirySeconds()
+    const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -133,6 +163,9 @@ export class InstanceConfigDomainService {
       registeredRegistries,
       reassignmentPayoutPolicies,
       reassignmentPayoutDefaultPolicy,
+      offerExpiryEnabled,
+      offerExpirySeconds,
+      noCourierRetrySeconds,
     }
   }
 
@@ -226,9 +259,24 @@ export class InstanceConfigDomainService {
       if (rule.mustBeWholeCents && !Number.isInteger(value)) {
         throw new BadRequestException(`${rule.key} must be a whole number of cents`)
       }
+      if (rule.mustBeInteger && !Number.isInteger(value)) {
+        throw new BadRequestException(`${rule.key} must be a whole number`)
+      }
       if (value === 0 && rule.whyZeroIsRefused !== null) {
         throw new BadRequestException(`${rule.key} cannot be 0: ${rule.whyZeroIsRefused}`)
       }
+      if (rule.min !== undefined && value < rule.min) {
+        throw new BadRequestException(`${rule.key} must be ${rule.min} or more`)
+      }
+      if (rule.max !== undefined && value > rule.max) {
+        throw new BadRequestException(`${rule.key} must be ${rule.max} or less`)
+      }
+    }
+
+    // The one on/off setting. The DTO's @RefuseIfNotSentAsBoolean() already refuses "false" and
+    // friends; this repeats it for any caller that does not come through the ValidationPipe.
+    if (data.offerExpiryEnabled !== undefined && typeof data.offerExpiryEnabled !== 'boolean') {
+      throw new BadRequestException('offerExpiryEnabled must be true or false')
     }
 
     // Phase 2 — write validated settings to the database repository.
@@ -306,6 +354,17 @@ export class InstanceConfigDomainService {
         ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
         data.reassignmentPayoutDefaultPolicy
       )
+    }
+    // !== undefined, never `if (data.offerExpiryEnabled)`: that would silently drop a `false`,
+    // and switching expiry off is exactly the save that must never be lost.
+    if (data.offerExpiryEnabled !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.OFFER_EXPIRY_ENABLED, data.offerExpiryEnabled)
+    }
+    if (data.offerExpirySeconds !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.OFFER_EXPIRY_SECONDS, data.offerExpirySeconds)
+    }
+    if (data.noCourierRetrySeconds !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
     }
 
     // Update the updated_at timestamp whenever config is changed
@@ -580,6 +639,47 @@ export class InstanceConfigDomainService {
     // `??` returns the right-hand side only for null/undefined — an empty stored string is
     // still returned as-is, exactly as before.
     return stored ?? FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
+  }
+
+  // Offer expiry is on only when the stored value is the boolean true. Anything else, including a
+  // missing row or a bad value, reads as off: expiry off is the safe state (offers keep ringing).
+  async getOfferExpiryEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.OFFER_EXPIRY_ENABLED, DEFAULT_OFFER_EXPIRY_ENABLED)
+
+    return enabled.value === true
+  }
+
+  async getOfferExpirySeconds(): Promise<number> {
+    return this.getWholeSecondsInRange(
+      ConfigKey.OFFER_EXPIRY_SECONDS,
+      DEFAULT_OFFER_EXPIRY_SECONDS,
+      OFFER_EXPIRY_SECONDS_MIN,
+      OFFER_EXPIRY_SECONDS_MAX
+    )
+  }
+
+  async getNoCourierRetrySeconds(): Promise<number> {
+    return this.getWholeSecondsInRange(
+      ConfigKey.NO_COURIER_RETRY_SECONDS,
+      DEFAULT_NO_COURIER_RETRY_SECONDS,
+      NO_COURIER_RETRY_SECONDS_MIN,
+      NO_COURIER_RETRY_SECONDS_MAX
+    )
+  }
+
+  // Saving already refuses anything outside the range, so a bad stored value means someone edited
+  // the table by hand. Rather than end offers after 0 s or retry in a tight loop, use the default
+  // and log a warning so it gets fixed.
+  private async getWholeSecondsInRange(key: ConfigKey, fallback: number, min: number, max: number): Promise<number> {
+    const stored = await this.getConfigValueOrDefault(key, fallback)
+    const value = stored.value
+
+    if (typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max) {
+      return value
+    }
+
+    this.logger.warn(`Invalid ${key} in config (${String(value)}), using the default ${fallback}`)
+    return fallback
   }
 
   async getConfigValueOrDefault(

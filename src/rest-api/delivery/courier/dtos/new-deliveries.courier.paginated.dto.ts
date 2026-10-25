@@ -25,8 +25,15 @@ export class NewDeliveriesCourierPaginatedDto {
   @Expose()
   pagination?: PaginationDto
 
+  // The server's clock when this list was built (spec 0002, AC-9). The phone counts an offer down
+  // from offerExpiresAt minus this, so a phone clock that is wrong cannot move the deadline.
+  @ApiProperty({ type: Date })
+  @Expose()
+  serverNow: Date
+
   constructor(data: { data: NewDeliveryCourier[]; pagination?: PaginationDto }) {
     this.data = data.data.map((order) => new NewDeliveryCourierDto(order))
     this.pagination = data.pagination
+    this.serverNow = new Date()
   }
 }

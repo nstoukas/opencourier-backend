@@ -4,6 +4,7 @@ import { Expose, Type } from 'class-transformer'
 import { PaginationDto } from '../../../../core/dtos/PaginationDto'
 import { DeliveryAdminDto } from './delivery.admin.dto'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
 
 export class DeliveryAdminPaginatedDto {
   @ApiProperty({
@@ -25,8 +26,9 @@ export class DeliveryAdminPaginatedDto {
   @Expose()
   pagination?: PaginationDto
 
-  constructor(data: { data: DeliveryEntity[]; pagination?: PaginationDto }) {
-    this.data = data.data.map((delivery) => new DeliveryAdminDto(delivery))
+  // `offerViews?` = optional map of delivery id to its Offer column data (spec 0002).
+  constructor(data: { data: DeliveryEntity[]; pagination?: PaginationDto }, offerViews?: Map<string, DeliveryOfferView>) {
+    this.data = data.data.map((delivery) => new DeliveryAdminDto(delivery, undefined, offerViews?.get(delivery.id)))
     this.pagination = data.pagination
   }
 }

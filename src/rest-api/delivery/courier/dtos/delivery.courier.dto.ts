@@ -167,6 +167,14 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date })
   createdAt: Date
 
+  // Spec 0002. When the offer to this rider went out, and when it ends on its own. offerExpiresAt
+  // null means no countdown: expiry is off, or an admin made the offer.
+  @ApiProperty({ type: Date, nullable: true })
+  offeredAt: Date | null
+
+  @ApiProperty({ type: Date, nullable: true })
+  offerExpiresAt: Date | null
+
   @ApiProperty({ type: String, nullable: true })
   dropoffLocationFormattedAddress: string | null
 
@@ -226,6 +234,8 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.deliveryQuoteId = data.deliveryQuoteId
 
     this.createdAt = data.createdAt
+    this.offeredAt = data.offeredAt
+    this.offerExpiresAt = data.offerExpiresAt
 
     if ('pickupLocation' in data && data.pickupLocation) {
       this.pickupLocationFormattedAddress = formatAddress(data.pickupLocation)

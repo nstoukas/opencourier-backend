@@ -13,4 +13,14 @@ export function merchantGroupAdminNotificationChannel(merchantGroupId: string) {
 export enum NotificationEventType {
   NEW_DELIVERY_OFFER = 'NEW_DELIVERY_OFFER',
   DELIVERY_STATUS_UPDATED = 'DELIVERY_STATUS_UPDATED',
+  // An offer this rider held has ended on the server (spec 0002): drop it from the screen.
+  OFFER_ENDED = 'OFFER_ENDED',
+}
+
+// Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
+export type OfferEndedReason = 'EXPIRED' | 'OFFLINE'
+
+export interface OfferEndedMessage {
+  deliveryId: string
+  reason: OfferEndedReason
 }

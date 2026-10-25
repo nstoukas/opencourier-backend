@@ -31,4 +31,7 @@ export class InstanceConfigSettingsInput {
   registeredRegistries?: string[]
   reassignmentPayoutPolicies?: Record<string, number>
   reassignmentPayoutDefaultPolicy?: string
+  offerExpiryEnabled?: boolean
+  offerExpirySeconds?: number
+  noCourierRetrySeconds?: number
 }

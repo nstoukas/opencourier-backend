@@ -85,14 +85,15 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
       throw new BadRequestException('Delivery not found')
     }
 
-    if (!delivery.matchedCourierId) {
+    const courierId = input.courierId ?? delivery.matchedCourierId
+    if (!courierId) {
       this.logger.error(`Delivery has no matched courier: ${deliveryId}`)
       throw new BadRequestException('Delivery not found')
     }
 
     // The rider's pay: the quote's base fee plus distance fee, with no fee inside it.
     const courierCompensation = await this.courierCompensationService.calculateCourierCompensationForDelivery({
-      courierId: delivery.matchedCourierId,
+      courierId,
       deliveryId: deliveryId,
     })
 

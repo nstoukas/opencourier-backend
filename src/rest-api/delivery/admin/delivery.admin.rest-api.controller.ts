@@ -40,7 +40,8 @@ export class DeliveryAdminRestApiController {
       args.perPage
     )
 
-    const dto = new DeliveryAdminPaginatedDto(deliveries)
+    const offerViews = await this.deliveryDomainService.getOfferViews(deliveries.data)
+    const dto = new DeliveryAdminPaginatedDto(deliveries, offerViews)
     return dto
   }
 
@@ -56,7 +57,8 @@ export class DeliveryAdminRestApiController {
     // Loads the quote too, so the page can show how the price and the rider's pay were built.
     const { delivery, quote } = await this.deliveryDomainService.getByIdOrThrowWithQuote(deliveryId)
 
-    const dto = new DeliveryAdminDto(delivery, quote)
+    const offerViews = await this.deliveryDomainService.getOfferViews([delivery])
+    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id))
     return dto
   }
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Delivery, Location, Prisma } from '@prisma/types'
+import { Delivery, EnumDeliveryEventType, EnumDeliveryStatus, Location, Prisma } from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -41,6 +41,80 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
 
     return this.toDomain(delivery)
+  }
+
+  // A conditional write (spec 0002, "the race rule"): changes the delivery only if it still
+  // matches `where` at the moment of writing, and says whether it did. Two paths racing for the
+  // same offer (an accept and the expiry job, say) can then never both win: the database runs
+  // the check and the write as one step, so exactly one of them gets 1 back.
+  async updateIfMatches(
+    deliveryId: string,
+    where: Prisma.DeliveryWhereInput,
+    data: IDeliveryUpdate
+  ): Promise<boolean> {
+    const result = await this.prisma.delivery.updateMany({
+      where: { ...where, id: deliveryId },
+      data,
+    })
+
+    return result.count === 1
+  }
+
+  // Every offer this rider currently holds: still looking for a rider, offered to them, and not
+  // yet taken. Automatic and admin offers alike.
+  async findOpenOffersForCourier(courierId: string): Promise<DeliveryEntity[]> {
+    const deliveries = await this.prisma.delivery.findMany({
+      where: {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+      },
+    })
+
+    return this.toDomainMany(deliveries)
+  }
+
+  // Deliveries waiting for a rider with nobody offered, the longest waiting first. "Waiting since"
+  // is the latest NO_COURIER_AVAILABLE event, which starts the current waiting spell; a delivery
+  // with none (it was waiting before spec 0002 shipped) counts from when it was created.
+  async findIdsWaitingForCourierOldestFirst(): Promise<string[]> {
+    const waiting = await this.prisma.delivery.findMany({
+      where: {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: null,
+        courierId: null,
+      },
+      select: { id: true, createdAt: true },
+    })
+    if (waiting.length === 0) return []
+
+    const waitingSince = await this.findLatestNoCourierAvailableAt(waiting.map((d) => d.id))
+
+    return waiting
+      .map((d) => ({ id: d.id, since: waitingSince.get(d.id) ?? d.createdAt }))
+      .sort((a, b) => a.since.getTime() - b.since.getTime())
+      .map((d) => d.id)
+  }
+
+  // deliveryId -> createdAt of that delivery's latest NO_COURIER_AVAILABLE event. Grouped by
+  // delivery, never by rider: NO_COURIER_AVAILABLE names no rider (binding value 5).
+  async findLatestNoCourierAvailableAt(deliveryIds: string[]): Promise<Map<string, Date>> {
+    if (deliveryIds.length === 0) return new Map()
+
+    const rows = await this.prisma.deliveryEvent.groupBy({
+      by: ['deliveryId'],
+      where: {
+        deliveryId: { in: deliveryIds },
+        type: EnumDeliveryEventType.NO_COURIER_AVAILABLE,
+      },
+      _max: { createdAt: true },
+    })
+
+    const result = new Map<string, Date>()
+    for (const row of rows) {
+      if (row._max.createdAt) result.set(row.deliveryId, row._max.createdAt)
+    }
+    return result
   }
 
   async findById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {

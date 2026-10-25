@@ -35,6 +35,9 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     registeredRegistries: [],
     reassignmentPayoutPolicies: { FULL: 100 },
     reassignmentPayoutDefaultPolicy: 'FULL',
+    offerExpiryEnabled: false,
+    offerExpirySeconds: 60,
+    noCourierRetrySeconds: 30,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

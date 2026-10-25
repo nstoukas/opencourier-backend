@@ -53,6 +53,9 @@ export class DeliveryEntity implements Delivery {
 
   rejectedByCouriers: string[]
   matchedCourierId: string | null
+  // The open offer's start and end (spec 0002); null when there is no open offer, or it never expires.
+  offeredAt: Date | null
+  offerExpiresAt: Date | null
 
   createdAt: Date
   updatedAt: Date
@@ -111,6 +114,8 @@ export class DeliveryEntity implements Delivery {
     this.deliveryQuoteId = data.deliveryQuoteId
     this.rejectedByCouriers = data.rejectedByCouriers
     this.matchedCourierId = data.matchedCourierId
+    this.offeredAt = data.offeredAt
+    this.offerExpiresAt = data.offerExpiresAt
 
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

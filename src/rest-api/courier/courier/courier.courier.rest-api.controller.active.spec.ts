@@ -1,3 +1,4 @@
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { CourierCourierRestApiController } from './courier.courier.rest-api.controller'
 import { CourierDomainService } from '../../../domains/courier/courier.domain.service'
@@ -40,7 +41,9 @@ describe('CourierCourierRestApiController', () => {
     controller = new CourierCourierRestApiController(
       mockCourierDomainService,
       mockDeliveryEventDomainService,
-      mockConfigDomainService
+      mockConfigDomainService,
+      // Spec 0002 added the offer hooks; the earnings tests here never reach them.
+      { handleCourierStatusChanged: jest.fn() } as unknown as DeliveryEventService
     )
   })
 

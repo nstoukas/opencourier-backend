@@ -8,7 +8,13 @@ import dayjs from 'dayjs'
 export class BullMQService {
   constructor(@InjectQueue(MESSAGE_BUS_QUEUE) private queue: Queue) {}
 
-  async addJob<T>(name: string, data: T, options?: { delay?: number; attempts?: number; backoff?: number }) {
+  // `jobId` names the job so it can be found and removed later (spec 0002). BullMQ ignores an add
+  // whose jobId already exists, and refuses ids containing ':', so callers build ids with '-'.
+  async addJob<T>(
+    name: string,
+    data: T,
+    options?: { delay?: number; attempts?: number; backoff?: number; jobId?: string }
+  ) {
     await this.queue.add(name, data, { ...options, removeOnComplete: true })
   }
 
@@ -38,6 +44,12 @@ export class BullMQService {
     const pendingJobs = await this.queue.getJobs('delayed')
     const jobs = pendingJobs.filter(filter)
     return Promise.all(jobs.map((job) => job.remove()))
+  }
+
+  // Removes every job still waiting for its delay whose id starts with `prefix`. A job that is
+  // already running is not delayed, so it is never touched here.
+  async removeDelayedJobsWithIdPrefix(prefix: string) {
+    return this.removeDelayedJobs((job) => typeof job.id === 'string' && job.id.startsWith(prefix))
   }
 
   async removeFailedJobs() {

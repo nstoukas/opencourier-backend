@@ -11,6 +11,11 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types/index'
 import { SEEDED_INSTANCE_CURRENCY } from './instance-currency'
+import {
+  DEFAULT_NO_COURIER_RETRY_SECONDS,
+  DEFAULT_OFFER_EXPIRY_ENABLED,
+  DEFAULT_OFFER_EXPIRY_SECONDS,
+} from 'src/constants'
 import { SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT, SEEDED_QUOTE_BASE_FEE } from './instance-pay-defaults'
 
 export async function seedInitialInstanceConfig(prisma: PrismaClient) {
@@ -53,6 +58,10 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     registeredRegistries: [],
     reassignmentPayoutPolicies: FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
     reassignmentPayoutDefaultPolicy: FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+    // Offer expiry ships off (spec 0002); a representative switches it on when the co-op decides.
+    offerExpiryEnabled: DEFAULT_OFFER_EXPIRY_ENABLED,
+    offerExpirySeconds: DEFAULT_OFFER_EXPIRY_SECONDS,
+    noCourierRetrySeconds: DEFAULT_NO_COURIER_RETRY_SECONDS,
   }
 
   for (const [key, value] of Object.entries(initialConfigsData)) {

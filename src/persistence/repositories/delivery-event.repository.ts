@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { DeliveryEvent, EnumDeliveryStatus } from '@prisma/types'
+import { DeliveryEvent, EnumDeliveryEventType, EnumDeliveryStatus } from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -34,9 +34,19 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return this.toDomainMany(rows)
   }
 
-  // Attribution is by the delivery's *current* courierId — DeliveryEvent has no courier
-  // column. That remains safe because DROPPED_OFF is terminal in the state machine, so no event
-  // can reassign a completed delivery (REASSIGNED is legal only from ongoing statuses); a rider
+  // The newest event of this delivery whose type is one of `types`, or null. Same tie-break as above.
+  async findLatestOfTypes(deliveryId: string, types: EnumDeliveryEventType[]): Promise<DeliveryEventEntity | null> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: { deliveryId, type: { in: types } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
+    return row ? this.toDomain(row) : null
+  }
+
+  // Attribution is by the delivery's *current* courierId. DeliveryEvent.courierId (spec 0002) is
+  // set only on OFFERED and OFFER_EXPIRED events, never on DROPPED_OFF, so it is not used here.
+  // That remains safe because DROPPED_OFF is terminal in the state machine, so no event can
+  // reassign a completed delivery (REASSIGNED is legal only from ongoing statuses); a rider
   // dropped mid-flight is paid via CourierCompensation, summed by the earnings pipeline alongside these rows.
   async findSuccessfulDropOffRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsRow[]> {
     const events = await this.prisma.deliveryEvent.findMany({

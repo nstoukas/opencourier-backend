@@ -88,6 +88,22 @@ export const DEFAULT_DELIVERY_DURATION_CALCULATION_TYPE = 'DEFAULT_DELIVERY_DURA
 export const DELIVERY_QUOTE_EXPIRATION_MINUTES = 'DELIVERY_QUOTE_EXPIRATION_MINUTES'
 export const DEFAULT_FEE_PERCENTAGE_AMOUNT = 'DEFAULT_FEE_PERCENTAGE_AMOUNT'
 
+// Offer expiry (spec 0002). Unlike the DEFAULT_* names above, which are env var names, these are
+// the fallback VALUES used only when the Config row is missing. The operative values are co-op
+// settings in the Config table (offerExpiryEnabled, offerExpirySeconds, noCourierRetrySeconds).
+export const DEFAULT_OFFER_EXPIRY_ENABLED = false
+export const DEFAULT_OFFER_EXPIRY_SECONDS = 60
+export const DEFAULT_NO_COURIER_RETRY_SECONDS = 30
+// Allowed ranges, enforced on save (NUMERIC_SETTING_RULES) and on read. The 20 s floor gives a
+// rider on a moped time to pull over safely before looking at the phone (value 3).
+export const OFFER_EXPIRY_SECONDS_MIN = 20
+export const OFFER_EXPIRY_SECONDS_MAX = 300
+export const NO_COURIER_RETRY_SECONDS_MIN = 10
+export const NO_COURIER_RETRY_SECONDS_MAX = 300
+// Extra seconds the server waits past an offer's deadline before ending it, so an answer sent
+// at the last second still arrives in time. A network allowance, not a co-op number.
+export const OFFER_EXPIRY_GRACE_SECONDS = 3
+
 // OSRM road routing engine (see docs/osrm-routing.md)
 export const OSRM_URL = 'OSRM_URL'
 export const OSRM_REQUEST_TIMEOUT_MS = 'OSRM_REQUEST_TIMEOUT_MS'

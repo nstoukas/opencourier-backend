@@ -16,6 +16,8 @@ export class DeliveryEventEntity implements DeliveryEvent {
   newStatus: EnumDeliveryStatus | null
   message: string | null
   deliveryId: string
+  // The rider an OFFERED or OFFER_EXPIRED event is about; null on every other event (spec 0002).
+  courierId: string | null
 
   createdAt: Date
   updatedAt: Date
@@ -30,6 +32,7 @@ export class DeliveryEventEntity implements DeliveryEvent {
     this.newStatus = data.newStatus
     this.message = data.message
     this.deliveryId = data.deliveryId
+    this.courierId = data.courierId
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt
   }

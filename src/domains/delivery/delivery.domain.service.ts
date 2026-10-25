@@ -3,15 +3,13 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
 import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason } from '@prisma/types'
 import { IDeliveryUpdate } from './interfaces/IDeliveryUpdate'
+import { DeliveryOfferView } from './types/delivery-offer-view.type'
+import { DeliveryEntity } from './entities/delivery.entity'
 import { IDeliveryCreate } from './interfaces/IDeliveryCreate'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CacheService } from 'src/services/cache/cache.service'
-import { CacheHelpers } from 'src/services/cache/cache.helpers'
-import {
-  CantUpdateDeliveryStatusError,
-  DeliveryCantBeAcceptedException,
-  DeliveryCantBeRejectedException,
-} from 'src/errors'
+import { addCourierToRejectedList, removeCourierFromRejectedList } from 'src/services/cache/rejected-couriers'
+import { CantUpdateDeliveryStatusError, DeliveryCantBeAcceptedException, OfferHasEndedException } from 'src/errors'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import {
   DeliveryCanceledEvent,
@@ -34,10 +32,6 @@ import {
   ReassignmentAwardLogContext,
   ReassignmentFailureStage,
 } from './utils/reassignment-payout.util'
-
-// How long a courier stays excluded from re-offers of one delivery. Both the add and the
-// remove below must use the same value, because re-saving the key resets its expiry.
-const REJECTED_LIST_TTL_SECONDS = 60 * 20
 
 @Injectable()
 export class DeliveryDomainService {
@@ -86,6 +80,29 @@ export class DeliveryDomainService {
     return deliveries
   }
 
+  // The admin Offer column (spec 0002, AC-11), for many deliveries in two queries. Only deliveries
+  // still looking for a rider get anything: an open offer gets its rider's name, a delivery nobody
+  // is offered gets the start of its wait. Keyed by delivery id; every delivery gets an entry.
+  async getOfferViews(deliveries: DeliveryEntity[]): Promise<Map<string, DeliveryOfferView>> {
+    const looking = deliveries.filter((d) => d.status === EnumDeliveryStatus.ASSIGNING_COURIER && !d.courierId)
+    const offered = looking.filter((d) => d.matchedCourierId)
+    const waiting = looking.filter((d) => !d.matchedCourierId)
+
+    const names = await this.courierRepository.findNamesByIds(offered.map((d) => d.matchedCourierId as string))
+    const waitingSince = await this.deliveryRepository.findLatestNoCourierAvailableAt(waiting.map((d) => d.id))
+
+    const views = new Map<string, DeliveryOfferView>()
+    for (const delivery of deliveries) {
+      const isLooking = delivery.status === EnumDeliveryStatus.ASSIGNING_COURIER && !delivery.courierId
+      views.set(delivery.id, {
+        matchedCourierName:
+          isLooking && delivery.matchedCourierId ? names.get(delivery.matchedCourierId) ?? null : null,
+        waitingForCourierSince: isLooking && !delivery.matchedCourierId ? waitingSince.get(delivery.id) ?? null : null,
+      })
+    }
+    return views
+  }
+
   async getManyWithIncludes(args: DeliveryWhereArgs, page?: number, perPage?: number) {
     const deliveries = await this.deliveryRepository.findManyPaginated(args, page, perPage)
 
@@ -112,24 +129,33 @@ export class DeliveryDomainService {
     return delivery
   }
 
+  // Spec 0002, AC-5: an accept that reaches the server before the offer ends wins; one that arrives
+  // after (expired, moved on, cancelled) gets 409 "This offer has ended" and changes nothing.
   async acceptDelivery(deliveryId: string, courierId: string) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
-    if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER) {
-      throw new DeliveryCantBeAcceptedException(
-        `Delivery ${deliveryId} cant be accepted, it is on status ${delivery.status}`
+    if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER || delivery.matchedCourierId !== courierId) {
+      this.logger.log(
+        `Courier ${courierId} answered delivery ${deliveryId} too late: status ${delivery.status}, offered to ${delivery.matchedCourierId}`
       )
+      throw new OfferHasEndedException()
     }
 
-    const matchedCourierId = delivery.matchedCourierId
-    if (!matchedCourierId) {
-      throw new DeliveryCantBeAcceptedException(`Delivery ${deliveryId} is not matched to any courier`)
-    }
-
-    if (matchedCourierId !== courierId) {
-      throw new DeliveryCantBeAcceptedException(
-        `Courier ${courierId} is not matched to delivery ${deliveryId}, is matched to ${matchedCourierId}`
-      )
+    // Take the offer in one conditional update. The expiry job and the offline hook only end an
+    // offer nobody has taken (courierId null), so once this succeeds neither can touch it, and if
+    // either got there first this matches nothing.
+    const taken = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt: delivery.offeredAt,
+        courierId: null,
+      },
+      { courierId, offerExpiresAt: null }
+    )
+    if (!taken) {
+      throw new OfferHasEndedException()
     }
 
     await this.deliveryEventService.processDeliveryEvent({
@@ -141,31 +167,47 @@ export class DeliveryDomainService {
       message: `Courier ${courierId} accepted delivery ${delivery.id}`,
     })
 
+    // processDeliveryEvent never throws; it records a failure instead. If the accept did not take,
+    // give the offer back exactly as it was, deadline included, so it is not stuck half taken.
+    const afterAccept = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    if (afterAccept.status === EnumDeliveryStatus.ASSIGNING_COURIER && afterAccept.courierId === courierId) {
+      await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        { courierId: null, offerExpiresAt: delivery.offerExpiresAt }
+      )
+      throw new DeliveryCantBeAcceptedException(`Delivery ${deliveryId} could not be accepted, please try again`)
+    }
+
     return delivery
   }
 
+  // Spec 0002, AC-5: same rule as accept. A decline after the offer ended gets 409 and changes nothing.
   async rejectDelivery(deliveryId: string, courierId: string) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
-    if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER) {
-      throw new DeliveryCantBeRejectedException(
-        `Delivery ${deliveryId} cant be rejected, it is on status ${delivery.status}`
+    if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER || delivery.matchedCourierId !== courierId) {
+      this.logger.log(
+        `Courier ${courierId} answered delivery ${deliveryId} too late: status ${delivery.status}, offered to ${delivery.matchedCourierId}`
       )
+      throw new OfferHasEndedException()
     }
 
-    const dbMatchedCourierId = delivery.matchedCourierId
-
-    if (!dbMatchedCourierId) {
-      throw new DeliveryCantBeRejectedException(`Delivery ${deliveryId} is not matched to any courier`)
+    // End the offer in one conditional update (all three offer fields are cleared together), so a
+    // decline and the expiry job racing for the same offer cannot both act on it.
+    const declined = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt: delivery.offeredAt,
+        courierId: null,
+      },
+      { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+    )
+    if (!declined) {
+      throw new OfferHasEndedException()
     }
-    if (dbMatchedCourierId !== courierId) {
-      throw new DeliveryCantBeRejectedException(
-        `Courier ${courierId} is not matched to delivery ${deliveryId}, is matched to ${dbMatchedCourierId}`
-      )
-    }
-
-    // Remove the cached offered courierId
-    await this.deliveryRepository.update(delivery.id, { matchedCourierId: null })
 
     // Add the courier to the rejected list for this delivery
     await this.addCourierToRejectedList(deliveryId, courierId)
@@ -333,30 +375,16 @@ export class DeliveryDomainService {
 
   // Returns true only when this call is what put the courier on the list. The caller needs
   // that: an entry left over from an earlier genuine rejection is not ours to remove.
+  // The list itself lives in src/services/cache/rejected-couriers.ts, shared with the offer expiry.
   async addCourierToRejectedList(deliveryId: string, courierId: string): Promise<boolean> {
-    const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
-    const rejectedCouriers = await this.cacheService.getOrDefault<Array<string>>(rejectedKey, [])
-
-    const alreadyRejected = rejectedCouriers.includes(courierId)
-    if (!alreadyRejected) rejectedCouriers.push(courierId)
-
-    await this.cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, REJECTED_LIST_TTL_SECONDS)
-
-    return !alreadyRejected
+    return addCourierToRejectedList(this.cacheService, deliveryId, courierId)
   }
 
   // Mirror of addCourierToRejectedList: drops one courier from this delivery's exclusion list
   // and leaves everyone else on it. Only used to undo an entry this service added moments
   // earlier for a reassignment that then did not happen.
   async removeCourierFromRejectedList(deliveryId: string, courierId: string): Promise<void> {
-    const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
-    const rejectedCouriers = await this.cacheService.getOrDefault<Array<string>>(rejectedKey, [])
-
-    await this.cacheService.save<Array<string>>(
-      rejectedKey,
-      rejectedCouriers.filter((id) => id !== courierId),
-      REJECTED_LIST_TTL_SECONDS
-    )
+    return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
   }
 
   async reassignDelivery(

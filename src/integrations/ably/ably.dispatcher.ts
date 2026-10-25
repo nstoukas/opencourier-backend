@@ -3,7 +3,12 @@ import { Injectable, Logger } from '@nestjs/common'
 import { WebsocketDispatcher } from '../../services/websocket/models/WebsocketDispatcher'
 import { AblyService } from './ably.service'
 import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.courier.dto'
-import { EnumDeliveryStatus, NotificationEventType, courierNotificationChannel } from 'src/shared-types/index'
+import {
+  EnumDeliveryStatus,
+  NotificationEventType,
+  OfferEndedMessage,
+  courierNotificationChannel,
+} from 'src/shared-types/index'
 
 @Injectable()
 export class AblyDispatcher extends WebsocketDispatcher {
@@ -36,6 +41,14 @@ export class AblyDispatcher extends WebsocketDispatcher {
     )
 
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.DELIVERY_STATUS_UPDATED, data)
+  }
+
+  async sendOfferEnded(userId: string, message: OfferEndedMessage) {
+    this.logger.log(
+      `emitting ${NotificationEventType.OFFER_ENDED} event to courier: ${JSON.stringify(message)}, channel: COURIER:${userId}`
+    )
+
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.OFFER_ENDED, message)
   }
 
   private async publishMessage(channelName: string, messageName: string, message: any) {

@@ -76,6 +76,15 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: String, nullable: true })
   reassignmentPayoutDefaultPolicy: string
 
+  @ApiProperty({ type: Boolean })
+  offerExpiryEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  offerExpirySeconds: number
+
+  @ApiProperty({ type: Number })
+  noCourierRetrySeconds: number
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -102,5 +111,8 @@ export class InstanceConfigSettingsDto {
     this.registeredRegistries = Array.isArray(data.registeredRegistries) ? (data.registeredRegistries as string[]) : []
     this.reassignmentPayoutPolicies = data.reassignmentPayoutPolicies
     this.reassignmentPayoutDefaultPolicy = data.reassignmentPayoutDefaultPolicy
+    this.offerExpiryEnabled = data.offerExpiryEnabled
+    this.offerExpirySeconds = data.offerExpirySeconds
+    this.noCourierRetrySeconds = data.noCourierRetrySeconds
   }
 }

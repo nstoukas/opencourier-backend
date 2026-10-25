@@ -327,6 +327,19 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     }
   }
 
+  // id -> "First Last" for the given couriers, for the admin Offer column (spec 0002). Unknown ids
+  // are simply missing from the map.
+  async findNamesByIds(courierIds: string[]): Promise<Map<string, string>> {
+    if (courierIds.length === 0) return new Map()
+
+    const rows = await this.prisma.courier.findMany({
+      where: { id: { in: courierIds } },
+      select: { id: true, firstName: true, lastName: true },
+    })
+
+    return new Map(rows.map((row) => [row.id, `${row.firstName} ${row.lastName}`]))
+  }
+
   async findById(courierId: string) {
     const result = await this.prisma.courier.findUnique({
       where: {

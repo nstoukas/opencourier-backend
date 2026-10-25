@@ -24,6 +24,7 @@ describe('DeliveryAdminRestApiController', () => {
     new DeliveryEventEntity({
       id: 'evt-1',
       deliveryId: mockDeliveryId,
+      courierId: null,
       type: EnumDeliveryEventType.CREATED,
       actor: EnumEventActor.PARTNER,
       eventSource: EnumDeliveryEventSource.PARTNER_APP,
@@ -37,6 +38,7 @@ describe('DeliveryAdminRestApiController', () => {
     new DeliveryEventEntity({
       id: 'evt-2',
       deliveryId: mockDeliveryId,
+      courierId: null,
       type: EnumDeliveryEventType.ACCEPTED,
       actor: EnumEventActor.COURIER,
       eventSource: EnumDeliveryEventSource.OPENCOURIER,
@@ -50,6 +52,7 @@ describe('DeliveryAdminRestApiController', () => {
     new DeliveryEventEntity({
       id: 'evt-3',
       deliveryId: mockDeliveryId,
+      courierId: null,
       type: EnumDeliveryEventType.REASSIGNED,
       actor: EnumEventActor.ADMIN,
       eventSource: EnumDeliveryEventSource.OPENCOURIER,
@@ -159,6 +162,7 @@ describe('DeliveryAdminRestApiController', () => {
       const failedEvent = new DeliveryEventEntity({
         id: 'evt-failed',
         deliveryId: mockDeliveryId,
+        courierId: null,
         type: EnumDeliveryEventType.DISPATCHED,
         actor: EnumEventActor.ADMIN,
         eventSource: EnumDeliveryEventSource.OPENCOURIER,

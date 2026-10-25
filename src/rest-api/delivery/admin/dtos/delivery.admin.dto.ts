@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
+import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
 
 export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
@@ -171,8 +172,26 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date })
   createdAt: Date
 
+  // Spec 0002, AC-11: the admin Offer column. An open offer shows who holds it and since when; a
+  // delivery nobody could take shows since when it has waited. These name a rider only for the
+  // offer they hold right now, never a history or a count (value 5).
+  @ApiProperty({ type: Date, nullable: true })
+  offeredAt: Date | null
+
+  @ApiProperty({ type: Date, nullable: true })
+  offerExpiresAt: Date | null
+
+  // The rider currently offered this delivery, while it is still looking for a rider.
+  @ApiProperty({ type: String, nullable: true })
+  matchedCourierName: string | null
+
+  // Start of the current wait for a free rider (the latest NO_COURIER_AVAILABLE), while nobody is offered.
+  @ApiProperty({ type: Date, nullable: true })
+  waitingForCourierSince: Date | null
+
   // `quote?` = optional: the list and event endpoints build this DTO without loading a quote.
-  constructor(data: DeliveryEntity, quote?: DeliveryQuoteEntity) {
+  // `offerView?` = optional too: only the list and get by id endpoints look the rider name up.
+  constructor(data: DeliveryEntity, quote?: DeliveryQuoteEntity, offerView?: DeliveryOfferView) {
     this.id = data.id
     this.pickupName = data.pickupName
     this.pickupPhoneNumber = data.pickupPhoneNumber
@@ -229,5 +248,10 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.deliveryQuoteId = data.deliveryQuoteId
 
     this.createdAt = data.createdAt
+
+    this.offeredAt = data.offeredAt
+    this.offerExpiresAt = data.offerExpiresAt
+    this.matchedCourierName = offerView?.matchedCourierName ?? null
+    this.waitingForCourierSince = offerView?.waitingForCourierSince ?? null
   }
 }

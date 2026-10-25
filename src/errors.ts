@@ -28,6 +28,7 @@ export enum ErrorCode {
   DELIVERY_ALREADY_MATCHED = 'DELIVERY_ALREADY_MATCHED',
   DELIVERY_CANT_BE_ACCEPTED = 'DELIVERY_CANT_BE_ACCEPTED',
   DELIVERY_CANT_BE_REJECTED = 'DELIVERY_CANT_BE_REJECTED',
+  OFFER_HAS_ENDED = 'OFFER_HAS_ENDED',
 
   ENV_VAR_MISSING = 'ENV_VAR_MISSING',
 
@@ -187,6 +188,15 @@ export class DeliveryCantBeAcceptedException extends ApiException {
 export class DeliveryCantBeRejectedException extends ApiException {
   constructor(message: string, options?: HttpExceptionOptions) {
     super(ErrorCode.DELIVERY_CANT_BE_REJECTED, message, 404, options)
+  }
+}
+
+// 409 Conflict: the rider answered an offer that is no longer theirs (it expired, went to another
+// rider, or the delivery was cancelled). Spec 0002, AC-5. The answer changed nothing.
+export const OFFER_HAS_ENDED_MESSAGE = 'This offer has ended'
+export class OfferHasEndedException extends ApiException {
+  constructor(options?: HttpExceptionOptions) {
+    super(ErrorCode.OFFER_HAS_ENDED, OFFER_HAS_ENDED_MESSAGE, 409, options)
   }
 }
 

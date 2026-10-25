@@ -16,6 +16,11 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.DISPATCHED]: EnumDeliveryStatus.DISPATCHED,
       [EnumDeliveryEventType.ACCEPTED]: EnumDeliveryStatus.ACCEPTED,
       [EnumDeliveryEventType.REJECTED]: EnumDeliveryStatus.ASSIGNING_COURIER,
+      // Spec 0002: an offer going out, ending unanswered, or finding nobody leaves the delivery
+      // looking for a rider. Only OFFER_EXPIRED starts matching again (see DeliveryEventService).
+      [EnumDeliveryEventType.OFFERED]: EnumDeliveryStatus.ASSIGNING_COURIER,
+      [EnumDeliveryEventType.OFFER_EXPIRED]: EnumDeliveryStatus.ASSIGNING_COURIER,
+      [EnumDeliveryEventType.NO_COURIER_AVAILABLE]: EnumDeliveryStatus.ASSIGNING_COURIER,
       [EnumDeliveryEventType.CANCELED]: EnumDeliveryStatus.CANCELED,
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
     },

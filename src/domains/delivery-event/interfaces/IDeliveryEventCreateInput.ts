@@ -9,4 +9,6 @@ export interface IDeliveryEventCreateInput {
   deliveryId: string
   transitionSuccessful: boolean
   type: EnumDeliveryEventType
+  // Only for OFFERED and OFFER_EXPIRED (spec 0002); left out, the column stays null.
+  courierId?: string | null
 }

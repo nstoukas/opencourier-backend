@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -12,6 +12,7 @@ import {
   InstanceDetails,
 } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
+import { RefuseIfNotSentAsBoolean } from 'src/decorators/refuseIfNotSentAsBoolean.decorator'
 import { InstanceConfigSettingsInput } from './instance-config-settings.input'
 
 export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsInput {
@@ -99,6 +100,27 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   @RefuseIfNotSentAsNumber()
   defaultMaxWorkingHours?: number
+
+  // Offer expiry (spec 0002). Whole seconds; the 20 to 300 and 10 to 300 ranges live in
+  // NUMERIC_SETTING_RULES, not here.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  offerExpirySeconds?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  noCourierRetrySeconds?: number
+
+  // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  offerExpiryEnabled?: boolean
 
   @ApiProperty({ enum: EnumCourierDietaryRestrictions, required: false, isArray: true })
   @IsOptional()

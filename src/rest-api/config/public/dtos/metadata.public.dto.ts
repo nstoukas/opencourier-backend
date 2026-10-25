@@ -62,6 +62,16 @@ class ConfigDto {
 
   @ApiProperty({ enum: EnumCurrency, nullable: true })
   currency: EnumCurrency | null
+
+  // Offer expiry rules (spec 0002), public like the pay rules: they are rules, not personal data.
+  @ApiProperty({ type: Boolean })
+  offerExpiryEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  offerExpirySeconds: number
+
+  @ApiProperty({ type: Number })
+  noCourierRetrySeconds: number
 }
 
 class DetailsDto {
@@ -124,6 +134,9 @@ export class MetadataPublicDto {
       defaultDietaryRestrictions: data.defaultDietaryRestrictions ?? null,
       distanceUnit: data.distanceUnit ?? null,
       currency: data.currency ?? null,
+      offerExpiryEnabled: data.offerExpiryEnabled,
+      offerExpirySeconds: data.offerExpirySeconds,
+      noCourierRetrySeconds: data.noCourierRetrySeconds,
     }
 
     const m: InstanceDetails = data.details
