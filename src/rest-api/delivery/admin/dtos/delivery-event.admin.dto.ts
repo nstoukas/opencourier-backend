@@ -34,6 +34,12 @@ export class DeliveryEventAdminDto {
   @ApiProperty({ type: String, nullable: true })
   message: string | null
 
+  // The rider an OFFERED or OFFER_EXPIRED event is about, so a delivery's own timeline can name
+  // them (spec 0002, AC-11); null on every other event. Shown per delivery only: nothing may group
+  // or count events by this field (AC-12, value 5; guarded by value-5-guard.active.spec.ts).
+  @ApiProperty({ type: String, nullable: true })
+  courierId: string | null
+
   @ApiProperty({ type: Date })
   createdAt: Date
 
@@ -46,6 +52,7 @@ export class DeliveryEventAdminDto {
     this.newStatus = data.newStatus
     this.transitionSuccessful = data.transitionSuccessful
     this.message = data.message
+    this.courierId = data.courierId
     this.createdAt = data.createdAt
   }
 }
