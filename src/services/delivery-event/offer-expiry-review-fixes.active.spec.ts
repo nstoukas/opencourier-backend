@@ -324,6 +324,50 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       )
     })
 
+    it('endOffer: when processDeliveryEvent itself rejects, endOffer resolves true and still schedules no-courier-retry', async () => {
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+      mockCourierRepository.findById.mockResolvedValueOnce({ id: courierId, userId: 'u-1' } as any)
+      const waitingDelivery = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: null,
+        courierId: null,
+        partnerId: 'partner-1',
+      }
+      mockDeliveryRepository.findById.mockResolvedValue(waitingDelivery as any)
+
+      // processDeliveryEvent itself rejects on the OFFER_EXPIRED call (e.g. database down)
+      const processDeliveryEventSpy = jest
+        .spyOn(service, 'processDeliveryEvent')
+        .mockRejectedValueOnce(new Error('db down'))
+
+      // endOffer must resolve true (does not throw) even when processDeliveryEvent rejects
+      await expect(
+        (service as any).endOffer({
+          deliveryId,
+          courierId,
+          offeredAt,
+          reason: 'EXPIRED' as OfferEndedReason,
+          message: 'Offer expired after 20 s',
+        })
+      ).resolves.toBe(true)
+
+      expect(processDeliveryEventSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          courierId,
+        })
+      )
+
+      // Backstop retry is still added when delivery is left waiting
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'no-courier-retry',
+        { deliveryId },
+        expect.anything()
+      )
+    })
+
     it('offerToNextCourier: failing saveOfferedEvent still schedules offer-expiry job and still sends offer', async () => {
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         id: 'del-failing-save-event',
