@@ -72,6 +72,15 @@ const MATCHING_TRIGGERS: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.OFFER_EXPIRED,
 ]
 
+// Internal dispatch events partners never receive as webhooks (row 61 review): they would tell a
+// restaurant which rider was offered its delivery or let an offer pass, and partners have no use
+// for them. The delivery's own status changes still reach partners as before.
+const EVENTS_NOT_SENT_TO_PARTNERS: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.OFFERED,
+  EnumDeliveryEventType.OFFER_EXPIRED,
+  EnumDeliveryEventType.NO_COURIER_AVAILABLE,
+]
+
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
 type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING'
 
@@ -927,6 +936,8 @@ export class DeliveryEventService {
     oldStatus: EnumDeliveryStatus,
     event: DeliveryEvent
   ) {
+    if (EVENTS_NOT_SENT_TO_PARTNERS.includes(event.type)) return
+
     try {
       await this.partnerWebhookService.sendDeliveryUpdatePartnerWebhook({
         deliveryId: event.deliveryId,
