@@ -50,7 +50,8 @@ const createTokenMiddleware =
 
     const token = authHeader.replace(/^Bearer\s/, '')
 
-    logger.debug(`Validating auth token before connection: ${token}`)
+    // Never log the token itself: it is a live login credential.
+    logger.debug('Validating auth token before connection')
 
     try {
       const payload = jwtService.verify(token)
