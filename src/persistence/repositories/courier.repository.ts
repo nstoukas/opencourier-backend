@@ -220,9 +220,10 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return {
       courier: this.toDomain(courier),
       distance,
+      // GeoJSON lists a point as [longitude, latitude], the same order getCurrentLocation reads.
       courierLocation: {
-        latitude: currentLocation.coordinates[0],
-        longitude: currentLocation.coordinates[1],
+        latitude: currentLocation.coordinates[1],
+        longitude: currentLocation.coordinates[0],
       },
       pickupLocation: {
         latitude: location.latitude,
@@ -304,9 +305,10 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return {
       courier: this.toDomain(courier),
       distance,
+      // GeoJSON lists a point as [longitude, latitude], the same order getCurrentLocation reads.
       courierLocation: {
-        latitude: currentLocation.coordinates[0],
-        longitude: currentLocation.coordinates[1],
+        latitude: currentLocation.coordinates[1],
+        longitude: currentLocation.coordinates[0],
       },
       pickupLocation: {
         latitude: location.latitude,

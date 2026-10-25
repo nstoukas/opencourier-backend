@@ -109,7 +109,8 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
           distance: 1250.5,
           currentLocation: JSON.stringify({
             type: 'Point',
-            coordinates: [39.362, 22.951],
+            // GeoJSON order, as PostGIS returns it: [longitude, latitude] (Volos)
+            coordinates: [22.951, 39.362],
           }),
         },
       ])
@@ -179,6 +180,9 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(querySql.sql).toContain('"id" NOT IN')
       expect(querySql.values).toContain('courier-volos-99')
 
+      // maxDistanceInKM: 5 reaches the query as 5000 metres
+      expect(querySql.values).toContain(5000)
+
       // Still contains all active statuses in the subquery
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
         expect(querySql.values).toContain(activeStatus)
@@ -199,7 +203,8 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
           distance: 2100.0,
           currentLocation: JSON.stringify({
             type: 'Point',
-            coordinates: [39.365, 22.955],
+            // GeoJSON order, as PostGIS returns it: [longitude, latitude] (Volos)
+            coordinates: [22.955, 39.365],
           }),
         },
       ])
@@ -242,6 +247,8 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(result?.courier).toBeInstanceOf(CourierEntity)
       expect(result?.courier.id).toBe('courier-volos-1')
       expect(result?.distance).toBe(2100.0)
+      expect(result?.courierLocation).toEqual({ latitude: 39.365, longitude: 22.955 })
+      expect(result?.pickupLocation).toEqual({ latitude: 39.36, longitude: 22.95 })
     })
 
     test('returns null when no senior courier is available (all busy or out of range)', async () => {
@@ -265,6 +272,9 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
       expect(querySql.sql).toContain('"id" NOT IN')
       expect(querySql.values).toContain('courier-volos-88')
+
+      // maxDistanceInKM: 10 reaches the query as 10000 metres
+      expect(querySql.values).toContain(10000)
 
       // Still contains all active statuses in the subquery
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
