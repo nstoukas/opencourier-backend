@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { AblyDispatcherModule } from '../../integrations/ably/ably-dispatcher.module'
 import { AblyDispatcher } from '../../integrations/ably/ably.dispatcher'
 import { AblyModule } from '../../integrations/ably/ably.module'
+import { AblyService } from '../../integrations/ably/ably.service'
 import { SocketIOModule } from '../socketio/socketio.module'
 import { SocketIODispatcher } from '../socketio/socketio.dispatcher'
 import { WebsocketDispatcher } from './models/WebsocketDispatcher'
@@ -22,6 +23,20 @@ class TestConsumerService {
   exports: [TestConsumerService],
 })
 class TestConsumerModule {}
+
+// Consumer service mimicking AuthDomainService, which injects AblyService for courier login tokens.
+@Injectable()
+class TestAuthConsumerService {
+  constructor(public readonly ablyService: AblyService) {}
+}
+
+// Consumer module that imports AblyModule (mirroring AuthDomainModule).
+@Module({
+  imports: [AblyModule],
+  providers: [TestAuthConsumerService],
+  exports: [TestAuthConsumerService],
+})
+class TestAuthConsumerModule {}
 
 describe('selectWebsocketDispatcherModule', () => {
   describe('module selection logic', () => {
@@ -118,6 +133,60 @@ describe('selectWebsocketDispatcherModule', () => {
       const consumer = moduleRef.get(TestConsumerService)
       expect(consumer.dispatcher).toBeInstanceOf(SocketIODispatcher)
       expect(consumer.dispatcher).not.toBeInstanceOf(AblyDispatcher)
+    })
+  })
+
+  describe('AblyService export for authentication / login (row 57 review minor 2)', () => {
+    let moduleRef: TestingModule
+
+    afterEach(async () => {
+      if (moduleRef) {
+        await moduleRef.close()
+      }
+    })
+
+    it('compiles AblyModule with ablyClient overridden and strictly exports AblyService', async () => {
+      // Confirms AblyModule provides and strictly exports AblyService directly
+      moduleRef = await Test.createTestingModule({
+        imports: [AblyModule],
+      })
+        .overrideProvider('ablyClient')
+        .useValue({ close: jest.fn() })
+        .compile()
+
+      const ablyService = moduleRef.get(AblyService)
+      expect(ablyService).toBeDefined()
+      expect(ablyService).toBeInstanceOf(AblyService)
+      expect(Reflect.getMetadata('exports', AblyModule)).toContain(AblyService)
+    })
+
+    it('resolves AblyService in a consuming module when Socket.IO dispatcher is selected (default)', async () => {
+      // AuthDomainModule imports AblyModule while app.module selects SocketIOModule.
+      // A consuming service must still resolve AblyService for courier login.
+      moduleRef = await Test.createTestingModule({
+        imports: [TestAuthConsumerModule, selectWebsocketDispatcherModule(undefined)],
+      })
+        .overrideProvider('ablyClient')
+        .useValue({ close: jest.fn() })
+        .compile()
+
+      const authConsumer = moduleRef.get(TestAuthConsumerService)
+      expect(authConsumer.ablyService).toBeDefined()
+      expect(authConsumer.ablyService).toBeInstanceOf(AblyService)
+    })
+
+    it('resolves AblyService in a consuming module when Ably dispatcher is selected', async () => {
+      // Consuming service must also resolve AblyService when WEBSOCKET_DISPATCHER=ably.
+      moduleRef = await Test.createTestingModule({
+        imports: [TestAuthConsumerModule, selectWebsocketDispatcherModule('ably')],
+      })
+        .overrideProvider('ablyClient')
+        .useValue({ close: jest.fn() })
+        .compile()
+
+      const authConsumer = moduleRef.get(TestAuthConsumerService)
+      expect(authConsumer.ablyService).toBeDefined()
+      expect(authConsumer.ablyService).toBeInstanceOf(AblyService)
     })
   })
 })
