@@ -178,6 +178,35 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         courierId: 'courier-1',
       })
 
+      // In the happy path the only write that sets matchedCourierId is the single updateIfMatches call
+      // made after calculateDeliveryAmountsForMatchedCourier resolved (mock invocationCallOrder)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+      const calcCallOrder =
+        mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mock.invocationCallOrder[0]
+      const updateIfMatchesCallOrder = mockDeliveryRepository.updateIfMatches.mock.invocationCallOrder[0]
+      expect(calcCallOrder).toBeDefined()
+      expect(updateIfMatchesCallOrder).toBeDefined()
+      expect(calcCallOrder!).toBeLessThan(updateIfMatchesCallOrder!)
+
+      // No repository write of any kind via deliveryRepository.update sets matchedCourierId, offeredAt or offerExpiresAt
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ matchedCourierId: expect.anything() })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ offeredAt: expect.anything() })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ offerExpiresAt: expect.anything() })
+      )
+      for (const [, data] of mockDeliveryRepository.update.mock.calls) {
+        expect(data).not.toHaveProperty('matchedCourierId')
+        expect(data).not.toHaveProperty('offeredAt')
+        expect(data).not.toHaveProperty('offerExpiresAt')
+      }
+
       // 2. updateIfMatches is called once with conditional check and offer fields
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
@@ -263,6 +292,18 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(createdEvent)
 
+      // In expiry OFF mode, only updateIfMatches writes matchedCourierId; update never sets offer fields
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ matchedCourierId: expect.anything() })
+      )
+      for (const [, data] of mockDeliveryRepository.update.mock.calls) {
+        expect(data).not.toHaveProperty('matchedCourierId')
+        expect(data).not.toHaveProperty('offeredAt')
+        expect(data).not.toHaveProperty('offerExpiresAt')
+      }
+
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
         expect.anything(),
@@ -311,8 +352,31 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(createdEvent)
 
-      // Offer fields are NOT updated
+      // Offer fields are NOT updated: NO repository write of any kind sets matchedCourierId, offeredAt or offerExpiresAt
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ matchedCourierId: expect.anything() })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ offeredAt: expect.anything() })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ offerExpiresAt: expect.anything() })
+      )
+      for (const [, data] of mockDeliveryRepository.update.mock.calls) {
+        expect(data).not.toHaveProperty('matchedCourierId')
+        expect(data).not.toHaveProperty('offeredAt')
+        expect(data).not.toHaveProperty('offerExpiresAt')
+      }
+      for (const [, , data] of mockDeliveryRepository.updateIfMatches.mock.calls) {
+        expect(data).not.toHaveProperty('matchedCourierId')
+        expect(data).not.toHaveProperty('offeredAt')
+        expect(data).not.toHaveProperty('offerExpiresAt')
+      }
+
       // Expiry job is NOT enqueued
       expect(mockBullMQService.addJob).not.toHaveBeenCalledWith('offer-expiry', expect.anything(), expect.anything())
       // OFFERED event is NOT saved
