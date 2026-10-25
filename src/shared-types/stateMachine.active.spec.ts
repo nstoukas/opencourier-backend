@@ -35,4 +35,38 @@ describe('stateMachine', () => {
     expect(STATE_MACHINE[EnumDeliveryStatus.ASSIGNING_COURIER].on[EnumDeliveryEventType.REASSIGNED]).toBeUndefined()
     expect(STATE_MACHINE[EnumDeliveryStatus.CANCELED].on[EnumDeliveryEventType.REASSIGNED]).toBeUndefined()
   })
+
+  // Test Plan Case 4: Scope row 62 - Busy riders get no second offer: shared definition pinning
+  test('pins DELIVERY_ONGOING_STATUSES to exactly the six active statuses against EnumDeliveryStatus', () => {
+    const expectedOngoingStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      EnumDeliveryStatus.PICKED_UP,
+      EnumDeliveryStatus.ON_THE_WAY,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+    ]
+
+    const expectedNonOngoingStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.CREATED,
+      EnumDeliveryStatus.ASSIGNING_COURIER,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.CANCELED,
+      EnumDeliveryStatus.FAILED,
+    ]
+
+    // 1. Must contain exactly the 6 active statuses
+    expect([...DELIVERY_ONGOING_STATUSES].sort()).toEqual([...expectedOngoingStatuses].sort())
+    expect(DELIVERY_ONGOING_STATUSES).toHaveLength(6)
+
+    // 2. Finished, cancelled, and pre-assignment statuses must not be present
+    for (const nonOngoingStatus of expectedNonOngoingStatuses) {
+      expect(DELIVERY_ONGOING_STATUSES).not.toContain(nonOngoingStatus)
+    }
+
+    // 3. Complete partition of EnumDeliveryStatus: every status is accounted for with no overlap
+    const allEnumStatuses = Object.values(EnumDeliveryStatus)
+    const combined = [...expectedOngoingStatuses, ...expectedNonOngoingStatuses]
+    expect(allEnumStatuses.sort()).toEqual(combined.sort())
+  })
 })

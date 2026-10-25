@@ -95,6 +95,11 @@ export const STATUS_TO_HUMAN: Record<EnumDeliveryStatus, string> = {
   FAILED: 'failed',
 }
 
+// Every status in which a rider is actively working a delivery, from accepting it until it
+// ends. Three things read this one list: which deliveries an admin may reassign, which
+// deliveries the courier app shows as in progress, and which riders the matchers treat as
+// busy so they get no second offer (courier.repository.ts, scope row 62). Add a new active
+// status here, never in a copy of the list.
 export const DELIVERY_ONGOING_STATUSES: EnumDeliveryStatus[] = [
   EnumDeliveryStatus.ACCEPTED,
   EnumDeliveryStatus.DISPATCHED,

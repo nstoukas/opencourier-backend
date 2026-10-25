@@ -1,12 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import {
-  Courier,
-  CourierSetting,
-  EnumCourierDeliverySetting,
-  EnumCourierStatus,
-  EnumDeliveryStatus,
-  Prisma,
-} from '@prisma/types'
+import { Courier, CourierSetting, EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -20,7 +13,21 @@ import { CourierSettingEntity } from 'src/domains/courier-setting/entities/couri
 import { ICourierUpdateLocation } from 'src/domains/courier/interfaces/ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from 'src/domains/courier/interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from 'src/domains/courier/interfaces/ICourierFindBySeniorityArgs'
-import { GeoPosition } from 'src/shared-types'
+import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
+
+// A rider is busy, and gets no new offer, while any delivery of theirs is in one of
+// DELIVERY_ONGOING_STATUSES (accepted, dispatched, arrived at pickup, picked up, on the way,
+// arrived at drop off). Both matchers below use this one subquery, so the list of busy
+// statuses lives in exactly one place (scope row 62). It is correlated with the outer
+// "Courier" row, so it only works inside a query that selects FROM "Courier".
+export function busyCourierDeliverySubQuery(): Prisma.Sql {
+  return Prisma.sql`
+      SELECT 1
+      FROM "Delivery"
+      WHERE "Delivery"."courierId" = "Courier"."id"
+      AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
+    `
+}
 
 @Injectable()
 export class CourierRepository extends EntityRepository implements ICourierRepository {
@@ -148,19 +155,9 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   async findNearestAvailableCourier(args: ICourierFindNearestArgs) {
     const { location, excludeCourierIds, maxDistanceInKM } = args
 
-    const deliveryOngoingStatuses = [
-      EnumDeliveryStatus.CREATED,
-      EnumDeliveryStatus.DISPATCHED,
-      EnumDeliveryStatus.PICKED_UP,
-    ]
     const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
 
-    const ongoingDeliveryRawSubQuery = Prisma.sql`
-      SELECT 1
-      FROM "Delivery"
-      WHERE "Delivery"."courierId" = "Courier"."id"
-      AND "Delivery"."status"::text IN (${Prisma.join(deliveryOngoingStatuses, ',')})
-    `
+    const ongoingDeliveryRawSubQuery = busyCourierDeliverySubQuery()
 
     const locationGeographyPointSql = Prisma.sql`ST_SetSRID(ST_MakePoint(${location.longitude}, ${location.latitude}), 4326)::geography`
 
@@ -223,9 +220,10 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return {
       courier: this.toDomain(courier),
       distance,
+      // GeoJSON lists a point as [longitude, latitude], the same order getCurrentLocation reads.
       courierLocation: {
-        latitude: currentLocation.coordinates[0],
-        longitude: currentLocation.coordinates[1],
+        latitude: currentLocation.coordinates[1],
+        longitude: currentLocation.coordinates[0],
       },
       pickupLocation: {
         latitude: location.latitude,
@@ -237,20 +235,9 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   async findMostSeniorAvailableCourier(args: ICourierFindBySeniorityArgs) {
     const { location, excludeCourierIds, maxDistanceInKM } = args
 
-    const deliveryOngoingStatuses = [
-      EnumDeliveryStatus.CREATED,
-      EnumDeliveryStatus.ACCEPTED,
-      EnumDeliveryStatus.DISPATCHED,
-      EnumDeliveryStatus.PICKED_UP,
-    ]
     const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
 
-    const ongoingDeliveryRawSubQuery = Prisma.sql`
-      SELECT 1
-      FROM "Delivery"
-      WHERE "Delivery"."courierId" = "Courier"."id"
-      AND "Delivery"."status"::text IN (${Prisma.join(deliveryOngoingStatuses, ',')})
-    `
+    const ongoingDeliveryRawSubQuery = busyCourierDeliverySubQuery()
 
     const locationGeographyPointSql = Prisma.sql`ST_SetSRID(ST_MakePoint(${location.longitude}, ${location.latitude}), 4326)::geography`
 
@@ -318,9 +305,10 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return {
       courier: this.toDomain(courier),
       distance,
+      // GeoJSON lists a point as [longitude, latitude], the same order getCurrentLocation reads.
       courierLocation: {
-        latitude: currentLocation.coordinates[0],
-        longitude: currentLocation.coordinates[1],
+        latitude: currentLocation.coordinates[1],
+        longitude: currentLocation.coordinates[0],
       },
       pickupLocation: {
         latitude: location.latitude,
