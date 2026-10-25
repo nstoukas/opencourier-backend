@@ -33,6 +33,8 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 @swagger.ApiTags('courier')
 @common.Controller(`${COURIER_API_V1_PREFIX}/courier`)
 export class CourierCourierRestApiController {
+  private readonly logger = new common.Logger(CourierCourierRestApiController.name)
+
   // NestJS dependency injection: listing a service here is all it takes to get an
   // instance of it — the framework constructs the controller and passes them in.
   constructor(
@@ -204,7 +206,12 @@ export class CourierCourierRestApiController {
   ): Promise<void> {
     await this.courierDomainService.updateStatus(courier.id, data.status)
     // Spec 0002: going Offline ends this rider's open offers; going Online matches waiting deliveries.
-    await this.deliveryEventService.handleCourierStatusChanged(courier.id, data.status)
+    // Not awaited: the rider's status is already saved, so the app gets its answer at once instead
+    // of waiting for a round of matching (row 61 review). `void` marks the promise as deliberately
+    // left running; the method never throws, and the catch is only a last net for the log.
+    void this.deliveryEventService
+      .handleCourierStatusChanged(courier.id, data.status)
+      .catch((error) => this.logger.error(`After status change of courier ${courier.id}: ${error}`))
   }
 
   @common.Patch('delivery-setting')
