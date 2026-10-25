@@ -21,6 +21,43 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
     return results
   }
 
+  // Value 5 / AC-12 helper: scans content for any grouping, counting, or aggregating of DeliveryEvent rows by courierId
+  function inspectPersistenceContentForValue5Violations(content: string): string[] {
+    const violations: string[] = []
+
+    // 1. deliveryEvent.groupBy with courierId as array or string
+    const groupByRegex = /deliveryEvent\.groupBy\s*\(\s*\{[\s\S]*?by:\s*(\[[\s\S]*?['"`]courierId['"`]|['"`]courierId['"`])/
+    if (groupByRegex.test(content)) {
+      violations.push('deliveryEvent.groupBy with courierId')
+    }
+
+    // 2. _count over Courier relation deliveryEvents
+    const countRelationRegex = /(_count\s*:\s*\{[\s\S]*?\bdeliveryEvents\b|\bdeliveryEvents\s*:\s*\{[\s\S]*?\b_count\b)/
+    if (countRelationRegex.test(content)) {
+      violations.push('_count over Courier relation deliveryEvents')
+    }
+
+    // 3. deliveryEvent.count or deliveryEvent.aggregate whose where uses courierId
+    const countWhereCourierIdRegex = /deliveryEvent\.(count|aggregate)\s*\(\s*\{[\s\S]*?where\s*:\s*\{[\s\S]*?\bcourierId\s*:/
+    if (countWhereCourierIdRegex.test(content)) {
+      violations.push('deliveryEvent.count/aggregate where courierId')
+    }
+
+    // 4. Raw SQL GROUP BY on "DeliveryEvent"."courierId" or DeliveryEvent.courierId
+    const rawSqlGroupByRegex = /((FROM|JOIN)\s+["']?DeliveryEvent["']?[\s\S]*?GROUP\s+BY\s+[\s\S]*?["']?(DeliveryEvent["']?\.)?["']?courierId["']?|GROUP\s+BY\s+[\s\S]*?["']?DeliveryEvent["']?\.["']?courierId["']?)/i
+    if (rawSqlGroupByRegex.test(content)) {
+      violations.push('raw SQL GROUP BY on DeliveryEvent.courierId')
+    }
+
+    // 5. Raw SQL COUNT over DeliveryEvent with courierId
+    const rawSqlCountRegex = /SELECT[\s\S]*?\bCOUNT\s*\([^)]*\)[\s\S]*?FROM\s+["']?DeliveryEvent["']?[\s\S]*?WHERE[\s\S]*?["']?(DeliveryEvent["']?\.)?["']?courierId["']?/i
+    if (rawSqlCountRegex.test(content)) {
+      violations.push('raw SQL COUNT over DeliveryEvent with courierId')
+    }
+
+    return violations
+  }
+
   const rootSrc = path.resolve(__dirname, '../../')
 
   describe('DTO inspection: no field aggregates or exposes missed/expired offers per courier', () => {
@@ -60,24 +97,141 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
   })
 
   describe('Repository inspection: no query aggregates DeliveryEvent by courierId', () => {
-    const repositoryFiles = findFiles(
-      path.join(rootSrc, 'persistence/repositories'),
-      (f) => f.endsWith('.repository.ts')
+    // Scan all persistence files under src/persistence (repositories, helpers, modules)
+    const persistenceFiles = findFiles(
+      path.join(rootSrc, 'persistence'),
+      (f) => f.endsWith('.ts') && !f.endsWith('.spec.ts')
     )
 
-    it('finds repository source files to check', () => {
-      expect(repositoryFiles.length).toBeGreaterThan(0)
+    it('finds persistence source files to check', () => {
+      expect(persistenceFiles.length).toBeGreaterThan(0)
     })
 
-    repositoryFiles.forEach((file) => {
+    persistenceFiles.forEach((file) => {
       const relativePath = path.relative(rootSrc, file)
 
-      it(`ensures ${relativePath} does not group deliveryEvent by courierId`, () => {
+      it(`ensures ${relativePath} does not group, count or aggregate DeliveryEvent by courierId in any spelling`, () => {
         const content = fs.readFileSync(file, 'utf8')
+        const violations = inspectPersistenceContentForValue5Violations(content)
+        expect(violations).toEqual([])
+      })
+    })
 
-        // Must not contain groupBy with courierId on deliveryEvent table
-        const deliveryEventGroupByCourier = /deliveryEvent\.groupBy\s*\(\s*\{[\s\S]*?by:\s*\[[\s\S]*?['"]courierId['"]/
-        expect(content.match(deliveryEventGroupByCourier)).toBeNull()
+    describe('Pattern detection verification (proves each forbidden pattern bites)', () => {
+      it('catches deliveryEvent.groupBy with by as array containing courierId', () => {
+        const badSnippet = `
+          const result = await this.prisma.deliveryEvent.groupBy({
+            by: ['courierId'],
+            _count: true,
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('deliveryEvent.groupBy with courierId')
+      })
+
+      it('catches deliveryEvent.groupBy with by as string courierId', () => {
+        const badSnippet = `
+          const result = await this.prisma.deliveryEvent.groupBy({
+            by: 'courierId',
+            _count: true,
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('deliveryEvent.groupBy with courierId')
+      })
+
+      it('catches _count over Courier relation deliveryEvents', () => {
+        const badSnippet = `
+          const couriers = await this.prisma.courier.findMany({
+            select: {
+              id: true,
+              _count: {
+                select: { deliveryEvents: true },
+              },
+            },
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('_count over Courier relation deliveryEvents')
+      })
+
+      it('catches deliveryEvent.count whose where uses courierId', () => {
+        const badSnippet = `
+          const count = await this.prisma.deliveryEvent.count({
+            where: {
+              courierId: 'courier-1',
+              type: EnumDeliveryEventType.OFFER_EXPIRED,
+            },
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('deliveryEvent.count/aggregate where courierId')
+      })
+
+      it('catches deliveryEvent.aggregate whose where uses courierId', () => {
+        const badSnippet = `
+          const agg = await this.prisma.deliveryEvent.aggregate({
+            where: {
+              courierId: 'courier-1',
+            },
+            _count: true,
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('deliveryEvent.count/aggregate where courierId')
+      })
+
+      it('catches raw SQL GROUP BY on "DeliveryEvent"."courierId"', () => {
+        const badSnippet = `
+          await this.prisma.$queryRaw\`
+            SELECT "courierId", COUNT(*)
+            FROM "DeliveryEvent"
+            GROUP BY "DeliveryEvent"."courierId"
+          \`
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('raw SQL GROUP BY on DeliveryEvent.courierId')
+      })
+
+      it('catches raw SQL COUNT over DeliveryEvent with courierId in WHERE', () => {
+        const badSnippet = `
+          await this.prisma.$queryRaw\`
+            SELECT COUNT(*)
+            FROM "DeliveryEvent"
+            WHERE "courierId" = \${courierId}
+          \`
+        `
+        const violations = inspectPersistenceContentForValue5Violations(badSnippet)
+        expect(violations).toContain('raw SQL COUNT over DeliveryEvent with courierId')
+      })
+
+      it('permits legitimate earnings queries selecting by Delivery courierId (not DeliveryEvent.courierId)', () => {
+        const allowedEarningsSnippet = `
+          const events = await this.prisma.deliveryEvent.findMany({
+            where: {
+              transitionSuccessful: true,
+              newStatus: EnumDeliveryStatus.DROPPED_OFF,
+              delivery: {
+                is: {
+                  courierId,
+                },
+              },
+            },
+          })
+        `
+        const violations = inspectPersistenceContentForValue5Violations(allowedEarningsSnippet)
+        expect(violations).toEqual([])
+      })
+
+      it('permits legitimate DeliveryEventAdminDto declaring courierId property', () => {
+        const allowedDtoSnippet = `
+          export class DeliveryEventAdminDto {
+            @ApiProperty({ type: String, nullable: true })
+            courierId: string | null
+          }
+        `
+        const violations = inspectPersistenceContentForValue5Violations(allowedDtoSnippet)
+        expect(violations).toEqual([])
       })
     })
   })

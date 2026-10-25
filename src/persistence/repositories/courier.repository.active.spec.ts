@@ -52,7 +52,6 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     EnumDeliveryStatus.CANCELED,
     EnumDeliveryStatus.FAILED,
     EnumDeliveryStatus.CREATED,
-    EnumDeliveryStatus.ASSIGNING_COURIER,
   ]
 
   beforeEach(() => {
@@ -67,7 +66,7 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   })
 
   describe('busyCourierDeliverySubQuery', () => {
-    test('carries exactly the six active ongoing delivery statuses in its parameter values', () => {
+    test('carries the six active ongoing delivery statuses and open offer clause in its parameter values', () => {
       const subQuery = busyCourierDeliverySubQuery()
 
       // Must be a Prisma.Sql object with sql, values, and strings
@@ -79,20 +78,25 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       // SQL text must correlate Delivery with Courier and check status IN (...)
       expect(subQuery.sql).toContain('"Delivery"."courierId" = "Courier"."id"')
       expect(subQuery.sql).toContain('"Delivery"."status"::text IN')
+      // Open offer check: rider is busy if holding an open unanswered offer (scope row 61 review)
+      expect(subQuery.sql).toContain('"Delivery"."matchedCourierId" = "Courier"."id"')
+      expect(subQuery.sql).toContain('"Delivery"."courierId" IS NULL')
+      expect(subQuery.sql).toContain('"Delivery"."status"::text =')
 
       // Values must contain every active status
       for (const status of ACTIVE_DELIVERY_STATUSES) {
         expect(subQuery.values).toContain(status)
       }
+      expect(subQuery.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
 
       // Values must not contain any finished, cancelled, or pre-assignment status
       for (const status of NON_BUSY_DELIVERY_STATUSES) {
         expect(subQuery.values).not.toContain(status)
       }
 
-      // Values must match DELIVERY_ONGOING_STATUSES exactly
-      expect(subQuery.values).toEqual(DELIVERY_ONGOING_STATUSES)
-      expect(subQuery.values).toHaveLength(6)
+      // Values must match DELIVERY_ONGOING_STATUSES + ASSIGNING_COURIER
+      expect(subQuery.values).toEqual([...DELIVERY_ONGOING_STATUSES, EnumDeliveryStatus.ASSIGNING_COURIER])
+      expect(subQuery.values).toHaveLength(7)
     })
   })
 
@@ -134,18 +138,19 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
         expect(querySql.values).toContain(activeStatus)
       }
+      expect(querySql.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
 
-      // AC-2: Finished/cancelled deliveries (and CREATED/ASSIGNING_COURIER) must not be excluded
+      // AC-2: Finished/cancelled deliveries (and CREATED) must not be excluded
       for (const nonBusyStatus of NON_BUSY_DELIVERY_STATUSES) {
         expect(querySql.values).not.toContain(nonBusyStatus)
       }
 
-      // AC-3 & AC-4: Filter statuses in the query must match DELIVERY_ONGOING_STATUSES exactly
+      // AC-3 & AC-4: Filter statuses in the query must match DELIVERY_ONGOING_STATUSES + ASSIGNING_COURIER
       const queryDeliveryStatuses = querySql.values.filter((v): v is EnumDeliveryStatus =>
         Object.values(EnumDeliveryStatus).includes(v as EnumDeliveryStatus)
       )
-      expect(queryDeliveryStatuses.sort()).toEqual([...DELIVERY_ONGOING_STATUSES].sort())
-      expect(queryDeliveryStatuses).toHaveLength(DELIVERY_ONGOING_STATUSES.length)
+      expect(queryDeliveryStatuses.sort()).toEqual([...DELIVERY_ONGOING_STATUSES, EnumDeliveryStatus.ASSIGNING_COURIER].sort())
+      expect(queryDeliveryStatuses).toHaveLength(DELIVERY_ONGOING_STATUSES.length + 1)
 
       // Happy path: returns courier domain entity with distance and locations
       expect(result).not.toBeNull()
@@ -229,18 +234,19 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
         expect(querySql.values).toContain(activeStatus)
       }
+      expect(querySql.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
 
-      // AC-2: Finished/cancelled deliveries (and CREATED/ASSIGNING_COURIER) must not be excluded
+      // AC-2: Finished/cancelled deliveries (and CREATED) must not be excluded
       for (const nonBusyStatus of NON_BUSY_DELIVERY_STATUSES) {
         expect(querySql.values).not.toContain(nonBusyStatus)
       }
 
-      // AC-3 & AC-4: Filter statuses in the query must match DELIVERY_ONGOING_STATUSES exactly
+      // AC-3 & AC-4: Filter statuses in the query must match DELIVERY_ONGOING_STATUSES + ASSIGNING_COURIER
       const queryDeliveryStatuses = querySql.values.filter((v): v is EnumDeliveryStatus =>
         Object.values(EnumDeliveryStatus).includes(v as EnumDeliveryStatus)
       )
-      expect(queryDeliveryStatuses.sort()).toEqual([...DELIVERY_ONGOING_STATUSES].sort())
-      expect(queryDeliveryStatuses).toHaveLength(DELIVERY_ONGOING_STATUSES.length)
+      expect(queryDeliveryStatuses.sort()).toEqual([...DELIVERY_ONGOING_STATUSES, EnumDeliveryStatus.ASSIGNING_COURIER].sort())
+      expect(queryDeliveryStatuses).toHaveLength(DELIVERY_ONGOING_STATUSES.length + 1)
 
       // Happy path: returns courier domain entity with distance and locations
       expect(result).not.toBeNull()

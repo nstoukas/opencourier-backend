@@ -53,6 +53,21 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
         EnumCourierStatus.OFFLINE
       )
     })
+
+    it('returns before handleCourierStatusChanged resolves (fire-and-forget matching)', async () => {
+      const courier = new CourierEntity({ id: 'courier-rider-2', status: EnumCourierStatus.OFFLINE } as any)
+      const input = { status: EnumCourierStatus.ONLINE }
+
+      // handleCourierStatusChanged returns a never-resolving promise (e.g. slow matching)
+      mockDeliveryEventService.handleCourierStatusChanged.mockImplementation(
+        () => new Promise(() => {}) // never resolves
+      )
+
+      // The controller call must resolve promptly without waiting for handleCourierStatusChanged
+      const resultPromise = controller.updateStatus(input as any, courier)
+      await expect(resultPromise).resolves.toBeUndefined()
+      expect(mockCourierDomainService.updateStatus).toHaveBeenCalledWith('courier-rider-2', EnumCourierStatus.ONLINE)
+    })
   })
 
   describe('CourierAdminRestApiController (PATCH admin/v1/courier/:id)', () => {

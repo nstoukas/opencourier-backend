@@ -633,7 +633,36 @@ describe('DeliveryDomainService', () => {
       await expect(service.rejectDelivery('del-reject-stale', 'courier-1')).rejects.toThrow(
         'This offer has ended'
       )
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      // Rider was added before clear and removed when clear matched nothing (not left on list)
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining('del-reject-stale'),
+        [],
+        expect.any(Number)
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    test('rejectDelivery keeps pre-existing skip list entry when conditional clear misses', async () => {
+      const offeredAt = new Date()
+      const delivery = {
+        id: 'del-reject-stale-2',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-1',
+        offeredAt,
+        courierId: null,
+      }
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(delivery as any)
+      mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-1'])
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+
+      await expect(service.rejectDelivery('del-reject-stale-2', 'courier-1')).rejects.toThrow(
+        'This offer has ended'
+      )
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining('del-reject-stale-2'),
+        ['courier-1'],
+        expect.any(Number)
+      )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
   })

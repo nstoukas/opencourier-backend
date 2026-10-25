@@ -516,8 +516,12 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         offeredAt: offeredAt.toISOString(),
       })
 
-      // No skip list add
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      // Skip list: rider is added before the clear and taken off again when clear matches nothing (not left on list)
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining(deliveryId),
+        [],
+        expect.any(Number)
+      )
       // No OFFER_ENDED socket notification
       expect(mockWebsocketDispatcher.sendOfferEnded).not.toHaveBeenCalled()
       // No OFFER_EXPIRED event emitted
@@ -526,6 +530,41 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       )
       // Matching is not re-triggered
       expect(mockDeliveryMatchingService.findCourierForDelivery).not.toHaveBeenCalled()
+    })
+
+    it('handleOfferExpiryJob: when rider had a pre-existing entry in the skip list and conditional clear misses, pre-existing entry is kept', async () => {
+      const deliveryId = 'del-expiry-stale-pre-existing'
+      const courierId = 'courier-1'
+      const offeredAt = new Date(Date.now() - 25000)
+      const offerExpiresAt = new Date(offeredAt.getTime() + 20000)
+
+      mockDeliveryRepository.findById.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-2',
+        offeredAt,
+        offerExpiresAt,
+      } as any)
+
+      // Courier was ALREADY on the skip list
+      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+
+      await service.handleOfferExpiryJob({
+        deliveryId,
+        courierId,
+        offeredAt: offeredAt.toISOString(),
+      })
+
+      // addCourierToRejectedList saved [courierId], but since addedToSkipList was false, undoSkipListEntry was not called
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining(deliveryId),
+        [courierId],
+        expect.any(Number)
+      )
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.OFFER_EXPIRED })
+      )
     })
 
     it('returns early and does nothing if offeredAt in payload is invalid', async () => {
@@ -571,9 +610,14 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.offerDeliveryToCourierAsAdmin(deliveryId, 'courier-1', 'Priority assignment')
 
-      // 1. Delivery update has offerExpiresAt: null
-      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+      // 1. Delivery update has offerExpiresAt: null via conditional updateIfMatches
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
+        expect.objectContaining({
+          status: EnumDeliveryStatus.CREATED,
+          courierId: null,
+          matchedCourierId: null,
+        }),
         expect.objectContaining({
           matchedCourierId: 'courier-1',
           offeredAt: expect.any(Date),
@@ -628,9 +672,13 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(reassignedEvent)
 
-      // 1. Delivery update sets matchedCourierId and offerExpiresAt: null
-      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+      // 1. Delivery update sets matchedCourierId and offerExpiresAt: null via conditional updateIfMatches
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
+        expect.objectContaining({
+          status: EnumDeliveryStatus.DISPATCHED,
+          courierId: 'courier-old',
+        }),
         expect.objectContaining({
           courierId: null,
           matchedCourierId: 'courier-new',

@@ -46,6 +46,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
     mockDeliveryEventService = {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
+      rearmOfferExpiry: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockCourierRepository = {
@@ -192,6 +193,13 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
         { courierId: null, offerExpiresAt }
       )
+      // Rollback re-arms the offer expiry timer (AC-5, review fix)
+      expect(mockDeliveryEventService.rearmOfferExpiry).toHaveBeenCalledWith(
+        deliveryId,
+        courierId,
+        offeredAt,
+        offerExpiresAt
+      )
     })
   })
 
@@ -281,7 +289,31 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 
       await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      // Rider was added before clear and removed when clear matched nothing (not left on list)
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining(deliveryId),
+        [],
+        expect.any(Number)
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    it('when courier was already on the skip list and conditional clear misses, pre-existing entry is kept', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+      } as any)
+      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+
+      await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+        expect.stringContaining(deliveryId),
+        [courierId],
+        expect.any(Number)
+      )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
   })

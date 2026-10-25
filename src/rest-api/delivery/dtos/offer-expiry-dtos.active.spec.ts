@@ -4,6 +4,14 @@ import { DeliveryAdminPaginatedDto } from '../admin/dtos/delivery.admin.paginate
 import { DeliveryCourierDto } from '../courier/dtos/delivery.courier.dto'
 import { NewDeliveriesCourierPaginatedDto } from '../courier/dtos/new-deliveries.courier.paginated.dto'
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
+import { DeliveryEventAdminDto } from '../admin/dtos/delivery-event.admin.dto'
+import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
+import {
+  EnumDeliveryEventSource,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
+  EnumEventActor,
+} from '@prisma/types'
 
 describe('Delivery DTOs - Offer Expiry Fields (Spec 0002, AC-9, AC-11)', () => {
   const offeredAt = new Date('2026-10-25T10:00:00.000Z')
@@ -111,6 +119,48 @@ describe('Delivery DTOs - Offer Expiry Fields (Spec 0002, AC-9, AC-11)', () => {
       expect(paginatedDto.data).toHaveLength(1)
       expect(paginatedDto.data[0]?.offeredAt).toEqual(offeredAt)
       expect(paginatedDto.data[0]?.offerExpiresAt).toEqual(offerExpiresAt)
+    })
+  })
+
+  describe('DeliveryEventAdminDto (AC-11, review fix)', () => {
+    it('copies courierId from entity when present', () => {
+      const eventEntity = new DeliveryEventEntity({
+        id: 'evt-1',
+        deliveryId: 'del-1',
+        type: EnumDeliveryEventType.OFFERED,
+        actor: EnumEventActor.SYSTEM,
+        eventSource: EnumDeliveryEventSource.OPENCOURIER,
+        oldStatus: null,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        transitionSuccessful: true,
+        message: 'Offered to courier-abc',
+        courierId: 'courier-abc',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const dto = new DeliveryEventAdminDto(eventEntity)
+      expect(dto.courierId).toBe('courier-abc')
+    })
+
+    it('sets courierId to null on events without one', () => {
+      const eventEntity = new DeliveryEventEntity({
+        id: 'evt-2',
+        deliveryId: 'del-1',
+        type: EnumDeliveryEventType.CREATED,
+        actor: EnumEventActor.PARTNER,
+        eventSource: EnumDeliveryEventSource.PARTNER_APP,
+        oldStatus: null,
+        newStatus: null,
+        transitionSuccessful: true,
+        message: 'Order placed',
+        courierId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const dto = new DeliveryEventAdminDto(eventEntity)
+      expect(dto.courierId).toBeNull()
     })
   })
 })

@@ -265,13 +265,24 @@ describe('DeliveryEventService', () => {
     // Test Plan Case 5: The admin offer audit row is unchanged
     test('records CREATED as oldStatus and ASSIGNING_COURIER as newStatus on admin offer audit event', async () => {
       // Setup delivery in CREATED status
-      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
-        id: 'del-offer',
-        status: EnumDeliveryStatus.CREATED,
-        partnerId: 'partner-1',
-        courierId: null,
-        matchedCourierId: null,
-      } as any)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          id: 'del-offer',
+          status: EnumDeliveryStatus.CREATED,
+          partnerId: 'partner-1',
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+        } as any)
+        .mockResolvedValueOnce({
+          id: 'del-offer',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          partnerId: 'partner-1',
+          courierId: null,
+          matchedCourierId: 'courier-1',
+          offeredAt: new Date(),
+          offerExpiresAt: null,
+        } as any)
 
       mockCourierRepository.findByIdOrThrow.mockResolvedValueOnce({
         id: 'courier-1',
@@ -285,16 +296,24 @@ describe('DeliveryEventService', () => {
         feePercentage: 20,
       } as any)
 
-      // This flow updates the Delivery three times (matched courier, amounts, status),
-      // so mockResolvedValue — not ...Once — or the later calls return undefined.
-      mockDeliveryRepository.update.mockResolvedValue({
-        id: 'del-offer',
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        partnerId: 'partner-1',
-        matchedCourierId: 'courier-1',
-      } as any)
+      // Admin offer uses conditional updateIfMatches (row 61 review)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
 
       await service.offerDeliveryToCourierAsAdmin('del-offer', 'courier-1', 'Admin offer note')
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        'del-offer',
+        expect.objectContaining({
+          status: EnumDeliveryStatus.CREATED,
+          courierId: null,
+          matchedCourierId: null,
+        }),
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: 'courier-1',
+          offerExpiresAt: null,
+        })
+      )
 
       // Assert CONFIRMED and OFFERED events are created (spec 0002: admin offer writes CONFIRMED and OFFERED)
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(2)
