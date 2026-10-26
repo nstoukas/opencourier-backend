@@ -52,6 +52,7 @@ import { LocationNoteReactionDomainModule } from './domains/location-note-reacti
 import { LocationNoteDomainModule } from './domains/location-note/location-note.domain.module'
 import { PartnerDomainModule } from './domains/partner/partner.domain.module'
 import { PayoutDomainModule } from './domains/payout/partner.domain.module'
+import { SavedCustomerDomainModule } from './domains/saved-customer/saved-customer.domain.module'
 import { UserDomainModule } from './domains/user/user.domain.module'
 import { AuthApiKeyGuard } from './guards/auth-api-key.guard'
 import { AuthHttpGuard } from './guards/auth-http.guard'
@@ -77,6 +78,7 @@ const DOMAIN_MODULES: ModuleMetadata['imports'] = [
   PartnerDomainModule,
   DeliveryEventDomainModule,
   PayoutDomainModule,
+  SavedCustomerDomainModule,
 ]
 
 const REST_API_MODULES: ModuleMetadata['imports'] = [

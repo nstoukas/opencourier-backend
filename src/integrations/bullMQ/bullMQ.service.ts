@@ -24,8 +24,10 @@ export class BullMQService {
     await this.addJob(name, data, { delay, attempts: 3, backoff: 180000 })
   }
 
-  async addRepeatableJob<T>(name: string, data: T, pattern: string) {
-    await this.queue.add(name, data, { jobId: name, repeat: { pattern, jobId: name } })
+  // `tz` (an IANA zone such as 'Europe/Athens') makes the cron pattern read local time, so a daily
+  // job keeps its hour across summer time. Left out, the pattern reads the server's zone.
+  async addRepeatableJob<T>(name: string, data: T, pattern: string, tz?: string) {
+    await this.queue.add(name, data, { jobId: name, repeat: { pattern, jobId: name, tz } })
   }
 
   async getAllJobs() {

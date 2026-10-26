@@ -11,11 +11,18 @@ const SENSITIVE_PATH_PATTERNS: { pattern: RegExp; replacement: string }[] = [
   { pattern: /\/devices\/[^/?#]+/g, replacement: '/devices/:token' },
 ]
 
+// Saved customers (spec 0005, AC-9): a search's query string is part of a customer's name or phone,
+// so for any `/customers` path (partner and admin) the query string is not logged at all.
+const QUERY_STRING_DROPPED_PATH = /\/customers(\/|\?|#|$)/
+
 // Exported so it can be tested on its own, without a request.
 export function redactSensitivePath(url: string): string {
+  // `?? url`: split always returns at least one part, but TypeScript cannot know that.
+  const path = url.split('?')[0] ?? url
+  const logged = QUERY_STRING_DROPPED_PATH.test(path) ? path : url
   return SENSITIVE_PATH_PATTERNS.reduce(
     (redacted, { pattern, replacement }) => redacted.replace(pattern, replacement),
-    url
+    logged
   )
 }
 

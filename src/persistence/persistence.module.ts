@@ -12,6 +12,7 @@ import { DeliveryEventRepository } from './repositories/delivery-event.repositor
 import { LocationNoteReactionRepository } from './repositories/location-note-reaction.repository'
 import { CourierCompensationRepository } from './repositories/courier-compensation.repository'
 import { CourierDeviceRepository } from './repositories/courier-device.repository'
+import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 
 @Global()
 @Module({
@@ -29,6 +30,7 @@ import { CourierDeviceRepository } from './repositories/courier-device.repositor
     LocationNoteReactionRepository,
     CourierCompensationRepository,
     CourierDeviceRepository,
+    SavedCustomerRepository,
   ],
   exports: [
     ConfigRepository,
@@ -44,6 +46,7 @@ import { CourierDeviceRepository } from './repositories/courier-device.repositor
     LocationNoteReactionRepository,
     CourierCompensationRepository,
     CourierDeviceRepository,
+    SavedCustomerRepository,
   ],
 })
 export class PersistenceModule {}

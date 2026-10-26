@@ -19,6 +19,10 @@ export class ResponseFormatMiddleware implements NestMiddleware {
               code: data.code ?? 'ERROR',
               message: data.message,
               statusCode: res.statusCode,
+              // The one extra field an error may carry: a saved customer's phone clash names the other
+              // customer by id, so the restaurant's page can show it (spec 0005, AC-4). Named here
+              // rather than copying every field, so no other error starts sending more than before.
+              ...(data.conflictingCustomerId !== undefined && { conflictingCustomerId: data.conflictingCustomerId }),
             },
           ],
         }

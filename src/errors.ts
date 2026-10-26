@@ -272,6 +272,31 @@ export class CreateFailedException extends ApiException {
   }
 }
 
+// 422: a saved customer the server will not store as sent (spec 0005): a phone that cannot be a
+// phone number, an empty name or address, an address outside the area the co-op serves. The message
+// is shown to the restaurant as it is, so it never repeats the customer's details.
+export class SavedCustomerRefusedException extends ApiException {
+  constructor(message: string, options?: HttpExceptionOptions) {
+    super(ErrorCode.INVALID_DATA, message, 422, options)
+  }
+}
+
+// 409: another saved customer of this restaurant has this phone (spec 0005, AC-4). Deliberately not
+// an ApiException: HttpExceptionFilter sends only code, message and statusCode, and the restaurant's
+// Customers page needs `conflictingCustomerId` to show the other customer. Nest's own handler sends
+// this object as the body. No name or phone in it, so no log ever records one.
+export const SAVED_CUSTOMER_PHONE_CLASH_MESSAGE = 'Another saved customer has this phone'
+export class SavedCustomerPhoneClashException extends common.ConflictException {
+  constructor(conflictingCustomerId: string) {
+    super({
+      code: ErrorCode.UNIQUE_CONSTRAINT,
+      message: SAVED_CUSTOMER_PHONE_CLASH_MESSAGE,
+      statusCode: 409,
+      conflictingCustomerId,
+    })
+  }
+}
+
 export class GenericException extends ApiException {
   constructor(code: ErrorCode, message: string, options?: HttpExceptionOptions) {
     super(code, message, DEFAULT_HTTP_CODE, options)
