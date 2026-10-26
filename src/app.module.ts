@@ -62,6 +62,7 @@ import { PersistenceModule } from './persistence/persistence.module'
 import { DeliveryMatchingModule } from './services/delivery-matching/delivery-matching.module'
 import { GeoCalculationModule } from './services/geo-calculation/geo-calculation.module'
 import { PartnerWebhookModule } from './services/partner-webhooks/partner-webhooks.module'
+import { PushNotificationModule } from './services/pushNotification/pushNotification.module'
 
 const DOMAIN_MODULES: ModuleMetadata['imports'] = [
   AuthDomainModule,
@@ -97,6 +98,8 @@ const INTEGRATION_MODULES: ModuleMetadata['imports'] = [
   GeoCalculationModule,
   PartnerWebhookModule,
   DeliveryMatchingModule,
+  // Offer push to riders' phones (spec 0003); off unless FIREBASE_SERVICE_ACCOUNT_PATH is set.
+  PushNotificationModule,
 ]
 
 if (process.env.NODE_ENV === 'development') {

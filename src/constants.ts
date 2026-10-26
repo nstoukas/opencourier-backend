@@ -55,6 +55,10 @@ export const TWILIO_API_KEY_SECRET = 'TWILIO_API_KEY_SECRET'
 export const TWILIO_CONVERSATIONS_SERVICE_SID = 'TWILIO_CONVERSATIONS_SERVICE_SID'
 export const TWILIO_PHONE_NUMBER = 'TWILIO_PHONE_NUMBER'
 
+// Firebase Cloud Messaging (offer push, spec 0003): the path to the co-op's service account JSON
+// on the backend host. Unset means push is off. The file itself never goes into git or a log.
+export const FIREBASE_SERVICE_ACCOUNT_PATH = 'FIREBASE_SERVICE_ACCOUNT_PATH'
+
 // Shovel
 export const SHOVEL_DATABASE_CONNECTION_HOST_STRING = 'SHOVEL_DATABASE_CONNECTION_HOST_STRING'
 
@@ -103,6 +107,13 @@ export const NO_COURIER_RETRY_SECONDS_MAX = 300
 // Extra seconds the server waits past an offer's deadline before ending it, so an answer sent
 // at the last second still arrives in time. A network allowance, not a co-op number.
 export const OFFER_EXPIRY_GRACE_SECONDS = 3
+
+// Offer push (spec 0003). Not co-op settings: how long FCM may hold a message for a phone that is
+// out of reach, and when an offer with no deadline rings again louder (AC-7).
+// A push with no deadline to measure against (no-deadline offers, OFFER_ENDED) lives this long.
+export const PUSH_DEFAULT_TTL_SECONDS = 300
+// An offer with no deadline is pushed again, on the insistent channel, after this long unanswered.
+export const OFFER_INSIST_AFTER_SECONDS = 120
 
 // OSRM road routing engine (see docs/osrm-routing.md)
 export const OSRM_URL = 'OSRM_URL'
