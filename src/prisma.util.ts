@@ -21,7 +21,7 @@ export function isUniqueConstraintError(error: Error): boolean {
   // not instances of the class imported above (found on 2026-10-26: `instanceof` was false for a real
   // P2002). Recognise it by name and code instead, as isRecordNotFoundError does by name.
   return (
-    error?.name === 'PrismaClientKnownRequestError' &&
+    error.name === 'PrismaClientKnownRequestError' &&
     (error as { code?: unknown }).code === PRISMA_UNIQUE_CONSTRAINT_ERROR
   )
 }
