@@ -115,6 +115,25 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
         })
       )
     })
+
+    it('matches search "+30" by name and by digits "30" in the phone clause (Job 8)', async () => {
+      mockPrisma.savedCustomer.findMany.mockResolvedValue([])
+      mockPrisma.savedCustomer.count.mockResolvedValue(0)
+
+      await repository.list(partnerId, '+30', 1, 20)
+
+      expect(mockPrisma.savedCustomer.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            partnerId,
+            OR: [
+              { name: { contains: '+30', mode: 'insensitive' } },
+              { phone: { contains: '30' } },
+            ],
+          },
+        })
+      )
+    })
   })
 
   describe('findOwned (AC-5)', () => {
@@ -191,6 +210,19 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
       expect(sqlText).toContain('"partnerId" =')
       expect(result.created).toBe(false)
     })
+
+    it('does not mark a just created customer used a second time even when markUsed is true', async () => {
+      mockPrisma.savedCustomer.findUnique.mockResolvedValue(null) // newly created customer
+      mockPrisma.savedCustomer.upsert.mockResolvedValue({ id: customerId, partnerId, ...sampleFields })
+
+      const result = await repository.upsertByPhone(partnerId, sampleFields, true)
+
+      expect(mockPrisma.savedCustomer.upsert).toHaveBeenCalled()
+      // Does not call markUsedInTransaction ($executeRaw) because lastUsedAt starts at now
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled()
+      expect(result.created).toBe(true)
+      expect(result.customer.id).toBe(customerId)
+    })
   })
 
   describe('update (AC-4, AC-5, Invariant lastUsedAt)', () => {
@@ -233,6 +265,49 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
       expect(sqlText).toContain('GREATEST("lastUsedAt", now() AT TIME ZONE \'UTC\')')
       expect(sqlText).toContain('WHERE "id" =')
       expect(sqlText).toContain('"partnerId" =')
+    })
+
+    it('handles empty fields with markUsed: true by checking ownership with a read, marking used and returning customer', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 0 })
+      // First findFirst checks ownership; second findFirst (in markUsedInTransaction) returns the customer
+      mockPrisma.savedCustomer.findFirst
+        .mockResolvedValueOnce({ id: customerId })
+        .mockResolvedValueOnce({ id: customerId, partnerId, ...sampleFields })
+      mockPrisma.$executeRaw.mockResolvedValue(1)
+
+      const result = await repository.update(partnerId, customerId, {}, true)
+
+      expect(mockPrisma.savedCustomer.updateMany).not.toHaveBeenCalled()
+      expect(mockPrisma.savedCustomer.findFirst).toHaveBeenCalledWith({
+        where: { id: customerId, partnerId },
+        select: { id: true },
+      })
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled()
+      expect(result?.id).toBe(customerId)
+    })
+
+    it('handles empty fields with markUsed: false (empty body) by checking ownership and returning customer without touching lastUsedAt', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 0 })
+      mockPrisma.savedCustomer.findFirst
+        .mockResolvedValueOnce({ id: customerId })
+        .mockResolvedValueOnce({ id: customerId, partnerId, ...sampleFields })
+
+      const result = await repository.update(partnerId, customerId, {}, false)
+
+      expect(mockPrisma.savedCustomer.updateMany).not.toHaveBeenCalled()
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled()
+      expect(result?.id).toBe(customerId)
+    })
+
+    it('returns null when updating with empty fields for a foreign or unknown customer id', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 0 })
+      mockPrisma.savedCustomer.findFirst.mockResolvedValue(null)
+
+      const result = await repository.update(partnerId, 'unknown-or-foreign-id', {}, true)
+
+      expect(mockPrisma.savedCustomer.updateMany).not.toHaveBeenCalled()
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled()
+      expect(result).toBeNull()
     })
   })
 

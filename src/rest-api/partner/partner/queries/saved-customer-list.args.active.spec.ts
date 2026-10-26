@@ -1,14 +1,19 @@
+import { BadRequestException as NestBadRequestException, ValidationPipe } from '@nestjs/common'
 import { BadRequestException } from 'src/errors'
 import {
   readSavedCustomerListArgs,
   SAVED_CUSTOMER_PAGE_SIZE_DEFAULT,
   SAVED_CUSTOMER_PAGE_SIZE_MAX,
+  SavedCustomerListArgs,
 } from './saved-customer-list.args'
 
 describe('readSavedCustomerListArgs (AC-3)', () => {
   it('throws BadRequestException (400) when search text is under 2 characters', () => {
     expect(() => readSavedCustomerListArgs({ q: 'a' })).toThrow(BadRequestException)
     expect(() => readSavedCustomerListArgs({ q: 'a' })).toThrow('Search with 2 characters or more')
+    expect(() => readSavedCustomerListArgs({ q: '+' })).toThrow(BadRequestException)
+    expect(() => readSavedCustomerListArgs({ q: '+' })).toThrow('Search with 2 characters or more')
+    expect(() => readSavedCustomerListArgs({ q: '  +  ' })).toThrow(BadRequestException)
     expect(() => readSavedCustomerListArgs({ q: '' })).toThrow(BadRequestException)
     expect(() => readSavedCustomerListArgs({ q: '   ' })).toThrow(BadRequestException)
   })
@@ -36,5 +41,29 @@ describe('readSavedCustomerListArgs (AC-3)', () => {
     expect(readSavedCustomerListArgs({ perPage: -10 }).perPage).toBe(1)
     expect(readSavedCustomerListArgs({ perPage: 25 }).perPage).toBe(25)
     expect(readSavedCustomerListArgs({ perPage: 100 }).perPage).toBe(SAVED_CUSTOMER_PAGE_SIZE_MAX)
+  })
+
+  describe('SavedCustomerListArgs through ValidationPipe (Spec 0005)', () => {
+    const pipe = new ValidationPipe({
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    })
+
+    const transform = (query: any) =>
+      pipe.transform(query, { type: 'query', metatype: SavedCustomerListArgs })
+
+    it('transforms string page "2" into number 2', async () => {
+      const transformed = await transform({ page: '2' })
+      expect(transformed).toBeInstanceOf(SavedCustomerListArgs)
+      expect(transformed.page).toBe(2)
+      expect(typeof transformed.page).toBe('number')
+    })
+
+    it('refuses q of 101 characters with 400 BadRequestException', async () => {
+      const longQuery = 'q'.repeat(101)
+      await expect(transform({ q: longQuery })).rejects.toBeInstanceOf(NestBadRequestException)
+    })
   })
 })

@@ -134,6 +134,20 @@ describe('SavedCustomerPartnerRestApiController (AC-1, AC-3, AC-4, AC-5)', () =>
       )
       expect(result).toBeInstanceOf(SavedCustomerResultDto)
     })
+
+    it('handles update with only markUsed: true (empty field updates)', async () => {
+      domainService.update.mockResolvedValue(sampleCustomerRecord)
+
+      const result = await controller.update('cust-1', { markUsed: true }, mockPartner)
+
+      expect(domainService.update).toHaveBeenCalledWith(
+        mockPartner.id,
+        'cust-1',
+        {},
+        true
+      )
+      expect(result.customer.id).toBe('cust-1')
+    })
   })
 
   describe('markUsed', () => {

@@ -45,9 +45,13 @@ describe('SavedCustomerRetentionService (AC-7)', () => {
     expect(savedCustomerDomainService.deleteUnused).toHaveBeenCalledTimes(1)
   })
 
-  it('onModuleInit schedules repeatable job with pattern "0 4 * * *" and timezone "Europe/Athens"', async () => {
-    await service.onModuleInit()
+  it('onModuleInit returns at once even while addRepeatableJob never resolves', () => {
+    // A promise that never settles (simulating Redis down / waiting on offline queue)
+    bullMQService.addRepeatableJob.mockReturnValue(new Promise(() => {}))
 
+    // onModuleInit is synchronous (void), does not await schedule()
+    const result = service.onModuleInit()
+    expect(result).toBeUndefined()
     expect(bullMQService.addRepeatableJob).toHaveBeenCalledWith(
       'saved-customer-retention',
       {},
@@ -56,11 +60,11 @@ describe('SavedCustomerRetentionService (AC-7)', () => {
     )
   })
 
-  it('onModuleInit catches and logs scheduling failure without throwing', async () => {
+  it('schedule() logs a failure instead of throwing', async () => {
     bullMQService.addRepeatableJob.mockRejectedValue(new Error('Redis connection lost'))
     const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
 
-    await expect(service.onModuleInit()).resolves.toBeUndefined()
+    await expect(service.schedule()).resolves.toBeUndefined()
     expect(loggerSpy).toHaveBeenCalledWith(
       expect.stringContaining('Could not schedule the saved customer retention job')
     )

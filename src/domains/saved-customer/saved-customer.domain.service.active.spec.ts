@@ -6,6 +6,7 @@ import {
   SavedCustomerRefusedException,
   SAVED_CUSTOMER_PHONE_CLASH_MESSAGE,
 } from 'src/errors'
+import { redactSensitivePath } from 'src/middleware/HttpLoggingMiddleware'
 import {
   SavedCustomerFields,
   SavedCustomerRepository,
@@ -153,6 +154,42 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
       }
     })
 
+    it('retries write once when first write hits P2002 but clashing customer vanished before lookup, and returns result on success', async () => {
+      const p2002Error = Object.assign(new Error('Unique constraint failed'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2002',
+      })
+      repository.create
+        .mockRejectedValueOnce(p2002Error)
+        .mockResolvedValueOnce(existingCustomerRecord)
+      repository.findIdByPhone.mockResolvedValueOnce(null)
+
+      const result = await service.create(partnerId, validInput, 'refuse', false)
+
+      expect(repository.create).toHaveBeenCalledTimes(2)
+      expect(repository.findIdByPhone).toHaveBeenCalledWith(partnerId, '+306912345678')
+      expect(result).toEqual({ customer: existingCustomerRecord, created: true })
+    })
+
+    it('throws 409 when retry write also hits P2002 clash', async () => {
+      const p2002Error = Object.assign(new Error('Unique constraint failed'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2002',
+      })
+      repository.create
+        .mockRejectedValueOnce(p2002Error)
+        .mockRejectedValueOnce(p2002Error)
+      repository.findIdByPhone
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce('conflicting-cust-456')
+
+      await expect(
+        service.create(partnerId, validInput, 'refuse', false)
+      ).rejects.toThrow(SavedCustomerPhoneClashException)
+
+      expect(repository.create).toHaveBeenCalledTimes(2)
+    })
+
     it('throws 422 with fixed message when phone is impossible, never repeating the input', async () => {
       await expect(
         service.create(partnerId, { ...validInput, phone: '123' }, 'refuse', false)
@@ -253,6 +290,42 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
         { notes: null, name: 'Updated Name' },
         false
       )
+    })
+
+    it('throws 422 with plain message when updating with null for name, phone, addressLine1 or city (AC-4)', async () => {
+      repository.findOwned.mockResolvedValue(existingCustomerRecord)
+
+      // null for name
+      await expect(
+        service.update(partnerId, customerId, { name: null as any }, false)
+      ).rejects.toThrow("The customer's name cannot be empty")
+      await expect(
+        service.update(partnerId, customerId, { name: null as any }, false)
+      ).rejects.toBeInstanceOf(SavedCustomerRefusedException)
+
+      // null for phone
+      await expect(
+        service.update(partnerId, customerId, { phone: null as any }, false)
+      ).rejects.toThrow(INVALID_PHONE_MESSAGE)
+      await expect(
+        service.update(partnerId, customerId, { phone: null as any }, false)
+      ).rejects.toBeInstanceOf(SavedCustomerRefusedException)
+
+      // null for addressLine1
+      await expect(
+        service.update(partnerId, customerId, { addressLine1: null as any }, false)
+      ).rejects.toThrow("The customer's street cannot be empty")
+      await expect(
+        service.update(partnerId, customerId, { addressLine1: null as any }, false)
+      ).rejects.toBeInstanceOf(SavedCustomerRefusedException)
+
+      // null for city
+      await expect(
+        service.update(partnerId, customerId, { city: null as any }, false)
+      ).rejects.toThrow("The customer's city cannot be empty")
+      await expect(
+        service.update(partnerId, customerId, { city: null as any }, false)
+      ).rejects.toBeInstanceOf(SavedCustomerRefusedException)
     })
   })
 
@@ -447,6 +520,12 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
       expect(allLogs).not.toContain(fixtureName)
       expect(allLogs).not.toContain(fixturePhone)
       expect(allLogs).not.toContain(fixtureStreet)
+
+      // 6. HTTP search URL redacts query string to protect customer search terms
+      const searchUrl = `/api/partner/v1/customers?q=${fixtureName}`
+      const redactedUrl = redactSensitivePath(searchUrl)
+      expect(redactedUrl).not.toContain(fixtureName)
+      expect(redactedUrl).toBe('/api/partner/v1/customers')
 
       logSpy.mockRestore()
       warnSpy.mockRestore()
