@@ -6,6 +6,7 @@ import { LocationNoteCourierRestApiModule } from './location-note/courier/locati
 import { CourierCourierRestApiModule } from './courier/courier/courier.courier.rest-api.module'
 import { PayoutCourierRestApiModule } from './payout/courier/payouts.courier.rest-api.module'
 import { CourierSettingCourierRestApiModule } from './courier-setting/courier/courier-setting.courier.rest-api.module'
+import { CourierDeviceCourierRestApiModule } from './courier-device/courier/courier-device.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { CourierSettingCourierRestApiModule } from './courier-setting/courier/co
     CourierCourierRestApiModule,
     CourierSettingCourierRestApiModule,
     PayoutCourierRestApiModule,
+    CourierDeviceCourierRestApiModule,
   ],
 })
 export class CourierRestApiModule {}
