@@ -44,49 +44,62 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     expect(payloadKeys).toHaveLength(11)
   })
 
-  test('AC-10: no value contains customer name, phone, houseNumber 7ZZ, notes, items or formattedAddress', () => {
-    // Delivery with all customer and sensitive fields populated with distinctive markers
-    // Note: Use 7ZZ for house number so it cannot match clock timestamp digits
+  test('AC-10: buildOfferCardPayload with full delivery object containing every customer field never leaks markers', () => {
+    // Delivery with EVERY customer and sensitive field populated with distinctive marker values
+    // Production passes the full Prisma delivery object and full dropoffLocation.
+    const fullDelivery = {
+      id: 'del-sensitive-999',
+      offeredAt: new Date('2026-10-26T14:30:00.000Z'),
+      offerExpiresAt: new Date('2026-10-26T14:31:00.000Z'),
+      totalCompensation: 420,
+      currencyCode: 'EUR',
+      pickupBusinessName: 'Volos Souvlaki',
+      pickupName: 'Shop Manager',
+      pickupPhoneNumber: '+302421012345',
+      // Customer fields filled with distinctive marker values
+      dropoffName: 'ZZNAME',
+      dropoffPhoneNumber: '+30699ZZ',
+      dropoffNotes: 'ZZNOTE',
+      pickupNotes: 'ZZNOTE',
+      dropoffSellerNotes: 'ZZNOTE',
+      orderItems: [{ name: 'ZZITEM', note: 'ZZNOTE' }],
+    }
+
+    const fullDropoffLocation = {
+      id: 'loc-dropoff-1',
+      street: 'Dimitriadis',
+      city: 'Volos',
+      // Customer location fields with distinctive marker values
+      houseNumber: '7ZZ',
+      formattedAddress: 'ZZADDR',
+      addressLine1: 'ZZADDR',
+      addressLine2: 'ZZADDR',
+    }
+
+    // Cast to the builder's input type as production passes the full Prisma delivery
     const source: OfferCardSource = {
-      delivery: {
-        id: 'del-sensitive-999',
-        offeredAt: new Date('2026-10-26T14:30:00.000Z'),
-        offerExpiresAt: new Date('2026-10-26T14:31:00.000Z'),
-        totalCompensation: 420,
-        currencyCode: 'EUR',
-        pickupBusinessName: 'Volos Souvlaki ZZBUSINESS',
-      },
-      dropoffLocation: {
-        street: 'Dimitriadis',
-        houseNumber: '7ZZ',
-        city: 'Volos',
-      },
+      delivery: fullDelivery as unknown as OfferCardSource['delivery'],
+      dropoffLocation: fullDropoffLocation as unknown as OfferCardSource['dropoffLocation'],
       quote: {
         distance: 1.8,
         distanceUnit: EnumDistanceUnit.KILOMETERS,
       },
     }
 
-    // Extended mock data containing customer fields that must never appear in payload
-    const sensitiveMarkers = [
-      '7ZZ', // Distinctive house number
-      'ZZNAME_CUSTOMER', // Customer name
-      'ZZPHONE_6900000000', // Customer phone
-      'ZZFORMATTED_ADDRESS_DIMITRIADIS_7ZZ', // Formatted address
-      'ZZCUSTOMER_NOTES_RING_BELL', // Customer dropoff notes
-      'ZZSELLER_NOTES_EXTRA_TZATZIKI', // Restaurant seller notes
-      'ZZITEMS_2X_GYROS_PITA', // Order items
-    ]
-
     const payload = buildOfferCardPayload(source, {
       serverNow: new Date('2026-10-26T14:30:02.000Z'),
       insistent: false,
     })
 
-    // Check all payload values for any occurrence of the sensitive markers
-    const allValuesJoined = Object.values(payload).join(' ')
+    // Output keys must equal OFFER_CARD_PAYLOAD_KEYS exactly
+    expect(Object.keys(payload).sort()).toEqual([...OFFER_CARD_PAYLOAD_KEYS].sort())
+
+    // Assert no output value contains any customer marker
+    const sensitiveMarkers = ['ZZNAME', '+30699ZZ', '7ZZ', 'ZZNOTE', 'ZZITEM', 'ZZADDR']
     for (const marker of sensitiveMarkers) {
-      expect(allValuesJoined).not.toContain(marker)
+      for (const [key, value] of Object.entries(payload)) {
+        expect(value).not.toContain(marker)
+      }
     }
 
     // Explicitly verify dropoffArea does not contain the house number 7ZZ

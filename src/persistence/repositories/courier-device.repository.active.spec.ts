@@ -105,19 +105,22 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
   })
 
   describe('AC-13 / Value 5: No delivery, open or answer tracking fields', () => {
-    test('repository has no methods for recording delivery, open, or response timestamps', () => {
+    test('repository methods equal an explicit allow list (no markPushed or timing methods)', () => {
       const methodNames = Object.getOwnPropertyNames(CourierDeviceRepository.prototype)
-      const forbiddenTerms = ['deliver', 'open', 'answer', 'read', 'seen', 'lastlogin']
+        .filter((name) => name !== 'constructor')
+        .sort()
 
-      for (const name of methodNames) {
-        const lower = name.toLowerCase()
-        for (const term of forbiddenTerms) {
-          expect(lower).not.toContain(term)
-        }
-      }
+      const ALLOWED_METHODS = [
+        'upsertForCourier',
+        'deleteForCourier',
+        'findTokensForCourier',
+        'deleteByTokens',
+      ].sort()
+
+      expect(methodNames).toEqual(ALLOWED_METHODS)
     })
 
-    test('schema CourierDevice model has no delivery/open/read tracking columns and no updatedAt', () => {
+    test('schema CourierDevice model columns equal an explicit allow list of columns it has today', () => {
       const schemaPath = path.resolve(process.cwd(), 'prisma/schema.prisma')
       const schemaContent = fs.readFileSync(schemaPath, 'utf8')
 
@@ -125,15 +128,27 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
       const modelMatch = schemaContent.match(/model\s+CourierDevice\s+\{([^}]+)\}/)
       expect(modelMatch).not.toBeNull()
 
-      const modelBody = modelMatch ? modelMatch[1] : ''
+      const modelBody = modelMatch ? modelMatch[1] ?? '' : ''
+      const fieldLines = modelBody
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('//') && !line.startsWith('@@'))
 
-      // Value 5: deliberately no updatedAt (would track last login) and nothing about delivery/open/response
-      expect(modelBody).not.toMatch(/\bupdatedAt\b/i)
-      expect(modelBody).not.toMatch(/\bdeliveredAt\b/i)
-      expect(modelBody).not.toMatch(/\bopenedAt\b/i)
-      expect(modelBody).not.toMatch(/\bansweredAt\b/i)
-      expect(modelBody).not.toMatch(/\breadAt\b/i)
-      expect(modelBody).not.toMatch(/\blastSeenAt\b/i)
+      // Extract database column names (scalar fields, ignoring @relation fields)
+      const columnNames = fieldLines
+        .filter((line) => !line.includes('@relation'))
+        .map((line) => line.split(/\s+/)[0])
+        .sort()
+
+      // Value 5: explicit allow list of the columns CourierDevice has today.
+      // Any new per-rider timing column (lastPushedAt, deliveredAt, openedAt, etc.) or updatedAt fails.
+      const ALLOWED_COLUMNS = ['createdAt', 'courierId', 'id', 'platform', 'token'].sort()
+      expect(columnNames).toEqual(ALLOWED_COLUMNS)
+
+      // Also assert all model fields in schema.prisma equal the explicit allow list (including relation)
+      const allFields = fieldLines.map((line) => line.split(/\s+/)[0]).sort()
+      const ALLOWED_ALL_FIELDS = ['courier', 'courierId', 'createdAt', 'id', 'platform', 'token'].sort()
+      expect(allFields).toEqual(ALLOWED_ALL_FIELDS)
     })
   })
 })

@@ -318,4 +318,28 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
       }
     })
   })
+
+  describe('Spec 0003 AC-13 / Value 5: CourierDevice columns in schema.prisma equal explicit allow list', () => {
+    it('asserts CourierDevice columns in prisma/schema.prisma equal an explicit allow list (columns it has today)', () => {
+      const schemaPath = path.resolve(process.cwd(), 'prisma/schema.prisma')
+      const schemaContent = fs.readFileSync(schemaPath, 'utf8')
+
+      const modelMatch = schemaContent.match(/model\s+CourierDevice\s+\{([^}]+)\}/)
+      expect(modelMatch).not.toBeNull()
+
+      const modelBody = modelMatch ? modelMatch[1] ?? '' : ''
+      const fieldLines = modelBody
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('//') && !line.startsWith('@@'))
+
+      const columnNames = fieldLines
+        .filter((line) => !line.includes('@relation'))
+        .map((line) => line.split(/\s+/)[0])
+        .sort()
+
+      const ALLOWED_COLUMNS = ['createdAt', 'courierId', 'id', 'platform', 'token'].sort()
+      expect(columnNames).toEqual(ALLOWED_COLUMNS)
+    })
+  })
 })

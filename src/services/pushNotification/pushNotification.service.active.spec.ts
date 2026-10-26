@@ -62,15 +62,24 @@ describe('PushNotificationService - Spec 0003 AC-2, AC-11, Dead Tokens & Error R
 
       service.onModuleInit()
 
+      // Calling isEnabled multiple times and sending data several times with push off
       expect(service.isEnabled()).toBe(false)
-      expect(loggerLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('push is off: FIREBASE_SERVICE_ACCOUNT_PATH is not set')
-      )
+      expect(service.isEnabled()).toBe(false)
+      expect(service.isEnabled()).toBe(false)
 
       // Calls to sendData return empty result immediately
-      const result = await service.sendData(['token-1'], { type: 'NEW_DELIVERY_OFFER' }, 300)
-      expect(result).toEqual({ deadTokens: [], failureCodes: [] })
+      const result1 = await service.sendData(['token-1'], { type: 'NEW_DELIVERY_OFFER' }, 300)
+      expect(result1).toEqual({ deadTokens: [], failureCodes: [] })
+      const result2 = await service.sendData(['token-2'], { type: 'OFFER_ENDED' }, 300)
+      expect(result2).toEqual({ deadTokens: [], failureCodes: [] })
       expect(mockMessaging.sendEachForMulticast).not.toHaveBeenCalled()
+
+      // AC-11: "push is off" log happened exactly once at startup, never on every isEnabled() call
+      const pushOffLogs = loggerLogSpy.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('push is off')
+      )
+      expect(pushOffLogs).toHaveLength(1)
+      expect(pushOffLogs[0][0]).toContain('push is off: FIREBASE_SERVICE_ACCOUNT_PATH is not set')
     })
   })
 
