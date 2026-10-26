@@ -60,12 +60,10 @@ export class SavedCustomerDomainService {
     }
 
     // A new row's lastUsedAt starts at now, so `markUsed` needs nothing more here.
-    try {
-      const customer = await this.savedCustomerRepository.create(partnerId, fields)
-      return { customer, created: true }
-    } catch (error) {
-      throw await this.phoneClashOr(error, partnerId, fields.phone)
-    }
+    const customer = await this.writeOrClash(partnerId, fields.phone, () =>
+      this.savedCustomerRepository.create(partnerId, fields)
+    )
+    return { customer, created: true }
   }
 
   // Changes the fields sent (left out = unchanged). The phone may change, but not to another
@@ -99,12 +97,9 @@ export class SavedCustomerDomainService {
       fields.longitude = longitude
     }
 
-    let updated: SavedCustomer | null
-    try {
-      updated = await this.savedCustomerRepository.update(partnerId, id, fields, markUsed)
-    } catch (error) {
-      throw await this.phoneClashOr(error, partnerId, fields.phone)
-    }
+    const updated = await this.writeOrClash(partnerId, fields.phone, () =>
+      this.savedCustomerRepository.update(partnerId, id, fields, markUsed)
+    )
     // Deleted between the read above and the write.
     if (!updated) {
       throw new NotFoundException('Saved customer not found')
@@ -170,16 +165,18 @@ export class SavedCustomerDomainService {
     return fields
   }
 
-  private checkRequiredText(value: string, what: string): string {
-    const trimmed = value.trim()
+  // `null` is checked too: the input classes' @IsOptional() lets a JSON null through on an edit, and
+  // a field sent as null is as empty as a blank one (a plain 422, never a crash).
+  private checkRequiredText(value: string | null, what: string): string {
+    const trimmed = value?.trim() ?? ''
     if (trimmed === '') {
       throw new SavedCustomerRefusedException(`The customer's ${what} cannot be empty`)
     }
     return trimmed
   }
 
-  private checkPhone(value: string): string {
-    const phone = normalisePhone(value)
+  private checkPhone(value: string | null): string {
+    const phone = value === null ? null : normalisePhone(value)
     if (phone === null) {
       throw new SavedCustomerRefusedException(INVALID_PHONE_MESSAGE)
     }
@@ -194,6 +191,26 @@ export class SavedCustomerDomainService {
     )
     if (!inside) {
       throw new SavedCustomerRefusedException(OUTSIDE_SERVICE_AREA_MESSAGE)
+    }
+  }
+
+  // Runs a write that may hit the (partnerId, phone) unique. A clash becomes the 409 naming the other
+  // customer. If that customer was deleted between the clash and the lookup, the phone is free again,
+  // so the write is tried once more; a second clash is the 409 (or the error) as usual.
+  private async writeOrClash<T>(partnerId: string, phone: string | undefined, write: () => Promise<T>): Promise<T> {
+    try {
+      return await write()
+    } catch (error) {
+      const clash = await this.phoneClashOr(error, partnerId, phone)
+      const otherCustomerVanished = clash === error && error instanceof Error && isUniqueConstraintError(error)
+      if (!otherCustomerVanished) {
+        throw clash
+      }
+    }
+    try {
+      return await write()
+    } catch (error) {
+      throw await this.phoneClashOr(error, partnerId, phone)
     }
   }
 

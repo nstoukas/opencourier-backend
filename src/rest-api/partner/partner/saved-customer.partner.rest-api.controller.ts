@@ -57,6 +57,8 @@ export class SavedCustomerPartnerRestApiController {
     @common.Body() data: SavedCustomerCreatePartnerInput,
     @CurrentUserPartner() partner: PartnerEntity
   ): Promise<SavedCustomerSaveResultDto> {
+    // `input` may carry unknown extra fields (the pipe does not strip them); the domain service copies
+    // only the fields it knows, so never pass `input` straight to Prisma.
     const { onPhoneClash, markUsed, ...input } = data
     const result = await this.savedCustomerDomainService.create(
       partner.id,

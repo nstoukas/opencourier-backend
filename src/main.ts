@@ -42,7 +42,10 @@ async function main() {
   }
 
   app.useGlobalInterceptors(new ErrorLoggingInterceptor())
-  app.useGlobalInterceptors(new SentryInterceptor())
+  // `request: false`: an error report carries the exception and its stack, never the request (body,
+  // query string, cookies, headers). Customers' names, phones and addresses travel in request bodies
+  // and searches, and an error tracker is a log kept by a third party (spec 0005, AC-9).
+  app.useGlobalInterceptors(new SentryInterceptor({ request: false }))
   app.use(rawBodyMiddleware())
 
   if (process.env.WEBSOCKET_DISPATCHER !== 'ably') {

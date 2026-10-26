@@ -25,9 +25,14 @@ export class SavedCustomerRetentionService implements OnModuleInit {
     })
   }
 
-  async onModuleInit(): Promise<void> {
-    // The schedule has a fixed id, so every backend instance that starts adds the same one schedule.
-    // Without Redis the server still starts; the job is scheduled on the next start.
+  // Not awaited: with Redis down, BullMQ's connection holds the command until Redis is back, and
+  // startup must not wait for that. The schedule is added once Redis answers, or the error is logged.
+  onModuleInit(): void {
+    void this.schedule()
+  }
+
+  // The schedule has a fixed id, so every backend instance that starts adds the same one schedule.
+  async schedule(): Promise<void> {
     try {
       await this.bullMQService.addRepeatableJob(RETENTION_JOB_NAME, {}, RETENTION_JOB_PATTERN, RETENTION_JOB_TIME_ZONE)
     } catch (error) {

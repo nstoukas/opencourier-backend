@@ -1,5 +1,5 @@
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js'
-import { DEFAULT_PHONE_REGION } from '../constants'
+import { DEFAULT_PHONE_REGION } from 'src/constants'
 
 // Turns what a restaurant typed ("6912345678", "+30 691 234 5678", "0030 6912345678") into one
 // stored form (E.164, "+306912345678"), so the same phone is always the same customer (spec 0005, AC-4).

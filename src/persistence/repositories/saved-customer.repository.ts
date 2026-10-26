@@ -82,8 +82,9 @@ export class SavedCustomerRepository extends EntityRepository {
   }
 
   // Saves a customer from an order: a new one, or the one with this phone updated (AC-1, AC-4).
-  // Prisma runs the upsert as one INSERT ... ON CONFLICT on (partnerId, phone), so two orders saving
-  // the same new phone at once end as one customer, and both succeed.
+  // Prisma runs the upsert as one INSERT ... ON CONFLICT ("partnerId","phone") DO UPDATE (checked on
+  // 2026-10-26 with query logging), so two orders saving the same new phone at once end as one
+  // customer, and both succeed.
   async upsertByPhone(
     partnerId: string,
     fields: SavedCustomerFields,

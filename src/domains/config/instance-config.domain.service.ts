@@ -696,8 +696,8 @@ export class InstanceConfigDomainService {
   }
 
   // Saving already refuses anything outside the range, so a bad stored value means someone edited
-  // the table by hand. Rather than end offers after 0 s or retry in a tight loop, use the default
-  // and log a warning so it gets fixed.
+  // the table by hand. Rather than end offers after 0 s, retry in a tight loop or delete every saved
+  // customer, use the default and log a warning so it gets fixed.
   private async getWholeNumberInRange(key: ConfigKey, fallback: number, min: number, max: number): Promise<number> {
     const stored = await this.getConfigValueOrDefault(key, fallback)
     const value = stored.value

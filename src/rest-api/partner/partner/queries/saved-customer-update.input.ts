@@ -5,6 +5,8 @@ import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.
 
 // The body of PATCH /customers/:id (spec 0005), and of the admin's edit. Every field is optional:
 // a field left out stays as it is. The create's rules apply to the fields that are sent.
+// @IsOptional() also lets a JSON null through; for name, phone, street and city the domain service
+// refuses it like a blank value (422).
 export class SavedCustomerUpdateInput {
   @ApiProperty({ required: false })
   @IsOptional()
