@@ -7,6 +7,7 @@ import { PrismaService } from '../../services/prisma/prisma.service'
 describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value 5', () => {
   let repository: CourierDeviceRepository
   let mockPrisma: {
+    $transaction: jest.Mock
     courierDevice: {
       upsert: jest.Mock
       deleteMany: jest.Mock
@@ -16,6 +17,7 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
 
   beforeEach(() => {
     mockPrisma = {
+      $transaction: jest.fn().mockImplementation(async (callback) => callback(mockPrisma)),
       courierDevice: {
         upsert: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -40,6 +42,87 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
         where: { token },
         create: { token, platform, courierId },
         update: { courierId, platform },
+      })
+    })
+
+    test('when rider has at most 10 devices, does not delete any tokens', async () => {
+      mockPrisma.courierDevice.findMany.mockResolvedValue([])
+
+      await repository.upsertForCourier('courier-rider-b', 'fcm-device-token-12345', EnumDevicePlatform.ANDROID)
+
+      // Within cap: findMany skips 9 and finds none, so deleteMany is not called
+      expect(mockPrisma.courierDevice.deleteMany).not.toHaveBeenCalled()
+    })
+
+    test('registering an 11th token leaves exactly the newest 10 and deletes the oldest token', async () => {
+      const courierId = 'courier-rider-b'
+      const token = 'fcm-device-token-11'
+      const platform = EnumDevicePlatform.ANDROID
+
+      // Excess token beyond the cap
+      mockPrisma.courierDevice.findMany.mockResolvedValue([{ id: 'device-id-oldest' }])
+
+      await repository.upsertForCourier(courierId, token, platform)
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.courierDevice.upsert).toHaveBeenCalledWith({
+        where: { token },
+        create: { token, platform, courierId },
+        update: { courierId, platform },
+      })
+      // Queries rider's other devices ordered newest first, skipping MAX_PUSH_DEVICES_PER_COURIER - 1 (9)
+      expect(mockPrisma.courierDevice.findMany).toHaveBeenCalledWith({
+        where: { courierId, token: { not: token } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: 9,
+        select: { id: true },
+      })
+      // Excess device is deleted
+      expect(mockPrisma.courierDevice.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['device-id-oldest'] } },
+      })
+    })
+
+    test('registering a 12th token deletes all tokens beyond the newest 10', async () => {
+      const courierId = 'courier-rider-b'
+      const token = 'fcm-device-token-12'
+      const platform = EnumDevicePlatform.ANDROID
+
+      // Two excess tokens beyond the cap of 10
+      mockPrisma.courierDevice.findMany.mockResolvedValue([
+        { id: 'device-id-oldest-1' },
+        { id: 'device-id-oldest-2' },
+      ])
+
+      await repository.upsertForCourier(courierId, token, platform)
+
+      expect(mockPrisma.courierDevice.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['device-id-oldest-1', 'device-id-oldest-2'] } },
+      })
+    })
+
+    test('always keeps the token just registered even if it moved from another rider with an older createdAt', async () => {
+      const courierId = 'courier-rider-b'
+      const movedTokenWithOldCreatedAt = 'fcm-device-token-moved-from-rider-a'
+      const platform = EnumDevicePlatform.ANDROID
+
+      mockPrisma.courierDevice.findMany.mockResolvedValue([{ id: 'device-id-to-prune' }])
+
+      await repository.upsertForCourier(courierId, movedTokenWithOldCreatedAt, platform)
+
+      // findMany explicitly filters out the token just registered (`token: { not: token }`)
+      // ensuring the moved token is never in beyondTheCap even if its createdAt is older than existing tokens
+      expect(mockPrisma.courierDevice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            courierId,
+            token: { not: movedTokenWithOldCreatedAt },
+          },
+        })
+      )
+      // deleteMany deletes the older other token, leaving the newly moved token untouched
+      expect(mockPrisma.courierDevice.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['device-id-to-prune'] } },
       })
     })
   })
