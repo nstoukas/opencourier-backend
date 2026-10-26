@@ -46,10 +46,51 @@ are the exceptions, each kept additive or as narrow as possible:
 | `GET /api/admin/v1/deliveries/:deliveryId/events` | Delivery events were written but nothing could read them. | `44e0250` |
 | `saveDeliveryEvent` takes named options | Two same-typed status arguments were passed in reverse. | `2595d68` |
 | `DeliveryQuote` gains required `baseFee` and `distanceFee`; one new migration fills older quotes (base 0, distance = the old price) | A rider's pay must be auditable from the delivery's own quote, and the co-op fee was being counted twice. | `a484994` |
+| `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61, branch `feat/offer-expiry`, not merged yet) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
 
 ---
 
 ## Added
+
+### Offers end on time, set by the co-op (scope row 61, spec 0002): `b364c66`, `d26de74` to `0be071e`
+Built on the branch `feat/offer-expiry` and **not merged yet**: it merges together with the
+mobile and adminweb halves of the row. This is a core change, listed in the table above.
+- **Three co-op settings** on Instance configuration and in public `/metadata`:
+  `offerExpiryEnabled` (default off, so nothing changes until the co-op switches it on),
+  `offerExpirySeconds` (whole number 20 to 300, default 60) and `noCourierRetrySeconds` (whole
+  number 10 to 300, default 30). An empty, fractional, out of range or wrongly typed value is
+  refused with a message naming the setting, and a boolean has its own guard. A running offer
+  keeps the deadline it was given.
+- **Every automatic offer is recorded.** It is written in one update with its amounts, and an
+  `OFFERED` event (actor `SYSTEM`, the rider in the new `courierId` column) goes to the audit
+  trail.
+- **The `offer-expiry` job** ends an unanswered offer 3 s after its deadline, even with the
+  phone off: `OFFER_EXPIRED` is recorded, the rider goes on the 20 minute skip list like a
+  decline, gets `OFFER_ENDED` over the socket, and the delivery goes to the next rider. An
+  admin's own offer never expires.
+- **Accept and decline are conditional.** Whatever answers first wins; a late accept or
+  decline gets a 409 "This offer has ended" and changes nothing, and a stale expiry job does
+  nothing. The admin offer and `REASSIGNED` write the same conditional way.
+- **Going Offline ends the rider's open offers at once** ("Rider went offline"), from the
+  rider's own status change, an admin's courier update or Last call, with expiry on or off.
+  `PATCH courier/status` now answers without waiting for that matching.
+- **Nobody free:** the triggering event is still saved, `NO_COURIER_AVAILABLE` is recorded
+  once per waiting spell, waiting deliveries are offered again the moment a rider becomes
+  free, and one `no-courier-retry` backstop job runs every `noCourierRetrySeconds`.
+- **One rider, one offer:** a rider holding an open offer counts as busy, and a rider coming
+  free is offered one delivery, not every waiting one. An ended offer always leaves its event
+  and a backstop, even if a later step fails.
+- **An offer an admin moves** tells the rider who held it `OFFER_ENDED` with the reason
+  `MOVED`; it is not recorded as their expiry.
+- **Partners are not told about offers:** `OFFERED`, `OFFER_EXPIRED` and
+  `NO_COURIER_AVAILABLE` never go out in partner webhooks.
+- **Admin events carry `courierId`**, so a delivery's own timeline can name the rider offered.
+- **Value 5 guard:** a test fails if anything groups or counts events by rider. An expiry is
+  never written as a decline and never changes a rider's status.
+- The two upstream test routes now offer through the real offer step, and the partner one
+  refuses another partner's delivery.
+- Tests written by agy bring the suite to 572 passing; typecheck is clean. `34f6f9f`, `7c5c00e`,
+  `162e6d0`, `21ac9e1`
 
 ### Courier earnings (pay transparency)
 - **`GET /courier/earnings-summary`**: per-day compensation, tips and delivery count for
@@ -263,9 +304,18 @@ are the exceptions, each kept additive or as narrow as possible:
   naming `quoteBaseFee` is only in the server log.
 - The fee % has no upper limit, so a mistyped extra zero in admin would multiply every price
   (scope row 53, waiting for the co-op to choose the ceiling).
-- A rider whose phone is ringing with an unanswered offer is not yet counted as busy, because
-  an offer sets only `matchedCourierId`. Two deliveries matched seconds apart can go to the
-  same rider (left to scope row 61, server side offer expiry).
+- A rider whose phone is ringing with an unanswered offer is not yet counted as busy on this
+  branch. Fixed on `feat/offer-expiry` (`d26de74`), which is not merged yet.
+- On `feat/offer-expiry`, the busy check's open offer clause is tested by reading its SQL, not
+  by running it: swapping its AND for OR passes every test. It needs a test against a real
+  database.
+- Partner webhooks still send `REJECTED`, and every payload carries the whole delivery,
+  including `matchedCourierId` (the rider offered). Upstream behaviour partners may read, left
+  for a small row of its own.
+- Each offer and retry reads every delayed job to find the pending backstop. Fine at co-op
+  scale; storing the pending job id on the delivery is the cleaner fix if the queue grows.
+- The public `api/tasks/v1/execute` route now reaches live handlers and needs locking before
+  going live (scope row 94).
 - `Delivery` has no index on `courierId`, which the busy subquery runs for every rider in
   range. `@@index([courierId, status])` is worth adding (schema change).
 - Rotate the upstream dev credentials in `local.env` before any real deployment.
