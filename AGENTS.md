@@ -16,6 +16,7 @@ REST and GraphQL. Every other component talks to it.
 | `src/shared-types/stateMachine.ts` | `STATE_MACHINE`, the legal delivery status transitions |
 | `src/services/delivery-event/delivery-event.service.ts` (`endOffer`, `offerToNextCourier`) | Offer expiry and the no courier backstop, run as BullMQ jobs through `src/services/taskBus/` (spec 0002) |
 | `src/services/delivery-calculation/delivery-calculation.service.ts` | Customer price and rider pay, built from the quote's stored `baseFee` + `distanceFee` (spec 0001) |
+| `src/services/pushNotification/` (`OfferPushService`), `src/domains/delivery/offer-card-payload.ts` | Offers pushed to riders' phones through `firebase-admin`; the payload is an allow list that carries no more customer detail than the offer card (spec 0003) |
 | `src/rest-api/` | Controllers for the six API namespaces |
 | `prisma/schema.prisma` | Schema; changes need operator approval and a new migration |
 | `src/db-seeds/`, `scripts/` | Seeds and dev logins; Volos instance setup |
@@ -39,6 +40,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   admin can race safely; a miss answers 409 "This offer has ended" (spec 0002).
 - A rider holding an open offer counts as busy (`busyCourierDeliverySubQuery`): one moped, one job,
   offered or accepted.
+- Push is off unless `FIREBASE_SERVICE_ACCOUNT_PATH` names a readable service account file; off,
+  it logs "push is off" once and offers go over the live connection only. Dev runs with it off.
 - Matching SQL is tested as text; no test here runs SQL against a database, so a wrong `AND`/`OR`
   inside it can pass the suite (decision 61.20).
 
