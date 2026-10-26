@@ -10,7 +10,6 @@ libquery_engine-darwin-arm64.dylib.node
 prisma/client
 turbo-*.log
 .DS_Store
-yarn.lock
 
 # Local dev scratch — machine-specific paths / one-off debug queries
 .run-dev.sh
