@@ -45,4 +45,9 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - Matching SQL is tested as text; no test here runs SQL against a database, so a wrong `AND`/`OR`
   inside it can pass the suite (decision 61.20).
 
+## Agent skills
+
+- Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
+- MCP servers: Firebase MCP, `npx -y firebase-tools@latest mcp` (recommended, not connected; useful for row 1's live push check once the co-op has its own Firebase project)
+
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
