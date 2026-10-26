@@ -19,6 +19,7 @@ import { DeliveryDispatchedEvent, DeliveryDroppedOffEvent, DeliveryEvent } from 
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
+import { OfferPushService } from '../pushNotification/offer-push.service'
 
 describe('DeliveryEventService', () => {
   let service: DeliveryEventService
@@ -102,7 +103,9 @@ describe('DeliveryEventService', () => {
           getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
         },
       } as unknown as ConfigDomainService,
-      { getOrDefault: jest.fn().mockResolvedValue([]), save: jest.fn() } as unknown as CacheService
+      { getOrDefault: jest.fn().mockResolvedValue([]), save: jest.fn() } as unknown as CacheService,
+      // Spec 0003 added the offer push service; push is not under test here.
+      { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService
     )
   })
 

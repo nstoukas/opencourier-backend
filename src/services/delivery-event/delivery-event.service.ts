@@ -15,6 +15,7 @@ import {
   DeliveryNoCourierAvailableEvent,
   DeliveryOfferedEvent,
   DeliveryOfferExpiredEvent,
+  OfferEndedMessage,
   OfferEndedReason,
   STATE_MACHINE,
 } from 'src/shared-types/index'
@@ -42,6 +43,7 @@ import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cache/rejected-couriers'
+import { OfferPushService } from '../pushNotification/offer-push.service'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -103,7 +105,9 @@ export class DeliveryEventService {
     private readonly deliveryCalculationService: DeliveryCalculationService,
     private readonly bullMQService: BullMQService,
     private readonly configDomainService: ConfigDomainService,
-    private readonly cacheService: CacheService
+    private readonly cacheService: CacheService,
+    // Spec 0003: the push half of telling a rider about an offer (off unless Firebase is set up).
+    private readonly offerPushService: OfferPushService
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -199,7 +203,7 @@ export class DeliveryEventService {
           await this.notifyCourier(droppedCourierId, updatedDelivery, newStatus, currentStatus, deliveryEvent)
         }
         await this.saveOfferedEvent(deliveryId, newCourierId, EnumEventActor.ADMIN, null)
-        await this.websocketDispatcher.sendOfferToCourier(newCourier.userId, new DeliveryCourierDto(updatedDelivery))
+        await this.sendOfferToRider(newCourier, updatedDelivery)
         return
       }
 
@@ -450,7 +454,7 @@ export class DeliveryEventService {
         )
       }
 
-      await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(updatedDelivery))
+      await this.sendOfferToRider(courier, updatedDelivery)
     } catch (error) {
       // Give the previous offer back, but only if this admin offer is still the one in place (a rider
       // may have accepted it meanwhile, and that must stand).
@@ -469,7 +473,7 @@ export class DeliveryEventService {
       try {
         const replacedCourier = await this.courierRepository.findById(replacedCourierId)
         if (replacedCourier) {
-          await this.websocketDispatcher.sendOfferEnded(replacedCourier.userId, { deliveryId, reason: 'MOVED' })
+          await this.sendOfferEndedToRider(replacedCourier, { deliveryId, reason: 'MOVED' })
         }
       } catch (error) {
         this.logger.error(`Could not tell courier ${replacedCourierId} that the offer of ${deliveryId} moved: ${error}`)
@@ -671,7 +675,7 @@ export class DeliveryEventService {
     try {
       const courier = await this.courierRepository.findById(courierId)
       if (courier) {
-        await this.websocketDispatcher.sendOfferEnded(courier.userId, { deliveryId, reason })
+        await this.sendOfferEndedToRider(courier, { deliveryId, reason })
       }
     } catch (error) {
       this.logger.error(`Could not tell courier ${courierId} that the offer of ${deliveryId} ended: ${error}`)
@@ -832,7 +836,7 @@ export class DeliveryEventService {
     try {
       const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
       this.logger.log(`Sending offer to courier: ${courier.id}`)
-      await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(updatedDelivery))
+      await this.sendOfferToRider(courier, updatedDelivery)
     } catch (error) {
       // The phone still finds the offer on its next fetch of new deliveries.
       this.logger.error(`Could not send the offer of ${deliveryId} to courier ${courier.id}: ${error}`)
@@ -913,6 +917,27 @@ export class DeliveryEventService {
 
     if (dbDelivery.courierId) {
       await this.matchWaitingDeliveries()
+    }
+  }
+
+  // Every new offer reaches the rider through these two (spec 0003): the live connection first, then
+  // push to their phones. Push is started, not awaited, so Google being slow or down never delays
+  // or undoes an offer (AC-2). `finally` starts it even if the socket send threw, since a locked
+  // phone is exactly the one the socket cannot reach.
+  private async sendOfferToRider(courier: { id: string; userId: string }, delivery: DeliveryEntity) {
+    try {
+      await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(delivery))
+    } finally {
+      this.offerPushService.newOffer(courier.id, delivery.id)
+    }
+  }
+
+  // An offer ended on the server: the open app drops it, and the alert on a locked phone stops (AC-6).
+  private async sendOfferEndedToRider(courier: { id: string; userId: string }, message: OfferEndedMessage) {
+    try {
+      await this.websocketDispatcher.sendOfferEnded(courier.userId, message)
+    } finally {
+      this.offerPushService.offerEnded(courier.id, message)
     }
   }
 

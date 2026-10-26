@@ -33,6 +33,7 @@ import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.serv
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { OfferEndedReason } from 'src/shared-types'
+import { OfferPushService } from '../pushNotification/offer-push.service'
 
 describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => {
   let service: DeliveryEventService
@@ -141,7 +142,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockDeliveryCalculationService,
       mockBullMQService,
       mockConfigDomainService,
-      mockCacheService
+      mockCacheService,
+      // Spec 0003 added the offer push service; push is not under test here.
+      { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService
     )
   })
 

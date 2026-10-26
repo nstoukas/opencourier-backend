@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { EnumDeliveryStatus } from '@prisma/types'
+import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
 
 describe('Value 5 Guard (AC-12: Never count or score missed offers against couriers)', () => {
   // Helper to recursively collect files matching a predicate
@@ -299,7 +300,9 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
             getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
           },
         } as any,
-        mockCacheService
+        mockCacheService,
+        // Spec 0003 added the offer push service; push is not under test here.
+        { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService
       )
 
       await service.handleOfferExpiryJob({

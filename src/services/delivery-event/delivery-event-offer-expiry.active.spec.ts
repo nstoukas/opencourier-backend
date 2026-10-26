@@ -26,6 +26,7 @@ import {
   DeliveryRejectedEvent,
 } from 'src/shared-types'
 import { REJECTED_LIST_TTL_SECONDS } from '../cache/rejected-couriers'
+import { OfferPushService } from '../pushNotification/offer-push.service'
 
 describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
   let service: DeliveryEventService
@@ -136,7 +137,9 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryCalculationService,
       mockBullMQService,
       mockConfigDomainService,
-      mockCacheService
+      mockCacheService,
+      // Spec 0003 added the offer push service; push is not under test here.
+      { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService
     )
   })
 
