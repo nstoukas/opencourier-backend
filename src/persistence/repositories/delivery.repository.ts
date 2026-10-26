@@ -163,6 +163,18 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return { delivery: this.toDomain(deliveryFields), quote: new DeliveryQuoteEntity(quote) }
   }
 
+  // What the offer card and its push are built from (spec 0003): the delivery, its drop off
+  // location and its quote. Only buildOfferCardPayload reads this, and it reads only allowed fields.
+  async findOfferCardSourceOrThrow(deliveryId: string) {
+    const delivery = await this.prisma.delivery.findUniqueOrThrow({
+      where: { id: deliveryId },
+      // `delivery` is the schema's name for the Delivery -> DeliveryQuote relation; it is the quote.
+      include: { dropoffLocation: true, delivery: true },
+    })
+
+    return { delivery, dropoffLocation: delivery.dropoffLocation, quote: delivery.delivery }
+  }
+
   async findByIdOrThrowWithLocations(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
     const delivery = await this.prisma.delivery.findUniqueOrThrow({
       where: {
