@@ -138,7 +138,14 @@ export class OfferPushService {
       return
     }
 
-    const delivery = await this.deliveryRepository.findById(payload.deliveryId)
+    // A failed lookup (the database briefly unreachable) is logged and the re-send skipped: the
+    // alert keeps ringing on its first channel. Only the error's name is logged, never its message,
+    // which can quote the query; nothing here may write a token or customer data to the log.
+    const delivery = await this.deliveryRepository.findById(payload.deliveryId).catch((error: unknown) => {
+      const errorName = error instanceof Error ? error.name : 'unknown error'
+      this.logger.error(`offer-insist lookup failed for delivery ${payload.deliveryId}: ${errorName}`)
+      return null
+    })
     const stillThisOffer =
       delivery?.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
       delivery.matchedCourierId === payload.courierId &&
@@ -166,7 +173,13 @@ export class OfferPushService {
       await this.bullMQService.addJob<OfferInsistJobPayload>(
         'offer-insist',
         { deliveryId, courierId, offeredAt: offeredAt.toISOString() },
-        { delay: OFFER_INSIST_AFTER_SECONDS * 1000, jobId: offerInsistJobId(deliveryId, offeredAt) }
+        // removeOnFail: a job that throws is dropped from Redis instead of kept as a failed job, since
+        // it is never retried and only holds a delivery id.
+        {
+          delay: OFFER_INSIST_AFTER_SECONDS * 1000,
+          jobId: offerInsistJobId(deliveryId, offeredAt),
+          removeOnFail: true,
+        }
       )
     } catch (error) {
       // Without the timer the alert just keeps ringing on its first channel.

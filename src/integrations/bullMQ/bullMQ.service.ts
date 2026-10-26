@@ -10,10 +10,11 @@ export class BullMQService {
 
   // `jobId` names the job so it can be found and removed later (spec 0002). BullMQ ignores an add
   // whose jobId already exists, and refuses ids containing ':', so callers build ids with '-'.
+  // `removeOnFail: true` deletes a job from Redis when it fails instead of keeping it in the failed list.
   async addJob<T>(
     name: string,
     data: T,
-    options?: { delay?: number; attempts?: number; backoff?: number; jobId?: string }
+    options?: { delay?: number; attempts?: number; backoff?: number; jobId?: string; removeOnFail?: boolean }
   ) {
     await this.queue.add(name, data, { ...options, removeOnComplete: true })
   }
