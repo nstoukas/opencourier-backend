@@ -288,20 +288,32 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
 
   describe('admin operations (AC-6)', () => {
     let loggerSpy: jest.SpyInstance
+    let warnSpy: jest.SpyInstance
+    let errorSpy: jest.SpyInstance
 
     beforeEach(() => {
       loggerSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+      warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {})
+      errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
     })
 
     afterEach(() => {
       loggerSpy.mockRestore()
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
     })
 
     it('updateAsAdmin passes markUsed: false and logs exactly one line with ids only, never customer details', async () => {
       repository.findOwned.mockResolvedValue(existingCustomerRecord)
       repository.update.mockResolvedValue(existingCustomerRecord)
 
-      await service.updateAsAdmin('admin-user-99', partnerId, customerId, { name: 'Admin Fix' })
+      const editInput = {
+        name: 'Admin Edited Name',
+        phone: '+306911223344',
+        addressLine1: 'Admin Street 42',
+      }
+
+      await service.updateAsAdmin('admin-user-99', partnerId, customerId, editInput)
 
       // Verify markUsed was false
       expect(repository.update).toHaveBeenCalledWith(partnerId, customerId, expect.anything(), false)
@@ -312,9 +324,20 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
       expect(logMessage).toContain('admin-user-99')
       expect(logMessage).toContain(partnerId)
       expect(logMessage).toContain(customerId)
-      expect(logMessage).not.toContain('Nikos Dimas')
-      expect(logMessage).not.toContain('+306912345678')
-      expect(logMessage).not.toContain('Iasonos 10')
+
+      // Assert none of the sent or stored customer details appear in any logger output
+      const allLogged = [
+        ...loggerSpy.mock.calls.map((c) => String(c[0])),
+        ...warnSpy.mock.calls.map((c) => String(c[0])),
+        ...errorSpy.mock.calls.map((c) => String(c[0])),
+      ].join(' ')
+
+      expect(allLogged).not.toContain(editInput.name)
+      expect(allLogged).not.toContain(editInput.phone)
+      expect(allLogged).not.toContain(editInput.addressLine1)
+      expect(allLogged).not.toContain('Nikos Dimas')
+      expect(allLogged).not.toContain('+306912345678')
+      expect(allLogged).not.toContain('Iasonos 10')
     })
 
     it('deleteAsAdmin logs exactly one line with ids only', async () => {
@@ -348,7 +371,7 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
   })
 
   describe('AC-9 No leak: logger output across operations', () => {
-    it('captures all logger output across search, 409, 422, and admin delete and ensures no sensitive customer data appears', async () => {
+    it('captures all logger output across search, 409, 422, admin delete, and admin edit and ensures no sensitive customer data appears', async () => {
       const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
       const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {})
       const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
@@ -404,6 +427,15 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
       // 4. Admin delete
       repository.delete.mockResolvedValue(true)
       await service.deleteAsAdmin('admin-user-1', partnerId, 'cust-to-delete')
+
+      // 5. Admin edit
+      repository.findOwned.mockResolvedValue(existingCustomerRecord)
+      repository.update.mockResolvedValue(existingCustomerRecord)
+      await service.updateAsAdmin('admin-user-1', partnerId, 'cust-to-edit', {
+        name: fixtureName,
+        phone: fixturePhone,
+        addressLine1: fixtureStreet,
+      })
 
       // Gather all logged messages
       const allLogs = [
