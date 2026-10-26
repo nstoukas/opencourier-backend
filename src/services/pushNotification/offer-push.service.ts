@@ -99,7 +99,9 @@ export class OfferPushService {
       await this.handleSendResult(deliveryId, NotificationEventType.NEW_DELIVERY_OFFER, result)
 
       // An offer with no deadline rings until answered; after 2 minutes it is pushed again on the
-      // louder channel (AC-7). Set once per offer, from the first push only.
+      // louder channel (AC-7). Set once per offer, from the first push only. It is set even when
+      // every send above failed: that later re-send is the retry, so a push lost now still gets a
+      // second chance.
       if (!insistent && !offerExpiresAt && offeredAt) {
         await this.scheduleInsist(deliveryId, courierId, offeredAt)
       }
