@@ -18,3 +18,7 @@ check-delivery.ts
 .aiflow/
 plan.md
 osrm/data/
+# Firebase service account keys (offer push, spec 0003). The key lives on the backend host,
+# pointed at by FIREBASE_SERVICE_ACCOUNT_PATH, never in git.
+*firebase-adminsdk*.json
+*service-account*.json
