@@ -6,7 +6,7 @@ by moped in Volos. Restaurants pay a flat subscription; couriers are paid piece-
 delivery, so pricing and matching are the pay structure.
 
 Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipeline`
-(31 commits, 25 July – 5 August 2026). Each entry names its commit, and the commit
+(79 commits, 25 July – 26 October 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
 Scope row 49 (zero is a valid value for every co-op setting) was built on the branch
@@ -24,6 +24,14 @@ typecheck is clean and lint is unchanged.
 Scope row 62 (busy riders get no second offer) was built on the branch
 `fix/busy-riders-no-second-offer` and merged in on 25 October (`3ae819c`). With it the suite is at
 **381 passing tests**; typecheck is clean and lint is unchanged.
+
+Scope row 57's backend half (courier sends go over Socket.IO again) was built on the branch
+`fix/socketio-dispatcher` and merged in on 25 October (`cefdf85`). With it the suite is at
+**401 passing tests**; typecheck is clean and lint is unchanged.
+
+Scope row 61 (offers end on time, set by the co-op, spec 0002) was built on the branch
+`feat/offer-expiry` and merged in on 26 October, together with its mobile and adminweb halves.
+With it the suite is at **572 passing tests**; typecheck is clean and lint is unchanged.
 
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
@@ -46,15 +54,16 @@ are the exceptions, each kept additive or as narrow as possible:
 | `GET /api/admin/v1/deliveries/:deliveryId/events` | Delivery events were written but nothing could read them. | `44e0250` |
 | `saveDeliveryEvent` takes named options | Two same-typed status arguments were passed in reverse. | `2595d68` |
 | `DeliveryQuote` gains required `baseFee` and `distanceFee`; one new migration fills older quotes (base 0, distance = the old price) | A rider's pay must be auditable from the delivery's own quote, and the co-op fee was being counted twice. | `a484994` |
-| `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61, branch `feat/offer-expiry`, not merged yet) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
+| The Ably dispatcher moved out of `AblyModule` into its own `AblyDispatcherModule`; `SocketIOModule` made global; one helper picks which loads (row 57) | `AblyModule` is global and always imported, and it exported a `WebsocketDispatcher`, so the Ably one won whatever `WEBSOCKET_DISPATCHER` said, and without Ably credentials no offer or status update ever reached the courier app. A bug fix, no new behaviour. | `a579ba7` |
+| `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
 
 ---
 
 ## Added
 
 ### Offers end on time, set by the co-op (scope row 61, spec 0002): `b364c66`, `d26de74` to `0be071e`
-Built on the branch `feat/offer-expiry` and **not merged yet**: it merges together with the
-mobile and adminweb halves of the row. This is a core change, listed in the table above.
+Built on the branch `feat/offer-expiry` and merged on 26 October, together with the mobile
+and adminweb halves of the row. This is a core change, listed in the table above.
 - **Three co-op settings** on Instance configuration and in public `/metadata`:
   `offerExpiryEnabled` (default off, so nothing changes until the co-op switches it on),
   `offerExpirySeconds` (whole number 20 to 300, default 60) and `noCourierRetrySeconds` (whole
@@ -217,6 +226,16 @@ mobile and adminweb halves of the row. This is a core change, listed in the tabl
 
 ## Fixed
 
+- **Courier offers and status updates reach the app again** (scope row 57). The courier
+  sends went through the Ably dispatcher whatever `WEBSOCKET_DISPATCHER` said, and without
+  Ably credentials they failed, so nothing reached the courier app over the socket. Socket.IO
+  is now the dispatcher unless `WEBSOCKET_DISPATCHER=ably`, and exactly one dispatcher exists.
+  A core change, listed in the table above. `a579ba7`; tests `6f5f9d4`
+- **The socket login token is no longer written to the debug log** (row 57 review). Row 57
+  made this path live; the log level is info today, so nothing leaked, but lowering it would
+  have written bearer tokens to the log. `2062d3c`; tests `d82f23c`, which also fail if
+  `AblyModule` stops exporting `AblyService`
+
 - **Failed transitions recorded their two statuses the wrong way round** in the audit
   table. The signature now uses named fields. Existing wrong rows are deliberately left
   as-is and documented (no pay was affected, because earnings only read successful rows).
@@ -304,9 +323,7 @@ mobile and adminweb halves of the row. This is a core change, listed in the tabl
   naming `quoteBaseFee` is only in the server log.
 - The fee % has no upper limit, so a mistyped extra zero in admin would multiply every price
   (scope row 53, waiting for the co-op to choose the ceiling).
-- A rider whose phone is ringing with an unanswered offer is not yet counted as busy on this
-  branch. Fixed on `feat/offer-expiry` (`d26de74`), which is not merged yet.
-- On `feat/offer-expiry`, the busy check's open offer clause is tested by reading its SQL, not
+- The busy check's open offer clause is tested by reading its SQL, not
   by running it: swapping its AND for OR passes every test. It needs a test against a real
   database.
 - Partner webhooks still send `REJECTED`, and every payload carries the whole delivery,
