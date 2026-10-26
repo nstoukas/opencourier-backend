@@ -108,6 +108,15 @@ export const NO_COURIER_RETRY_SECONDS_MAX = 300
 // at the last second still arrives in time. A network allowance, not a co-op number.
 export const OFFER_EXPIRY_GRACE_SECONDS = 3
 
+// Saved customers (spec 0005). A restaurant's saved customer is deleted once nobody has ordered for
+// it in this many months. The operative value is the co-op setting savedCustomerRetentionMonths;
+// this is its fallback when the Config row is missing, and the range it must stay in.
+export const DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS = 12
+export const SAVED_CUSTOMER_RETENTION_MONTHS_MIN = 1
+export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
+// Phones are read as Greek numbers unless they start with a country code: this instance serves Volos.
+export const DEFAULT_PHONE_REGION = 'GR'
+
 // Offer push (spec 0003). Not co-op settings: how long FCM may hold a message for a phone that is
 // out of reach, and when an offer with no deadline rings again louder (AC-7).
 // A push with no deadline to measure against (no-deadline offers, OFFER_ENDED) lives this long.

@@ -23,6 +23,9 @@ import {
   OFFER_EXPIRY_SECONDS_MAX,
   NO_COURIER_RETRY_SECONDS_MIN,
   NO_COURIER_RETRY_SECONDS_MAX,
+  DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
+  SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
+  SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
 } from 'src/constants'
 import {
   EnumCourierCompensationCalculationType,
@@ -97,6 +100,14 @@ export const NUMERIC_SETTING_RULES: {
     min: NO_COURIER_RETRY_SECONDS_MIN,
     max: NO_COURIER_RETRY_SECONDS_MAX,
   },
+  // Saved customers (spec 0005): how long an unused customer's personal data is kept.
+  {
+    key: 'savedCustomerRetentionMonths',
+    whyZeroIsRefused: 'every saved customer would be deleted the day it was saved',
+    mustBeInteger: true,
+    min: SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
+    max: SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
+  },
 ]
 
 @Injectable()
@@ -135,6 +146,7 @@ export class InstanceConfigDomainService {
     const offerExpiryEnabled = await this.getOfferExpiryEnabled()
     const offerExpirySeconds = await this.getOfferExpirySeconds()
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
+    const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -166,6 +178,7 @@ export class InstanceConfigDomainService {
       offerExpiryEnabled,
       offerExpirySeconds,
       noCourierRetrySeconds,
+      savedCustomerRetentionMonths,
     }
   }
 
@@ -365,6 +378,12 @@ export class InstanceConfigDomainService {
     }
     if (data.noCourierRetrySeconds !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
+    }
+    if (data.savedCustomerRetentionMonths !== undefined) {
+      await this.configRepository.saveByKey(
+        ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
+        data.savedCustomerRetentionMonths
+      )
     }
 
     // Update the updated_at timestamp whenever config is changed
@@ -650,7 +669,7 @@ export class InstanceConfigDomainService {
   }
 
   async getOfferExpirySeconds(): Promise<number> {
-    return this.getWholeSecondsInRange(
+    return this.getWholeNumberInRange(
       ConfigKey.OFFER_EXPIRY_SECONDS,
       DEFAULT_OFFER_EXPIRY_SECONDS,
       OFFER_EXPIRY_SECONDS_MIN,
@@ -659,7 +678,7 @@ export class InstanceConfigDomainService {
   }
 
   async getNoCourierRetrySeconds(): Promise<number> {
-    return this.getWholeSecondsInRange(
+    return this.getWholeNumberInRange(
       ConfigKey.NO_COURIER_RETRY_SECONDS,
       DEFAULT_NO_COURIER_RETRY_SECONDS,
       NO_COURIER_RETRY_SECONDS_MIN,
@@ -667,10 +686,19 @@ export class InstanceConfigDomainService {
     )
   }
 
+  async getSavedCustomerRetentionMonths(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
+      DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
+      SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
+      SAVED_CUSTOMER_RETENTION_MONTHS_MAX
+    )
+  }
+
   // Saving already refuses anything outside the range, so a bad stored value means someone edited
   // the table by hand. Rather than end offers after 0 s or retry in a tight loop, use the default
   // and log a warning so it gets fixed.
-  private async getWholeSecondsInRange(key: ConfigKey, fallback: number, min: number, max: number): Promise<number> {
+  private async getWholeNumberInRange(key: ConfigKey, fallback: number, min: number, max: number): Promise<number> {
     const stored = await this.getConfigValueOrDefault(key, fallback)
     const value = stored.value
 

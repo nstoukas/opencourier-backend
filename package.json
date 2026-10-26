@@ -103,6 +103,7 @@
     "graphql": "^16.9.0",
     "graphql-tools": "^9.0.1",
     "hbs": "^4.2.0",
+    "libphonenumber-js": "1.13.15",
     "lodash": "^4.17.21",
     "marked": "^4",
     "mime-types": "^2.1.35",

@@ -115,6 +115,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   noCourierRetrySeconds?: number
 
+  // Saved customers (spec 0005). Whole months; the 1 to 36 range lives in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  savedCustomerRetentionMonths?: number
+
   // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

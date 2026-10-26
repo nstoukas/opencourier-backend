@@ -34,4 +34,5 @@ export class InstanceConfigSettingsInput {
   offerExpiryEnabled?: boolean
   offerExpirySeconds?: number
   noCourierRetrySeconds?: number
+  savedCustomerRetentionMonths?: number
 }

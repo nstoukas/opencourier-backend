@@ -72,6 +72,11 @@ class ConfigDto {
 
   @ApiProperty({ type: Number })
   noCourierRetrySeconds: number
+
+  // Saved customers (spec 0005): request-web's save tick tells the restaurant how long unused
+  // customers are kept. A rule, not personal data.
+  @ApiProperty({ type: Number })
+  savedCustomerRetentionMonths: number
 }
 
 class DetailsDto {
@@ -137,6 +142,7 @@ export class MetadataPublicDto {
       offerExpiryEnabled: data.offerExpiryEnabled,
       offerExpirySeconds: data.offerExpirySeconds,
       noCourierRetrySeconds: data.noCourierRetrySeconds,
+      savedCustomerRetentionMonths: data.savedCustomerRetentionMonths,
     }
 
     const m: InstanceDetails = data.details

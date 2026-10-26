@@ -619,7 +619,12 @@ describe('InstanceConfigDomainService', () => {
         it(`rejects value below min for ${rule.key} (${rule.min! - 1}) naming setting`, async () => {
           const promise = service.setInstanceConfigSettings({ [rule.key]: rule.min! - 1 })
           await expect(promise).rejects.toThrow(BadRequestException)
-          await expect(promise).rejects.toThrow(`${rule.key} must be ${rule.min} or more`)
+          // A minimum of 1 puts min - 1 at 0, which the zero rule refuses first, with its own reason.
+          const expected =
+            rule.min! - 1 === 0 && rule.whyZeroIsRefused !== null
+              ? `${rule.key} cannot be 0`
+              : `${rule.key} must be ${rule.min} or more`
+          await expect(promise).rejects.toThrow(expected)
           expect(configRepository.saveByKey).not.toHaveBeenCalled()
         })
 

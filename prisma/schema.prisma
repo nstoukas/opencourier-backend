@@ -153,12 +153,41 @@ model Partner {
 
   deliveries     Delivery[]
   deliveryQuotes DeliveryQuote[]
+  savedCustomers SavedCustomer[]
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   pickupLocationId String?
   pickupLocation   Location? @relation(name: "partnerPickupLocation", fields: [pickupLocationId], references: [id], onDelete: SetNull)
+}
+
+// A restaurant's regular customer, kept so the next order takes a few taps (spec 0005). Personal
+// data: only that restaurant and the co-op's admins see it, a daily job deletes it once unused for
+// savedCustomerRetentionMonths, and a delivery never links here (it keeps its own copy).
+model SavedCustomer {
+  id               String   @id @default(cuid())
+  name             String   @postgres.VarChar(255)
+  // Always stored normalised (E.164, e.g. +306912345678), so one phone is one customer.
+  phone            String   @postgres.VarChar(32)
+  notes            String?  @postgres.VarChar(255)
+  addressLine1     String   @postgres.VarChar(255)
+  addressLine2     String?  @postgres.VarChar(255)
+  city             String   @postgres.VarChar(255)
+  zipCode          String?  @postgres.VarChar(20)
+  latitude         Float
+  longitude        Float
+  formattedAddress String?  @postgres.VarChar(255)
+  // Moved only by an order using this customer, and never backwards. The retention job reads it.
+  lastUsedAt       DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, phone])
 }
 
 model DeliveryQuote {

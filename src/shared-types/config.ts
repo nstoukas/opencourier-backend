@@ -41,6 +41,8 @@ export type InstanceConfigSettings = {
   offerExpiryEnabled: boolean
   offerExpirySeconds: number
   noCourierRetrySeconds: number
+  // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
+  savedCustomerRetentionMonths: number
 }
 
 export type InstanceDetails = {
@@ -104,6 +106,7 @@ export enum ConfigKey {
   OFFER_EXPIRY_ENABLED = 'offerExpiryEnabled',
   OFFER_EXPIRY_SECONDS = 'offerExpirySeconds',
   NO_COURIER_RETRY_SECONDS = 'noCourierRetrySeconds',
+  SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).
