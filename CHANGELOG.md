@@ -38,6 +38,10 @@ branch `feat/android-offer-push` and merged in on 26 October, together with its 
 it the suite is at **658 passing tests**; typecheck is clean and lint is unchanged. Push ships
 off: it runs only once the co-op's own Firebase project exists (scope row 1).
 
+Scope row 26's backend half (saved customers for restaurants, spec 0005) was built on the branch
+`feat/saved-customers` and merged in on 26 October, together with its request-web and adminweb
+halves. With it the suite is at **786 passing tests**; typecheck is clean and lint is unchanged.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -61,12 +65,45 @@ are the exceptions, each kept additive or as narrow as possible:
 | `DeliveryQuote` gains required `baseFee` and `distanceFee`; one new migration fills older quotes (base 0, distance = the old price) | A rider's pay must be auditable from the delivery's own quote, and the co-op fee was being counted twice. | `a484994` |
 | The Ably dispatcher moved out of `AblyModule` into its own `AblyDispatcherModule`; `SocketIOModule` made global; one helper picks which loads (row 57) | `AblyModule` is global and always imported, and it exported a `WebsocketDispatcher`, so the Ably one won whatever `WEBSOCKET_DISPATCHER` said, and without Ably credentials no offer or status update ever reached the courier app. A bug fix, no new behaviour. | `a579ba7` |
 | New `CourierDevice` table and `EnumDevicePlatform` (migration `20261026120000_add_courier_device`), `POST`/`DELETE /api/courier/v1/devices`, `firebase-admin` 13.10.0, `PushNotificationService` filled in, `OfferPushService` called after the socket message at every offer and offer ended send, BullMQ job `offer-insist` (row 58) | Offers reached only an open app over the socket, so a locked phone or a closed app missed work. Additive; no new `DeliveryEvent` type (a push is about an offer already recorded as `OFFERED`). | `cb956aa` |
+| New `SavedCustomer` table (migration `20261026150000_add_saved_customer`), partner routes `/api/partner/v1/customers` and admin routes `/api/admin/v1/partners/:partnerId/customers`, setting `savedCustomerRetentionMonths`, BullMQ repeatable job `saved-customer-retention` (`addRepeatableJob` gains a time zone), `libphonenumber-js` 1.13.15; the HTTP logger drops `/customers` query strings; `ResponseFormatMiddleware` passes `conflictingCustomerId`; `isUniqueConstraintError` matches by name and code; `SentryInterceptor` registered with `request: false` (row 26) | Restaurants retyped every customer. Customers' details are personal data, so the row brings a co-op retention setting and a real delete, and keeps those details out of logs, error bodies and error reports. Additive; no `DeliveryEvent` (a saved customer affects neither pay nor assignment). | `f972791` |
 | `yarn.lock` tracked (upstream ignored it) | Without it a fresh install resolves `firebase-admin`'s tree afresh and can drift (decision 58.12). No code change. | `6b4d49d` |
 | `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
 
 ---
 
 ## Added
+
+### Saved customers for restaurants (scope row 26, spec 0005): `f972791` to `e7746b7`
+Built on the branch `feat/saved-customers` and merged on 26 October, together with the request-web
+and adminweb halves of the row. This is a core change, listed in the table above.
+- **A restaurant's own list.** `GET /api/partner/v1/customers` lists and searches the logged in
+  restaurant's saved customers, most recently used first (name anywhere, or 2 or more digits of the
+  phone; `%`, `_` and `\` are escaped, since Prisma's `contains` does not escape them). `POST`
+  saves one (`onPhoneClash: update` from an order, `refuse` from the Customers page), `PATCH`
+  changes one, `POST /:id/used` marks it used by an order, `DELETE` removes it for good. Every query
+  carries the restaurant in its WHERE, so another restaurant's id is a 404 like an unknown one
+  (`94166ba`).
+- **One customer per phone.** Phones are stored in the international form (`+306912345678`; a
+  number with no country code is read as Greek, landlines and foreign numbers are fine), unique per
+  restaurant. A clash answers 409 naming the other customer by id only. A save from an order is one
+  `INSERT … ON CONFLICT`, so two orders saving the same new phone end as one customer.
+- **Addresses inside the area the co-op serves** (AC-10): the quote's region test, now shared in
+  `geoJsonUtils`, refuses an address outside it with a plain 422.
+- **Admins** see, edit and delete any restaurant's list through `/api/admin/v1/partners/:partnerId/customers`;
+  each edit and delete is logged with the admin's, the restaurant's and the customer's ids, never a
+  name, phone or address.
+- **The co-op decides how long unused customers are kept** (AC-7): `savedCustomerRetentionMonths`
+  (default 12, whole months 1 to 36, refused by name otherwise), shown in `/metadata`. A daily job at
+  04:00 Volos time deletes every customer unused for that long in one statement and logs only the count.
+- **No customer detail leaves the table** (AC-9): the request log drops the query string of any
+  `/customers` path; error messages are fixed sentences; error reports to Sentry carry no request at
+  all (body, query string, cookies or headers), for every route (`0c80f39`).
+- Fixed along the way: a phone clash answered 500 (`isUniqueConstraintError` never matched the
+  generated client's errors), the response formatter dropped `conflictingCustomerId`, a `PATCH`
+  with `null` for a required field answered 500 (now 422), and a `PATCH` with only `markUsed`
+  answered 404 (`0c80f39`, `e7746b7`).
+- Tests: 112 new (`4858be1`, `725dd6c`, `b342379`); 44 checked by hand by putting their bug back.
+  Reviewed by Fable and by agy; every finding ruled in `docs/reviews/2026-10-26-*saved-customers*`.
 
 ### Offers pushed to riders' Android phones (scope row 58, spec 0003): `cb956aa` to `f37d8bf`
 Built on the branch `feat/android-offer-push` and merged on 26 October, together with the mobile
@@ -367,7 +404,8 @@ and adminweb halves of the row. This is a core change, listed in the table above
 - Each offer and retry reads every delayed job to find the pending backstop. Fine at co-op
   scale; storing the pending job id on the delivery is the cleaner fix if the queue grows.
 - The public `api/tasks/v1/execute` route now reaches live handlers and needs locking before
-  going live (scope row 94).
+  going live (scope row 94). Since row 26 it also runs the saved customer retention job on demand
+  (it deletes only what the daily run would).
 - `Delivery` has no index on `courierId`, which the busy subquery runs for every rider in
   range. `@@index([courierId, status])` is worth adding (schema change).
 - Rotate the upstream dev credentials in `local.env` before any real deployment.
