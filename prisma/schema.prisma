@@ -75,9 +75,27 @@ model Courier {
   // Events that name this rider (OFFERED, OFFER_EXPIRED), spec 0002. Read only on a
   // delivery's own timeline; never grouped by rider (binding value 5).
   deliveryEvents        DeliveryEvent[]
+  // The phones this rider is logged in on, for offer push (spec 0003). One row per app install.
+  devices               CourierDevice[]
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
+}
+
+// One app install's push token, so offers can reach a locked phone (spec 0003, row 58).
+// Deliberately no updatedAt and nothing about deliveries, opens or answers: a row only says
+// "this rider can be reached at this token" (binding value 5). A token that logs in as another
+// rider moves to that rider; a token FCM reports dead is deleted.
+model CourierDevice {
+  id        String             @id @default(cuid())
+  token     String             @unique
+  platform  EnumDevicePlatform
+  createdAt DateTime           @default(now())
+
+  courierId String
+  courier   Courier @relation(fields: [courierId], references: [id], onDelete: Cascade)
+
+  @@index([courierId])
 }
 
 model Earning {
@@ -452,6 +470,12 @@ enum EnumCourierDeliverySetting {
   AUTO_REJECT
   MANUAL
   NONE
+}
+
+// Which push path a device uses. IOS rows arrive with row 59.
+enum EnumDevicePlatform {
+  ANDROID
+  IOS
 }
 
 enum EnumCourierStatus {
