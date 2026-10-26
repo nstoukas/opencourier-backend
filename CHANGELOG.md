@@ -94,7 +94,7 @@ co-op's Firebase project exists (row 1).
   Redis (`0f009b3`).
 - **Nothing about a push is stored per rider** (AC-13, value 5): no delivered, opened or answered
   times.
-- Tests: 86 new (`ebe5790`, `e27776b`, `f37d8bf`), each checked by putting its bug back.
+- Tests: 86 new (`ebe5790`, `e27776b`, `f37d8bf`); 33 of them checked by hand by putting their bug back.
 
 ### Offers end on time, set by the co-op (scope row 61, spec 0002): `b364c66`, `d26de74` to `0be071e`
 Built on the branch `feat/offer-expiry` and merged on 26 October, together with the mobile
