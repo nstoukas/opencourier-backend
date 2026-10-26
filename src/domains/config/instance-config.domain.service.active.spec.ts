@@ -768,6 +768,88 @@ describe('InstanceConfigDomainService', () => {
       )
       expect(await service.getNoCourierRetrySeconds()).toBe(30)
     })
+
+    it('getSavedCustomerRetentionMonths: returns default 12 on missing row, stored value if valid, and default 12 if out of range or fractional (AC-7)', async () => {
+      // 1. Missing row -> default 12
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(12)
+
+      // 2. Stored valid (24) -> 24
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS, value: '24', type: 'number' })
+      )
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(24)
+
+      // 3. Stored below min (0) -> fallback to default 12
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS, value: '0', type: 'number' })
+      )
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(12)
+
+      // 4. Stored below min (-1) -> fallback to default 12
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS, value: '-1', type: 'number' })
+      )
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(12)
+
+      // 5. Stored above max (37) -> fallback to default 12
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS, value: '37', type: 'number' })
+      )
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(12)
+
+      // 6. Stored fractional (12.5) -> fallback to default 12
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS, value: '12.5', type: 'number' })
+      )
+      expect(await service.getSavedCustomerRetentionMonths()).toBe(12)
+    })
+
+    describe('setInstanceConfigSettings - savedCustomerRetentionMonths (AC-7)', () => {
+      it('refuses 0, "", 37, 12.5, "12", -1 naming the setting', async () => {
+        // 0 refused with whyZeroIsRefused
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: 0 } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths cannot be 0: every saved customer would be deleted the day it was saved')
+
+        // "" refused
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: '' } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths')
+
+        // 37 refused (> max 36)
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: 37 } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths must be 36 or less')
+
+        // 12.5 refused (must be whole)
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: 12.5 } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths must be a whole number')
+
+        // "12" string refused
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: '12' } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths')
+
+        // -1 refused (< 0)
+        await expect(
+          service.setInstanceConfigSettings({ savedCustomerRetentionMonths: -1 } as any)
+        ).rejects.toThrow('savedCustomerRetentionMonths cannot be negative')
+      })
+
+      it('saves valid whole values 1, 12 and 36', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        for (const validVal of [1, 12, 36]) {
+          await service.setInstanceConfigSettings({ savedCustomerRetentionMonths: validVal })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(
+            ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
+            validVal
+          )
+        }
+      })
+    })
   })
 
   describe('read-back of stored 0 values', () => {

@@ -26,6 +26,17 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
       expect(redactSensitivePath('/api/partner/v1/orders?status=active')).toBe('/api/partner/v1/orders?status=active')
       expect(redactSensitivePath('/api/public/v1/metadata')).toBe('/api/public/v1/metadata')
     })
+
+    test('drops query string for /customers paths to prevent leaking search terms (AC-9)', () => {
+      expect(redactSensitivePath('/api/partner/v1/customers?q=Nikolaos')).toBe('/api/partner/v1/customers')
+      expect(redactSensitivePath('/api/admin/v1/partners/p1/customers/c1?x=1')).toBe('/api/admin/v1/partners/p1/customers/c1')
+      expect(redactSensitivePath('/customers?search=6912345678')).toBe('/customers')
+      expect(redactSensitivePath('/customers/cust-123?force=true')).toBe('/customers/cust-123')
+    })
+
+    test('keeps query string for paths that start with customers but are not /customers (AC-9)', () => {
+      expect(redactSensitivePath('/customersfoo?q=1')).toBe('/customersfoo?q=1')
+    })
   })
 
   describe('HttpLoggerMiddleware', () => {

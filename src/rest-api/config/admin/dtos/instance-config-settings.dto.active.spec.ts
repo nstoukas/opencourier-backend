@@ -108,4 +108,10 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.offerExpirySeconds).toBe(60)
     expect(dto.noCourierRetrySeconds).toBe(30)
   })
+
+  // Spec 0005, AC-7: InstanceConfigSettingsDto exposes savedCustomerRetentionMonths
+  it('exposes savedCustomerRetentionMonths (AC-7)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.savedCustomerRetentionMonths).toBe(12)
+  })
 })

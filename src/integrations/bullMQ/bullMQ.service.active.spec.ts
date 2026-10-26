@@ -44,4 +44,45 @@ describe('BullMQService - Spec 0003 R3 BullMQ Job Options', () => {
       )
     })
   })
+
+  describe('addRepeatableJob (Spec 0005, AC-7)', () => {
+    test('passes tz into repeat options when provided', async () => {
+      await service.addRepeatableJob(
+        'saved-customer-retention',
+        {},
+        '0 4 * * *',
+        'Europe/Athens'
+      )
+
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'saved-customer-retention',
+        {},
+        {
+          jobId: 'saved-customer-retention',
+          repeat: {
+            pattern: '0 4 * * *',
+            jobId: 'saved-customer-retention',
+            tz: 'Europe/Athens',
+          },
+        }
+      )
+    })
+
+    test('adds repeatable job without tz when tz is omitted', async () => {
+      await service.addRepeatableJob('daily-job', { data: 1 }, '0 0 * * *')
+
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'daily-job',
+        { data: 1 },
+        {
+          jobId: 'daily-job',
+          repeat: {
+            pattern: '0 0 * * *',
+            jobId: 'daily-job',
+            tz: undefined,
+          },
+        }
+      )
+    })
+  })
 })

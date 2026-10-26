@@ -69,4 +69,10 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     expect(dto.config.offerExpirySeconds).toBe(60)
     expect(dto.config.noCourierRetrySeconds).toBe(30)
   })
+
+  // Spec 0005, AC-7: public metadata exposes savedCustomerRetentionMonths
+  it('exposes savedCustomerRetentionMonths on public metadata (AC-7)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect(dto.config.savedCustomerRetentionMonths).toBe(12)
+  })
 })
