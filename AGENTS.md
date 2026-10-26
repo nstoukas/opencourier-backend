@@ -14,6 +14,7 @@ REST and GraphQL. Every other component talks to it.
 | `src/domains/` | Domain services; `delivery/delivery.domain.service.ts` shows how events are emitted |
 | `src/services/delivery-event/delivery-event.service.ts` | `processDeliveryEvent`: persists events, applies the state machine |
 | `src/shared-types/stateMachine.ts` | `STATE_MACHINE`, the legal delivery status transitions |
+| `src/services/delivery-event/delivery-event.service.ts` (`endOffer`, `offerToNextCourier`) | Offer expiry and the no courier backstop, run as BullMQ jobs through `src/services/taskBus/` (spec 0002) |
 | `src/services/delivery-calculation/delivery-calculation.service.ts` | Customer price and rider pay, built from the quote's stored `baseFee` + `distanceFee` (spec 0001) |
 | `src/rest-api/` | Controllers for the six API namespaces |
 | `prisma/schema.prisma` | Schema; changes need operator approval and a new migration |
@@ -33,5 +34,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   so `Number('')` makes an empty value a real 0. Every number setting on
   `InstanceConfigSettingsAdminInput` needs `@RefuseIfNotSentAsNumber()` and an entry in
   `NUMERIC_SETTING_RULES`; a test fails if either is missing.
+- An offer (`matchedCourierId`, `offeredAt`, `offerExpiresAt`) is only ever changed through a
+  conditional write (`updateIfMatches`) on what was read, so a rider's accept, the expiry job and an
+  admin can race safely; a miss answers 409 "This offer has ended" (spec 0002).
+- A rider holding an open offer counts as busy (`busyCourierDeliverySubQuery`): one moped, one job,
+  offered or accepted.
+- Matching SQL is tested as text; no test here runs SQL against a database, so a wrong `AND`/`OR`
+  inside it can pass the suite (decision 61.20).
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
