@@ -102,7 +102,8 @@ export class SavedCustomerRepository extends EntityRepository {
         create: { ...fields, partnerId },
         update: fields,
       })
-      const customer = markUsed ? await markUsedInTransaction(tx, partnerId, saved.id) : saved
+      // A customer created just now already has lastUsedAt = now, so only an existing one is touched.
+      const customer = markUsed && existing !== null ? await markUsedInTransaction(tx, partnerId, saved.id) : saved
       return { customer: customer ?? saved, created: existing === null }
     })
   }
@@ -116,10 +117,19 @@ export class SavedCustomerRepository extends EntityRepository {
     markUsed: boolean
   ): Promise<SavedCustomer | null> {
     return this.prisma.$transaction(async (tx) => {
-      // updateMany, not update: it takes a non-unique WHERE, so ownership is part of the write.
-      const { count } = await tx.savedCustomer.updateMany({ where: { id, partnerId }, data: fields })
-      if (count === 0) {
-        return null
+      if (Object.keys(fields).length > 0) {
+        // updateMany, not update: it takes a non-unique WHERE, so ownership is part of the write.
+        const { count } = await tx.savedCustomer.updateMany({ where: { id, partnerId }, data: fields })
+        if (count === 0) {
+          return null
+        }
+      } else {
+        // Nothing to change (only markUsed was sent): Prisma would run no UPDATE and report 0 rows,
+        // which would read as "not yours". Check the customer is this restaurant's instead.
+        const owned = await tx.savedCustomer.findFirst({ where: { id, partnerId }, select: { id: true } })
+        if (!owned) {
+          return null
+        }
       }
       if (markUsed) {
         return markUsedInTransaction(tx, partnerId, id)
