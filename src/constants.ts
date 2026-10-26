@@ -114,6 +114,10 @@ export const OFFER_EXPIRY_GRACE_SECONDS = 3
 export const PUSH_DEFAULT_TTL_SECONDS = 300
 // An offer with no deadline is pushed again, on the insistent channel, after this long unanswered.
 export const OFFER_INSIST_AFTER_SECONDS = 120
+// The most phones one rider keeps registered for push. Registering an 11th deletes the rider's
+// oldest token, so a rider who reinstalls often never piles up dead tokens, and one push never goes
+// past FCM's limit of 500 tokens per send.
+export const MAX_PUSH_DEVICES_PER_COURIER = 10
 
 // OSRM road routing engine (see docs/osrm-routing.md)
 export const OSRM_URL = 'OSRM_URL'
