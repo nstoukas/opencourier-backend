@@ -33,6 +33,11 @@ Scope row 61 (offers end on time, set by the co-op, spec 0002) was built on the 
 `feat/offer-expiry` and merged in on 26 October, together with its mobile and adminweb halves.
 With it the suite is at **572 passing tests**; typecheck is clean and lint is unchanged.
 
+Scope row 58's backend half (offers pushed to riders' Android phones, spec 0003) was built on the
+branch `feat/android-offer-push` and merged in on 26 October, together with its mobile half. With
+it the suite is at **658 passing tests**; typecheck is clean and lint is unchanged. Push ships
+off: it runs only once the co-op's own Firebase project exists (scope row 1).
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -55,11 +60,41 @@ are the exceptions, each kept additive or as narrow as possible:
 | `saveDeliveryEvent` takes named options | Two same-typed status arguments were passed in reverse. | `2595d68` |
 | `DeliveryQuote` gains required `baseFee` and `distanceFee`; one new migration fills older quotes (base 0, distance = the old price) | A rider's pay must be auditable from the delivery's own quote, and the co-op fee was being counted twice. | `a484994` |
 | The Ably dispatcher moved out of `AblyModule` into its own `AblyDispatcherModule`; `SocketIOModule` made global; one helper picks which loads (row 57) | `AblyModule` is global and always imported, and it exported a `WebsocketDispatcher`, so the Ably one won whatever `WEBSOCKET_DISPATCHER` said, and without Ably credentials no offer or status update ever reached the courier app. A bug fix, no new behaviour. | `a579ba7` |
+| New `CourierDevice` table and `EnumDevicePlatform` (migration `20261026120000_add_courier_device`), `POST`/`DELETE /api/courier/v1/devices`, `firebase-admin` 13.10.0, `PushNotificationService` filled in, `OfferPushService` called after the socket message at every offer and offer ended send, BullMQ job `offer-insist` (row 58) | Offers reached only an open app over the socket, so a locked phone or a closed app missed work. Additive; no new `DeliveryEvent` type (a push is about an offer already recorded as `OFFERED`). | `cb956aa` |
+| `yarn.lock` tracked (upstream ignored it) | Without it a fresh install resolves `firebase-admin`'s tree afresh and can drift (decision 58.12). No code change. | `6b4d49d` |
 | `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
 
 ---
 
 ## Added
+
+### Offers pushed to riders' Android phones (scope row 58, spec 0003): `cb956aa` to `f37d8bf`
+Built on the branch `feat/android-offer-push` and merged on 26 October, together with the mobile
+half of the row. This is a core change, listed in the table above. It does nothing until the
+co-op's Firebase project exists (row 1).
+- **Phones register for push.** `POST /api/courier/v1/devices` stores the logged in rider's push
+  token (`CourierDevice`, one row per token; the same token posted by another rider moves to them,
+  and a rider keeps at most their newest 10). `DELETE /api/courier/v1/devices/:token` removes it at
+  logout. The request log shows `/devices/:token`, never the token (`083ead1`, `70fc638`).
+- **Push is off unless configured.** `FIREBASE_SERVICE_ACCOUNT_PATH` points at the co-op's service
+  account file. Unset, the server logs "push is off" once at startup and everything else behaves as
+  before (AC-11). The key file is kept out of git.
+- **Every offer, and every offer that ends, goes to the rider's phones** as a high priority data
+  message, after the socket message, at all five places an offer is sent (`61bf6eb`). A push that
+  fails is logged and never blocks, delays or undoes the offer; a token Firebase reports dead is
+  deleted. The time to live is the seconds left to the offer's deadline (300 s without one); an
+  offer already past its deadline is not pushed (decision 58.10).
+- **The offer card's facts only** (`388417e`, AC-10). `buildOfferCardPayload` builds the message
+  from an allow list: pay, restaurant, a street or town, distance, minutes, the deadline. Never the
+  customer's name, phone, house number, notes or items; a test fails if a field outside the list
+  appears.
+- **A 2 minute reminder when offers don't expire** (`902e7b6`, AC-7). With expiry off, a delayed
+  `offer-insist` job re sends the offer with `insistent: '1'` after 120 s if it is still the same
+  offer waiting for the same rider. A failed lookup is logged and failed jobs are dropped from
+  Redis (`0f009b3`).
+- **Nothing about a push is stored per rider** (AC-13, value 5): no delivered, opened or answered
+  times.
+- Tests: 86 new (`ebe5790`, `e27776b`, `f37d8bf`), each checked by putting its bug back.
 
 ### Offers end on time, set by the co-op (scope row 61, spec 0002): `b364c66`, `d26de74` to `0be071e`
 Built on the branch `feat/offer-expiry` and merged on 26 October, together with the mobile
