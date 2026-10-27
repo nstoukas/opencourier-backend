@@ -1,3 +1,5 @@
+import { DeliveryIssueCreateCourierInput } from './queries/delivery-issue-create.courier.input'
+import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
 import * as common from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
@@ -129,6 +131,23 @@ export class DeliveryCourierRestApiController {
 
     const dto = new DeliveryCourierDto(deliveries)
     return dto
+  }
+
+  @common.Post(':deliveryId/issues')
+  @swagger.ApiBody({ type: DeliveryIssueCreateCourierInput })
+  @swagger.ApiCreatedResponse({ type: DeliveryIssueCourierDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Report an issue with a delivery assigned to me' })
+  @Roles(EnumUserRole.COURIER)
+  async reportIssue(
+    @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: DeliveryIssueCreateCourierInput,
+    @CurrentUserCourier() courier: CourierEntity
+  ): Promise<DeliveryIssueCourierDto> {
+    // Stored as its own row for the admin to read (decision 66.11); nothing the restaurant set is
+    // touched, unlike the older report-issue route above.
+    const issue = await this.deliveryRestApiCourierService.reportIssue(deliveryId, courier.id, input)
+    return new DeliveryIssueCourierDto(issue)
   }
 
   @common.Post(':deliveryId/accept')

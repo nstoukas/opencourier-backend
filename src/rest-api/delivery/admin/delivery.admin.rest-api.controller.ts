@@ -10,6 +10,8 @@ import { DeliveryAdminPaginatedDto } from './dtos/delivery.admin.paginated.dto'
 import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
 import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
 import { DeliveryEventAdminDto } from './dtos/delivery-event.admin.dto'
+import { DeliveryIssueAdminDto } from './dtos/delivery-issue.admin.dto'
+import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
 import { DeliverySubmitEventAdminInput } from './queries/delivery-submit-event.admin.input'
 import { DeliveryReassignAdminInput } from './queries/delivery-reassign.admin.input'
 
@@ -20,7 +22,8 @@ export class DeliveryAdminRestApiController {
   // NestJS constructs the controller and injects both services.
   constructor(
     private readonly deliveryDomainService: DeliveryDomainService,
-    private readonly deliveryEventDomainService: DeliveryEventDomainService
+    private readonly deliveryEventDomainService: DeliveryEventDomainService,
+    private readonly deliveryIssueDomainService: DeliveryIssueDomainService
   ) {}
 
   @common.Get('')
@@ -81,6 +84,22 @@ export class DeliveryAdminRestApiController {
 
     const events = await this.deliveryEventDomainService.getEventHistoryForDelivery(deliveryId)
     return events.map((event) => new DeliveryEventAdminDto(event))
+  }
+
+  @common.Get(':deliveryId/issues')
+  @swagger.ApiOkResponse({ type: [DeliveryIssueAdminDto] })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiOperation({ summary: "Get the riders' reports about a delivery" })
+  @Roles(EnumUserRole.ADMIN)
+  async getDeliveryIssues(@common.Param('deliveryId') deliveryId: string): Promise<DeliveryIssueAdminDto[]> {
+    // An unknown delivery answers 404, not [] ("no reports" is a different claim), as for events.
+    const delivery = await this.deliveryDomainService.getById(deliveryId)
+    if (!delivery) {
+      throw new errors.DeliveryNotFoundException(`Delivery ${deliveryId} not found`)
+    }
+    const issues = await this.deliveryIssueDomainService.listForDelivery(deliveryId)
+    return issues.map((issue) => new DeliveryIssueAdminDto(issue))
   }
 
   @common.Post(':id/submit-event')

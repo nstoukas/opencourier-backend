@@ -72,6 +72,7 @@ model Courier {
   locationNotes         LocationNote[]
   locationNoteReactions LocationNoteReaction[]
   courierCompensations  CourierCompensation[]
+  deliveryIssues        DeliveryIssue[]
   // Events that name this rider (OFFERED, OFFER_EXPIRED), spec 0002. Read only on a
   // delivery's own timeline; never grouped by rider (binding value 5).
   deliveryEvents        DeliveryEvent[]
@@ -300,7 +301,7 @@ model Delivery {
   totalCompensation Int?
 
   // Delivery matching data
-  rejectedByCouriers String[] @default([])
+  rejectedByCouriers String[]  @default([])
   matchedCourierId   String?
   // When the open offer to matchedCourierId went out, and when it ends on its own (spec 0002).
   // offerExpiresAt null = it never expires (expiry off, or an admin offer).
@@ -320,6 +321,7 @@ model Delivery {
   deliveryEvent        DeliveryEvent[]
   locationNote         LocationNote[]
   courierCompensations CourierCompensation[]
+  issues               DeliveryIssue[]
 
   @@unique([idempotencyKey, partnerId])
 }
@@ -545,6 +547,31 @@ enum EnumDeliveryEventType {
   OFFERED
   OFFER_EXPIRED
   NO_COURIER_AVAILABLE
+}
+
+// What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
+// detail in the note.
+enum EnumDeliveryIssueReason {
+  WRONG_ADDRESS
+  NO_SIGNAL
+  ORDER_HANDED
+  OTHER
+}
+
+// A rider's report about a delivery, read by the admin (decision 66.11). Several per delivery,
+// each keeping its rider and time. Not a DeliveryEvent: it changes no status, pay or assignment.
+model DeliveryIssue {
+  id         String                  @id @default(cuid())
+  deliveryId String
+  delivery   Delivery                @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  courierId  String
+  courier    Courier                 @relation(fields: [courierId], references: [id])
+  reason     EnumDeliveryIssueReason
+  note       String?                 @postgres.VarChar(500)
+  createdAt  DateTime                @default(now())
+
+  // The admin reads a delivery's reports in time order.
+  @@index([deliveryId, createdAt])
 }
 
 enum EnumCourierCompensationReason {

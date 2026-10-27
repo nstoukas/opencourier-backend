@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { EnumDeliveryStatus, EnumLocationNoteActor, EnumUndeliverableAction } from '@prisma/types'
+import {
+  EnumDeliveryIssueReason,
+  EnumDeliveryStatus,
+  EnumLocationNoteActor,
+  EnumUndeliverableAction,
+} from '@prisma/types'
+import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
+import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 import { CantUpdateDeliveryStatusError, DeliveryNotFoundException } from 'src/errors'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryWhereArgs } from 'src/domains/delivery/types/delivery-where-args.type'
@@ -19,7 +26,8 @@ export class DeliveryRestApiCourierService {
   constructor(
     private deliveryDomainService: DeliveryDomainService,
     private locationNoteDomainService: LocationNoteDomainService,
-    private locationNoteReactionDomainService: LocationNoteReactionDomainService
+    private locationNoteReactionDomainService: LocationNoteReactionDomainService,
+    private deliveryIssueDomainService: DeliveryIssueDomainService
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -149,6 +157,20 @@ export class DeliveryRestApiCourierService {
     })
 
     return updatedDelivery
+  }
+
+  // A rider may report only on a delivery assigned to them; anything else answers 404, so a
+  // rider cannot learn whether someone else's delivery exists (decision 66.11).
+  async reportIssue(
+    deliveryId: string,
+    courierId: string,
+    input: { reason: EnumDeliveryIssueReason; note?: string | null }
+  ): Promise<DeliveryIssueWithCourier> {
+    const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
+    if (!delivery) {
+      throw new DeliveryNotFoundException('Delivery not found')
+    }
+    return this.deliveryIssueDomainService.report({ deliveryId, courierId, reason: input.reason, note: input.note })
   }
 
   async cancelDelivery(deliveryId: string, courierId: string) {

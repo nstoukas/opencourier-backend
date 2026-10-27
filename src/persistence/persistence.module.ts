@@ -12,6 +12,7 @@ import { DeliveryEventRepository } from './repositories/delivery-event.repositor
 import { LocationNoteReactionRepository } from './repositories/location-note-reaction.repository'
 import { CourierCompensationRepository } from './repositories/courier-compensation.repository'
 import { CourierDeviceRepository } from './repositories/courier-device.repository'
+import { DeliveryIssueRepository } from './repositories/delivery-issue.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 
 @Global()
@@ -30,6 +31,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     LocationNoteReactionRepository,
     CourierCompensationRepository,
     CourierDeviceRepository,
+    DeliveryIssueRepository,
     SavedCustomerRepository,
   ],
   exports: [
@@ -46,6 +48,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     LocationNoteReactionRepository,
     CourierCompensationRepository,
     CourierDeviceRepository,
+    DeliveryIssueRepository,
     SavedCustomerRepository,
   ],
 })
