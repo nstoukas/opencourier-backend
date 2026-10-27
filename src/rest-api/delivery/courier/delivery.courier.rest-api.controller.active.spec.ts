@@ -1,3 +1,5 @@
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
+import { RequestMethod } from '@nestjs/common'
 import { EnumDeliveryIssueReason, EnumUserRole } from '@prisma/types'
 import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.controller'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
@@ -75,6 +77,13 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
   test('reportIssue handler carries @Roles(COURIER) decorator metadata', () => {
     const roles = Reflect.getMetadata(ROLES_KEY, controller.reportIssue)
     expect(roles).toEqual([EnumUserRole.COURIER])
+  })
+
+  test('reportIssue is routed at PATH :deliveryId/issues with METHOD POST', () => {
+    const path = Reflect.getMetadata(PATH_METADATA, controller.reportIssue)
+    const method = Reflect.getMetadata(METHOD_METADATA, controller.reportIssue)
+    expect(path).toBe(':deliveryId/issues')
+    expect(method).toBe(RequestMethod.POST)
   })
 
   test('propagates DeliveryNotFoundException when delivery does not belong to courier or does not exist', async () => {

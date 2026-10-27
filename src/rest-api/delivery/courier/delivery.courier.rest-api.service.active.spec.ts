@@ -52,7 +52,7 @@ describe('DeliveryRestApiCourierService.reportIssue (clauses 1 & 6)', () => {
     // Delivery domain service finds delivery matching deliveryId AND courierId filter
     mockDeliveryDomainService.getById.mockResolvedValue({
       id: deliveryId,
-      matchedCourierId: courierId,
+      courierId: courierId,
     } as any)
 
     const input = {
@@ -95,7 +95,7 @@ describe('DeliveryRestApiCourierService.reportIssue (clauses 1 & 6)', () => {
   test('clause 6: emits no DeliveryEvent, updates no status, and writes neither undeliverableAction nor undeliverableReason', async () => {
     mockDeliveryDomainService.getById.mockResolvedValue({
       id: deliveryId,
-      matchedCourierId: courierId,
+      courierId: courierId,
       undeliverableAction: null,
       undeliverableReason: null,
     } as any)

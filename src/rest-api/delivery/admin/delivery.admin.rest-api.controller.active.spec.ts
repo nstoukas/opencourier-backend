@@ -1,3 +1,5 @@
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
+import { RequestMethod } from '@nestjs/common'
 import { DeliveryAdminRestApiController } from './delivery.admin.rest-api.controller'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
@@ -285,6 +287,13 @@ describe('DeliveryAdminRestApiController', () => {
     test('getDeliveryIssues handler carries @Roles(ADMIN)', () => {
       const roles = Reflect.getMetadata(ROLES_KEY, controller.getDeliveryIssues)
       expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('getDeliveryIssues is routed at PATH :deliveryId/issues with METHOD GET', () => {
+      const path = Reflect.getMetadata(PATH_METADATA, controller.getDeliveryIssues)
+      const method = Reflect.getMetadata(METHOD_METADATA, controller.getDeliveryIssues)
+      expect(path).toBe(':deliveryId/issues')
+      expect(method).toBe(RequestMethod.GET)
     })
 
     test('the endpoint is read-only and writes nothing', async () => {
