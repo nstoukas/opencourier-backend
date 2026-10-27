@@ -1,19 +1,25 @@
 import { DeliveryAdminRestApiController } from './delivery.admin.rest-api.controller'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
+import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
+import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { DeliveryNotFoundException } from 'src/errors'
+import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import {
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
+  EnumDeliveryIssueReason,
   EnumDeliveryStatus,
   EnumEventActor,
+  EnumUserRole,
 } from '@prisma/types'
 
 describe('DeliveryAdminRestApiController', () => {
   let controller: DeliveryAdminRestApiController
   let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
   let mockDeliveryEventDomainService: jest.Mocked<DeliveryEventDomainService>
+  let mockDeliveryIssueDomainService: jest.Mocked<DeliveryIssueDomainService>
 
   // Shared test fixture modelled on real delivery cms57718o0007np9uq4ayigd4 rows
   const mockDeliveryId = 'cms57718o0007np9uq4ayigd4'
@@ -81,10 +87,17 @@ describe('DeliveryAdminRestApiController', () => {
       getEventHistoryForDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryEventDomainService>
 
+    // Create minimal mock for DeliveryIssueDomainService
+    mockDeliveryIssueDomainService = {
+      report: jest.fn(),
+      listForDelivery: jest.fn(),
+    } as unknown as jest.Mocked<DeliveryIssueDomainService>
+
     // Construct controller directly using dependency injection pattern
     controller = new DeliveryAdminRestApiController(
       mockDeliveryDomainService,
-      mockDeliveryEventDomainService
+      mockDeliveryEventDomainService,
+      mockDeliveryIssueDomainService
     )
   })
 
@@ -191,6 +204,95 @@ describe('DeliveryAdminRestApiController', () => {
       await controller.getDeliveryEvents(mockDeliveryId)
 
       // Verify read-only contract: no state update or event submission methods were invoked
+      expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(0)
+      expect(mockDeliveryDomainService.submitDeliveryEvent).toHaveBeenCalledTimes(0)
+      expect(mockDeliveryDomainService.reassignDelivery).toHaveBeenCalledTimes(0)
+    })
+  })
+
+  describe('getDeliveryIssues (clause 5)', () => {
+    const mockIssues: DeliveryIssueWithCourier[] = [
+      {
+        id: 'issue-1',
+        deliveryId: mockDeliveryId,
+        courierId: 'courier-1',
+        reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
+        note: 'Customer specified wrong street number',
+        createdAt: new Date('2026-10-27T08:00:00.000Z'),
+        courier: {
+          firstName: 'Nikos',
+          lastName: 'Papastamou',
+        },
+      },
+      {
+        id: 'issue-2',
+        deliveryId: mockDeliveryId,
+        courierId: 'courier-2',
+        reason: EnumDeliveryIssueReason.NO_SIGNAL,
+        note: null,
+        createdAt: new Date('2026-10-27T08:30:00.000Z'),
+        courier: {
+          firstName: 'Maria',
+          lastName: 'Oikonomou',
+        },
+      },
+    ]
+
+    test('answers DeliveryIssueAdminDto[] with id, reason, note, createdAt, courierId, and courierName "First Last"', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValue({ id: mockDeliveryId } as any)
+      mockDeliveryIssueDomainService.listForDelivery.mockResolvedValue(mockIssues)
+
+      const result = await controller.getDeliveryIssues(mockDeliveryId)
+
+      expect(mockDeliveryDomainService.getById).toHaveBeenCalledWith(mockDeliveryId)
+      expect(mockDeliveryIssueDomainService.listForDelivery).toHaveBeenCalledWith(mockDeliveryId)
+      expect(result).toHaveLength(2)
+
+      expect(result[0]?.id).toBe('issue-1')
+      expect(result[0]?.reason).toBe(EnumDeliveryIssueReason.WRONG_ADDRESS)
+      expect(result[0]?.note).toBe('Customer specified wrong street number')
+      expect(result[0]?.createdAt.toISOString()).toBe('2026-10-27T08:00:00.000Z')
+      expect(result[0]?.courierId).toBe('courier-1')
+      expect(result[0]?.courierName).toBe('Nikos Papastamou')
+
+      expect(result[1]?.id).toBe('issue-2')
+      expect(result[1]?.reason).toBe(EnumDeliveryIssueReason.NO_SIGNAL)
+      expect(result[1]?.note).toBeNull()
+      expect(result[1]?.createdAt.toISOString()).toBe('2026-10-27T08:30:00.000Z')
+      expect(result[1]?.courierId).toBe('courier-2')
+      expect(result[1]?.courierName).toBe('Maria Oikonomou')
+    })
+
+    test('unknown delivery answers 404 rather than an empty list', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValue(null)
+
+      const unknownId = 'del-unknown-999'
+      await expect(controller.getDeliveryIssues(unknownId)).rejects.toThrow(DeliveryNotFoundException)
+      await expect(controller.getDeliveryIssues(unknownId)).rejects.toThrow(`Delivery ${unknownId} not found`)
+
+      // Stored reports are not queried for unknown delivery
+      expect(mockDeliveryIssueDomainService.listForDelivery).not.toHaveBeenCalled()
+    })
+
+    test('a real delivery with no issues returns [] with no error', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValue({ id: mockDeliveryId } as any)
+      mockDeliveryIssueDomainService.listForDelivery.mockResolvedValue([])
+
+      const result = await controller.getDeliveryIssues(mockDeliveryId)
+      expect(result).toEqual([])
+    })
+
+    test('getDeliveryIssues handler carries @Roles(ADMIN)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.getDeliveryIssues)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('the endpoint is read-only and writes nothing', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValue({ id: mockDeliveryId } as any)
+      mockDeliveryIssueDomainService.listForDelivery.mockResolvedValue(mockIssues)
+
+      await controller.getDeliveryIssues(mockDeliveryId)
+
       expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.submitDeliveryEvent).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.reassignDelivery).toHaveBeenCalledTimes(0)
