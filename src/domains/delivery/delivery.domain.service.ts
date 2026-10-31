@@ -316,13 +316,13 @@ export class DeliveryDomainService {
 
   async markAsDispatched(deliveryId: string, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
-    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     if (delivery.status !== EnumDeliveryStatus.ACCEPTED) {
       throw new CantUpdateDeliveryStatusError(
         `Delivery ${deliveryId} can not be marked as dispatched. On status ${delivery.status}`
       )
     }
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,

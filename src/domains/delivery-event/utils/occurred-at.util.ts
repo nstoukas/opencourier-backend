@@ -4,6 +4,9 @@ import { EnumDeliveryEventType } from '@prisma/types'
 // AC-7): 7 days in milliseconds. A step older than this is refused with a 400 rather than guessed at.
 export const MAX_TAP_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
+// A step older than this (one hour) is logged as a warning when it arrives (decision 20.13).
+export const TAP_AGE_WORTH_A_LOOK_MS = 60 * 60 * 1000
+
 // The job step events whose time bounds the next step's tap time from below (spec 0009, AC-7):
 // a step cannot have happened before the rider accepted the delivery, nor before the step that
 // came before it, so the job's timeline never runs backwards.

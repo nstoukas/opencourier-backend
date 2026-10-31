@@ -44,7 +44,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cache/rejected-couriers'
 import { OfferPushService } from '../pushNotification/offer-push.service'
-import { occurredAtForTap } from 'src/domains/delivery-event/utils/occurred-at.util'
+import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -134,6 +134,13 @@ export class DeliveryEventService {
     delivery: { id: string; createdAt: Date },
     tap: { receivedAt: Date; tapAgeMs: number }
   ): Promise<Date> {
+    // A step that waited more than an hour is worth a look: the age is the rider's phone's claim
+    // (decision 20.13). Ids and the age only, never personal data.
+    if (tap.tapAgeMs > TAP_AGE_WORTH_A_LOOK_MS) {
+      this.logger.warn(
+        `Delivery ${delivery.id}: a rider's step arrived ${Math.round(tap.tapAgeMs / 60000)} min after its tap`
+      )
+    }
     const latestStep = await this.deliveryEventRepository.findLatestJobStepOccurredAt(delivery.id)
     return occurredAtForTap({
       receivedAt: tap.receivedAt,
@@ -168,6 +175,17 @@ export class DeliveryEventService {
         this.logger.warn(
           `No transition exists for delivery ${deliveryId} from status ${currentStatus} via event ${deliveryEvent.type}`
         )
+        // A rider's tapped step (it carries occurredAt) that no longer applies, such as a Delivered
+        // sent after an admin cancelled, is kept as a failed row with its tap time, so the co-op can
+        // see that the rider acted and when (spec 0009, decision 20.13). Every other event is still
+        // dropped silently, as before.
+        if (deliveryEvent.occurredAt) {
+          await this.saveDeliveryEvent(deliveryEvent, {
+            transitionSuccessful: false,
+            oldStatus: currentStatus,
+            message: `No transition from ${currentStatus} via ${deliveryEvent.type}; the rider's step arrived after the delivery changed`,
+          })
+        }
         return
       }
 

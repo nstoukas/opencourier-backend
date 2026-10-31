@@ -209,6 +209,9 @@ export class DeliveryCourierRestApiController {
   }
 
   @common.Post(':deliveryId/mark-as-dispatched')
+  @swagger.ApiBody({
+    type: CourierJobStepCourierInput,
+  })
   @swagger.ApiCreatedResponse({
     type: DeliveryCourierDto,
   })
@@ -229,6 +232,9 @@ export class DeliveryCourierRestApiController {
   }
 
   @common.Post(':deliveryId/arrived-at-pickup')
+  @swagger.ApiBody({
+    type: CourierJobStepCourierInput,
+  })
   @swagger.ApiCreatedResponse({
     type: DeliveryCourierDto,
   })
@@ -249,6 +255,9 @@ export class DeliveryCourierRestApiController {
   }
 
   @common.Post(':deliveryId/arrived-at-dropoff')
+  @swagger.ApiBody({
+    type: CourierJobStepCourierInput,
+  })
   @swagger.ApiCreatedResponse({
     type: DeliveryCourierDto,
   })

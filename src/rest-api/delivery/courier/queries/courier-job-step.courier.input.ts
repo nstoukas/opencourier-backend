@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsInt, IsOptional, Max, Min } from 'class-validator'
+import { IsInt, Max, Min, ValidateIf } from 'class-validator'
 import { MAX_TAP_AGE_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 
 // The body every courier job step accepts (spec 0009): how many milliseconds before sending the
@@ -13,7 +13,8 @@ export class CourierJobStepCourierInput {
   })
   // class-validator decorators: each one is a rule the global ValidationPipe checks before the
   // controller runs; a broken rule answers 400.
-  @IsOptional()
+  // Left out is fine; sent as null is not (AC-7). @IsOptional() would let null through too.
+  @ValidateIf((_input, value) => value !== undefined)
   @IsInt()
   @Min(0)
   @Max(MAX_TAP_AGE_MS)

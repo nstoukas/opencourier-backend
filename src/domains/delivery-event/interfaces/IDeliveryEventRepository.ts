@@ -8,5 +8,7 @@ export interface IDeliveryEventRepository {
   findSuccessfulDropOffRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsRow[]>
   findCompletedDeliveryRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsDeliveryRow[]>
   findCompletedDeliveryRowForCourierDelivery(courierId: string, deliveryId: string): Promise<CourierEarningsDeliveryRow | null>
+  // When the latest successful job step of a delivery happened, or null (spec 0009, AC-7).
+  findLatestJobStepOccurredAt(deliveryId: string): Promise<Date | null>
 }
 
