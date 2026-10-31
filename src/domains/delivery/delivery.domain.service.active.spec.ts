@@ -51,6 +51,7 @@ describe('DeliveryDomainService', () => {
     mockDeliveryEventService = {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
       offerDeliveryToCourierAsAdmin: jest.fn(),
+      occurredAtForCourierTap: jest.fn(),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockCourierRepository = {
@@ -678,6 +679,231 @@ describe('DeliveryDomainService', () => {
       await expect(
         service.submitDeliveryEvent(submitEventPayload as any)
       ).rejects.toThrow(new BadRequestException('Use POST /api/admin/v1/deliveries/:id/reassign to reassign a delivery'))
+    })
+  })
+
+  describe('Courier step methods: tap and occurredAt (Spec 0009, AC-4, AC-9)', () => {
+    const deliveryId = 'del-step-100'
+    const courierId = 'courier-1'
+    const tap = { receivedAt: new Date('2026-10-31T12:00:00.000Z'), tapAgeMs: 5000 }
+    const computedOccurredAt = new Date('2026-10-31T11:59:55.000Z')
+
+    beforeEach(() => {
+      mockDeliveryEventService.occurredAtForCourierTap.mockResolvedValue(computedOccurredAt)
+    })
+
+    test('markAsDispatched puts occurredAt on event when tap provided, omits when absent', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.ACCEPTED,
+      } as any)
+
+      // With tap
+      await service.markAsDispatched(deliveryId, tap)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).toHaveBeenCalledWith(
+        expect.objectContaining({ id: deliveryId }),
+        tap
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.DISPATCHED,
+          occurredAt: computedOccurredAt,
+        })
+      )
+
+      // Without tap
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      await service.markAsDispatched(deliveryId)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
+      expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+
+    test('courierArrivedAtPickup puts occurredAt on event when tap provided, omits when absent', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.DISPATCHED,
+      } as any)
+
+      // With tap
+      await service.courierArrivedAtPickup(deliveryId, tap)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).toHaveBeenCalledWith(
+        expect.objectContaining({ id: deliveryId }),
+        tap
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: computedOccurredAt,
+        })
+      )
+
+      // Without tap
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      await service.courierArrivedAtPickup(deliveryId)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
+      expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+
+    test('markAsPickedUp puts occurredAt on event when tap provided, omits when absent', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      } as any)
+
+      // With tap
+      await service.markAsPickedUp(deliveryId, tap)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).toHaveBeenCalledWith(
+        expect.objectContaining({ id: deliveryId }),
+        tap
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: computedOccurredAt,
+        })
+      )
+
+      // Without tap
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      await service.markAsPickedUp(deliveryId)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
+      expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+
+    test('courierArrivedAtDropOff puts occurredAt on event when tap provided, omits when absent', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.PICKED_UP,
+      } as any)
+
+      // With tap
+      await service.courierArrivedAtDropOff(deliveryId, tap)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).toHaveBeenCalledWith(
+        expect.objectContaining({ id: deliveryId }),
+        tap
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION,
+          occurredAt: computedOccurredAt,
+        })
+      )
+
+      // Without tap
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      await service.courierArrivedAtDropOff(deliveryId)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
+      expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+
+    test('markAsDelivered puts occurredAt on event when tap provided, omits when absent', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+      } as any)
+
+      const deliveredData = { note: 'Left at doorstep' }
+
+      // With tap
+      await service.markAsDelivered(deliveryId, deliveredData, tap)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).toHaveBeenCalledWith(
+        expect.objectContaining({ id: deliveryId }),
+        tap
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          occurredAt: computedOccurredAt,
+          deliveredData,
+        })
+      )
+
+      // Without tap
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      await service.markAsDelivered(deliveryId, deliveredData)
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
+      expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+  })
+
+  describe('Step methods return delivery read again after processDeliveryEvent (Spec 0009, AC-6 server side)', () => {
+    const deliveryId = 'del-reread-100'
+    const courierId = 'courier-1'
+
+    test('markAsDispatched returns updated delivery read after event, not stale copy read before', async () => {
+      const initialDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.ACCEPTED }
+      const updatedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.DISPATCHED }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(updatedDelivery as any)
+
+      const result = await service.markAsDispatched(deliveryId)
+
+      expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+      expect(result).toBe(updatedDelivery)
+      expect(result.status).toBe(EnumDeliveryStatus.DISPATCHED)
+    })
+
+    test('courierArrivedAtPickup returns updated delivery read after event, not stale copy read before', async () => {
+      const initialDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.DISPATCHED }
+      const updatedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(updatedDelivery as any)
+
+      const result = await service.courierArrivedAtPickup(deliveryId)
+
+      expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+      expect(result).toBe(updatedDelivery)
+      expect(result.status).toBe(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION)
+    })
+
+    test('courierArrivedAtDropOff returns updated delivery read after event, not stale copy read before', async () => {
+      const initialDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.PICKED_UP }
+      const updatedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(updatedDelivery as any)
+
+      const result = await service.courierArrivedAtDropOff(deliveryId)
+
+      expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+      expect(result).toBe(updatedDelivery)
+      expect(result.status).toBe(EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION)
+    })
+
+    test('markAsDelivered returns updated delivery read after event, not stale copy read before', async () => {
+      const initialDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION }
+      // Say the delivery was actually CANCELED by admin meanwhile
+      const updatedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.CANCELED }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(updatedDelivery as any)
+
+      const result = await service.markAsDelivered(deliveryId, {})
+
+      expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+      expect(result).toBe(updatedDelivery)
+      expect(result.status).toBe(EnumDeliveryStatus.CANCELED)
     })
   })
 })

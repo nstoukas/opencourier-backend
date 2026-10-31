@@ -54,13 +54,14 @@ describe('DeliveryEventService', () => {
 
     mockDeliveryRepository = {
       findByIdOrThrow: jest.fn(),
-      update: jest.fn(),
+      update: jest.fn().mockResolvedValue({ id: 'del-1', partnerId: null, courierId: null } as any),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockDeliveryEventRepository = {
       create: jest.fn().mockResolvedValue({ id: 'evt-1' } as any),
+      findLatestJobStepOccurredAt: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<DeliveryEventRepository>
 
     mockTaskScheduler = {
@@ -347,6 +348,240 @@ describe('DeliveryEventService', () => {
           message: 'Offered to courier courier-1, no deadline',
         })
       )
+    })
+  })
+
+  describe('occurredAtForCourierTap (Spec 0009, AC-7)', () => {
+    test('uses latest successful job step occurredAt as floor when present', async () => {
+      const delivery = { id: 'del-tap-1', createdAt: new Date('2026-10-31T10:00:00.000Z') }
+      const tap = {
+        receivedAt: new Date('2026-10-31T12:00:00.000Z'),
+        tapAgeMs: 30 * 60 * 1000, // 30 mins ago = 11:30
+      }
+      // Latest job step happened at 11:45
+      const latestJobStepTime = new Date('2026-10-31T11:45:00.000Z')
+      mockDeliveryEventRepository.findLatestJobStepOccurredAt.mockResolvedValue(latestJobStepTime)
+
+      const result = await service.occurredAtForCourierTap(delivery, tap)
+
+      expect(mockDeliveryEventRepository.findLatestJobStepOccurredAt).toHaveBeenCalledWith('del-tap-1')
+      // Floor (11:45) is later than tapped (11:30), so clamped to floor
+      expect(result).toEqual(latestJobStepTime)
+    })
+
+    test('falls back to delivery.createdAt as floor when no successful job step event exists', async () => {
+      const deliveryCreatedAt = new Date('2026-10-31T11:45:00.000Z')
+      const delivery = { id: 'del-tap-2', createdAt: deliveryCreatedAt }
+      const tap = {
+        receivedAt: new Date('2026-10-31T12:00:00.000Z'),
+        tapAgeMs: 30 * 60 * 1000, // 30 mins ago = 11:30
+      }
+      mockDeliveryEventRepository.findLatestJobStepOccurredAt.mockResolvedValue(null)
+
+      const result = await service.occurredAtForCourierTap(delivery, tap)
+
+      expect(mockDeliveryEventRepository.findLatestJobStepOccurredAt).toHaveBeenCalledWith('del-tap-2')
+      // Falls back to createdAt as floor (11:45), clamping 11:30 up to 11:45
+      expect(result).toEqual(deliveryCreatedAt)
+    })
+  })
+
+  describe('saveDeliveryEvent writes occurredAt on success and failure rows (Spec 0009, AC-4, AC-7, AC-9)', () => {
+    test('writes occurredAt to repository create call on successful transition when present', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-success',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const tapTime = new Date('2026-10-31T11:58:00.000Z')
+      const event: DeliveryDispatchedEvent = {
+        deliveryId: 'del-success',
+        type: EnumDeliveryEventType.DISPATCHED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: tapTime,
+      }
+
+      await service.processDeliveryEvent(event)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-success',
+          type: EnumDeliveryEventType.DISPATCHED,
+          occurredAt: tapTime,
+          transitionSuccessful: true,
+        })
+      )
+    })
+
+    test('leaves occurredAt out of repository create call when event has none', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-no-tap',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const event: DeliveryDispatchedEvent = {
+        deliveryId: 'del-no-tap',
+        type: EnumDeliveryEventType.DISPATCHED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      }
+
+      await service.processDeliveryEvent(event)
+
+      const createCall = mockDeliveryEventRepository.create.mock.calls[0]?.[0]
+      expect(createCall).toBeDefined()
+      expect(createCall?.occurredAt).toBeUndefined()
+    })
+
+    test('writes occurredAt to repository create call on failed (catch) transition row when present', async () => {
+      // Transition from ASSIGNING_COURIER to DISPATCHED without courierId throws NotFoundException, hitting catch block
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-failed',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        partnerId: null,
+      } as any)
+
+      const tapTime = new Date('2026-10-31T11:58:00.000Z')
+      const event: DeliveryDispatchedEvent = {
+        deliveryId: 'del-failed',
+        type: EnumDeliveryEventType.DISPATCHED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: tapTime,
+      }
+
+      await service.processDeliveryEvent(event)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-failed',
+          type: EnumDeliveryEventType.DISPATCHED,
+          occurredAt: tapTime,
+          transitionSuccessful: false,
+        })
+      )
+    })
+  })
+
+  describe('pickupReadyAt and dropoffReadyAt use occurredAt (Spec 0009, AC-12)', () => {
+    test('at PICKED_UP, pickupReadyAt is event occurredAt when present', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-pickup',
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const tapTime = new Date('2026-10-31T11:50:00.000Z')
+      const event: DeliveryEvent = {
+        deliveryId: 'del-pickup',
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: tapTime,
+      }
+
+      await service.processDeliveryEvent(event)
+
+      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+        'del-pickup',
+        expect.objectContaining({
+          status: EnumDeliveryStatus.PICKED_UP,
+          pickupReadyAt: tapTime,
+        })
+      )
+    })
+
+    test('at PICKED_UP without occurredAt, pickupReadyAt falls back to current time', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-pickup-now',
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const before = Date.now()
+      const event: DeliveryEvent = {
+        deliveryId: 'del-pickup-now',
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      }
+
+      await service.processDeliveryEvent(event)
+
+      const updateCall = mockDeliveryRepository.update.mock.calls.find(
+        (call) => call[0] === 'del-pickup-now' && (call[1] as any)?.status === EnumDeliveryStatus.PICKED_UP
+      )
+      expect(updateCall).toBeDefined()
+      const pickupReadyAt = (updateCall?.[1] as any)?.pickupReadyAt as Date
+      expect(pickupReadyAt).toBeInstanceOf(Date)
+      expect(pickupReadyAt.getTime()).toBeGreaterThanOrEqual(before)
+      expect(pickupReadyAt.getTime()).toBeLessThanOrEqual(Date.now())
+    })
+
+    test('at DROPPED_OFF, dropoffReadyAt is event occurredAt when present', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-dropoff',
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const tapTime = new Date('2026-10-31T11:55:00.000Z')
+      const event: DeliveryDroppedOffEvent = {
+        deliveryId: 'del-dropoff',
+        type: EnumDeliveryEventType.DROPPED_OFF,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: tapTime,
+        deliveredData: {},
+      }
+
+      await service.processDeliveryEvent(event)
+
+      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+        'del-dropoff',
+        expect.objectContaining({
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          dropoffReadyAt: tapTime,
+        })
+      )
+    })
+
+    test('at DROPPED_OFF without occurredAt, dropoffReadyAt falls back to current time', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-dropoff-now',
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const before = Date.now()
+      const event: DeliveryDroppedOffEvent = {
+        deliveryId: 'del-dropoff-now',
+        type: EnumDeliveryEventType.DROPPED_OFF,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        deliveredData: {},
+      }
+
+      await service.processDeliveryEvent(event)
+
+      const updateCall = mockDeliveryRepository.update.mock.calls.find(
+        (call) => call[0] === 'del-dropoff-now' && (call[1] as any)?.status === EnumDeliveryStatus.DROPPED_OFF
+      )
+      expect(updateCall).toBeDefined()
+      const dropoffReadyAt = (updateCall?.[1] as any)?.dropoffReadyAt as Date
+      expect(dropoffReadyAt).toBeInstanceOf(Date)
+      expect(dropoffReadyAt.getTime()).toBeGreaterThanOrEqual(before)
+      expect(dropoffReadyAt.getTime()).toBeLessThanOrEqual(Date.now())
     })
   })
 })

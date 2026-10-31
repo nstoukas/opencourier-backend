@@ -135,6 +135,7 @@ describe('Delivery DTOs - Offer Expiry Fields (Spec 0002, AC-9, AC-11)', () => {
         transitionSuccessful: true,
         message: 'Offered to courier-abc',
         courierId: 'courier-abc',
+        occurredAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -155,6 +156,7 @@ describe('Delivery DTOs - Offer Expiry Fields (Spec 0002, AC-9, AC-11)', () => {
         transitionSuccessful: true,
         message: 'Order placed',
         courierId: null,
+        occurredAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
       })

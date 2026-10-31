@@ -39,6 +39,11 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
   beforeEach(() => {
     mockDeliveryRestApiCourierService = {
       reportIssue: jest.fn(),
+      markAsDispatched: jest.fn().mockResolvedValue({ id: deliveryId, status: 'DISPATCHED' } as any),
+      courierArrivedAtPickup: jest.fn().mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_PICKUP_LOCATION' } as any),
+      courierArrivedAtDropOff: jest.fn().mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_DROPOFF_LOCATION' } as any),
+      markAsPickedUp: jest.fn().mockResolvedValue({ id: deliveryId, status: 'PICKED_UP' } as any),
+      markAsDelivered: jest.fn().mockResolvedValue({ id: deliveryId, status: 'DROPPED_OFF' } as any),
     } as unknown as jest.Mocked<DeliveryRestApiCourierService>
 
     mockDeliveryDomainService = {} as jest.Mocked<DeliveryDomainService>
@@ -99,5 +104,65 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
     await expect(controller.reportIssue(deliveryId, input, mockCourier)).rejects.toThrow(
       DeliveryNotFoundException
     )
+  })
+
+  describe('Five courier step endpoints forward body with tapAgeMs (Spec 0009, AC-4, AC-9)', () => {
+    test('markAsDispatched forwards input to service', async () => {
+      const input = { tapAgeMs: 5000 }
+      await controller.markAsDispatched(deliveryId, input, mockCourier)
+
+      expect(mockDeliveryRestApiCourierService.markAsDispatched).toHaveBeenCalledWith(
+        deliveryId,
+        mockCourier.id,
+        input
+      )
+    })
+
+    test('courierArrivedAtPickup forwards input to service', async () => {
+      const input = { tapAgeMs: 3000 }
+      await controller.courierArrivedAtPickup(deliveryId, input, mockCourier)
+
+      expect(mockDeliveryRestApiCourierService.courierArrivedAtPickup).toHaveBeenCalledWith(
+        deliveryId,
+        mockCourier.id,
+        input
+      )
+    })
+
+    test('courierArrivedAtDropoff forwards input to service', async () => {
+      const input = { tapAgeMs: 2500 }
+      await controller.courierArrivedAtDropoff(deliveryId, input, mockCourier)
+
+      expect(mockDeliveryRestApiCourierService.courierArrivedAtDropOff).toHaveBeenCalledWith(
+        deliveryId,
+        mockCourier.id,
+        input
+      )
+    })
+
+    test('markAsPickedUp forwards note and tapAgeMs to service', async () => {
+      const input = { note: 'Picked up from chef', tapAgeMs: 6000 }
+      await controller.markAsPickedUp(deliveryId, input, mockCourier)
+
+      expect(mockDeliveryRestApiCourierService.markAsPickedUp).toHaveBeenCalledWith(
+        deliveryId,
+        mockCourier.id,
+        {
+          note: 'Picked up from chef',
+          tapAgeMs: 6000,
+        }
+      )
+    })
+
+    test('markAsDelivered forwards input to service', async () => {
+      const input = { note: 'Left at door', tapAgeMs: 4000 }
+      await controller.markAsDelivered(deliveryId, input, mockCourier)
+
+      expect(mockDeliveryRestApiCourierService.markAsDelivered).toHaveBeenCalledWith(
+        deliveryId,
+        mockCourier.id,
+        input
+      )
+    })
   })
 })
