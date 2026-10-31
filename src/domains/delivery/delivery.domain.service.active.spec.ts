@@ -721,6 +721,23 @@ describe('DeliveryDomainService', () => {
       expect(eventWithoutTap?.occurredAt).toBeUndefined()
     })
 
+    test('markAsDispatched on a delivery not ACCEPTED throws CantUpdateDeliveryStatusError and does NOT call occurredAtForCourierTap', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.PICKED_UP,
+      } as any)
+      mockDeliveryEventService.occurredAtForCourierTap.mockClear()
+      mockDeliveryEventService.processDeliveryEvent.mockClear()
+
+      await expect(service.markAsDispatched(deliveryId, tap)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+
+      expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
     test('courierArrivedAtPickup puts occurredAt on event when tap provided, omits when absent', async () => {
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         id: deliveryId,
@@ -873,6 +890,21 @@ describe('DeliveryDomainService', () => {
       expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
       expect(result).toBe(updatedDelivery)
       expect(result.status).toBe(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION)
+    })
+
+    test('markAsPickedUp returns updated delivery read after event, not stale copy read before', async () => {
+      const initialDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION }
+      const updatedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.PICKED_UP }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(updatedDelivery as any)
+
+      const result = await service.markAsPickedUp(deliveryId)
+
+      expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+      expect(result).toBe(updatedDelivery)
+      expect(result.status).toBe(EnumDeliveryStatus.PICKED_UP)
     })
 
     test('courierArrivedAtDropOff returns updated delivery read after event, not stale copy read before', async () => {

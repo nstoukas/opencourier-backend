@@ -20,6 +20,7 @@ import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { OfferPushService } from '../pushNotification/offer-push.service'
+import { TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 
 describe('DeliveryEventService', () => {
   let service: DeliveryEventService
@@ -352,6 +353,25 @@ describe('DeliveryEventService', () => {
   })
 
   describe('occurredAtForCourierTap (Spec 0009, AC-7)', () => {
+    test('returns receivedAt minus tapAgeMs without clamping when tap age is within bounds', async () => {
+      const deliveryCreatedAt = new Date('2026-10-31T10:00:00.000Z')
+      const delivery = { id: 'del-tap-unclamped', createdAt: deliveryCreatedAt }
+      const receivedAt = new Date('2026-10-31T12:00:00.000Z')
+      const tapAgeMs = 15 * 60 * 1000 // 15 mins
+      const tap = { receivedAt, tapAgeMs }
+
+      // Latest job step happened at 11:00 (well before tap time 11:45)
+      const latestJobStepTime = new Date('2026-10-31T11:00:00.000Z')
+      mockDeliveryEventRepository.findLatestJobStepOccurredAt.mockResolvedValue(latestJobStepTime)
+
+      const result = await service.occurredAtForCourierTap(delivery, tap)
+
+      // 12:00 minus 15 mins = 11:45. Floor is 11:00. No clamping!
+      const expected = new Date('2026-10-31T11:45:00.000Z')
+      expect(result).toEqual(expected)
+      expect(result.getTime()).toBe(receivedAt.getTime() - tapAgeMs)
+    })
+
     test('uses latest successful job step occurredAt as floor when present', async () => {
       const delivery = { id: 'del-tap-1', createdAt: new Date('2026-10-31T10:00:00.000Z') }
       const tap = {
@@ -383,6 +403,117 @@ describe('DeliveryEventService', () => {
       expect(mockDeliveryEventRepository.findLatestJobStepOccurredAt).toHaveBeenCalledWith('del-tap-2')
       // Falls back to createdAt as floor (11:45), clamping 11:30 up to 11:45
       expect(result).toEqual(deliveryCreatedAt)
+    })
+
+    test('logs a warning when tapAgeMs is above one hour (TAP_AGE_WORTH_A_LOOK_MS), holding delivery id and no personal data', async () => {
+      const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {})
+      const delivery = { id: 'del-tap-warn', createdAt: new Date('2026-10-31T10:00:00.000Z') }
+      mockDeliveryEventRepository.findLatestJobStepOccurredAt.mockResolvedValue(null)
+
+      // 65 minutes > TAP_AGE_WORTH_A_LOOK_MS (60 minutes)
+      const tap = {
+        receivedAt: new Date('2026-10-31T12:00:00.000Z'),
+        tapAgeMs: 65 * 60 * 1000,
+      }
+
+      await service.occurredAtForCourierTap(delivery, tap)
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Delivery del-tap-warn: a rider\'s step arrived 65 min after its tap')
+      )
+      const logMessage = warnSpy.mock.calls[0]?.[0] as string
+      // Confirm message holds delivery id and no personal data
+      expect(logMessage).toContain('del-tap-warn')
+      expect(logMessage).not.toMatch(/name|phone|email|address|street|note/i)
+      warnSpy.mockRestore()
+    })
+
+    test('does not log a warning when tapAgeMs is at or below one hour (TAP_AGE_WORTH_A_LOOK_MS)', async () => {
+      const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {})
+      const delivery = { id: 'del-tap-nowarn', createdAt: new Date('2026-10-31T10:00:00.000Z') }
+      mockDeliveryEventRepository.findLatestJobStepOccurredAt.mockResolvedValue(null)
+
+      // Exactly 60 minutes (= TAP_AGE_WORTH_A_LOOK_MS)
+      await service.occurredAtForCourierTap(delivery, {
+        receivedAt: new Date('2026-10-31T12:00:00.000Z'),
+        tapAgeMs: TAP_AGE_WORTH_A_LOOK_MS,
+      })
+
+      // 30 minutes (< TAP_AGE_WORTH_A_LOOK_MS)
+      await service.occurredAtForCourierTap(delivery, {
+        receivedAt: new Date('2026-10-31T12:00:00.000Z'),
+        tapAgeMs: 30 * 60 * 1000,
+      })
+
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+  })
+
+  describe('Late step with no legal transition (Spec 0009, Decision 20.13)', () => {
+    test('event carrying occurredAt with no legal transition saves a failed row and performs no other side effects', async () => {
+      // Delivery was cancelled by admin meanwhile
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-cancelled',
+        status: EnumDeliveryStatus.CANCELED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const tapTime = new Date('2026-10-31T11:55:00.000Z')
+      const event: DeliveryDroppedOffEvent = {
+        deliveryId: 'del-cancelled',
+        type: EnumDeliveryEventType.DROPPED_OFF,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: tapTime,
+        deliveredData: {},
+      }
+
+      await service.processDeliveryEvent(event)
+
+      // Saved as failed row with transitionSuccessful: false, oldStatus: CANCELED, same occurredAt
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-cancelled',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          occurredAt: tapTime,
+          transitionSuccessful: false,
+          oldStatus: EnumDeliveryStatus.CANCELED,
+          message: expect.stringContaining('No transition from CANCELED via DROPPED_OFF'),
+        })
+      )
+
+      // Nothing else happens: no status update, no webhook, no websocket dispatch
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).not.toHaveBeenCalled()
+      expect(mockPartnerWebhookService.sendDeliveryUpdatePartnerWebhook).not.toHaveBeenCalled()
+    })
+
+    test('same event WITHOUT occurredAt with no legal transition is dropped with no row saved', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-cancelled-notap',
+        status: EnumDeliveryStatus.CANCELED,
+        courierId: 'courier-1',
+        partnerId: null,
+      } as any)
+
+      const event: DeliveryDroppedOffEvent = {
+        deliveryId: 'del-cancelled-notap',
+        type: EnumDeliveryEventType.DROPPED_OFF,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        deliveredData: {},
+      }
+
+      await service.processDeliveryEvent(event)
+
+      // Event is silently dropped with no row saved
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).not.toHaveBeenCalled()
+      expect(mockPartnerWebhookService.sendDeliveryUpdatePartnerWebhook).not.toHaveBeenCalled()
     })
   })
 

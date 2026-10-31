@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
-import { ValidationPipe } from '@nestjs/common'
+import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { CourierJobStepCourierInput } from './courier-job-step.courier.input'
 import { MarkDeliveryAsPickedUpCourierInput } from './mark-delivery-as-picked-up.courier.input'
 import { MarkDeliveryAsDeliveredCourierInput } from './mark-delivery-as-delivered.courier.input'
@@ -63,30 +63,84 @@ describe('CourierJobStepCourierInput & child inputs (Spec 0009, AC-7 bounds)', (
         expect(tapErrors[0]?.constraints).toHaveProperty('max')
       })
 
-      test('refuses string tapAgeMs ("not-a-number")', async () => {
-        const instance = plainToInstance(cls, { tapAgeMs: 'not-a-number' as any })
+      test('refuses string tapAgeMs ("not-a-number")', () => {
+        // @RefuseIfNotSentAsNumber throws BadRequestException in plainToInstance
+        expect(() => plainToInstance(cls, { tapAgeMs: 'not-a-number' as any })).toThrow(
+          BadRequestException
+        )
+      })
+
+      test('refuses tapAgeMs null', async () => {
+        const instance = plainToInstance(cls, { tapAgeMs: null })
         const errors = await validate(instance)
         const tapErrors = errors.filter((e) => e.property === 'tapAgeMs')
         expect(tapErrors.length).toBeGreaterThan(0)
         expect(tapErrors[0]?.constraints).toHaveProperty('isInt')
       })
 
+      test('refuses empty string tapAgeMs ("")', () => {
+        // @RefuseIfNotSentAsNumber throws BadRequestException in plainToInstance
+        expect(() => plainToInstance(cls, { tapAgeMs: '' as any })).toThrow(
+          BadRequestException
+        )
+      })
+
+      test('refuses boolean tapAgeMs (true and false)', () => {
+        for (const val of [true, false]) {
+          // @RefuseIfNotSentAsNumber throws BadRequestException in plainToInstance
+          expect(() => plainToInstance(cls, { tapAgeMs: val as any })).toThrow(
+            BadRequestException
+          )
+        }
+      })
+
       test('ValidationPipe rejects invalid tapAgeMs with 400 BadRequestException', async () => {
         await expect(
           pipe.transform({ tapAgeMs: -1 }, { type: 'body', metatype: cls })
-        ).rejects.toThrow()
+        ).rejects.toThrow(BadRequestException)
 
         await expect(
           pipe.transform({ tapAgeMs: 1.5 }, { type: 'body', metatype: cls })
-        ).rejects.toThrow()
+        ).rejects.toThrow(BadRequestException)
 
         await expect(
           pipe.transform({ tapAgeMs: 604800001 }, { type: 'body', metatype: cls })
-        ).rejects.toThrow()
+        ).rejects.toThrow(BadRequestException)
 
         await expect(
           pipe.transform({ tapAgeMs: 'not-a-number' }, { type: 'body', metatype: cls })
-        ).rejects.toThrow()
+        ).rejects.toThrow(BadRequestException)
+
+        await expect(
+          pipe.transform({ tapAgeMs: null }, { type: 'body', metatype: cls })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      test('ValidationPipe refuses tapAgeMs null with 400 through the ValidationPipe, and accepts it absent (AC-7)', async () => {
+        await expect(
+          pipe.transform({ tapAgeMs: null }, { type: 'body', metatype: cls })
+        ).rejects.toThrow(BadRequestException)
+
+        const absentResult = await pipe.transform({}, { type: 'body', metatype: cls })
+        expect(absentResult.tapAgeMs).toBeUndefined()
+      })
+
+      test('ValidationPipe refuses empty string and boolean tapAgeMs with 400 (AC-7)', async () => {
+        // AC-7: A tapAgeMs that is not a whole number from 0 to 604800000 is refused with a 400.
+        // Due to enableImplicitConversion: true, ValidationPipe converts "" -> 0, true -> 1, false -> 0,
+        // so the pipe accepts them unless prevented by custom validation (@RefuseIfNotSentAsNumber).
+        // We pin the 400 the spec asks for.
+        await expect(
+          pipe.transform({ tapAgeMs: '' }, { type: 'body', metatype: cls })
+        ).rejects.toThrow(BadRequestException)
+
+        await expect(
+          pipe.transform({ tapAgeMs: true }, { type: 'body', metatype: cls })
+        ).rejects.toThrow(BadRequestException)
+
+        await expect(
+          pipe.transform({ tapAgeMs: false }, { type: 'body', metatype: cls })
+        ).rejects.toThrow(BadRequestException)
       })
 
       test('ValidationPipe accepts valid tapAgeMs and absent tapAgeMs', async () => {
