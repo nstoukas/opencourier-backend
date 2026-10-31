@@ -19,6 +19,8 @@ export class DeliveryEventEntity implements DeliveryEvent {
   // The rider an OFFERED or OFFER_EXPIRED event is about; null on every other event (spec 0002).
   courierId: string | null
 
+  // When the event happened; createdAt is when the server received it (spec 0009).
+  occurredAt: Date
   createdAt: Date
   updatedAt: Date
 
@@ -33,6 +35,7 @@ export class DeliveryEventEntity implements DeliveryEvent {
     this.message = data.message
     this.deliveryId = data.deliveryId
     this.courierId = data.courierId
+    this.occurredAt = data.occurredAt
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt
   }

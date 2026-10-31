@@ -14,6 +14,7 @@ import { ReportDeliveryIssueCourierInput } from './queries/report-delivery-issue
 import { MarkDeliveryAsDeliveredCourierInput } from './queries/mark-delivery-as-delivered.courier.input'
 import { DeliveryIssueCreateCourierInput } from './queries/delivery-issue-create.courier.input'
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
+import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
 import { MarkDeliveryAsPickedUpCourierInput } from './queries/mark-delivery-as-picked-up.courier.input'
 import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
 import { InProgressDeliveriesCourierPaginatedDto } from './dtos/in-progress-deliveries.courier.paginated.dto'
@@ -218,9 +219,10 @@ export class DeliveryCourierRestApiController {
   @Roles(EnumUserRole.COURIER)
   async markAsDispatched(
     @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: CourierJobStepCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
-    const deliveries = await this.deliveryRestApiCourierService.markAsDispatched(deliveryId, courier.id)
+    const deliveries = await this.deliveryRestApiCourierService.markAsDispatched(deliveryId, courier.id, input)
 
     const dto = new DeliveryCourierDto(deliveries)
     return dto
@@ -237,9 +239,10 @@ export class DeliveryCourierRestApiController {
   @Roles(EnumUserRole.COURIER)
   async courierArrivedAtPickup(
     @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: CourierJobStepCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
-    const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtPickup(deliveryId, courier.id)
+    const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtPickup(deliveryId, courier.id, input)
 
     const dto = new DeliveryCourierDto(deliveries)
     return dto
@@ -256,9 +259,10 @@ export class DeliveryCourierRestApiController {
   @Roles(EnumUserRole.COURIER)
   async courierArrivedAtDropoff(
     @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: CourierJobStepCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
-    const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtDropOff(deliveryId, courier.id)
+    const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtDropOff(deliveryId, courier.id, input)
 
     const dto = new DeliveryCourierDto(deliveries)
     return dto
@@ -280,6 +284,7 @@ export class DeliveryCourierRestApiController {
   ): Promise<DeliveryCourierDto> {
     const deliveries = await this.deliveryRestApiCourierService.markAsPickedUp(deliveryId, courier.id, {
       note: input.note,
+      tapAgeMs: input.tapAgeMs,
     })
 
     const dto = new DeliveryCourierDto(deliveries)

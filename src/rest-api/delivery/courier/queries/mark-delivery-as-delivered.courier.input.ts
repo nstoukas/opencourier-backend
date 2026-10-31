@@ -2,8 +2,13 @@ import { ApiProperty } from '@nestjs/swagger'
 import { Transform } from 'class-transformer'
 import { IsOptional, IsString } from 'class-validator'
 import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate'
+import { CourierJobStepCourierInput } from './courier-job-step.courier.input'
 
-export class MarkDeliveryAsDeliveredCourierInput implements Partial<IDeliveryUpdate> {
+// `extends` adds tapAgeMs (spec 0009) to this body.
+export class MarkDeliveryAsDeliveredCourierInput
+  extends CourierJobStepCourierInput
+  implements Partial<IDeliveryUpdate>
+{
   @ApiProperty({
     required: false,
     type: String,

@@ -7,6 +7,7 @@ import { IDeliveryEventRepository } from 'src/domains/delivery-event/interfaces/
 import { IDeliveryEventCreateInput } from 'src/domains/delivery-event/interfaces/IDeliveryEventCreateInput'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { CourierEarningsRow, CourierEarningsDeliveryRow } from 'src/domains/delivery-event/types/earnings-summary.type'
+import { TAP_FLOOR_EVENT_TYPES } from 'src/domains/delivery-event/utils/occurred-at.util'
 // Deliberate import direction — do not "fix". Persistence may depend on the domain
 // layer (entities, types, pure utils), same as the entity/type imports above; domain
 // code never imports from persistence. formatDropoffAddress is the single shared
@@ -34,6 +35,18 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return this.toDomainMany(rows)
   }
 
+  // When the latest successful job step of this delivery happened (its occurredAt), or null if it has
+  // none yet. The floor of the next step's tap time (spec 0009, AC-7). Ordered by occurredAt, not
+  // createdAt: a step that waited on the phone arrives after events that happened later.
+  async findLatestJobStepOccurredAt(deliveryId: string): Promise<Date | null> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: { deliveryId, transitionSuccessful: true, type: { in: TAP_FLOOR_EVENT_TYPES } },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      select: { occurredAt: true },
+    })
+    return row ? row.occurredAt : null
+  }
+
   // The newest event of this delivery whose type is one of `types`, or null. Same tie-break as above.
   async findLatestOfTypes(deliveryId: string, types: EnumDeliveryEventType[]): Promise<DeliveryEventEntity | null> {
     const row = await this.prisma.deliveryEvent.findFirst({
@@ -48,12 +61,14 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
   // That remains safe because DROPPED_OFF is terminal in the state machine, so no event can
   // reassign a completed delivery (REASSIGNED is legal only from ongoing statuses); a rider
   // dropped mid-flight is paid via CourierCompensation, summed by the earnings pipeline alongside these rows.
+  // The day is the drop off's occurredAt (when the rider tapped Delivered), not when it reached the
+  // server, so a step that waited for signal past midnight counts on the day it happened (spec 0009, AC-5).
   async findSuccessfulDropOffRowsForCourier(courierId: string, from: Date, to: Date): Promise<CourierEarningsRow[]> {
     const events = await this.prisma.deliveryEvent.findMany({
       where: {
         transitionSuccessful: true,
         newStatus: EnumDeliveryStatus.DROPPED_OFF,
-        createdAt: {
+        occurredAt: {
           gte: from,
           lte: to,
         },
@@ -65,7 +80,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
       },
       select: {
         deliveryId: true,
-        createdAt: true,
+        occurredAt: true,
         delivery: {
           select: {
             totalCompensation: true,
@@ -74,13 +89,13 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
         },
       },
       orderBy: {
-        createdAt: 'asc',
+        occurredAt: 'asc',
       },
     })
 
     return events.map((event) => ({
       deliveryId: event.deliveryId,
-      droppedOffAt: event.createdAt,
+      droppedOffAt: event.occurredAt,
       totalCompensation: event.delivery.totalCompensation,
       tips: event.delivery.tips,
     }))
@@ -95,7 +110,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
       where: {
         transitionSuccessful: true,
         newStatus: EnumDeliveryStatus.DROPPED_OFF,
-        createdAt: {
+        occurredAt: {
           gte: from,
           lte: to,
         },
@@ -107,7 +122,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
       },
       select: {
         deliveryId: true,
-        createdAt: true,
+        occurredAt: true,
         delivery: {
           select: {
             totalCompensation: true,
@@ -125,7 +140,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
         },
       },
       orderBy: {
-        createdAt: 'asc',
+        occurredAt: 'asc',
       },
     })
 
@@ -149,7 +164,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
       },
       select: {
         deliveryId: true,
-        createdAt: true,
+        occurredAt: true,
         delivery: {
           select: {
             totalCompensation: true,
@@ -167,7 +182,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
         },
       },
       orderBy: {
-        createdAt: 'asc',
+        occurredAt: 'asc',
       },
       take: 1,
     })
@@ -182,7 +197,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
 
   private mapEventToEarningsDeliveryRow(event: {
     deliveryId: string
-    createdAt: Date
+    occurredAt: Date
     delivery: {
       totalCompensation: number | null
       tips: number
@@ -197,7 +212,7 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
   }): CourierEarningsDeliveryRow {
     return {
       deliveryId: event.deliveryId,
-      droppedOffAt: event.createdAt,
+      droppedOffAt: event.occurredAt,
       totalCompensation: event.delivery.totalCompensation,
       tips: event.delivery.tips,
       pickupBusinessName: event.delivery.pickupBusinessName,

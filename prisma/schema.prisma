@@ -343,8 +343,15 @@ model DeliveryEvent {
   courier   Courier? @relation(fields: [courierId], references: [id])
   courierId String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // When the step happened: the rider's tap for a courier job step sent late from a phone with
+  // no signal, the moment the server handled it for every other event (spec 0009). Earnings
+  // count a delivery on the day of its DROPPED_OFF occurredAt.
+  occurredAt DateTime @default(now())
+  // When the server received it.
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([newStatus, occurredAt])
 }
 
 model LocationNote {

@@ -44,6 +44,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cache/rejected-couriers'
 import { OfferPushService } from '../pushNotification/offer-push.service'
+import { occurredAtForTap } from 'src/domains/delivery-event/utils/occurred-at.util'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -124,6 +125,21 @@ export class DeliveryEventService {
     //     return this.processForcePickupFulfillment(payload.deliveryId)
     //   }
     // )
+  }
+
+  // When a rider's job step happened, for a step the phone sent `tapAgeMs` after the tap (spec 0009,
+  // AC-7): the server's receive time minus that age, never before the delivery's latest job step
+  // (or its creation, when it has none) and never after it was received.
+  async occurredAtForCourierTap(
+    delivery: { id: string; createdAt: Date },
+    tap: { receivedAt: Date; tapAgeMs: number }
+  ): Promise<Date> {
+    const latestStep = await this.deliveryEventRepository.findLatestJobStepOccurredAt(delivery.id)
+    return occurredAtForTap({
+      receivedAt: tap.receivedAt,
+      tapAgeMs: tap.tapAgeMs,
+      floor: latestStep ?? delivery.createdAt,
+    })
   }
 
   async processDeliveryEvent(originalEvent: DeliveryEvent): Promise<void> {
@@ -302,8 +318,9 @@ export class DeliveryEventService {
         case EnumDeliveryStatus.PICKED_UP:
           this.logger.log(`Delivery ${deliveryEvent.deliveryId} was picked up by: ${deliveryEvent.actor}`)
 
+          // The tap time when the step waited on the phone for signal (spec 0009, AC-12).
           await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
-            pickupReadyAt: new Date(),
+            pickupReadyAt: deliveryEvent.occurredAt ?? new Date(),
           })
           break
         case EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION:
@@ -316,8 +333,9 @@ export class DeliveryEventService {
         case EnumDeliveryStatus.DROPPED_OFF:
           this.logger.log(`Delivery ${deliveryEvent.deliveryId} was dropped off by: ${deliveryEvent.actor}`)
 
+          // The tap time when the step waited on the phone for signal (spec 0009, AC-12).
           await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
-            dropoffReadyAt: new Date(),
+            dropoffReadyAt: deliveryEvent.occurredAt ?? new Date(),
           })
           // The rider is free again: offer them (or anyone) a delivery that is waiting (spec 0002, AC-7).
           await this.matchWaitingDeliveries()
@@ -1096,6 +1114,9 @@ export class DeliveryEventService {
 
     return await this.deliveryEventRepository.create({
       ...(riderId !== undefined ? { courierId: riderId } : {}),
+      // A step that waited for signal keeps its tap time, on the success row and the failed row
+      // alike (spec 0009, AC-7). Left out, the column default (now) records the arrival.
+      ...(deliveryEvent.occurredAt ? { occurredAt: deliveryEvent.occurredAt } : {}),
       actor: deliveryEvent.actor,
       eventSource: deliveryEvent.source,
       message: outcome.message || deliveryEvent.message || null,

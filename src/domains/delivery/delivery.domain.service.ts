@@ -32,6 +32,7 @@ import {
   ReassignmentAwardLogContext,
   ReassignmentFailureStage,
 } from './utils/reassignment-payout.util'
+import { ICourierTap } from './interfaces/ICourierTap'
 
 @Injectable()
 export class DeliveryDomainService {
@@ -263,8 +264,9 @@ export class DeliveryDomainService {
     return delivery
   }
 
-  async courierArrivedAtDropOff(deliveryId: string) {
+  async courierArrivedAtDropOff(deliveryId: string, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     // if (delivery.status !== EnumDeliveryStatus.PICKED_UP) {
     //   throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} can not be marked as arrived at dropoff location, delivery hasn't been picked up. On status ${delivery.status}`)
@@ -276,14 +278,18 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
+      ...(occurredAt ? { occurredAt } : {}),
       message: `Delivery ${delivery.id} was status changed: courier arrived at dropoff location: ${delivery.courierId}`,
     })
 
-    return delivery
+    // Read again after the event, so the rider's app can see whether the step moved the delivery
+    // (an event with no legal transition is dropped silently; spec 0009, AC-6).
+    return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async markAsDelivered(deliveryId: string, deliveredData: any) {
+  async markAsDelivered(deliveryId: string, deliveredData: any, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     // TODO
     // if (delivery.status !== EnumDeliveryStatus.PICKED_UP) {
@@ -298,15 +304,19 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
+      ...(occurredAt ? { occurredAt } : {}),
       message: `Delivery ${delivery.id} was marked as delivered by courier ${delivery.courierId}`,
       deliveredData,
     })
 
-    return delivery
+    // Read again after the event, so the rider's app can see whether the step moved the delivery
+    // (an event with no legal transition is dropped silently; spec 0009, AC-6).
+    return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async markAsDispatched(deliveryId: string) {
+  async markAsDispatched(deliveryId: string, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     if (delivery.status !== EnumDeliveryStatus.ACCEPTED) {
       throw new CantUpdateDeliveryStatusError(
@@ -320,14 +330,18 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
+      ...(occurredAt ? { occurredAt } : {}),
       message: `Delivery ${delivery.id} was marked as dispatched by courier ${delivery.courierId}`,
     })
 
-    return delivery
+    // Read again after the event, so the rider's app can see whether the step moved the delivery
+    // (an event with no legal transition is dropped silently; spec 0009, AC-6).
+    return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async courierArrivedAtPickup(deliveryId: string) {
+  async courierArrivedAtPickup(deliveryId: string, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     // if (delivery.status !== EnumDeliveryStatus.DISPATCHED) {
     //   throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} can not be marked as arrived at pickup location, delivery isn't on dispatched status. On status ${delivery.status}`)
@@ -339,14 +353,18 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
+      ...(occurredAt ? { occurredAt } : {}),
       message: `Delivery ${delivery.id} was status changed: courier arrived at pickup location: ${delivery.courierId}`,
     })
 
-    return delivery
+    // Read again after the event, so the rider's app can see whether the step moved the delivery
+    // (an event with no legal transition is dropped silently; spec 0009, AC-6).
+    return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async markAsPickedUp(deliveryId: string) {
+  async markAsPickedUp(deliveryId: string, tap?: ICourierTap) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
     // TODO
     // if (delivery.status !== EnumDeliveryStatus.DISPATCHED) {
@@ -361,6 +379,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
+      ...(occurredAt ? { occurredAt } : {}),
       message: `Delivery ${delivery.id} was marked as pickedup by courier ${delivery.courierId}`,
     })
 

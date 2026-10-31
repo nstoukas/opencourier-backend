@@ -40,6 +40,12 @@ export class DeliveryEventAdminDto {
   @ApiProperty({ type: String, nullable: true })
   courierId: string | null
 
+  // When the event happened: for a rider's step that waited on the phone for signal, the tap;
+  // otherwise the same moment as createdAt (spec 0009, AC-10).
+  @ApiProperty({ type: Date })
+  occurredAt: Date
+
+  // When the server received it.
   @ApiProperty({ type: Date })
   createdAt: Date
 
@@ -53,6 +59,7 @@ export class DeliveryEventAdminDto {
     this.transitionSuccessful = data.transitionSuccessful
     this.message = data.message
     this.courierId = data.courierId
+    this.occurredAt = data.occurredAt
     this.createdAt = data.createdAt
   }
 }

@@ -10,6 +10,9 @@ export interface BaseDeliveryEvent {
   source: EnumDeliveryEventSource
   courierId?: string | null
   message?: string
+  // When the event happened, if not when it is processed: a rider's job step that waited on the
+  // phone for signal (spec 0009). Left out, the stored occurredAt is the moment it is saved.
+  occurredAt?: Date
 }
 
 export interface DeliveryCreatedEvent extends BaseDeliveryEvent {

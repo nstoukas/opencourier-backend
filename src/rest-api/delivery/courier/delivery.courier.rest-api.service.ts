@@ -19,6 +19,14 @@ import { LocationNoteWithReactionCounts } from './types/location-note-with-react
 import { InProgressDeliveryCourier } from './types/in-progress-delivery.courier.type'
 import { NewDeliveryCourier } from './types/new-delivery.courier.type'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
+import { ICourierTap } from 'src/domains/delivery/interfaces/ICourierTap'
+import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
+
+// The tap of a job step the app sent with `tapAgeMs` (spec 0009), stamped with the moment this
+// server received it; undefined for a step sent without one, whose event then happened on arrival.
+function courierTap(step: { tapAgeMs?: number }): ICourierTap | undefined {
+  return step.tapAgeMs === undefined ? undefined : { receivedAt: new Date(), tapAgeMs: step.tapAgeMs }
+}
 
 @Injectable()
 export class DeliveryRestApiCourierService {
@@ -190,40 +198,49 @@ export class DeliveryRestApiCourierService {
     return updatedDelivery
   }
 
-  async markAsDispatched(deliveryId: string, courierId: string) {
+  async markAsDispatched(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {
+    const tap = courierTap(step)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.markAsDispatched(deliveryId)
+    const updatedDelivery = await this.deliveryDomainService.markAsDispatched(deliveryId, tap)
 
     return updatedDelivery
   }
 
-  async courierArrivedAtPickup(deliveryId: string, courierId: string) {
+  async courierArrivedAtPickup(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {
+    const tap = courierTap(step)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtPickup(deliveryId)
+    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtPickup(deliveryId, tap)
 
     return updatedDelivery
   }
 
   async markAsPickedUp(deliveryId: string, courierId: string, input: IDeliveryMarkAsPickedUp) {
+    const tap = courierTap(input)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.markAsPickedUp(deliveryId)
+    const updatedDelivery = await this.deliveryDomainService.markAsPickedUp(deliveryId, tap)
 
-    if (input.note) {
+    // Only when this step moved the delivery (not there before, there after): a repeat after a lost
+    // answer stores no second note (spec 0009, AC-12).
+    if (
+      input.note &&
+      delivery.status !== EnumDeliveryStatus.PICKED_UP &&
+      updatedDelivery.status === EnumDeliveryStatus.PICKED_UP
+    ) {
       // Add the location note for the delivery
       await this.locationNoteDomainService.create({
         note: input.note,
@@ -237,19 +254,21 @@ export class DeliveryRestApiCourierService {
     return updatedDelivery
   }
 
-  async courierArrivedAtDropOff(deliveryId: string, courierId: string) {
+  async courierArrivedAtDropOff(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {
+    const tap = courierTap(step)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtDropOff(deliveryId)
+    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtDropOff(deliveryId, tap)
 
     return updatedDelivery
   }
 
   async markAsDelivered(deliveryId: string, courierId: string, input: IDeliveryMarkAsDelivered) {
+    const tap = courierTap(input)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
@@ -264,9 +283,15 @@ export class DeliveryRestApiCourierService {
       deliveredData.imageType = input.imageType
     }
 
-    const updatedDelivery = await this.deliveryDomainService.markAsDelivered(deliveryId, deliveredData)
+    const updatedDelivery = await this.deliveryDomainService.markAsDelivered(deliveryId, deliveredData, tap)
 
-    if (input.note) {
+    // Only when this step moved the delivery (not there before, there after): a repeat after a lost
+    // answer stores no second note (spec 0009, AC-12).
+    if (
+      input.note &&
+      delivery.status !== EnumDeliveryStatus.DROPPED_OFF &&
+      updatedDelivery.status === EnumDeliveryStatus.DROPPED_OFF
+    ) {
       // Add the location note for the delivery
       await this.locationNoteDomainService.create({
         note: input.note,

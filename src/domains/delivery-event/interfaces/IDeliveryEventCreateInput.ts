@@ -11,4 +11,6 @@ export interface IDeliveryEventCreateInput {
   type: EnumDeliveryEventType
   // Only for OFFERED and OFFER_EXPIRED (spec 0002); left out, the column stays null.
   courierId?: string | null
+  // When the event happened (spec 0009); left out, the column's default (now) applies.
+  occurredAt?: Date
 }
