@@ -182,4 +182,46 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
       expect(result.offerExpiryEnabled).toBeUndefined()
     })
   })
+
+  describe('Clause 5: Text setting guard (@RefuseIfNotSentAsString, row 72, decision 72.3)', () => {
+    const invalidTextValues = [302421012345, 0, true, false, null, [], {}]
+
+    invalidTextValues.forEach((invalidValue) => {
+      it(`refuses non-text ${JSON.stringify(invalidValue)} for dispatchPhoneNumber with BadRequestException naming the setting`, async () => {
+        const promise = pipe.transform(
+          { dispatchPhoneNumber: invalidValue },
+          { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+        )
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('dispatchPhoneNumber must be sent as text')
+      })
+    })
+
+    it('passes real JSON string untouched for dispatchPhoneNumber', async () => {
+      const result = (await pipe.transform(
+        { dispatchPhoneNumber: '+30 24210 12345' },
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.dispatchPhoneNumber).toBe('+30 24210 12345')
+    })
+
+    it('passes empty string untouched for dispatchPhoneNumber', async () => {
+      const result = (await pipe.transform(
+        { dispatchPhoneNumber: '' },
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.dispatchPhoneNumber).toBe('')
+    })
+
+    it('leaves dispatchPhoneNumber undefined when left out from body', async () => {
+      const result = (await pipe.transform(
+        {},
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.dispatchPhoneNumber).toBeUndefined()
+    })
+  })
 })

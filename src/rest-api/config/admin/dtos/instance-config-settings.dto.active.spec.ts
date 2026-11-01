@@ -115,4 +115,19 @@ describe('InstanceConfigSettingsDto', () => {
     const dto = new InstanceConfigSettingsDto(baseConfigData)
     expect(dto.savedCustomerRetentionMonths).toBe(12)
   })
+
+  // Row 72, decision 72.1: InstanceConfigSettingsDto carries dispatchPhoneNumber through
+  it('carries dispatchPhoneNumber through (row 72, decision 72.1)', () => {
+    const dtoWithPhone = new InstanceConfigSettingsDto({
+      ...baseConfigData,
+      dispatchPhoneNumber: '+302421012345',
+    })
+    expect(dtoWithPhone.dispatchPhoneNumber).toBe('+302421012345')
+
+    const dtoNull = new InstanceConfigSettingsDto({
+      ...baseConfigData,
+      dispatchPhoneNumber: null,
+    })
+    expect(dtoNull.dispatchPhoneNumber).toBeNull()
+  })
 })

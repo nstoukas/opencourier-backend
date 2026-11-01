@@ -76,4 +76,14 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     const dto = new MetadataPublicDto(baseData)
     expect(dto.config.savedCustomerRetentionMonths).toBe(12)
   })
+
+  // Row 72, decision 72.2: The dispatch line is for riders, not public metadata
+  it('does NOT include dispatchPhoneNumber on public metadata even when settings hold one (row 72, decision 72.2)', () => {
+    const dtoWithPhone = new MetadataPublicDto({
+      ...baseData,
+      dispatchPhoneNumber: '+302421012345',
+    })
+    expect((dtoWithPhone as any).dispatchPhoneNumber).toBeUndefined()
+    expect((dtoWithPhone.config as any).dispatchPhoneNumber).toBeUndefined()
+  })
 })

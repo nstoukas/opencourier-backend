@@ -4,12 +4,14 @@ import { ConfigRepository } from '../../persistence/repositories/config.reposito
 import { ConfigService } from '@nestjs/config'
 import {
   ConfigKey,
+  EnumCourierMatcherType,
   EnumCurrency,
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types'
 import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT, DEFAULT_QUOTE_BASE_FEE } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
+import { DISPATCH_PHONE_NUMBER_REFUSAL } from './dispatch-phone-number'
 
 describe('InstanceConfigDomainService', () => {
   let service: InstanceConfigDomainService
@@ -849,6 +851,182 @@ describe('InstanceConfigDomainService', () => {
           )
         }
       })
+    })
+
+    describe('setInstanceConfigSettings - dispatchPhoneNumber (row 72, decisions 72.1 to 72.3)', () => {
+      it('refuses invalid phone numbers and throws BadRequestException with DISPATCH_PHONE_NUMBER_REFUSAL', async () => {
+        const invalidNumbers = [
+          'call me',
+          '123a456',
+          '123+456',
+          '12', // under 3 digits
+          '1234567890123456', // over 15 digits
+          null,
+          12345,
+        ]
+
+        for (const invalid of invalidNumbers) {
+          await expect(
+            service.setInstanceConfigSettings({ dispatchPhoneNumber: invalid as any })
+          ).rejects.toThrow(DISPATCH_PHONE_NUMBER_REFUSAL)
+          expect(configRepository.saveByKey).not.toHaveBeenCalled()
+        }
+      })
+
+      it('writes NOTHING to config repository when dispatchPhoneNumber is invalid (validate-first rule)', async () => {
+        await expect(
+          service.setInstanceConfigSettings({
+            courierMatcherType: EnumCourierMatcherType.STATIC,
+            quoteBaseFee: 300,
+            dispatchPhoneNumber: 'invalid-number',
+          })
+        ).rejects.toThrow(DISPATCH_PHONE_NUMBER_REFUSAL)
+
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+
+      it('saves normalized phone number under ConfigKey.DISPATCH_PHONE_NUMBER', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        await service.setInstanceConfigSettings({ dispatchPhoneNumber: '+30 24210 12345' })
+
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.DISPATCH_PHONE_NUMBER,
+          '+302421012345'
+        )
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.UPDATED_AT,
+          expect.any(String)
+        )
+      })
+
+      it('saves empty string "" when passed "" or whitespace "   " (truthy check would drop it)', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        await service.setInstanceConfigSettings({ dispatchPhoneNumber: '' })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.DISPATCH_PHONE_NUMBER,
+          ''
+        )
+
+        configRepository.saveByKey.mockClear()
+
+        await service.setInstanceConfigSettings({ dispatchPhoneNumber: '   ' })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.DISPATCH_PHONE_NUMBER,
+          ''
+        )
+      })
+
+      it('leaves dispatchPhoneNumber untouched when undefined', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        await service.setInstanceConfigSettings({
+          courierMatcherType: EnumCourierMatcherType.STATIC,
+        })
+
+        expect(configRepository.saveByKey).not.toHaveBeenCalledWith(
+          ConfigKey.DISPATCH_PHONE_NUMBER,
+          expect.anything()
+        )
+      })
+
+      it('throws BadRequestException with DISPATCH_PHONE_NUMBER_REFUSAL when passed null', async () => {
+        await expect(
+          service.setInstanceConfigSettings({ dispatchPhoneNumber: null as any })
+        ).rejects.toThrow(DISPATCH_PHONE_NUMBER_REFUSAL)
+
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+    })
+  })
+
+  describe('getDispatchPhoneNumber (row 72, decisions 72.1 to 72.3)', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    it('returns null when config row is missing', async () => {
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+
+      const result = await service.getDispatchPhoneNumber()
+      expect(result).toBeNull()
+    })
+
+    it('returns null when stored value is empty string "" or null', async () => {
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '', type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBeNull()
+
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: null as any, type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBeNull()
+    })
+
+    it('returns stored value itself when valid and normalized', async () => {
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '+302421012345', type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBe('+302421012345')
+
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '2421012345', type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBe('2421012345')
+    })
+
+    it('returns null and logs a warning for hand-edited bad value ("call me", number type, unnormalized)', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+      // 1. Hand-edited string with letters ("call me")
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: 'call me', type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Invalid ${ConfigKey.DISPATCH_PHONE_NUMBER} in config`)
+      )
+
+      warnSpy.mockClear()
+
+      // 2. Hand-edited number type
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: 302421012345 as any, type: 'number' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Invalid ${ConfigKey.DISPATCH_PHONE_NUMBER} in config`)
+      )
+
+      warnSpy.mockClear()
+
+      // 3. Hand-edited unnormalized string with spaces
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '+30 24210 12345', type: 'string' })
+      )
+      expect(await service.getDispatchPhoneNumber()).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Invalid ${ConfigKey.DISPATCH_PHONE_NUMBER} in config`)
+      )
+
+      warnSpy.mockRestore()
+    })
+
+    it('includes dispatchPhoneNumber in getInstanceConfigSettings output', async () => {
+      configRepository.getByKey.mockImplementation(async (key: string) => {
+        if (key === ConfigKey.DISPATCH_PHONE_NUMBER) {
+          return new ConfigEntity({
+            key: ConfigKey.DISPATCH_PHONE_NUMBER,
+            value: '+302421012345',
+            type: 'string',
+          })
+        }
+        throw notFoundError
+      })
+
+      const settings = await service.getInstanceConfigSettings()
+      expect(settings.dispatchPhoneNumber).toBe('+302421012345')
     })
   })
 
