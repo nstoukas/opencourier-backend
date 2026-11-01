@@ -48,6 +48,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   edits log ids only. A new route carrying a customer's details must stay out of logs the same way (spec 0005, AC-9).
 - `DeliveryEvent.occurredAt` is when a step happened (a rider's tap, sent late from a phone with no signal, as `tapAgeMs`), `createdAt` when it arrived; earnings count by `occurredAt`. A tapped step with no legal transition is saved as a failed row with its tap time; every other such event is still dropped silently (spec 0009, decision 20.13).
 - `tapAgeMs` and any other number a client sends needs `@RefuseIfNotSentAsNumber()`: the ValidationPipe turns `""`, `true` and `false` into numbers before `@IsInt()` runs (row 20).
+- The HTTP logger redacts any `search=` value on every route (row 96): a search can be a person's name. A Prisma `contains` does not escape LIKE wildcards; escape `%`, `_` and the backslash yourself, as `delivery-list-filter.ts` does.
 - Matching SQL is tested as text; no test here runs SQL against a database, so a wrong `AND`/`OR`
   inside it can pass the suite (decision 61.20).
 
