@@ -287,7 +287,9 @@ export class DeliveryDomainService {
     }
     await this.deliveryEventService.processDeliveryEvent(canceledEvent)
 
-    return delivery
+    // Read again: the restaurant's answer shows the status the cancel left, not the one before it
+    // (agy review; upstream returned the read from before the event).
+    return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
   async courierArrivedAtDropOff(deliveryId: string, tap?: ICourierTap) {

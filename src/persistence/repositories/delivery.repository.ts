@@ -99,9 +99,20 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
   // Spec 0015: this rider's jobs cancelled since `since` from an ongoing status, newest first, with
   // the restaurant's location and the cancellation award (null until it is written). Any status
   // since (a cancelled delivery can still become FAILED).
-  async findCancelledJobsForCourier(courierId: string, since: Date, ongoing: EnumDeliveryStatus[]) {
+  // `deliveryId` narrows it to one job, so a job older than the newest 20 is still found (agy review).
+  async findCancelledJobsForCourier(
+    courierId: string,
+    since: Date,
+    ongoing: EnumDeliveryStatus[],
+    deliveryId?: string
+  ) {
     return this.prisma.delivery.findMany({
-      where: { courierId, cancelledAt: { gte: since }, cancelledFromStatus: { in: ongoing } },
+      where: {
+        courierId,
+        cancelledAt: { gte: since },
+        cancelledFromStatus: { in: ongoing },
+        ...(deliveryId ? { id: deliveryId } : {}),
+      },
       orderBy: { cancelledAt: 'desc' },
       take: 20,
       include: {

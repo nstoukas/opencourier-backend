@@ -108,13 +108,14 @@ export class CancelledJobsCourierService {
     }
 
     // Read without the 24 hour window: an outcome recorded for an older job is saved all the same,
-    // and the answer says so (row 32 review: it answered 404 after saving).
-    const rows = await this.deliveryRepository.findCancelledJobsForCourier(
+    // and the answer says so (row 32 review: it answered 404 after saving). This one job by its id,
+    // not a search of the newest 20 (agy review).
+    const [row] = await this.deliveryRepository.findCancelledJobsForCourier(
       courierId,
       new Date(0),
-      DELIVERY_ONGOING_STATUSES
+      DELIVERY_ONGOING_STATUSES,
+      deliveryId
     )
-    const row = rows.find((job) => job.id === deliveryId)
     if (!row) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
