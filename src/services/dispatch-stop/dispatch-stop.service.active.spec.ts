@@ -157,7 +157,11 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
           },
           adminUserId
         )
-      ).rejects.toThrow(new BadRequestException('The end must come after the start.'))
+      ).rejects.toThrow(
+        new BadRequestException(
+          'The end must come after the start. For a stop through midnight, set the end on the next day.'
+        )
+      )
     })
 
     test('refuses nonexistent Athens time with 400 naming start or end', async () => {
@@ -770,6 +774,167 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       // Error resilience: repository throws, tick does not throw!
       mockDispatchStopRepository.findDueToStart.mockRejectedValueOnce(new Error('DB down'))
       await expect(service.tick(new Date())).resolves.toBeUndefined()
+    })
+
+    test('when a stop is on and already started, it runs the sweep (endAllOpenOffersForDispatchStop, then findAllHeldBeforePickup and a return for each) every tick', async () => {
+      const now = new Date()
+      const activeStop: DispatchStop = {
+        id: 'stop-active',
+        reason: EnumDispatchStopReason.HEAT,
+        startsAt: new Date(now.getTime() - 600000),
+        endsAt: null,
+        startedAt: new Date(now.getTime() - 600000),
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date(),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      mockDispatchStopRepository.findDueToStart.mockResolvedValue([])
+      mockDispatchStopRepository.findDueToEnd.mockResolvedValue([])
+      mockDispatchStopRepository.findOn.mockResolvedValue(activeStop)
+
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(2)
+      mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([
+        { id: 'del-1', courierId: 'c-1' },
+        { id: 'del-2', courierId: 'c-2' },
+      ])
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValue({
+        returned: true,
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      })
+
+      await service.tick(now)
+
+      // Sweep must run: ends offers first, then returns held deliveries
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith(
+        'Ended: dispatch stopped (heat)'
+      )
+      expect(mockDeliveryRepository.findAllHeldBeforePickup).toHaveBeenCalled()
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
+        'del-1',
+        'c-1',
+        EnumEventActor.SYSTEM,
+        'Dispatch stopped (heat)'
+      )
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
+        'del-2',
+        'c-2',
+        EnumEventActor.SYSTEM,
+        'Dispatch stopped (heat)'
+      )
+    })
+
+    test('a delivery whose return failed (returnToWaitingForDispatchStop threw) on one tick is returned on the next', async () => {
+      const now = new Date()
+      const activeStop: DispatchStop = {
+        id: 'stop-active-retry',
+        reason: EnumDispatchStopReason.STORM,
+        startsAt: new Date(now.getTime() - 600000),
+        endsAt: null,
+        startedAt: new Date(now.getTime() - 600000),
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date(),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      mockDispatchStopRepository.findDueToStart.mockResolvedValue([])
+      mockDispatchStopRepository.findDueToEnd.mockResolvedValue([])
+      mockDispatchStopRepository.findOn.mockResolvedValue(activeStop)
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(0)
+
+      // Tick 1: returnToWaitingForDispatchStop throws (transient error)
+      mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([
+        { id: 'del-transient-fail', courierId: 'c-retry' },
+      ])
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockRejectedValueOnce(
+        new Error('DB connection dropped')
+      )
+
+      await service.tick(now)
+
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
+        'del-transient-fail',
+        'c-retry',
+        EnumEventActor.SYSTEM,
+        'Dispatch stopped (storm)'
+      )
+
+      // Tick 2: delivery is still held before pickup, returnToWaitingForDispatchStop succeeds
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValueOnce({
+        returned: true,
+        totalCompensation: 800,
+        currencyCode: 'EUR',
+      })
+
+      const nextTick = new Date(now.getTime() + 60000)
+      await service.tick(nextTick)
+
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledTimes(2)
+      expect(mockCourierCompensationRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-transient-fail',
+          courierId: 'c-retry',
+          amount: 800,
+          currencyCode: 'EUR',
+        })
+      )
+    })
+
+    test('nothing is swept when no stop is on', async () => {
+      const now = new Date()
+      mockDispatchStopRepository.findDueToStart.mockResolvedValue([])
+      mockDispatchStopRepository.findDueToEnd.mockResolvedValue([])
+      mockDispatchStopRepository.findOn.mockResolvedValue(null)
+
+      await service.tick(now)
+
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.findAllHeldBeforePickup).not.toHaveBeenCalled()
+    })
+
+    test('a stop not yet started still gets startWork then markStarted', async () => {
+      const now = new Date()
+      const unstartedStop: DispatchStop = {
+        id: 'stop-unstarted',
+        reason: EnumDispatchStopReason.HEAT,
+        startsAt: now,
+        endsAt: null,
+        startedAt: null,
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date(),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      mockDispatchStopRepository.findDueToStart.mockResolvedValue([unstartedStop])
+      mockDispatchStopRepository.findDueToEnd.mockResolvedValue([])
+      mockDispatchStopRepository.findOn.mockResolvedValue(unstartedStop)
+      mockDispatchStopRepository.markStarted.mockResolvedValue(true)
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(1)
+      mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([])
+
+      await service.tick(now)
+
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith(
+        'Ended: dispatch stopped (heat)'
+      )
+      expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith(
+        'stop-unstarted',
+        expect.any(Date)
+      )
     })
   })
 })

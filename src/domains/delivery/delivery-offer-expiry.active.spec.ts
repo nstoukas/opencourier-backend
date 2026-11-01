@@ -97,6 +97,54 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
 
+    it('gives back the claim and throws 409 when dispatch stop starts between initial check and claim (spec 0014, row 29 review)', async () => {
+      // 1st call (before claim) passes, 2nd call (after claim) throws 409
+      mockDeliveryEventService.refuseIfDispatchStopped
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new CantUpdateDeliveryStatusError('Dispatch is stopped until 17:00.'))
+
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerExpiresAt: new Date(Date.now() + 15000),
+        courierId: null,
+      } as any)
+
+      mockDeliveryRepository.updateIfMatches
+        .mockResolvedValueOnce(true) // 1st update: claim succeeds
+        .mockResolvedValueOnce(true) // 2nd update: give back claim
+
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+
+      // Initial claim: sets courierId, clears offerExpiresAt
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+        1,
+        deliveryId,
+        {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offeredAt,
+          courierId: null,
+        },
+        { courierId, offerExpiresAt: null }
+      )
+
+      // Claim given back: clears courierId, matchedCourierId, offeredAt, offerExpiresAt
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+        2,
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+      )
+
+      // No ACCEPTED event is processed
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
     it('successfully accepts delivery with conditional update setting courierId and clearing offerExpiresAt', async () => {
       mockDeliveryRepository.findByIdOrThrow
         .mockResolvedValueOnce({
