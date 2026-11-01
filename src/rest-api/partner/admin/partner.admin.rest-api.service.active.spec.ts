@@ -378,15 +378,23 @@ describe('PartnerAdminRestApiService', () => {
   })
 
   describe('rotatePassword', () => {
-    test('7a. hashes new password and updates user when partner has a valid userId', async () => {
+    test('7a. hashes new password and updates user when partner has a valid userId (carrying credentialsChangedAt)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
 
+      const before = new Date()
       await service.rotatePassword('partner-100', 'newSuperSecret888')
+      const after = new Date()
 
       expect(mockPasswordService.hash).toHaveBeenCalledWith('newSuperSecret888')
       expect(mockUserDomainService.update).toHaveBeenCalledWith('user-200', {
         password: 'hashed!password123',
+        credentialsChangedAt: expect.any(Date),
       })
+
+      const updateCall = mockUserDomainService.update.mock.calls[0]?.[1]
+      expect(updateCall?.credentialsChangedAt).toBeInstanceOf(Date)
+      expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeGreaterThanOrEqual(before.getTime())
+      expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeLessThanOrEqual(after.getTime())
     })
 
     test('7b. throws NotFoundException when partner has no userId', async () => {

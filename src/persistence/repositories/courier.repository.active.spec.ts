@@ -7,6 +7,7 @@ import {
   EnumCourierStatus,
   EnumDeliveryStatus,
   EnumStripeAccountStatus,
+  EnumUserRole,
   Prisma,
 } from '@prisma/types'
 
@@ -14,7 +15,11 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   let repository: CourierRepository
   let mockPrisma: {
     $queryRaw: jest.Mock
+    user: {
+      create: jest.Mock
+    }
     courier: {
+      findUnique: jest.Mock
       findUniqueOrThrow: jest.Mock
       findMany: jest.Mock
       count: jest.Mock
@@ -59,7 +64,11 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   beforeEach(() => {
     mockPrisma = {
       $queryRaw: jest.fn(),
+      user: {
+        create: jest.fn(),
+      },
       courier: {
+        findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
         findMany: jest.fn().mockResolvedValue([sampleCourierRecord]),
         count: jest.fn().mockResolvedValue(1),
@@ -346,6 +355,86 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       const countCall = mockPrisma.courier.count.mock.calls[0][0]
       expect(countCall).toHaveProperty('where')
       expect(countCall.where).toBe(where)
+    })
+  })
+
+  describe('createWithLogin (Spec 0013 AC-1 nested write)', () => {
+    test('creates User with COURIER role, email, password and nested Courier with names and phone', async () => {
+      ;(mockPrisma as any).user.create.mockResolvedValue({
+        id: 'user-new',
+        email: 'kostas@coop.gr',
+        courier: sampleCourierRecord,
+      })
+
+      const result = await repository.createWithLogin({
+        firstName: 'Nikos',
+        lastName: 'Rider',
+        phoneNumber: '+306900000000',
+        login: {
+          email: 'kostas@coop.gr',
+          hashedPassword: 'hashed!password',
+        },
+      })
+
+      expect((mockPrisma as any).user.create).toHaveBeenCalledWith({
+        data: {
+          email: 'kostas@coop.gr',
+          password: 'hashed!password',
+          role: [EnumUserRole.COURIER],
+          courier: {
+            create: {
+              firstName: 'Nikos',
+              lastName: 'Rider',
+              phoneNumber: '+306900000000',
+            },
+          },
+        },
+        include: { courier: true },
+      })
+      expect(result).toBeInstanceOf(CourierEntity)
+      expect(result.id).toBe('courier-volos-1')
+    })
+
+    test('throws InternalServerError if user created without courier relation', async () => {
+      ;(mockPrisma as any).user.create.mockResolvedValue({
+        id: 'user-new',
+        email: 'kostas@coop.gr',
+        courier: null,
+      })
+
+      await expect(
+        repository.createWithLogin({
+          firstName: 'Nikos',
+          lastName: 'Rider',
+          phoneNumber: '+306900000000',
+          login: {
+            email: 'kostas@coop.gr',
+            hashedPassword: 'hashed!password',
+          },
+        })
+      ).rejects.toThrow()
+    })
+  })
+
+  describe('findByPhoneNumber', () => {
+    test('returns CourierEntity when courier with phoneNumber exists', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValue(sampleCourierRecord)
+
+      const result = await repository.findByPhoneNumber('+306900000000')
+
+      expect(mockPrisma.courier.findUnique).toHaveBeenCalledWith({
+        where: { phoneNumber: '+306900000000' },
+      })
+      expect(result).toBeInstanceOf(CourierEntity)
+      expect(result?.phoneNumber).toBe('+306900000000')
+    })
+
+    test('returns null when no courier has phoneNumber', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValue(null)
+
+      const result = await repository.findByPhoneNumber('+306999999999')
+
+      expect(result).toBeNull()
     })
   })
 })

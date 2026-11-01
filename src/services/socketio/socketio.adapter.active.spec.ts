@@ -2,7 +2,8 @@ import { Logger } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { IoAdapter } from '@nestjs/platform-socket.io'
 import { Server } from 'socket.io'
-import { ForbiddenException } from 'src/errors'
+import { ForbiddenException, UnauthorizedException } from 'src/errors'
+import { CREDENTIALS_CHANGED_MESSAGE } from 'src/domains/auth/credentials-change'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
 import { SocketIOAdapter } from './socketio.adapter'
 import { SOCKET_GATEWAY_NAMESPACE } from './socketio.gateway'
@@ -240,6 +241,70 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
         'ADMIN:admin-and-courier-user',
       ])
       assertNoLoggedStringContains(rawToken)
+    })
+  })
+
+  describe('Spec 0013 AC-5: socket handshake credentials change cut off', () => {
+    test('refuses connection with 401 UnauthorizedException when token was issued before credentialsChangedAt', async () => {
+      const changeDate = new Date('2026-11-01T12:00:10.000Z')
+      const changeSeconds = Math.floor(changeDate.getTime() / 1000)
+
+      mockJwtService.verify.mockReturnValue({
+        sub: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: ['COURIER'],
+        iat: changeSeconds - 5,
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        credentialsChangedAt: changeDate,
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer old-token-before-change' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await middleware(socket, next)
+
+      expect(next).toHaveBeenCalledTimes(1)
+      const err = next.mock.calls[0][0]
+      expect(err).toBeInstanceOf(UnauthorizedException)
+      expect(err.message).toBe(CREDENTIALS_CHANGED_MESSAGE)
+    })
+
+    test('accepts connection when token was issued after credentialsChangedAt', async () => {
+      const changeDate = new Date('2026-11-01T12:00:10.000Z')
+      const changeSeconds = Math.floor(changeDate.getTime() / 1000)
+
+      mockJwtService.verify.mockReturnValue({
+        sub: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: ['COURIER'],
+        iat: changeSeconds + 5,
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        credentialsChangedAt: changeDate,
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer new-token-after-change' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await middleware(socket, next)
+
+      expect(next).toHaveBeenCalledWith()
+      expect(socket.userId).toBe('courier-user-1')
     })
   })
 })

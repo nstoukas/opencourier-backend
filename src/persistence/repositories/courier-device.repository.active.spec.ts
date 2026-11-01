@@ -187,6 +187,19 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
     })
   })
 
+  describe('deleteAllForCourier (Spec 0013 AC-5: old phone cut off)', () => {
+    test('deletes all devices for a courier and returns deleted count', async () => {
+      mockPrisma.courierDevice.deleteMany.mockResolvedValue({ count: 3 })
+
+      const count = await repository.deleteAllForCourier('courier-rider-1')
+
+      expect(mockPrisma.courierDevice.deleteMany).toHaveBeenCalledWith({
+        where: { courierId: 'courier-rider-1' },
+      })
+      expect(count).toBe(3)
+    })
+  })
+
   describe('AC-13 / Value 5: No delivery, open or answer tracking fields', () => {
     test('repository methods equal an explicit allow list (no markPushed or timing methods)', () => {
       const methodNames = Object.getOwnPropertyNames(CourierDeviceRepository.prototype)
@@ -198,6 +211,7 @@ describe('CourierDeviceRepository - Spec 0003 AC-1 Token Lifecycle & AC-13 Value
         'deleteForCourier',
         'findTokensForCourier',
         'deleteByTokens',
+        'deleteAllForCourier',
       ].sort()
 
       expect(methodNames).toEqual(ALLOWED_METHODS)

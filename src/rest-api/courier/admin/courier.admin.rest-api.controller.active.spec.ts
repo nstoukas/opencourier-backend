@@ -14,11 +14,16 @@ import {
 } from '@prisma/types'
 import { adminCourierListWhere } from './queries/courier-list-filter'
 import { CourierFindManyAdminArgs } from './queries/courier-find-many.admin.args'
+import { CourierCreateAdminInput } from './queries/courier-create.admin.input'
+import { CourierRotatePasswordAdminInput } from './queries/courier-rotate-password.admin.input'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
+import { CourierAdminDto } from './dtos/courier.admin.dto'
 
-describe('CourierAdminRestApiController (scope row 97, Clause 3)', () => {
+describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () => {
   let controller: CourierAdminRestApiController
   let mockCourierDomainService: jest.Mocked<CourierDomainService>
   let mockDeliveryEventService: jest.Mocked<DeliveryEventService>
+  let mockCourierAdminRestApiService: jest.Mocked<CourierAdminRestApiService>
 
   // Shared courier entity fixture modelled on real courier row
   const mockCourier = new CourierEntity({
@@ -61,15 +66,19 @@ describe('CourierAdminRestApiController (scope row 97, Clause 3)', () => {
       handleCourierStatusChanged: jest.fn(),
     } as unknown as jest.Mocked<DeliveryEventService>
 
+    mockCourierAdminRestApiService = {
+      createCourier: jest.fn().mockResolvedValue(mockCourier),
+      rotatePassword: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<CourierAdminRestApiService>
+
     controller = new CourierAdminRestApiController(
       mockCourierDomainService,
       mockDeliveryEventService,
-      // The rider create and password routes (spec 0013) are not used by these tests.
-      {} as CourierAdminRestApiService
+      mockCourierAdminRestApiService
     )
   })
 
-  describe('routing and security metadata', () => {
+  describe('routing and security metadata (Spec 0013 AC-10)', () => {
     test('getManyCouriers handler carries @Roles(EnumUserRole.ADMIN)', () => {
       const roles = Reflect.getMetadata(ROLES_KEY, controller.getManyCouriers)
       expect(roles).toEqual([EnumUserRole.ADMIN])
@@ -80,6 +89,87 @@ describe('CourierAdminRestApiController (scope row 97, Clause 3)', () => {
       const method = Reflect.getMetadata(METHOD_METADATA, controller.getManyCouriers)
       expect(path).toBe('/')
       expect(method).toBe(RequestMethod.GET)
+    })
+
+    test('createCourier handler carries @Roles(EnumUserRole.ADMIN)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.createCourier)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('createCourier is routed at PATH "/" with METHOD POST', () => {
+      const path = Reflect.getMetadata(PATH_METADATA, controller.createCourier)
+      const method = Reflect.getMetadata(METHOD_METADATA, controller.createCourier)
+      expect(path).toBe('/')
+      expect(method).toBe(RequestMethod.POST)
+    })
+
+    test('rotateCourierPassword handler carries @Roles(EnumUserRole.ADMIN)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.rotateCourierPassword)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('rotateCourierPassword is routed at PATH ":id/rotate-password" with METHOD POST', () => {
+      const path = Reflect.getMetadata(PATH_METADATA, controller.rotateCourierPassword)
+      const method = Reflect.getMetadata(METHOD_METADATA, controller.rotateCourierPassword)
+      expect(path).toBe(':id/rotate-password')
+      expect(method).toBe(RequestMethod.POST)
+    })
+  })
+
+  describe('createCourier (Spec 0013 AC-1)', () => {
+    test('delegates to courierAdminRestApiService.createCourier and returns CourierAdminDto', async () => {
+      const input: CourierCreateAdminInput = {
+        firstName: 'Giorgos',
+        lastName: 'Papadopoulos',
+        phoneNumber: '+306900000000',
+        email: 'giorgos@coop.gr',
+        password: 'password123',
+      }
+      const admin = new UserEntity({
+        id: 'admin-1',
+        email: 'admin@coop.gr',
+        password: 'hash',
+        role: [EnumUserRole.ADMIN],
+        username: null,
+        apiKey: null,
+        credentialsChangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      const result = await controller.createCourier(input, admin)
+
+      expect(mockCourierAdminRestApiService.createCourier).toHaveBeenCalledWith(input, 'admin-1')
+      expect(result).toBeInstanceOf(CourierAdminDto)
+      expect(result.id).toBe(mockCourier.id)
+      expect(result.firstName).toBe(mockCourier.firstName)
+    })
+  })
+
+  describe('rotateCourierPassword (Spec 0013 AC-4)', () => {
+    test('delegates to courierAdminRestApiService.rotatePassword with courier id, password and admin id', async () => {
+      const input: CourierRotatePasswordAdminInput = {
+        password: 'newPassword123',
+      }
+      const admin = new UserEntity({
+        id: 'admin-2',
+        email: 'admin2@coop.gr',
+        password: 'hash',
+        role: [EnumUserRole.ADMIN],
+        username: null,
+        apiKey: null,
+        credentialsChangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      await controller.rotateCourierPassword('courier-volos-1', input, admin)
+
+      expect(mockCourierAdminRestApiService.rotatePassword).toHaveBeenCalledWith(
+        'courier-volos-1',
+        'newPassword123',
+        'admin-2'
+      )
     })
   })
 
