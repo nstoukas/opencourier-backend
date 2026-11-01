@@ -43,25 +43,29 @@ export class DispatchStopRepository extends EntityRepository {
   // Creates a stop unless its window overlaps a stop that is not ended or cancelled. Check and
   // insert happen in one transaction under an advisory lock, so two admins saving at once cannot
   // both pass (spec 0014, AC-2). Returns null on an overlap.
+  // `stopNow`: only a stop already on blocks it, never a scheduled one, so a storm today can always
+  // be stopped even with tomorrow's heat stop booked (decision 29.6, seen live).
   async createIfNoOverlap(data: {
     reason: EnumDispatchStopReason
     startsAt: Date
     endsAt: Date | null
     createdByUserId: string
-  }): Promise<DispatchStop | null> {
+  }, options: { stopNow?: boolean } = {}): Promise<DispatchStop | null> {
     return this.prisma.$transaction(async (tx) => {
       // `pg_advisory_xact_lock` waits for any other transaction holding this lock and releases it
       // when this transaction ends; hashtext turns the name into the lock's number. $executeRaw, not
       // $queryRaw: the function returns `void`, which $queryRaw cannot read back (seen live).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('dispatch-stop'))`
       const overlapping = await tx.dispatchStop.findFirst({
-        where: {
-          cancelledAt: null,
-          endedAt: null,
-          // Overlap: it starts before the new one ends, and ends (or never ends) after the new start.
-          ...(data.endsAt ? { startsAt: { lt: data.endsAt } } : {}),
-          OR: [{ endsAt: null }, { endsAt: { gt: data.startsAt } }],
-        },
+        where: options.stopNow
+          ? ON_AT(data.startsAt)
+          : {
+              cancelledAt: null,
+              endedAt: null,
+              // Overlap: it starts before the new one ends, and ends (or never ends) after the new start.
+              ...(data.endsAt ? { startsAt: { lt: data.endsAt } } : {}),
+              OR: [{ endsAt: null }, { endsAt: { gt: data.startsAt } }],
+            },
       })
       if (overlapping) return null
       return tx.dispatchStop.create({ data })

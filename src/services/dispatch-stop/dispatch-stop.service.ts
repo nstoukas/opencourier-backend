@@ -85,14 +85,16 @@ export class DispatchStopService implements OnModuleInit {
     }
     if (endsAt && endsAt <= startsAt) throw new errors.BadRequestException('The end must come after the start.')
 
-    const stop = await this.dispatchStopRepository.createIfNoOverlap({
-      reason: input.reason,
-      startsAt,
-      endsAt,
-      createdByUserId: adminUserId,
-    })
+    const stop = await this.dispatchStopRepository.createIfNoOverlap(
+      { reason: input.reason, startsAt, endsAt, createdByUserId: adminUserId },
+      { stopNow: !input.startsOn }
+    )
     if (!stop) {
-      throw new ConflictException('Another dispatch stop already covers part of that time.')
+      throw new ConflictException(
+        input.startsOn
+          ? 'Another dispatch stop already covers part of that time.'
+          : 'Dispatch is already stopped. Restart it first, or change that stop.'
+      )
     }
     this.logger.log(`Admin ${adminUserId} ${input.startsOn ? 'scheduled' : 'started'} dispatch stop ${stop.id}`)
 
