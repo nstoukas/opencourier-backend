@@ -12,7 +12,7 @@ import { DeliveryEventService } from 'src/services/delivery-event/delivery-event
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
-import { DeliveryCantBeAcceptedException, OfferHasEndedException } from 'src/errors'
+import { CantUpdateDeliveryStatusError, DeliveryCantBeAcceptedException, OfferHasEndedException } from 'src/errors'
 import { DeliveryEntity } from './entities/delivery.entity'
 
 describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
@@ -78,6 +78,24 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
     const deliveryId = 'del-accept-test'
     const courierId = 'courier-1'
     const offeredAt = new Date()
+
+    it('refuses (409 CantUpdateDeliveryStatusError) during a dispatch stop before touching the delivery (spec 0014, row 29 review)', async () => {
+      mockDeliveryEventService.refuseIfDispatchStopped.mockRejectedValue(
+        new CantUpdateDeliveryStatusError('Dispatch is stopped until 17:00.')
+      )
+
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
+        'Dispatch is stopped until 17:00.'
+      )
+
+      // Must NOT touch the delivery before checking the stop gate
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
 
     it('successfully accepts delivery with conditional update setting courierId and clearing offerExpiresAt', async () => {
       mockDeliveryRepository.findByIdOrThrow

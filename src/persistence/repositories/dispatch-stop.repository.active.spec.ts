@@ -183,6 +183,23 @@ describe('DispatchStopRepository (Spec 0014, AC-2, AC-3, AC-8, AC-11)', () => {
       const result2 = await repository.endOrCancel('stop-race', now, 'admin-1')
       expect(result2).toBeNull()
     })
+
+    test('returns null for a stop whose endsAt has passed (it already ended by itself) (row 29 review)', async () => {
+      // Natural end has already passed (endsAt 09:30 <= now 10:00)
+      const naturallyEndedStop = {
+        id: 'stop-passed',
+        startsAt: new Date('2026-07-15T08:00:00.000Z'),
+        endsAt: new Date('2026-07-15T09:30:00.000Z'),
+        endedAt: null,
+        cancelledAt: null,
+      }
+      mockPrisma.dispatchStop.findUnique.mockResolvedValueOnce(naturallyEndedStop)
+
+      const result = await repository.endOrCancel('stop-passed', now, 'admin-1')
+
+      expect(result).toBeNull()
+      expect(mockPrisma.dispatchStop.updateMany).not.toHaveBeenCalled()
+    })
   })
 
   describe('markStarted and markEndWorkDone', () => {

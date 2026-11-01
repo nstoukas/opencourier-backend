@@ -259,6 +259,58 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       ).rejects.toThrow('Dispatch is stopped until 17:00.')
     })
 
+    test('offerToNextCourier checks for a stop again AFTER claiming the delivery, takes claim back, saves no OFFERED event, and returns STOPPED (AC-4)', async () => {
+      // Gate check 1 (before matching): null
+      // Gate check 2 (after claim): activeStop
+      mockDispatchStopRepository.findOn
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(activeStop)
+
+      const matchedCourier = { id: 'courier-race', userId: 'user-courier-race' }
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue({
+        courier: matchedCourier,
+        distanceMeters: 500,
+      })
+      mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockResolvedValue({
+        totalCost: 1000,
+        totalCompensation: 800,
+        fee: 200,
+        feePercentage: 20,
+      })
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+      const result = await (service as any).offerToNextCourier('del-race-1')
+
+      expect(result).toBe('STOPPED')
+      // Both gate checks happened
+      expect(mockDispatchStopRepository.findOn).toHaveBeenCalledTimes(2)
+      // First updateIfMatches claimed the delivery
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+        1,
+        'del-race-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
+        expect.objectContaining({ matchedCourierId: 'courier-race' })
+      )
+      // Second updateIfMatches took the claim back on the exact claim written
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+        2,
+        'del-race-1',
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: 'courier-race',
+          courierId: null,
+        }),
+        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+      )
+      // No OFFERED event was recorded
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.OFFERED })
+      )
+      // No offer notifications sent
+      expect(mockWebsocketDispatcher.dispatchNewDeliveryOffer).not.toHaveBeenCalled()
+      expect(mockOfferPushService.newOffer).not.toHaveBeenCalled()
+    })
+
     test('refuseIfDispatchStopped throws 409 naming the end time or does nothing if no stop', async () => {
       mockDispatchStopRepository.findOn.mockResolvedValue(activeStop)
       await expect(service.refuseIfDispatchStopped()).rejects.toThrow('Dispatch is stopped until 17:00.')
@@ -321,7 +373,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       )
     })
 
-    test('RETURNED_TO_WAITING branch clears courierId, matchedCourierId, offeredAt, offerExpiresAt via updateIfMatches and notifies dropped courier', async () => {
+    test('returnToWaitingForDispatchStop writes status ASSIGNING_COURIER and clears courierId, matchedCourierId, offeredAt, offerExpiresAt in ONE updateIfMatches, saves event, notifies, and returns amounts (AC-5)', async () => {
       const heldDelivery = {
         id: 'del-held-1',
         status: EnumDeliveryStatus.ACCEPTED,
@@ -330,35 +382,71 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         offeredAt: null,
         offerExpiresAt: null,
         partnerId: 'partner-1',
+        totalCompensation: 850,
+        currencyCode: 'EUR',
       }
-      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(heldDelivery)
       mockDeliveryRepository.findById.mockResolvedValue(heldDelivery)
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
-
-      const updatedDelivery = new DeliveryEntity({
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         ...heldDelivery,
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         courierId: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any)
-      mockDeliveryRepository.update.mockResolvedValue(updatedDelivery)
+      })
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
 
-      await service.processDeliveryEvent({
-        deliveryId: 'del-held-1',
-        type: EnumDeliveryEventType.RETURNED_TO_WAITING,
-        actor: EnumEventActor.ADMIN,
-        source: EnumDeliveryEventSource.OPENCOURIER,
-        courierId: 'courier-dropped',
-        message: 'Dispatch stopped (heat)',
+      const result = await service.returnToWaitingForDispatchStop(
+        'del-held-1',
+        'courier-dropped',
+        EnumEventActor.ADMIN,
+        'Dispatch stopped (heat)'
+      )
+
+      expect(result).toEqual({
+        returned: true,
+        totalCompensation: 850,
+        currencyCode: 'EUR',
       })
 
-      // Conditional write requires matching the exact status and courierId that were read
+      // Conditional write requires matching the exact status and courierId that were read,
+      // and writes status ASSIGNING_COURIER and clears courierId, matchedCourierId, offeredAt, offerExpiresAt in ONE write
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         'del-held-1',
         { status: EnumDeliveryStatus.ACCEPTED, courierId: 'courier-dropped' },
-        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+        }
       )
+      // Must NOT update status unconditionally afterwards
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+
+      // Saves RETURNED_TO_WAITING event with transitionSuccessful true, oldStatus and newStatus
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-held-1',
+          type: EnumDeliveryEventType.RETURNED_TO_WAITING,
+          actor: EnumEventActor.ADMIN,
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          message: 'Dispatch stopped (heat)',
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.ACCEPTED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        })
+      )
+
+      // Partner notified
+      expect(mockPartnerWebhookService.sendDeliveryUpdatePartnerWebhook).toHaveBeenCalledWith({
+        deliveryId: 'del-held-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        oldStatus: EnumDeliveryStatus.ACCEPTED,
+        event: expect.objectContaining({
+          type: EnumDeliveryEventType.RETURNED_TO_WAITING,
+          courierId: 'courier-dropped',
+        }),
+      })
+
       // Dropped courier is notified of DELIVERY_STATUS_UPDATED
       expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).toHaveBeenCalledWith(
         'user-courier-dropped',
@@ -368,35 +456,108 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       )
     })
 
-    test('RETURNED_TO_WAITING fails when updateIfMatches returns false (e.g. pickup won race)', async () => {
+    test('returnToWaitingForDispatchStop returns { returned: false }, saves no event, and tells nobody when updateIfMatches returns false (e.g. pickup won race) (AC-5)', async () => {
       const heldDelivery = {
         id: 'del-held-race',
         status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
         courierId: 'courier-1',
         partnerId: 'partner-1',
+        totalCompensation: 850,
+        currencyCode: 'EUR',
+      }
+      mockDeliveryRepository.findById.mockResolvedValue(heldDelivery)
+      // Rider tapped pickup at the exact same moment: updateIfMatches misses!
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+      const result = await service.returnToWaitingForDispatchStop(
+        'del-held-race',
+        'courier-1',
+        EnumEventActor.ADMIN,
+        'Dispatch stopped (storm)'
+      )
+
+      expect(result).toEqual({ returned: false })
+
+      // Condition must match read status and rider
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        'del-held-race',
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, courierId: 'courier-1' },
+        {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+        }
+      )
+
+      // Saves NO event when the write missed
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+
+      // Tells nobody
+      expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).not.toHaveBeenCalled()
+      expect(mockPartnerWebhookService.sendDeliveryUpdatePartnerWebhook).not.toHaveBeenCalled()
+    })
+
+    test('returnToWaitingForDispatchStop returns { returned: false } without writing when delivery is not held by rider or status is not returnable (AC-5)', async () => {
+      // 1. Delivery not held by that rider
+      mockDeliveryRepository.findById.mockResolvedValueOnce({
+        id: 'del-other-courier',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-other',
+      })
+      const res1 = await service.returnToWaitingForDispatchStop('del-other-courier', 'courier-1', EnumEventActor.ADMIN, 'why')
+      expect(res1).toEqual({ returned: false })
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+
+      // 2. Delivery is PICKED_UP (not returnable; rider finishes delivery)
+      mockDeliveryRepository.findById.mockResolvedValueOnce({
+        id: 'del-picked-up',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-1',
+      })
+      const res2 = await service.returnToWaitingForDispatchStop('del-picked-up', 'courier-1', EnumEventActor.ADMIN, 'why')
+      expect(res2).toEqual({ returned: false })
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+
+      // 3. Delivery not found
+      mockDeliveryRepository.findById.mockResolvedValueOnce(null)
+      const res3 = await service.returnToWaitingForDispatchStop('del-not-found', 'courier-1', EnumEventActor.ADMIN, 'why')
+      expect(res3).toEqual({ returned: false })
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+    })
+
+    test('processDeliveryEvent with type RETURNED_TO_WAITING is recorded as a failed transition and changes nothing (AC-5)', async () => {
+      const heldDelivery = {
+        id: 'del-held-1',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-1',
+        partnerId: 'partner-1',
       }
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(heldDelivery)
       mockDeliveryRepository.findById.mockResolvedValue(heldDelivery)
-      // Rider tapped pickup at the exact same moment: updateIfMatches fails!
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
 
       await service.processDeliveryEvent({
-        deliveryId: 'del-held-race',
+        deliveryId: 'del-held-1',
         type: EnumDeliveryEventType.RETURNED_TO_WAITING,
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: 'courier-1',
-        message: 'Dispatch stopped (storm)',
+        message: 'Direct event submission attempt',
       })
 
       // Recorded as failed transition in delivery event repository
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          deliveryId: 'del-held-race',
+          deliveryId: 'del-held-1',
+          type: EnumDeliveryEventType.RETURNED_TO_WAITING,
           transitionSuccessful: false,
-          message: expect.stringContaining('Delivery del-held-race changed while dispatch was stopping; not returned'),
+          message: 'RETURNED_TO_WAITING is recorded by a dispatch stop only',
         })
       )
+      // Delivery status was NOT changed
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
     })
   })
 

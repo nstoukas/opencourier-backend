@@ -49,6 +49,11 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       endAllOpenOffersForDispatchStop: jest.fn().mockResolvedValue(1),
       matchAllWaitingDeliveriesAfterStop: jest.fn().mockResolvedValue(undefined),
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
+      returnToWaitingForDispatchStop: jest.fn().mockResolvedValue({
+        returned: true,
+        totalCompensation: 800,
+        currencyCode: 'EUR',
+      }),
     }
 
     mockCourierCompensationRepository = {
@@ -292,7 +297,7 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
     })
   })
 
-  describe('startWork order, payout and idempotency (AC-5, Decision 29.5)', () => {
+  describe('startWork order, payout and idempotency (AC-5, AC-11, Decision 29.5)', () => {
     const testStop: DispatchStop = {
       id: 'stop-sw',
       reason: EnumDispatchStopReason.HEAT,
@@ -308,57 +313,74 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       endWorkDoneAt: null,
     }
 
-    test('ends open offers FIRST, then reads held deliveries AFTER offers ended', async () => {
+    test('ends open offers FIRST, returns held deliveries, and only THEN marks startedAt (AC-11)', async () => {
       const executionOrder: string[] = []
 
-      mockDispatchStopRepository.markStarted.mockResolvedValue(true)
       mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockImplementation(async () => {
         executionOrder.push('endOffers')
         return 1
       })
       mockDeliveryRepository.findAllHeldBeforePickup.mockImplementation(async () => {
         executionOrder.push('readHeld')
-        return []
+        return [{ id: 'del-return-1', courierId: 'courier-dropped' }]
+      })
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockImplementation(async () => {
+        executionOrder.push('returnDelivery')
+        return { returned: true, totalCompensation: 800, currencyCode: 'EUR' }
+      })
+      mockDispatchStopRepository.markStarted.mockImplementation(async () => {
+        executionOrder.push('markStarted')
+        return true
       })
 
       await service.startWork(testStop, EnumEventActor.ADMIN)
 
-      expect(executionOrder).toEqual(['endOffers', 'readHeld'])
+      // Work runs first and is marked AFTER, so crashes halfway can retry
+      expect(executionOrder).toEqual(['endOffers', 'readHeld', 'returnDelivery', 'markStarted'])
+      expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith(testStop.id, expect.any(Date))
     })
 
-    test('markStarted false means nothing runs (idempotent)', async () => {
-      mockDispatchStopRepository.markStarted.mockResolvedValue(false)
+    test('when start work throws halfway, startedAt is not marked so the next tick retries (AC-11)', async () => {
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(1)
+      mockDeliveryRepository.findAllHeldBeforePickup.mockRejectedValue(new Error('DB failure halfway'))
 
-      await service.startWork(testStop, EnumEventActor.ADMIN)
+      await expect(service.startWork(testStop, EnumEventActor.ADMIN)).rejects.toThrow('DB failure halfway')
+
+      // startedAt is NOT marked if work failed halfway!
+      expect(mockDispatchStopRepository.markStarted).not.toHaveBeenCalled()
+    })
+
+    test('a stop already started (startedAt set) does nothing (idempotent) (AC-11)', async () => {
+      const alreadyStartedStop: DispatchStop = {
+        ...testStop,
+        startedAt: new Date(),
+      }
+
+      await service.startWork(alreadyStartedStop, EnumEventActor.ADMIN)
 
       expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).not.toHaveBeenCalled()
       expect(mockDeliveryRepository.findAllHeldBeforePickup).not.toHaveBeenCalled()
+      expect(mockDispatchStopRepository.markStarted).not.toHaveBeenCalled()
     })
 
-    test('pays dropped rider AFTER returning to waiting with co-op default policy only when delivery landed in ASSIGNING_COURIER with no courier', async () => {
-      mockDispatchStopRepository.markStarted.mockResolvedValue(true)
+    test('pays dropped rider only when returnToWaitingForDispatchStop returned true, from its totalCompensation and currencyCode (AC-5)', async () => {
       mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(0)
 
       const heldDelivery = {
         id: 'del-return-1',
         courierId: 'courier-dropped',
-        totalCompensation: 800,
-        currencyCode: 'EUR',
       }
       mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([heldDelivery])
-
-      // After return event is processed, read from db confirms it is now ASSIGNING_COURIER with no courier
-      mockDeliveryRepository.findById.mockResolvedValue({
-        id: 'del-return-1',
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId: null,
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValue({
+        returned: true,
         totalCompensation: 800,
         currencyCode: 'EUR',
       })
 
       const callOrder: string[] = []
-      mockDeliveryEventService.processDeliveryEvent.mockImplementation(async () => {
-        callOrder.push('processReturn')
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockImplementation(async () => {
+        callOrder.push('returnToWaiting')
+        return { returned: true, totalCompensation: 800, currencyCode: 'EUR' }
       })
       mockCourierCompensationRepository.create.mockImplementation(async () => {
         callOrder.push('payCourier')
@@ -367,16 +389,13 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
 
       await service.startWork(testStop, EnumEventActor.ADMIN)
 
-      // Confirm payCourier happened AFTER processReturn
-      expect(callOrder).toEqual(['processReturn', 'payCourier'])
-      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
-        deliveryId: 'del-return-1',
-        type: EnumDeliveryEventType.RETURNED_TO_WAITING,
-        actor: EnumEventActor.ADMIN,
-        source: expect.anything(),
-        courierId: 'courier-dropped',
-        message: 'Dispatch stopped (heat)',
-      })
+      expect(callOrder).toEqual(['returnToWaiting', 'payCourier'])
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
+        'del-return-1',
+        'courier-dropped',
+        EnumEventActor.ADMIN,
+        'Dispatch stopped (heat)'
+      )
       expect(mockCourierCompensationRepository.create).toHaveBeenCalledWith({
         amount: 800,
         currencyCode: 'EUR',
@@ -388,41 +407,69 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       })
     })
 
-    test('when return was refused (e.g. pickup won race), no payment is written', async () => {
-      mockDispatchStopRepository.markStarted.mockResolvedValue(true)
+    test('when return was refused (e.g. pickup won race and returned is false), no payment is written (AC-5)', async () => {
       mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(0)
 
       mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([
         { id: 'del-pickup-won', courierId: 'courier-1' },
       ])
-      // Read after event shows rider picked it up (status is PICKED_UP)
-      mockDeliveryRepository.findById.mockResolvedValue({
-        id: 'del-pickup-won',
-        status: EnumDeliveryStatus.PICKED_UP,
-        courierId: 'courier-1',
-      })
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValue({ returned: false })
 
       await service.startWork(testStop, EnumEventActor.SYSTEM)
 
       expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
     })
 
+    test('two runs over the same delivery write one payment (AC-5)', async () => {
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(0)
+
+      const heldDelivery = {
+        id: 'del-return-1',
+        courierId: 'courier-1',
+      }
+      mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([heldDelivery])
+      // Even if findById returns ASSIGNING_COURIER with no courier on both runs, it must not pay from a post-read
+      mockDeliveryRepository.findById.mockResolvedValue({
+        id: 'del-return-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        totalCompensation: 800,
+        currencyCode: 'EUR',
+      })
+
+      // Run 1: return succeeds
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValueOnce({
+        returned: true,
+        totalCompensation: 800,
+        currencyCode: 'EUR',
+      })
+      await service.startWork(testStop, EnumEventActor.ADMIN)
+
+      // Run 2: return misses because delivery is already ASSIGNING_COURIER or no longer held
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValueOnce({
+        returned: false,
+      })
+      await service.startWork(testStop, EnumEventActor.ADMIN)
+
+      // Exactly ONE compensation row is created across both runs
+      expect(mockCourierCompensationRepository.create).toHaveBeenCalledTimes(1)
+    })
+
     test('payment failure is logged with DISPATCH_STOP_PAYOUT_FAILED and does not throw', async () => {
-      mockDispatchStopRepository.markStarted.mockResolvedValue(true)
       mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(0)
 
       mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([
-        { id: 'del-payout-fail', courierId: 'courier-1', totalCompensation: 500, currencyCode: 'EUR' },
+        { id: 'del-payout-fail', courierId: 'courier-1' },
       ])
-      mockDeliveryRepository.findById.mockResolvedValue({
-        id: 'del-payout-fail',
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId: null,
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValue({
+        returned: true,
         totalCompensation: 500,
         currencyCode: 'EUR',
       })
 
-      mockCourierCompensationRepository.create.mockRejectedValue(new Error('DB connection dropped during compensation write'))
+      mockCourierCompensationRepository.create.mockRejectedValue(
+        new Error('DB connection dropped during compensation write')
+      )
 
       // Must not throw!
       await expect(service.startWork(testStop, EnumEventActor.ADMIN)).resolves.toBeUndefined()
@@ -445,31 +492,51 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       endWorkDoneAt: null,
     }
 
-    test('marks end work done once and matches all waiting deliveries', async () => {
-      mockDispatchStopRepository.markEndWorkDone.mockResolvedValue(true)
+    test('matches all waiting deliveries and only THEN marks endWorkDoneAt (AC-11)', async () => {
+      const callOrder: string[] = []
       mockDispatchStopRepository.findOn.mockResolvedValue(null)
+      mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop.mockImplementation(async () => {
+        callOrder.push('matchWaiting')
+      })
+      mockDispatchStopRepository.markEndWorkDone.mockImplementation(async () => {
+        callOrder.push('markDone')
+        return true
+      })
 
       await service.endWork(testStop)
 
+      expect(callOrder).toEqual(['matchWaiting', 'markDone'])
       expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith('stop-ew', expect.any(Date))
-      expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).toHaveBeenCalled()
     })
 
-    test('markEndWorkDone false returns immediately and does nothing', async () => {
-      mockDispatchStopRepository.markEndWorkDone.mockResolvedValue(false)
+    test('when end work throws halfway, endWorkDoneAt is not marked (AC-11)', async () => {
+      mockDispatchStopRepository.findOn.mockResolvedValue(null)
+      mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop.mockRejectedValue(new Error('Match failed'))
 
-      await service.endWork(testStop)
+      await expect(service.endWork(testStop)).rejects.toThrow('Match failed')
+
+      expect(mockDispatchStopRepository.markEndWorkDone).not.toHaveBeenCalled()
+    })
+
+    test('a stop whose end work was already done (endWorkDoneAt set) does nothing (idempotent) (AC-11)', async () => {
+      const alreadyDoneStop: DispatchStop = {
+        ...testStop,
+        endWorkDoneAt: new Date(),
+      }
+
+      await service.endWork(alreadyDoneStop)
 
       expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).not.toHaveBeenCalled()
+      expect(mockDispatchStopRepository.markEndWorkDone).not.toHaveBeenCalled()
     })
 
     test('does nothing more if another stop is on', async () => {
-      mockDispatchStopRepository.markEndWorkDone.mockResolvedValue(true)
       mockDispatchStopRepository.findOn.mockResolvedValue({ id: 'another-stop-active' })
 
       await service.endWork(testStop)
 
       expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).not.toHaveBeenCalled()
+      expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith('stop-ew', expect.any(Date))
     })
   })
 
