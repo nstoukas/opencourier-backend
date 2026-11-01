@@ -10,9 +10,12 @@ import { ICourierFindBySeniorityArgs } from './ICourierFindBySeniorityArgs'
 import { CourierSettingEntity } from 'src/domains/courier-setting/entities/courier-setting.entity'
 import { ICourierFindBySeniorityResult } from './ICourierFindBySeniorityResult'
 import { ICourierFindNearestResult } from './ICourierFindNearestResult'
+import { ICourierCreateWithLogin } from './ICourierCreateWithLogin'
 
 export interface ICourierRepository {
   create(data: Exact<ICourierCreate>): Promise<CourierEntity>
+  createWithLogin(data: ICourierCreateWithLogin): Promise<CourierEntity>
+  findByPhoneNumber(phoneNumber: string): Promise<CourierEntity | null>
   updateById(courierId: string, data: ICourierUpdate): Promise<CourierEntity>
   updateStatus(courierId: string, status: EnumCourierStatus): Promise<void>
   updateDeliverySetting(courierId: string, deliverySetting: EnumCourierDeliverySetting): Promise<void>

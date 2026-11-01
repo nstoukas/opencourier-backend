@@ -27,6 +27,7 @@ describe('RolesGuard', () => {
     role: [EnumUserRole.COURIER],
     username: 'courier1',
     apiKey: null,
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -38,6 +39,7 @@ describe('RolesGuard', () => {
     role: [EnumUserRole.PARTNER],
     username: 'partner1',
     apiKey: 'key-123',
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -49,6 +51,7 @@ describe('RolesGuard', () => {
     role: [EnumUserRole.ADMIN],
     username: 'admin1',
     apiKey: null,
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })

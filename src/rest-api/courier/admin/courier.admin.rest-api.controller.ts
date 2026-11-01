@@ -11,6 +11,11 @@ import { adminCourierListWhere } from './queries/courier-list-filter'
 import { CourierAdminDto } from './dtos/courier.admin.dto'
 import { CourierUpdateAdminInput } from './queries/courier-update.admin.input'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
+import { CurrentUser } from 'src/decorators/currentUser.decorator'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
+import { CourierAdminRestApiService } from './courier.admin.rest-api.service'
+import { CourierCreateAdminInput } from './queries/courier-create.admin.input'
+import { CourierRotatePasswordAdminInput } from './queries/courier-rotate-password.admin.input'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('courier')
@@ -18,8 +23,43 @@ import { DeliveryEventService } from 'src/services/delivery-event/delivery-event
 export class CourierAdminRestApiController {
   constructor(
     private readonly courierDomainService: CourierDomainService,
-    private readonly deliveryEventService: DeliveryEventService
+    private readonly deliveryEventService: DeliveryEventService,
+    private readonly courierAdminRestApiService: CourierAdminRestApiService
   ) {}
+
+  // The co-op issues every rider's login (spec 0013): there is no public sign up any more.
+  @common.Post('')
+  @swagger.ApiBody({ type: CourierCreateAdminInput })
+  @swagger.ApiCreatedResponse({ type: CourierAdminDto })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiConflictResponse({ description: 'The email or the phone is already used' })
+  @swagger.ApiOperation({ summary: 'Create a courier and their login' })
+  @Roles(EnumUserRole.ADMIN)
+  async createCourier(
+    @common.Body() body: CourierCreateAdminInput,
+    @CurrentUser() admin: UserEntity
+  ): Promise<CourierAdminDto> {
+    const courier = await this.courierAdminRestApiService.createCourier(body, admin.id)
+    return new CourierAdminDto(courier)
+  }
+
+  // Sets a new password and cuts the old phone off: its sessions, connection, pushes and Online
+  // status (spec 0013, AC-4 and AC-5). 204 with no body, as the restaurant password change.
+  @common.Post(':id/rotate-password')
+  @swagger.ApiBody({ type: CourierRotatePasswordAdminInput })
+  @swagger.ApiResponse({ status: 204, description: 'Password set; the old phone is signed out' })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Set a new password for a courier' })
+  @common.HttpCode(204)
+  @Roles(EnumUserRole.ADMIN)
+  async rotateCourierPassword(
+    @common.Param('id') id: string,
+    @common.Body() body: CourierRotatePasswordAdminInput,
+    @CurrentUser() admin: UserEntity
+  ): Promise<void> {
+    await this.courierAdminRestApiService.rotatePassword(id, body.password, admin.id)
+  }
 
   @common.Get('')
   @swagger.ApiResponse({ type: CourierPaginatedAdminDto })

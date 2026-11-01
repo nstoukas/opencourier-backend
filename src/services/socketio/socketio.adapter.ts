@@ -1,9 +1,10 @@
+import { CREDENTIALS_CHANGED_MESSAGE, isIssuedBeforeCredentialsChange } from 'src/domains/auth/credentials-change'
 import { IoAdapter } from '@nestjs/platform-socket.io'
 import { Server, ServerOptions } from 'socket.io'
 import { INestApplicationContext, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { ForbiddenException } from 'src/errors'
+import { ForbiddenException, UnauthorizedException } from 'src/errors'
 import { SOCKET_GATEWAY_NAMESPACE } from './socketio.gateway'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
 import { EnumUserRole } from '@prisma/types'
@@ -60,6 +61,10 @@ const createTokenMiddleware =
       socket.user = user
       if (!user) {
         return next(new ForbiddenException('User not found'))
+      }
+      // Spec 0013: a token from before an admin set a new password cannot open a connection.
+      if (isIssuedBeforeCredentialsChange(payload.iat, user.credentialsChangedAt)) {
+        return next(new UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE))
       }
 
       socket.userId = payload.sub

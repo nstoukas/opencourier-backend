@@ -12,4 +12,6 @@ export abstract class WebsocketDispatcher {
   ): Promise<void> | void
   // Tells one rider an offer they held has ended (expired, or they went offline). Spec 0002.
   abstract sendOfferEnded(courierUserId: string, message: OfferEndedMessage): Promise<void> | void
+  // Closes every live connection of one user, after an admin set a new password (spec 0013).
+  abstract disconnectUser(userId: string): Promise<void> | void
 }

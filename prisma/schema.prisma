@@ -21,6 +21,10 @@ model User {
 
   apiKey String? @unique
 
+  // When the password was last set by an admin (spec 0013). Every token issued before it is
+  // refused, so a changed password signs the old phone out. Null: never changed.
+  credentialsChangedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

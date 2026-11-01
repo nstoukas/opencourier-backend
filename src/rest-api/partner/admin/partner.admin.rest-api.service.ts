@@ -84,7 +84,9 @@ export class PartnerAdminRestApiService {
     }
 
     const hashedPassword = await this.passwordService.hash(newPassword)
-    await this.userDomainService.update(partner.userId, { password: hashedPassword })
+    // The time is set with the password, so every older restaurant session is refused (spec 0013,
+    // AC-9). `new Date()` is Node's clock, the one that signs each token's issue time.
+    await this.userDomainService.update(partner.userId, { password: hashedPassword, credentialsChangedAt: new Date() })
   }
 
   // AIFLOW-NOTE: countryCode is included in formattedAddress for multi-country compatibility across the backend

@@ -30,6 +30,7 @@ describe('AuthApiKeyGuard', () => {
     role: [EnumUserRole.PARTNER],
     username: 'partner1',
     apiKey: 'valid-api-key-123',
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -42,6 +43,7 @@ describe('AuthApiKeyGuard', () => {
     role: [EnumUserRole.COURIER],
     username: 'courier1',
     apiKey: null,
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })

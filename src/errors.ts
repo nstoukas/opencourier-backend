@@ -286,6 +286,21 @@ export class SavedCustomerRefusedException extends ApiException {
 // Customers page needs `conflictingCustomerId` to show the other customer. Nest's own handler sends
 // this object as the body. No name or phone in it, so no log ever records one.
 export const SAVED_CUSTOMER_PHONE_CLASH_MESSAGE = 'Another saved customer has this phone'
+// Spec 0013: an admin creating a rider whose email or phone is already taken. 409, with a message
+// that names which one and holds neither value, so no log records it.
+export const COURIER_EMAIL_TAKEN_MESSAGE = 'That email is already used by another account.'
+export class CourierEmailTakenException extends ApiException {
+  constructor() {
+    super(ErrorCode.UNIQUE_CONSTRAINT, COURIER_EMAIL_TAKEN_MESSAGE, 409)
+  }
+}
+export const COURIER_PHONE_TAKEN_MESSAGE = 'That phone is already used by another rider.'
+export class CourierPhoneTakenException extends ApiException {
+  constructor() {
+    super(ErrorCode.UNIQUE_CONSTRAINT, COURIER_PHONE_TAKEN_MESSAGE, 409)
+  }
+}
+
 export class SavedCustomerPhoneClashException extends common.ConflictException {
   constructor(conflictingCustomerId: string) {
     super({

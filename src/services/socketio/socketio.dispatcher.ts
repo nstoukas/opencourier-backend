@@ -18,6 +18,10 @@ export class SocketIODispatcher extends WebsocketDispatcher {
     super()
   }
 
+  disconnectUser(userId: string) {
+    this.socketIOService.disconnectUser(userId)
+  }
+
   async sendOfferToCourier(userId: string, delivery: DeliveryCourierDto) {
     const data = {
       delivery,

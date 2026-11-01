@@ -19,6 +19,7 @@ describe('AuthPartnerRestApiController', () => {
     role: [EnumUserRole.PARTNER],
     username: 'tavernavolos',
     apiKey: 'partner-key-100',
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -30,6 +31,7 @@ describe('AuthPartnerRestApiController', () => {
     role: [EnumUserRole.COURIER],
     username: 'couriervolos',
     apiKey: 'courier-key-200',
+    credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })

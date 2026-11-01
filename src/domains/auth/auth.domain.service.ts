@@ -9,11 +9,11 @@ import { PartnerDomainService } from '../partner/partner.domain.service'
 import { UserEntity } from '../user/entities/user.entity'
 import { IUserUpdate } from '../user/interfaces/IUserUpdate'
 import { UserDomainService } from '../user/user.domain.service'
-import { ICourierRegister } from './interfaces/ICourierRegister'
 import { IEmailLogin } from './interfaces/IEmailLogin'
 import { PasswordService } from './password.service'
 import { TokenService } from './token.service'
 import { randomBytes } from 'crypto'
+import { CREDENTIALS_CHANGED_MESSAGE, isIssuedBeforeCredentialsChange } from './credentials-change'
 
 @Injectable()
 export class AuthDomainService {
@@ -38,52 +38,26 @@ export class AuthDomainService {
     return { body: 'valid' }
   }
 
-  async registerCourier(input: ICourierRegister) {
-    const { email, password, firstName, lastName } = input
-
-    const userExists = await this.userDomainService.findUserWithEmail(email)
-
-    if (userExists) {
-      throw new errors.UserExistsException('A user with this email already exists')
-    }
-
-    const hashedPasword = await this.passwordService.hash(password)
-    const user = await this.userDomainService.create({
-      email: email,
-      password: hashedPasword,
-      role: [EnumUserRole.COURIER],
-    })
-
-    await this.courierDomainService.create({
-      userId: user.id,
-      firstName: firstName,
-      lastName: lastName,
-    })
-
-    const session = await this.tokenService.createEmailAuthSession({
-      sub: user.id,
-      email: email,
-      role: user.role,
-    })
-
-    return assign({
-      session,
-      user,
-    })
-  }
-
   async loginWithEmail(input: IEmailLogin) {
     const { email, password } = input
 
-    const user = await this.validateUser(password, email)
+    // The email as typed first (today's behavior), then trimmed and lower cased, the form the
+    // admin stores (spec 0013, AC-8). A stored email with capitals still logs in.
+    let user = await this.validateUser(password, email)
+    const normalised = email.trim().toLowerCase()
+    if (!user && normalised !== email) {
+      user = await this.validateUser(password, normalised)
+    }
 
     if (!user) {
       throw new errors.ForbiddenException('These credentials are incorrect')
     }
 
+    // The token carries the stored email, never the typed one: every later request, refresh and
+    // socket handshake looks the user up by it, exactly (spec 0013, cross check).
     const session = await this.tokenService.createEmailAuthSession({
       sub: user.id,
-      email: email,
+      email: user.email || '',
       role: user.role,
     })
 
@@ -175,6 +149,8 @@ export class AuthDomainService {
       const payload = this.tokenService.decodeToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)
+      // Spec 0013: a token from before an admin set a new password is refused with 401.
+      this.refuseIfIssuedBeforeCredentialsChange(payload, user)
 
       return user
     } catch (error) {
@@ -191,6 +167,9 @@ export class AuthDomainService {
       const payload = this.tokenService.decodeRefreshToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)
+      // Spec 0013: a refresh token from before an admin set a new password is refused with 401,
+      // so the app's renewal fails and it ends the session.
+      this.refuseIfIssuedBeforeCredentialsChange(payload, user)
 
       return user
     } catch (error) {
@@ -198,6 +177,14 @@ export class AuthDomainService {
         throw new errors.ForbiddenException('User not found from refresh token')
       }
       throw error
+    }
+  }
+
+  // `iat` is not on the payload types, but jsonwebtoken always signs it; read it as unknown.
+  private refuseIfIssuedBeforeCredentialsChange(payload: object, user: UserEntity) {
+    const iat = (payload as { iat?: unknown }).iat
+    if (isIssuedBeforeCredentialsChange(iat, user.credentialsChangedAt)) {
+      throw new errors.UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE)
     }
   }
 

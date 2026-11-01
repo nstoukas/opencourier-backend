@@ -11,7 +11,6 @@ import { UserEntity } from '../../../domains/user/entities/user.entity'
 import * as errors from '../../../errors'
 import { UserInfoCourierDto } from './dtos/user-info.courier.dto'
 import { EmailLoginCourierInput } from './queries/email-login.courier.input'
-import { AuthRegisterCourierInput } from './queries/auth-register.courier.input'
 import { PrivateWithRefreshToken } from 'src/decorators/private-with-refresh-token.decorator'
 import { Roles } from 'src/decorators/roles.decorator'
 import { Request } from 'express'
@@ -48,16 +47,7 @@ export class AuthCourierRestApiController {
     return await this.authDomainService.refreshTokens(user.id, req.headers['x-refresh-token']?.toString() || '')
   }
 
-  @Public()
-  @Post('register')
-  @swagger.ApiBody({ type: AuthRegisterCourierInput })
-  @swagger.ApiOkResponse({ type: UserInfoCourierDto })
-  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
-  @Throttle(PUBLIC_DEFAULT_THROTTLE)
-  async register(@Body() body: AuthRegisterCourierInput): Promise<UserInfoCourierDto> {
-    const result = await this.authDomainService.registerCourier(body)
-    return new UserInfoCourierDto(result)
-  }
+  // No public sign up: the co-op issues every rider's login from admin (spec 0013, AC-7).
 
   @Get('me')
   @swagger.ApiOkResponse({ type: UserWithCourierCourierDto })

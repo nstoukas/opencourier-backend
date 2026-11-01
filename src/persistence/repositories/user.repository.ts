@@ -63,6 +63,15 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     return result ? this.toDomain(result) : undefined
   }
 
+  // Any account with this email, whatever its capitals (spec 0013): stored emails may predate the
+  // lower casing, and "Nikos@x.gr" and "nikos@x.gr" must not become two logins.
+  async findUserWithEmailIgnoringCase(email: string) {
+    const result = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    })
+    return result ? this.toDomain(result) : undefined
+  }
+
   async findByEmail(email: string) {
     const result = await this.prisma.user.findUniqueOrThrow({
       where: {

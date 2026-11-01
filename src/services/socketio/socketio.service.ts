@@ -34,6 +34,20 @@ export class SocketIOService {
     this.logger.log(`Publishing message to channel ${channelName}: ${messageName}, ${JSON.stringify(message)}`)
   }
 
+  // Spec 0013: closes every open connection of one user (an admin set a new password). The socket
+  // handshake then refuses their old token, so the old phone cannot connect again.
+  disconnectUser(userId: string): number {
+    let closed = 0
+    this.connectedClients.forEach((client) => {
+      if (client.userId === userId) {
+        client.disconnect(true)
+        closed += 1
+      }
+    })
+    this.logger.log(`Disconnected ${closed} connection(s) of user ${userId}`)
+    return closed
+  }
+
   private getClientFromChannel(channelName: string): SocketWithAuth | null {
     let foundClient: SocketWithAuth | null = null
 

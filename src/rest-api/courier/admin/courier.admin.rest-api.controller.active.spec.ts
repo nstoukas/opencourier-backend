@@ -1,3 +1,4 @@
+import { CourierAdminRestApiService } from 'src/rest-api/courier/admin/courier.admin.rest-api.service'
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
 import { RequestMethod } from '@nestjs/common'
 import { CourierAdminRestApiController } from './courier.admin.rest-api.controller'
@@ -62,7 +63,9 @@ describe('CourierAdminRestApiController (scope row 97, Clause 3)', () => {
 
     controller = new CourierAdminRestApiController(
       mockCourierDomainService,
-      mockDeliveryEventService
+      mockDeliveryEventService,
+      // The rider create and password routes (spec 0013) are not used by these tests.
+      {} as CourierAdminRestApiService
     )
   })
 

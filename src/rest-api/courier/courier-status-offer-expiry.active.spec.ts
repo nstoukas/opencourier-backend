@@ -1,3 +1,4 @@
+import { CourierAdminRestApiService } from 'src/rest-api/courier/admin/courier.admin.rest-api.service'
 import { EnumCourierStatus } from '@prisma/types'
 import { CourierCourierRestApiController } from './courier/courier.courier.rest-api.controller'
 import { CourierAdminRestApiController } from './admin/courier.admin.rest-api.controller'
@@ -76,7 +77,9 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
     beforeEach(() => {
       controller = new CourierAdminRestApiController(
         mockCourierDomainService,
-        mockDeliveryEventService
+        mockDeliveryEventService,
+      // The rider create and password routes (spec 0013) are not used by these tests.
+      {} as CourierAdminRestApiService
       )
     })
 

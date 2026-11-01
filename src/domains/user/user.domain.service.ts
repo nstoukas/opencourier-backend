@@ -29,6 +29,10 @@ export class UserDomainService {
     return await this.userRepository.findUserWithEmail(email)
   }
 
+  async findUserWithEmailIgnoringCase(email: string) {
+    return await this.userRepository.findUserWithEmailIgnoringCase(email)
+  }
+
   async findByEmail(email: string) {
     return await this.userRepository.findByEmail(email)
   }

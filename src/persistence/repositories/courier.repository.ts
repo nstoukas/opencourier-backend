@@ -5,12 +5,15 @@ import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
   EnumDeliveryStatus,
+  EnumUserRole,
   Prisma,
 } from '@prisma/types'
+import * as errors from 'src/errors'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
 import { ICourierRepository } from '../../domains/courier/interfaces/ICourierRepository'
+import { ICourierCreateWithLogin } from '../../domains/courier/interfaces/ICourierCreateWithLogin'
 import { CourierEntity } from '../../domains/courier/entities/courier.entity'
 import { ICourierCreate } from '../../domains/courier/interfaces/ICourierCreate'
 import { Exact } from '../../types'
@@ -63,6 +66,38 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     })
 
     return this.toDomain(result)
+  }
+
+  // A rider issued by an admin (spec 0013). One nested write: Prisma creates the User and the
+  // Courier in a single implicit transaction, so either both exist or neither does, as
+  // partner.repository's createWithLogin does for restaurants. Every other courier field takes the
+  // schema default a self signed up rider got (status OFFLINE, delivery setting MANUAL).
+  async createWithLogin(data: ICourierCreateWithLogin) {
+    const user = await this.prisma.user.create({
+      data: {
+        email: data.login.email,
+        password: data.login.hashedPassword,
+        role: [EnumUserRole.COURIER],
+        courier: {
+          create: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            phoneNumber: data.phoneNumber,
+          },
+        },
+      },
+      include: { courier: true },
+    })
+
+    if (!user.courier) {
+      throw new errors.InternalServerError('Failed to create courier record')
+    }
+    return this.toDomain(user.courier)
+  }
+
+  async findByPhoneNumber(phoneNumber: string) {
+    const result = await this.prisma.courier.findUnique({ where: { phoneNumber } })
+    return result ? this.toDomain(result) : null
   }
 
   async updateById(courierId: string, data: ICourierUpdate) {

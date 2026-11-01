@@ -18,6 +18,12 @@ export class AblyDispatcher extends WebsocketDispatcher {
     super()
   }
 
+  // Ably connections cannot be closed from here. The rider's Ably token lasts until it expires;
+  // a new one needs the app's session, which a password change refuses (spec 0013, decision 16.7).
+  disconnectUser(userId: string) {
+    this.logger.warn(`Cannot close the Ably connection of user ${userId}; it ends when its Ably token expires`)
+  }
+
   async sendOfferToCourier(userId: string, delivery: DeliveryCourierDto) {
     this.logger.log(`emitting event to courier: ${JSON.stringify(delivery)}, channel: COURIER:${userId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.NEW_DELIVERY_OFFER, delivery)
