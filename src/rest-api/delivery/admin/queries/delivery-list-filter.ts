@@ -20,7 +20,8 @@ export function adminDeliveryListWhere(filter: {
   search?: string
 }): Prisma.DeliveryWhereInput {
   const where: Prisma.DeliveryWhereInput = {}
-  if (filter.courierId) where.courierId = filter.courierId
+  // As before row 96: a courierId sent (even empty) is a filter; only a missing one is not.
+  if (filter.courierId !== undefined) where.courierId = filter.courierId
 
   switch (filter.state) {
     case 'active':
@@ -39,14 +40,19 @@ export function adminDeliveryListWhere(filter: {
 
   // A search finds a delivery by its order reference, its customer (the drop off name), its
   // restaurant, or the end of its id (the short id the admin shows), ignoring case (decision 96.1).
+  // At co-op scale a plain ILIKE is fine; at many thousands of deliveries these columns would want
+  // a pg_trgm index (row 96 review).
   const text = filter.search?.trim()
   if (text) {
-    const contains = { contains: text, mode: Prisma.QueryMode.insensitive }
+    // Prisma passes the text into SQL LIKE as it is, where % and _ are wildcards: escape them (and
+    // the escape character itself), so a search for "%" finds a "%" and not every delivery.
+    const literal = text.replace(/[\\%_]/g, (character) => `\\${character}`)
+    const contains = { contains: literal, mode: Prisma.QueryMode.insensitive }
     where.OR = [
       { orderReference: contains },
       { dropoffName: contains },
       { pickupBusinessName: contains },
-      { id: { endsWith: text } },
+      { id: { endsWith: literal } },
     ]
   }
   return where

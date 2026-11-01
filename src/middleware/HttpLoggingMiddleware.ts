@@ -9,6 +9,9 @@ const SENSITIVE_PATH_PATTERNS: { pattern: RegExp; replacement: string }[] = [
   // A rider's phone push token (spec 0003, DELETE /devices/:token): whoever holds it can register it
   // as their own phone and receive that rider's offer alerts.
   { pattern: /\/devices\/[^/?#]+/g, replacement: '/devices/:token' },
+  // A search's text on any route (row 96: the admin deliveries list searches by customer name).
+  // What someone typed into a search box can be a person's name, so its value is never logged.
+  { pattern: /([?&]search=)[^&#]*/g, replacement: '$1[redacted]' },
 ]
 
 // Saved customers (spec 0005, AC-9): a search's query string is part of a customer's name or phone,
