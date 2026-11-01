@@ -251,14 +251,18 @@ export class DeliveryPartnerRestApiService {
     return updatedDelivery
   }
 
-  async cancel(deliveryId: string, partnerId: string, cancelledBy: EnumCancelledBy = EnumCancelledBy.RESTAURANT) {
+  // `?? RESTAURANT`, not a default parameter: a default applies to undefined only, never to null.
+  async cancel(deliveryId: string, partnerId: string, cancelledBy?: EnumCancelledBy | null) {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
 
     if (delivery.partnerId !== partnerId) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.cancelDelivery(deliveryId, cancelledBy)
+    const updatedDelivery = await this.deliveryDomainService.cancelDelivery(
+      deliveryId,
+      cancelledBy ?? EnumCancelledBy.RESTAURANT
+    )
 
     return updatedDelivery
   }

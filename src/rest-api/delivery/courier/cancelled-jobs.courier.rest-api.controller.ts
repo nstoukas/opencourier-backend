@@ -19,7 +19,11 @@ export class CancelledJobsCourierRestApiController {
   constructor(private readonly cancelledJobsCourierService: CancelledJobsCourierService) {}
 
   @common.Get('cancelled-jobs')
-  @swagger.ApiOkResponse({ type: CancelledJobCourierDto, isArray: true })
+  // The answer is { data: [...] }, not a bare array (row 32 review).
+  @swagger.ApiOkResponse({
+    schema: { type: 'object', properties: { data: { type: 'array', items: { $ref: swagger.getSchemaPath(CancelledJobCourierDto) } } } },
+  })
+  @swagger.ApiExtraModels(CancelledJobCourierDto)
   @swagger.ApiOperation({ summary: 'My jobs cancelled in the last 24 hours after I accepted them' })
   @Roles(EnumUserRole.COURIER)
   async getMyCancelledJobs(@CurrentUserCourier() courier: CourierEntity): Promise<{ data: CancelledJobCourierDto[] }> {

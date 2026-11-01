@@ -107,12 +107,18 @@ export class CancelledJobsCourierService {
       this.logger.error(`FOOD_OUTCOME_EVENT_FAILED {"deliveryId":"${deliveryId}","courierId":"${courierId}"}: ${error}`)
     }
 
-    const [row] = (await this.getMyCancelledJobs(courierId)).filter((job) => job.id === deliveryId)
+    // Read without the 24 hour window: an outcome recorded for an older job is saved all the same,
+    // and the answer says so (row 32 review: it answered 404 after saving).
+    const rows = await this.deliveryRepository.findCancelledJobsForCourier(
+      courierId,
+      new Date(0),
+      DELIVERY_ONGOING_STATUSES
+    )
+    const row = rows.find((job) => job.id === deliveryId)
     if (!row) {
-      // Cancelled over 24 hours ago: the outcome is saved, the card is gone anyway.
       throw new DeliveryNotFoundException('Delivery not found')
     }
-    return row
+    return this.toDto(row)
   }
 
   private toDto(row: Awaited<ReturnType<DeliveryRepository['findCancelledJobsForCourier']>>[number]) {

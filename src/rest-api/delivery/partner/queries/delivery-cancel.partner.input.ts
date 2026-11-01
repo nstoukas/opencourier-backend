@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsIn, IsOptional } from 'class-validator'
+import { IsIn, ValidateIf } from 'class-validator'
 import { EnumCancelledBy } from '@prisma/types'
 
 // Who asked for the cancellation (spec 0015). A restaurant's own cancellation after a rider accepted
@@ -9,8 +9,10 @@ export const PARTNER_CANCELLERS = [EnumCancelledBy.RESTAURANT, EnumCancelledBy.C
 
 export class DeliveryCancelPartnerInput {
   @ApiProperty({ required: false, enum: PARTNER_CANCELLERS, default: EnumCancelledBy.RESTAURANT })
-  @IsOptional()
-  // @IsIn = the value must be one of the listed ones; a typo or COOP answers 400.
+  // Not @IsOptional(): that also lets a JSON null skip @IsIn, and a null would then read as the
+  // co-op (row 32 review). @ValidateIf skips the checks only when the field is left out.
+  @ValidateIf((_input, value) => value !== undefined)
+  // @IsIn = the value must be one of the listed ones; null, a typo or COOP answers 400.
   @IsIn(PARTNER_CANCELLERS)
   cancelledBy?: (typeof PARTNER_CANCELLERS)[number]
 }

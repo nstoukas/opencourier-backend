@@ -309,9 +309,12 @@ export class DeliveryEventService {
           }
 
           // The accepted offer no longer has a deadline. offeredAt stays as the record of when it went out.
-          await this.deliveryRepository.update(deliveryId, { courierId, offerExpiresAt: null })
-
-          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+          // Written with the status in one conditional write (decision 32.17), so an accept that lost
+          // the race to a cancel leaves no rider on the cancelled delivery.
+          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
+            courierId,
+            offerExpiresAt: null,
+          })
 
           const courier = await this.courierRepository.findByIdOrThrow(courierId)
 
@@ -332,9 +335,8 @@ export class DeliveryEventService {
             throw new NotFoundException('Courier ID is required for dispatching')
           }
 
-          await this.deliveryRepository.update(deliveryId, { courierId })
-
-          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+          // With the status, in its conditional write (decision 32.17).
+          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, { courierId })
           break
         }
         case EnumDeliveryStatus.ON_THE_WAY: {
@@ -345,9 +347,8 @@ export class DeliveryEventService {
             throw new NotFoundException('Courier ID is required for dispatching')
           }
 
-          await this.deliveryRepository.update(deliveryId, { courierId })
-
-          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+          // With the status, in its conditional write (decision 32.17).
+          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, { courierId })
           break
         }
         case EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION:
@@ -1166,6 +1167,18 @@ export class DeliveryEventService {
       // The rider's phone: an alert of its own even when the app is closed (AC-7). Fire and forget.
       this.offerPushService.jobCancelled(dbDelivery.courierId, dbDelivery.id)
     }
+    // A rider offered it but not yet holding it drops the offer now, rather than ringing until the
+    // expiry job finds the status changed (row 32 review). Not their miss: MOVED, no skip list.
+    if (oldStatus === EnumDeliveryStatus.ASSIGNING_COURIER && dbDelivery.matchedCourierId) {
+      try {
+        const offeredCourier = await this.courierRepository.findById(dbDelivery.matchedCourierId)
+        if (offeredCourier) {
+          await this.sendOfferEndedToRider(offeredCourier, { deliveryId: dbDelivery.id, reason: 'MOVED' })
+        }
+      } catch (error) {
+        this.logger.error(`Could not end the open offer of cancelled delivery ${dbDelivery.id}: ${error}`)
+      }
+    }
 
     await this.removeNoCourierRetry(dbDelivery.id)
     if (dbDelivery.courierId) {
@@ -1194,6 +1207,11 @@ export class DeliveryEventService {
     }
     if (delivery.courierId) {
       await this.awardCancellationPay(delivery, delivery.courierId)
+    } else {
+      // Should not happen (a rider is set on accept); say so rather than leave it quietly unpaid.
+      this.logger.warn(
+        `Delivery ${delivery.id} was cancelled from ${delivery.cancelledFromStatus} with no rider: no cancellation pay`
+      )
     }
     if (delivery.cancelledBy === EnumCancelledBy.RESTAURANT) {
       await this.chargePartnerForCancellation(delivery)
@@ -1235,6 +1253,9 @@ export class DeliveryEventService {
       logContext.amount = award.amount
       logContext.policy = award.policy
 
+      // Check, then write: safe with one worker (BullMQ runs the sweep one job at a time, and the
+      // sweep leaves the newest minute to this inline call). A second backend instance would want a
+      // unique key on the event, due with the payments rows (row 32 review).
       const paidEvent = await this.deliveryEventRepository.findLatestOfTypes(delivery.id, [
         EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
       ])
@@ -1398,11 +1419,21 @@ export class DeliveryEventService {
     oldStatus: EnumDeliveryStatus,
     additionalDeliveryData: Omit<Prisma.DeliveryUncheckedUpdateInput, 'status'> = {}
   ) {
-    const updatedDelivery = await this.updateDeliveryStatus(
+    // Decision 32.17 (row 32 review): conditional on the status read when the event came in, like
+    // the cancel. A rider's drop off that lost the race to a paid cancellation must not land on top
+    // of it (paid twice, a restaurant charged for a delivered order). A miss throws, and
+    // processDeliveryEvent saves a failed transition, as for any event with no legal move.
+    const written = await this.deliveryRepository.updateIfMatches(
       deliveryEvent.deliveryId,
-      newStatus,
-      additionalDeliveryData
+      { status: oldStatus },
+      { status: newStatus, ...additionalDeliveryData }
     )
+    if (!written) {
+      throw new CantUpdateDeliveryStatusError(
+        `Delivery ${deliveryEvent.deliveryId} changed while ${deliveryEvent.type} was being applied (it was ${oldStatus}); the step did not take`
+      )
+    }
+    const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(deliveryEvent.deliveryId)
 
     await this.saveDeliveryEvent(deliveryEvent, {
       transitionSuccessful: true,
@@ -1505,17 +1536,6 @@ export class DeliveryEventService {
       deliveryId: deliveryEvent.deliveryId,
       transitionSuccessful: outcome.transitionSuccessful,
       type: deliveryEvent.type,
-    })
-  }
-
-  private async updateDeliveryStatus(
-    deliveryId: string,
-    status: EnumDeliveryStatus,
-    additionalData: Omit<Prisma.DeliveryUncheckedUpdateInput, 'status'> = {}
-  ) {
-    return await this.deliveryRepository.update(deliveryId, {
-      status,
-      ...additionalData,
     })
   }
 

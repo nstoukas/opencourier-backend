@@ -89,6 +89,8 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         ],
       },
       select: { id: true },
+      // Oldest first, so a backlog is worked through in order (row 32 review).
+      orderBy: { cancelledAt: 'asc' },
       take: 200,
     })
     return rows.map((row) => row.id)

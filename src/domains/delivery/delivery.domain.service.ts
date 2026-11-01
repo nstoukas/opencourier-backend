@@ -272,7 +272,9 @@ export class DeliveryDomainService {
   }
 
   // `cancelledBy` is who asked (spec 0015): the restaurant itself, or its customer through it.
-  async cancelDelivery(deliveryId: string, cancelledBy: EnumCancelledBy = EnumCancelledBy.RESTAURANT) {
+  async cancelDelivery(deliveryId: string, requestedBy?: EnumCancelledBy | null) {
+    // `??`, not a default parameter, so a null can never travel on as "nobody said" (row 32 review).
+    const cancelledBy = requestedBy ?? EnumCancelledBy.RESTAURANT
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     const canceledEvent: DeliveryCanceledEvent = {
