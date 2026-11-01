@@ -42,7 +42,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
   let mockDeliveryMatchingService: jest.Mocked<DeliveryMatchingService>
   let mockDeliveryCalculationService: jest.Mocked<DeliveryCalculationService>
   let mockBullMQService: jest.Mocked<BullMQService>
-  let mockConfigDomainService: jest.Mocked<ConfigDomainService>
+  let mockConfigDomainService: any
   let mockCacheService: jest.Mocked<CacheService>
   let mockOfferPushService: jest.Mocked<OfferPushService>
   let mockDispatchStopRepository: jest.Mocked<DispatchStopRepository>
@@ -65,6 +65,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       cancelledBy: null,
       cancelledFromStatus: null,
       cancelledAt: null,
+      cancellationPayoutPolicy: null,
       foodOutcome: null,
       foodOutcomeAt: null,
       ...overrides,
@@ -222,6 +223,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
           cancelledBy: EnumCancelledBy.RESTAURANT,
           cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
           cancelledAt: expect.any(Date),
+          cancellationPayoutPolicy: 'FULL_COMPENSATION',
         })
       )
     })
@@ -954,6 +956,240 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       expect(mockCourierCompensationRepository.createCancellationAwardOnce).not.toHaveBeenCalled()
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION })
+      )
+    })
+  })
+
+  describe('Decision 32.18: Cancellation payout rule recorded at cancel and used at award (AC-4)', () => {
+    it('records the cancellation payout policy in force in updateIfMatches at cancel time', async () => {
+      mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy.mockResolvedValue('HALF_COMPENSATION')
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancellationPayoutPolicy: 'HALF_COMPENSATION',
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      // The CANCELED conditional write records cancellationPayoutPolicy equal to the rule read at cancel time
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.ACCEPTED, courierId },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.CANCELED,
+          cancelledBy: EnumCancelledBy.RESTAURANT,
+          cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+          cancellationPayoutPolicy: 'HALF_COMPENSATION',
+        })
+      )
+    })
+
+    it('writes CANCELED with cancellationPayoutPolicy null and logs a warning if getCancellationPayoutPolicy rejects during cancel', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'warn')
+      mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy.mockRejectedValue(
+        new Error('Failed to read config from database')
+      )
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancellationPayoutPolicy: null,
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      // 1. The conditional write still executes CANCELED with cancellationPayoutPolicy null
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.ACCEPTED, courierId },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.CANCELED,
+          cancellationPayoutPolicy: null,
+        })
+      )
+
+      // 2. The cancellation event is marked successful (not thrown / aborted)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.CANCELED,
+          transitionSuccessful: true,
+        })
+      )
+
+      // 3. A warning naming delivery and error is logged
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not read cancellationPayoutPolicy while cancelling ${deliveryId}`)
+      )
+    })
+
+    it('awardCancellationPay pays under the recorded key even when the current rule differs, without calling getCancellationPayoutPolicy', async () => {
+      // Current rule in instance config is QUARTER_COMPENSATION (25%)
+      mockConfigDomainService.instanceConfig.getReassignmentPayoutPolicies.mockResolvedValue({
+        FULL_COMPENSATION: 100,
+        QUARTER_COMPENSATION: 25,
+      })
+      mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy.mockResolvedValue('QUARTER_COMPENSATION')
+
+      // Delivery was cancelled when rule was FULL_COMPENSATION (recorded on delivery row)
+      const delivery = makeDelivery({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+        courierId,
+        totalCompensation: 277,
+        cancellationPayoutPolicy: 'FULL_COMPENSATION',
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+
+      await service.settleCancellation(deliveryId)
+
+      // 1. Must NOT call getCancellationPayoutPolicy because the policy is already recorded
+      expect(mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy).not.toHaveBeenCalled()
+
+      // 2. Pays under the recorded key FULL_COMPENSATION: amount 277 (not 277 * 0.25 = 69)
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 277,
+          policy: 'FULL_COMPENSATION',
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          courierId,
+          deliveryId,
+          cancellationOf: deliveryId,
+        })
+      )
+
+      // 3. COURIER_PAID_FOR_CANCELLATION event records the pay under FULL_COMPENSATION
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+          actor: EnumEventActor.SYSTEM,
+          courierId,
+          message: expect.stringContaining('FULL_COMPENSATION'),
+        })
+      )
+    })
+
+    it('uses the current rule when delivery has cancellationPayoutPolicy null (277 under QUARTER -> 69)', async () => {
+      // Menu with FULL (100%) and QUARTER (25%)
+      mockConfigDomainService.instanceConfig.getReassignmentPayoutPolicies.mockResolvedValue({
+        FULL_COMPENSATION: 100,
+        QUARTER_COMPENSATION: 25,
+      })
+      // Current rule in instance config is QUARTER_COMPENSATION
+      mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy.mockResolvedValue('QUARTER_COMPENSATION')
+
+      // Delivery cancelled before column existed or when read failed (cancellationPayoutPolicy is null)
+      const delivery = makeDelivery({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+        courierId,
+        totalCompensation: 277,
+        cancellationPayoutPolicy: null,
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+
+      await service.settleCancellation(deliveryId)
+
+      // 1. Reads current rule from getCancellationPayoutPolicy
+      expect(mockConfigDomainService.instanceConfig.getCancellationPayoutPolicy).toHaveBeenCalledTimes(1)
+
+      // 2. Pays under QUARTER_COMPENSATION: round(277 * 25 / 100) = 69
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 69,
+          policy: 'QUARTER_COMPENSATION',
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          courierId,
+          deliveryId,
+        })
+      )
+
+      // 3. Paid event message contains QUARTER_COMPENSATION and 69
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+          courierId,
+          message: expect.stringMatching(/QUARTER_COMPENSATION.*69|69.*QUARTER_COMPENSATION/),
+        })
+      )
+    })
+
+    it('degrades to FULL_COMPENSATION with a warning when recorded policy key is no longer on the menu', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'warn')
+
+      // Current menu no longer has OBSOLETE_POLICY
+      mockConfigDomainService.instanceConfig.getReassignmentPayoutPolicies.mockResolvedValue({
+        FULL_COMPENSATION: 100,
+        QUARTER_COMPENSATION: 25,
+      })
+
+      // Delivery recorded OBSOLETE_POLICY at cancel time
+      const delivery = makeDelivery({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+        courierId,
+        totalCompensation: 277,
+        cancellationPayoutPolicy: 'OBSOLETE_POLICY',
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+
+      await service.settleCancellation(deliveryId)
+
+      // 1. Logs warning naming the off-menu policy fallback to FULL_COMPENSATION
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Cancellation pay for delivery del-cancel-spec15: cancellationPayoutPolicy 'OBSOLETE_POLICY' is not a usable key of reassignmentPayoutPolicies; paid under 'FULL_COMPENSATION' instead"
+        )
+      )
+
+      // 2. Pays under fallback FULL_COMPENSATION (amount 277)
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 277,
+          policy: 'FULL_COMPENSATION',
+          courierId,
+          deliveryId,
+        })
+      )
+
+      // 3. Event recorded with fallback policy
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+          courierId,
+          message: expect.stringContaining('FULL_COMPENSATION'),
+        })
       )
     })
   })
