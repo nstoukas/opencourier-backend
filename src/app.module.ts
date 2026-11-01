@@ -3,6 +3,7 @@ import { MiddlewareConsumer, Module, ModuleMetadata, NestModule, RequestMethod }
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { CancellationSweepModule } from './services/cancellation/cancellation-sweep.module'
 
 // General
 import { REDIS_URL } from './constants'
@@ -89,7 +90,8 @@ const REST_API_MODULES: ModuleMetadata['imports'] = [
   PublicRestApiModule,
 ]
 
-const INFRASTRUCTURE_MODULES: ModuleMetadata['imports'] = [EventBusModule, TaskBusModule, StorageModule]
+// CancellationSweepModule: the minute job that completes a cancelled job's pay (spec 0015).
+const INFRASTRUCTURE_MODULES: ModuleMetadata['imports'] = [EventBusModule, TaskBusModule, StorageModule, CancellationSweepModule]
 
 const INTEGRATION_MODULES: ModuleMetadata['imports'] = [
   BullMQModule,

@@ -159,6 +159,7 @@ model Partner {
   deliveries     Delivery[]
   deliveryQuotes DeliveryQuote[]
   savedCustomers SavedCustomer[]
+  charges        PartnerCharge[]
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -312,6 +313,16 @@ model Delivery {
   offeredAt          DateTime?
   offerExpiresAt     DateTime?
 
+  // A cancellation (spec 0015). Set with the CANCELED status write, which is conditional, so
+  // cancelledFromStatus is always the status the cancellation really came from; it decides the
+  // rider's pay, the restaurant's charge and the food instructions.
+  cancelledBy         EnumCancelledBy?
+  cancelledFromStatus EnumDeliveryStatus?
+  cancelledAt         DateTime?
+  // What happened to food picked up before the cancellation: null until the rider records it.
+  foodOutcome         EnumFoodOutcome?
+  foodOutcomeAt       DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -326,8 +337,11 @@ model Delivery {
   locationNote         LocationNote[]
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
+  partnerCharge        PartnerCharge?
 
   @@unique([idempotencyKey, partnerId])
+  // A rider's cancelled jobs of the last 24 hours (spec 0015).
+  @@index([courierId, cancelledAt])
 }
 
 model DeliveryEvent {
@@ -560,6 +574,10 @@ enum EnumDeliveryEventType {
   NO_COURIER_AVAILABLE
   // A delivery accepted but not picked up, sent back to waiting when dispatch stops (spec 0014).
   RETURNED_TO_WAITING
+  // Spec 0015: recorded on a CANCELED delivery without a status change, never in STATE_MACHINE.
+  COURIER_PAID_FOR_CANCELLATION
+  FOOD_RETURNED
+  FOOD_NOT_RETURNED
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -589,22 +607,63 @@ model DeliveryIssue {
 
 enum EnumCourierCompensationReason {
   REASSIGNMENT
+  // Paid to the rider who held a delivery cancelled after they accepted it (spec 0015).
+  CANCELLATION
+}
+
+// Who cancelled a delivery (spec 0015). The partner says RESTAURANT or CUSTOMER; an admin may say COOP.
+enum EnumCancelledBy {
+  RESTAURANT
+  CUSTOMER
+  COOP
+}
+
+// What happened to food picked up before a cancellation, as the rider recorded it (spec 0015).
+enum EnumFoodOutcome {
+  RETURNED
+  NOT_RETURNED
+}
+
+enum EnumPartnerChargeReason {
+  CANCELLATION
+}
+
+// What a restaurant owes the co-op, recorded now and invoiced by the payments rows later
+// (spec 0015: a restaurant's own cancellation after a rider accepted, for the delivery's price).
+model PartnerCharge {
+  id           String                  @id @default(cuid())
+  partnerId    String
+  partner      Partner                 @relation(fields: [partnerId], references: [id])
+  // One charge per delivery: the unique key makes a retry harmless.
+  deliveryId   String                  @unique
+  delivery     Delivery                @relation(fields: [deliveryId], references: [id])
+  amount       Int // cents
+  currencyCode String                  @postgres.VarChar(255)
+  reason       EnumPartnerChargeReason
+  createdAt    DateTime                @default(now())
+  // null until a payments row invoices it.
+  invoicedAt   DateTime?
+
+  @@index([partnerId, createdAt])
 }
 
 // A payment owed to a courier that is NOT attached to a DROPPED_OFF event —
 // e.g. the payout awarded to a rider dropped by an admin reassignment.
 model CourierCompensation {
-  id           String                        @id @default(cuid())
-  amount       Int // cents
-  currencyCode String                        @postgres.VarChar(255)
-  reason       EnumCourierCompensationReason
-  policy       String // the policy key from the votable Config menu, e.g. FULL_COMPENSATION
-  message      String?
-  courierId    String
-  courier      Courier                       @relation(fields: [courierId], references: [id])
-  deliveryId   String
-  delivery     Delivery                      @relation(fields: [deliveryId], references: [id])
-  createdAt    DateTime                      @default(now())
+  id             String                        @id @default(cuid())
+  amount         Int // cents
+  currencyCode   String                        @postgres.VarChar(255)
+  reason         EnumCourierCompensationReason
+  policy         String // the policy key from the votable Config menu, e.g. FULL_COMPENSATION
+  message        String?
+  courierId      String
+  courier        Courier                       @relation(fields: [courierId], references: [id])
+  deliveryId     String
+  delivery       Delivery                      @relation(fields: [deliveryId], references: [id])
+  // The delivery id on a CANCELLATION row, null on every REASSIGNMENT row (spec 0015). Unique,
+  // so one cancellation can never pay twice; Postgres allows any number of nulls under it.
+  cancellationOf String?                       @unique
+  createdAt      DateTime                      @default(now())
 
   // Earnings queries filter by courier + date range; DeliveryEvent's missing
   // createdAt index is a known mistake — do not repeat it here.

@@ -9,6 +9,8 @@ export interface ICourierCompensationCreateInput {
   message?: string
   courierId: string
   deliveryId: string
+  // Set only on a CANCELLATION row, to the delivery id (spec 0015): the unique idempotency key.
+  cancellationOf?: string
 }
 
 export interface ICourierCompensationRepository {

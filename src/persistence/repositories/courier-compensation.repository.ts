@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { CourierCompensation } from '@prisma/types'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
+import { isUniqueConstraintError } from 'src/prisma.util'
 import {
   ICourierCompensationRepository,
   ICourierCompensationCreateInput,
@@ -24,6 +25,25 @@ export class CourierCompensationRepository
     return this.prisma.courierCompensation.create({
       data: input,
     })
+  }
+
+  // The award for a delivery's cancellation, or null (spec 0015).
+  async findCancellationAward(deliveryId: string): Promise<CourierCompensation | null> {
+    return this.prisma.courierCompensation.findUnique({ where: { cancellationOf: deliveryId } })
+  }
+
+  // Writes the cancellation award once. A second writer (the sweep racing the inline award) hits
+  // the unique key and gets the row that is already there instead.
+  async createCancellationAwardOnce(input: ICourierCompensationCreateInput & { cancellationOf: string }) {
+    try {
+      return await this.create(input)
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.findCancellationAward(input.cancellationOf)
+        if (existing) return existing
+      }
+      throw error
+    }
   }
 
   // Used only to undo an award that was written moments earlier for a reassignment that

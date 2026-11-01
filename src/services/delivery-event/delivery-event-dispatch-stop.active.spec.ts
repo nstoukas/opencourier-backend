@@ -176,7 +176,9 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       mockConfigDomainService,
       mockCacheService,
       mockOfferPushService,
-      mockDispatchStopRepository
+      mockDispatchStopRepository,
+      {} as any,
+      {} as any
     )
   })
 

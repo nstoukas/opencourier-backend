@@ -43,6 +43,7 @@ import {
   convertToKM,
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+  FALLBACK_CANCELLATION_PAYOUT_POLICY,
 } from 'src/shared-types/index'
 import { ConfigService } from '@nestjs/config'
 import { ConfigKey } from 'src/shared-types/index'
@@ -149,6 +150,7 @@ export class InstanceConfigDomainService {
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
+    const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -182,6 +184,7 @@ export class InstanceConfigDomainService {
       noCourierRetrySeconds,
       savedCustomerRetentionMonths,
       dispatchPhoneNumber,
+      cancellationPayoutPolicy,
     }
   }
 
@@ -254,6 +257,41 @@ export class InstanceConfigDomainService {
         throw new BadRequestException(
           `Cannot save reassignmentPayoutPolicies: ${explanation}. Allowed policies: ${allowedKeys}. ` +
             `Send reassignmentPayoutDefaultPolicy together with reassignmentPayoutPolicies to set both in one request.`
+        )
+      }
+    }
+
+    // Spec 0015, AC-4: the cancellation rule must always name a key of the menu that will be in force.
+    const menuAfterSave =
+      data.reassignmentPayoutPolicies !== undefined
+        ? data.reassignmentPayoutPolicies
+        : data.cancellationPayoutPolicy !== undefined
+          ? await this.getReassignmentPayoutPolicies()
+          : null
+    if (data.cancellationPayoutPolicy !== undefined && menuAfterSave !== null) {
+      // typeof also catches a JSON null, which @IsOptional lets through.
+      if (
+        typeof data.cancellationPayoutPolicy !== 'string' ||
+        !Object.prototype.hasOwnProperty.call(menuAfterSave, data.cancellationPayoutPolicy)
+      ) {
+        throw new BadRequestException(
+          `Invalid cancellationPayoutPolicy '${String(data.cancellationPayoutPolicy)}': must be a key in reassignmentPayoutPolicies. ` +
+            `Allowed policies: ${Object.keys(menuAfterSave).join(', ')}`
+        )
+      }
+    }
+    // A new menu without a new rule must keep the rule in force (the stored key, or the fallback).
+    if (data.reassignmentPayoutPolicies !== undefined && data.cancellationPayoutPolicy === undefined) {
+      const storedRule = await this.getStoredCancellationPayoutPolicy()
+      const ruleInForce = storedRule ?? FALLBACK_CANCELLATION_PAYOUT_POLICY
+      if (!Object.prototype.hasOwnProperty.call(data.reassignmentPayoutPolicies, ruleInForce)) {
+        const explanation =
+          storedRule !== null
+            ? `the stored cancellationPayoutPolicy '${storedRule}' is not a key in the new menu`
+            : `this instance has no stored cancellationPayoutPolicy, so the built-in fallback '${FALLBACK_CANCELLATION_PAYOUT_POLICY}' applies, and it is not a key in the new menu`
+        throw new BadRequestException(
+          `Cannot save reassignmentPayoutPolicies: ${explanation}. Allowed policies: ${Object.keys(data.reassignmentPayoutPolicies).join(', ')}. ` +
+            `Send cancellationPayoutPolicy together with reassignmentPayoutPolicies to set both in one request.`
         )
       }
     }
@@ -399,6 +437,10 @@ export class InstanceConfigDomainService {
         ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
         data.savedCustomerRetentionMonths
       )
+    }
+
+    if (data.cancellationPayoutPolicy !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.CANCELLATION_PAYOUT_POLICY, data.cancellationPayoutPolicy)
     }
 
     // !== undefined, never a truthy check: '' is how a representative clears the number.
@@ -740,6 +782,26 @@ export class InstanceConfigDomainService {
 
     this.logger.warn(`Invalid ${ConfigKey.DISPATCH_PHONE_NUMBER} in config, showing riders no dispatch number`)
     return null
+  }
+
+  // Spec 0015: the stored cancellation rule, or null when none is stored (read quietly: no row is
+  // the normal state, the fallback FULL_COMPENSATION then applies).
+  async getStoredCancellationPayoutPolicy(): Promise<string | null> {
+    try {
+      const value = (await this.configRepository.getByKey(ConfigKey.CANCELLATION_PAYOUT_POLICY)).normalizedValue
+      return typeof value === 'string' && value !== '' ? value : null
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return null
+      }
+      throw error
+    }
+  }
+
+  // The rule in force: the stored key, or FULL_COMPENSATION. Whether it is on the menu is checked
+  // when it is used (resolveCancellationPayout), so a broken row never stops a rider being paid.
+  async getCancellationPayoutPolicy(): Promise<string> {
+    return (await this.getStoredCancellationPayoutPolicy()) ?? FALLBACK_CANCELLATION_PAYOUT_POLICY
   }
 
   // Saving already refuses anything outside the range, so a bad stored value means someone edited

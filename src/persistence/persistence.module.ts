@@ -13,6 +13,7 @@ import { LocationNoteReactionRepository } from './repositories/location-note-rea
 import { CourierCompensationRepository } from './repositories/courier-compensation.repository'
 import { CourierDeviceRepository } from './repositories/courier-device.repository'
 import { DispatchStopRepository } from './repositories/dispatch-stop.repository'
+import { PartnerChargeRepository } from './repositories/partner-charge.repository'
 import { DeliveryIssueRepository } from './repositories/delivery-issue.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 
@@ -33,6 +34,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     CourierCompensationRepository,
     CourierDeviceRepository,
     DispatchStopRepository,
+    PartnerChargeRepository,
     DeliveryIssueRepository,
     SavedCustomerRepository,
   ],
@@ -51,6 +53,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     CourierCompensationRepository,
     CourierDeviceRepository,
     DispatchStopRepository,
+    PartnerChargeRepository,
     DeliveryIssueRepository,
     SavedCustomerRepository,
   ],

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { EnumDeliveryEventType } from '@prisma/types'
+import { EnumDeliveryEventType, EnumCancelledBy } from '@prisma/types'
 import { IsEnum, IsString, IsOptional, IsDate } from 'class-validator'
 import { Type } from 'class-transformer'
 
@@ -28,6 +28,15 @@ export class DeliverySubmitEventAdminInput {
   @IsString()
   @IsOptional()
   courierId?: string
+
+  @ApiProperty({
+    required: false,
+    enum: EnumCancelledBy,
+    description: 'Only with eventType CANCELED (spec 0015): who asked for the cancellation. Defaults to COOP.',
+  })
+  @IsOptional()
+  @IsEnum(EnumCancelledBy)
+  cancelledBy?: EnumCancelledBy
 
   @ApiProperty({
     required: false,

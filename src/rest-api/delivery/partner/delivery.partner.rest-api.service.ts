@@ -1,4 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { EnumCancelledBy } from '@prisma/types'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
@@ -250,14 +251,14 @@ export class DeliveryPartnerRestApiService {
     return updatedDelivery
   }
 
-  async cancel(deliveryId: string, partnerId: string) {
+  async cancel(deliveryId: string, partnerId: string, cancelledBy: EnumCancelledBy = EnumCancelledBy.RESTAURANT) {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
 
     if (delivery.partnerId !== partnerId) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.cancelDelivery(deliveryId)
+    const updatedDelivery = await this.deliveryDomainService.cancelDelivery(deliveryId, cancelledBy)
 
     return updatedDelivery
   }

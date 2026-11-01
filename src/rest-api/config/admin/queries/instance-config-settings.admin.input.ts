@@ -132,6 +132,14 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsString()
   dispatchPhoneNumber?: string
 
+  // Spec 0015: which payout policy pays a rider whose job is cancelled. A key of
+  // reassignmentPayoutPolicies; the domain service checks it against the menu.
+  @ApiProperty({ type: String, required: false })
+  @IsOptional()
+  @IsString()
+  @RefuseIfNotSentAsString()
+  cancellationPayoutPolicy?: string
+
   // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

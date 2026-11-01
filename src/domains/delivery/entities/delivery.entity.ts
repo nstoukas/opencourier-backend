@@ -1,4 +1,12 @@
-import { EnumDeliveryStatus, Delivery, Prisma, EnumUndeliverableAction, EnumDeliverableAction } from '@prisma/types'
+import {
+  EnumDeliveryStatus,
+  Delivery,
+  Prisma,
+  EnumUndeliverableAction,
+  EnumDeliverableAction,
+  EnumCancelledBy,
+  EnumFoodOutcome,
+} from '@prisma/types'
 
 export class DeliveryEntity implements Delivery {
   id: string
@@ -56,6 +64,12 @@ export class DeliveryEntity implements Delivery {
   // The open offer's start and end (spec 0002); null when there is no open offer, or it never expires.
   offeredAt: Date | null
   offerExpiresAt: Date | null
+  // A cancellation and the food outcome after it (spec 0015).
+  cancelledBy: EnumCancelledBy | null
+  cancelledFromStatus: EnumDeliveryStatus | null
+  cancelledAt: Date | null
+  foodOutcome: EnumFoodOutcome | null
+  foodOutcomeAt: Date | null
 
   createdAt: Date
   updatedAt: Date
@@ -116,6 +130,11 @@ export class DeliveryEntity implements Delivery {
     this.matchedCourierId = data.matchedCourierId
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
+    this.cancelledBy = data.cancelledBy
+    this.cancelledFromStatus = data.cancelledFromStatus
+    this.cancelledAt = data.cancelledAt
+    this.foodOutcome = data.foodOutcome
+    this.foodOutcomeAt = data.foodOutcomeAt
 
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

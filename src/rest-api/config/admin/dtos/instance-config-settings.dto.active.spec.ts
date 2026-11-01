@@ -41,6 +41,7 @@ describe('InstanceConfigSettingsDto', () => {
     noCourierRetrySeconds: 30,
     savedCustomerRetentionMonths: 12,
     dispatchPhoneNumber: null,
+    cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

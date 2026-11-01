@@ -36,4 +36,5 @@ export class InstanceConfigSettingsInput {
   noCourierRetrySeconds?: number
   savedCustomerRetentionMonths?: number
   dispatchPhoneNumber?: string
+  cancellationPayoutPolicy?: string
 }

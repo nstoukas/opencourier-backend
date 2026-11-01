@@ -91,6 +91,9 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: String, nullable: true })
   dispatchPhoneNumber: string | null
 
+  @ApiProperty({ type: String })
+  cancellationPayoutPolicy: string
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -122,5 +125,6 @@ export class InstanceConfigSettingsDto {
     this.noCourierRetrySeconds = data.noCourierRetrySeconds
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
+    this.cancellationPayoutPolicy = data.cancellationPayoutPolicy
   }
 }

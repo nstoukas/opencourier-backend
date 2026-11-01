@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
-import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason } from '@prisma/types'
+import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason, EnumCancelledBy } from '@prisma/types'
 import { IDeliveryUpdate } from './interfaces/IDeliveryUpdate'
 import { DeliveryOfferView } from './types/delivery-offer-view.type'
 import { DeliveryEntity } from './entities/delivery.entity'
@@ -266,16 +266,19 @@ export class DeliveryDomainService {
     return delivery
   }
 
-  async cancelDelivery(deliveryId: string) {
+  // `cancelledBy` is who asked (spec 0015): the restaurant itself, or its customer through it.
+  async cancelDelivery(deliveryId: string, cancelledBy: EnumCancelledBy = EnumCancelledBy.RESTAURANT) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
-    await this.deliveryEventService.processDeliveryEvent({
+    const canceledEvent: DeliveryCanceledEvent = {
       deliveryId: delivery.id,
       type: EnumDeliveryEventType.CANCELED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Delivery ${delivery.id} was canceled by partner ${delivery.partnerId}`,
-    })
+      cancelledBy,
+      message: `Delivery ${delivery.id} was canceled by partner ${delivery.partnerId} (cancelled by: ${cancelledBy})`,
+    }
+    await this.deliveryEventService.processDeliveryEvent(canceledEvent)
 
     return delivery
   }
@@ -625,6 +628,11 @@ export class DeliveryDomainService {
   async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string) {
     const actor = EnumEventActor.ADMIN
 
+    // Who cancelled belongs only to a cancellation (spec 0015): anywhere else it is a mistake.
+    if (event.cancelledBy !== undefined && event.eventType !== EnumDeliveryEventType.CANCELED) {
+      throw new BadRequestException('cancelledBy can only be sent with eventType CANCELED')
+    }
+
     switch (event.eventType) {
       case EnumDeliveryEventType.REASSIGNED:
         throw new BadRequestException('Use POST /api/admin/v1/deliveries/:id/reassign to reassign a delivery')
@@ -689,7 +697,9 @@ export class DeliveryDomainService {
           type: EnumDeliveryEventType.CANCELED,
           actor,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message: `order canceled by admin`,
+          // An admin acting on the co-op's own decision unless they say the restaurant or customer asked.
+          cancelledBy: event.cancelledBy ?? EnumCancelledBy.COOP,
+          message: `order canceled by admin (cancelled by: ${event.cancelledBy ?? EnumCancelledBy.COOP})`,
         }
         await this.deliveryEventService.processDeliveryEvent(canceledEvent)
         break

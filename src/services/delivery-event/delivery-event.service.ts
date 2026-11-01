@@ -7,6 +7,9 @@ import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
   EnumEventActor,
+  EnumCancelledBy,
+  EnumCourierCompensationReason,
+  EnumPartnerChargeReason,
   Prisma,
 } from '@prisma/types'
 import {
@@ -16,6 +19,10 @@ import {
   DeliveryOfferedEvent,
   DeliveryOfferExpiredEvent,
   DeliveryReturnedToWaitingEvent,
+  DeliveryCourierPaidForCancellationEvent,
+  DeliveryFoodReturnedEvent,
+  DeliveryFoodNotReturnedEvent,
+  DELIVERY_ONGOING_STATUSES,
   OfferEndedMessage,
   OfferEndedReason,
   STATE_MACHINE,
@@ -48,6 +55,9 @@ import { OfferPushService } from '../pushNotification/offer-push.service'
 import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
+import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
+import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -113,7 +123,10 @@ export class DeliveryEventService {
     private readonly cacheService: CacheService,
     // Spec 0003: the push half of telling a rider about an offer (off unless Firebase is set up).
     private readonly offerPushService: OfferPushService,
-    private readonly dispatchStopRepository: DispatchStopRepository
+    private readonly dispatchStopRepository: DispatchStopRepository,
+    // Spec 0015: the rider's pay and the restaurant's charge when a job is cancelled.
+    private readonly courierCompensationRepository: CourierCompensationRepository,
+    private readonly partnerChargeRepository: PartnerChargeRepository
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -378,7 +391,7 @@ export class DeliveryEventService {
         case EnumDeliveryStatus.CANCELED: {
           this.logger.log(`Delivery ${deliveryEvent.deliveryId} was canceled by: ${deliveryEvent.actor}`)
 
-          await this.endDelivery(dbDelivery, deliveryEvent, newStatus, currentStatus)
+          await this.cancelDelivery(dbDelivery, deliveryEvent, currentStatus)
           break
         }
         default:
@@ -1097,6 +1110,190 @@ export class DeliveryEventService {
   // CANCELED or FAILED (flow 7): an open offer ends with the status change and the backstop goes.
   // A pending offer-expiry job finds the status changed and does nothing. If a rider was working the
   // delivery, they are free again.
+  // Spec 0015. The CANCELED status write is conditional on the status and rider read when the event
+  // came in (AC-14): a drop off, a pickup, a reassignment or another cancel that got there first
+  // makes it miss, the throw below makes processDeliveryEvent save a failed transition, and nothing
+  // is paid or charged. When it lands, cancelledFromStatus is truly where the cancellation came from.
+  private async cancelDelivery(dbDelivery: DeliveryEntity, deliveryEvent: DeliveryEvent, oldStatus: EnumDeliveryStatus) {
+    const cancelledBy =
+      deliveryEvent.type === EnumDeliveryEventType.CANCELED && deliveryEvent.cancelledBy
+        ? deliveryEvent.cancelledBy
+        : EnumCancelledBy.COOP
+    const clearOffer =
+      oldStatus === EnumDeliveryStatus.ASSIGNING_COURIER
+        ? { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        : {}
+
+    const written = await this.deliveryRepository.updateIfMatches(
+      dbDelivery.id,
+      { status: oldStatus, courierId: dbDelivery.courierId },
+      {
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledBy,
+        cancelledFromStatus: oldStatus,
+        cancelledAt: new Date(),
+        ...clearOffer,
+      }
+    )
+    if (!written) {
+      throw new CantUpdateDeliveryStatusError(
+        `Delivery ${dbDelivery.id} changed while it was being cancelled (it was ${oldStatus}); the cancellation did not take`
+      )
+    }
+
+    await this.saveDeliveryEvent(deliveryEvent, {
+      transitionSuccessful: true,
+      oldStatus,
+      newStatus: EnumDeliveryStatus.CANCELED,
+    })
+
+    // From here the delivery is cancelled. Each step below is guarded: none may undo that or skip
+    // the next. The pay comes before the rider is told, so the card can show the amount at once.
+    await this.settleCancellation(dbDelivery.id)
+
+    try {
+      const updated = await this.deliveryRepository.findByIdOrThrow(dbDelivery.id)
+      if (updated.partnerId) {
+        await this.notifyPartner(updated.partnerId, EnumDeliveryStatus.CANCELED, oldStatus, deliveryEvent)
+      }
+      if (updated.courierId) {
+        await this.notifyCourier(updated.courierId, updated, EnumDeliveryStatus.CANCELED, oldStatus, deliveryEvent)
+      }
+    } catch (error) {
+      this.logger.error(`Could not tell the restaurant or rider that delivery ${dbDelivery.id} was cancelled: ${error}`)
+    }
+    if (dbDelivery.courierId && DELIVERY_ONGOING_STATUSES.includes(oldStatus)) {
+      // The rider's phone: an alert of its own even when the app is closed (AC-7). Fire and forget.
+      this.offerPushService.jobCancelled(dbDelivery.courierId, dbDelivery.id)
+    }
+
+    await this.removeNoCourierRetry(dbDelivery.id)
+    if (dbDelivery.courierId) {
+      await this.matchWaitingDeliveries()
+    }
+  }
+
+  // Spec 0015. Pays the rider and charges the restaurant for a cancellation that came after a rider
+  // accepted, whichever of the two is still missing. Safe to call any number of times (the inline
+  // call above and the minute sweep): each half is written once. Never throws.
+  async settleCancellation(deliveryId: string): Promise<void> {
+    let delivery: DeliveryEntity | null
+    try {
+      delivery = await this.deliveryRepository.findById(deliveryId)
+    } catch (error) {
+      this.logger.error(`CANCELLATION_SETTLE_FAILED {"deliveryId":"${deliveryId}"}: ${error}`)
+      return
+    }
+    if (
+      !delivery ||
+      !delivery.cancelledAt ||
+      !delivery.cancelledFromStatus ||
+      !DELIVERY_ONGOING_STATUSES.includes(delivery.cancelledFromStatus)
+    ) {
+      return
+    }
+    if (delivery.courierId) {
+      await this.awardCancellationPay(delivery, delivery.courierId)
+    }
+    if (delivery.cancelledBy === EnumCancelledBy.RESTAURANT) {
+      await this.chargePartnerForCancellation(delivery)
+    }
+  }
+
+  // Two halves, each written only if missing: the CourierCompensation row (unique by delivery), then
+  // its COURIER_PAID_FOR_CANCELLATION event, which reads what the row paid (AC-1, AC-2). Never throws:
+  // a failure is logged with ids and amount only, and the sweep completes the missing half (AC-10).
+  private async awardCancellationPay(delivery: DeliveryEntity, courierId: string): Promise<void> {
+    const logContext: Record<string, string | number | null> = {
+      deliveryId: delivery.id,
+      courierId,
+      amount: null,
+      policy: null,
+    }
+    try {
+      let award = await this.courierCompensationRepository.findCancellationAward(delivery.id)
+      if (!award) {
+        const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
+        const storedPolicy = await this.configDomainService.instanceConfig.getCancellationPayoutPolicy()
+        const { policy, amount, warnings } = resolveCancellationPayout(menu, storedPolicy, delivery.totalCompensation)
+        logContext.amount = amount
+        logContext.policy = policy
+        for (const warning of warnings) {
+          this.logger.warn(`Cancellation pay for delivery ${delivery.id}: ${warning}`)
+        }
+        award = await this.courierCompensationRepository.createCancellationAwardOnce({
+          amount,
+          currencyCode: delivery.currencyCode,
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          policy,
+          message: `Paid for a job cancelled by ${delivery.cancelledBy ?? EnumCancelledBy.COOP}`,
+          courierId,
+          deliveryId: delivery.id,
+          cancellationOf: delivery.id,
+        })
+      }
+      logContext.amount = award.amount
+      logContext.policy = award.policy
+
+      const paidEvent = await this.deliveryEventRepository.findLatestOfTypes(delivery.id, [
+        EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+      ])
+      if (!paidEvent) {
+        const event: DeliveryCourierPaidForCancellationEvent = {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: award.courierId,
+          message:
+            `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents) under ${award.policy} ` +
+            `for cancellation by ${delivery.cancelledBy ?? EnumCancelledBy.COOP}`,
+        }
+        await this.recordCancellationEvent(event, delivery.status)
+      }
+    } catch (error) {
+      this.logger.error(`CANCELLATION_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${error}`, (error as Error).stack)
+    }
+  }
+
+  // A restaurant's own cancellation after a rider accepted is charged to it, the delivery's price
+  // (AC-6). Written once; never throws.
+  private async chargePartnerForCancellation(delivery: DeliveryEntity): Promise<void> {
+    if (!delivery.partnerId) {
+      this.logger.warn(`Delivery ${delivery.id} was cancelled by the restaurant but has no partner: no charge recorded`)
+      return
+    }
+    const amount = delivery.totalCost ?? 0
+    try {
+      if (await this.partnerChargeRepository.findByDeliveryId(delivery.id)) return
+      if (delivery.totalCost === null) {
+        this.logger.warn(`Delivery ${delivery.id} has no totalCost: the restaurant's cancellation charge is 0`)
+      }
+      await this.partnerChargeRepository.createOnce({
+        partnerId: delivery.partnerId,
+        deliveryId: delivery.id,
+        amount,
+        currencyCode: delivery.currencyCode,
+        reason: EnumPartnerChargeReason.CANCELLATION,
+      })
+    } catch (error) {
+      this.logger.error(
+        `CANCELLATION_CHARGE_FAILED ${JSON.stringify({ deliveryId: delivery.id, partnerId: delivery.partnerId, amount })}: ${error}`,
+        (error as Error).stack
+      )
+    }
+  }
+
+  // Spec 0015. Records a cancellation event (the pay, a food outcome) on a delivery whose status does
+  // not change: never through processDeliveryEvent, which would drop it (no legal transition). The
+  // status is CANCELED, or FAILED if the cancelled delivery has failed since.
+  async recordCancellationEvent(
+    event: DeliveryCourierPaidForCancellationEvent | DeliveryFoodReturnedEvent | DeliveryFoodNotReturnedEvent,
+    status: EnumDeliveryStatus
+  ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
   private async endDelivery(
     dbDelivery: DeliveryEntity,
     deliveryEvent: DeliveryEvent,
@@ -1285,8 +1482,13 @@ export class DeliveryEventService {
     // Only OFFERED and OFFER_EXPIRED name a rider in the courierId column (spec 0002). Every
     // other event leaves it out (null), even when the event object carries a courierId.
     // Checking `type` narrows the union, so TypeScript knows courierId is a string on these two.
+    // Spec 0015 adds the three cancellation records, which are each about one rider.
     const riderId =
-      deliveryEvent.type === EnumDeliveryEventType.OFFERED || deliveryEvent.type === EnumDeliveryEventType.OFFER_EXPIRED
+      deliveryEvent.type === EnumDeliveryEventType.OFFERED ||
+      deliveryEvent.type === EnumDeliveryEventType.OFFER_EXPIRED ||
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION ||
+      deliveryEvent.type === EnumDeliveryEventType.FOOD_RETURNED ||
+      deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED
         ? deliveryEvent.courierId
         : undefined
 

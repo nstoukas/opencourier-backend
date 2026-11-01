@@ -10,6 +10,7 @@ import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { DeliveryPartnerDto } from './dtos/delivery.partner.dto'
 import { DeliveryFindManyPartnerArgs } from './queries/delivery-find-many.partner.args'
+import { DeliveryCancelPartnerInput } from './queries/delivery-cancel.partner.input'
 import { DeliveryPartnerPaginatedDto } from './dtos/delivery.partner.paginated.dto'
 import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.input'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
@@ -139,9 +140,11 @@ export class DeliveryPartnerRestApiController {
   @Roles(EnumUserRole.PARTNER)
   async cancelDelivery(
     @common.Param('deliveryId') deliveryId: string,
-    @CurrentUserPartner() partner: PartnerEntity
+    @CurrentUserPartner() partner: PartnerEntity,
+    // Optional body (spec 0015): an old client that sends none cancels as the restaurant.
+    @common.Body() data: DeliveryCancelPartnerInput = {}
   ): Promise<DeliveryPartnerDto> {
-    const result = await this.deliveryPartnerRestApiService.cancel(deliveryId, partner.id)
+    const result = await this.deliveryPartnerRestApiService.cancel(deliveryId, partner.id, data.cancelledBy)
 
     const dto = new DeliveryPartnerDto(result)
 

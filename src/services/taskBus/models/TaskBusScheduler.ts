@@ -12,6 +12,8 @@ export type TaskName =
   | 'saved-customer-retention'
   // Every minute: start and end dispatch stops whose time came (spec 0014).
   | 'dispatch-stop-tick'
+  // Every minute: completes a cancelled job's pay or a restaurant's charge that failed (spec 0015).
+  | 'cancellation-award-sweep'
 
 export abstract class TaskBusScheduler {
   abstract scheduleTask<T>(taskName: TaskName, scheduleAt: Date, payload: T): Promise<void>

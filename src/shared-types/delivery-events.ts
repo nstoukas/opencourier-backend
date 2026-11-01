@@ -1,7 +1,13 @@
-import { EnumDeliveryEventType, EnumEventActor, EnumDeliveryEventSource, EnumDeliveryStatus } from '@prisma/types'
+import {
+  EnumDeliveryEventType,
+  EnumEventActor,
+  EnumDeliveryEventSource,
+  EnumDeliveryStatus,
+  EnumCancelledBy,
+} from '@prisma/types'
 
 // DELIVERY EVENTS
-export { EnumDeliveryEventType, EnumEventActor, EnumDeliveryEventSource, EnumDeliveryStatus }
+export { EnumDeliveryEventType, EnumEventActor, EnumDeliveryEventSource, EnumDeliveryStatus, EnumCancelledBy }
 
 export interface BaseDeliveryEvent {
   deliveryId: string
@@ -29,6 +35,22 @@ export interface DeliveryRejectedEvent extends BaseDeliveryEvent {
 }
 export interface DeliveryCanceledEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.CANCELED
+  // Who asked (spec 0015). Left out by an older caller: the event service treats it as COOP.
+  cancelledBy?: EnumCancelledBy
+}
+// Spec 0015: recorded by DeliveryEventService on a cancelled delivery, never through
+// processDeliveryEvent (no status changes). `courierId` is the rider the event is about.
+export interface DeliveryCourierPaidForCancellationEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION
+  courierId: string
+}
+export interface DeliveryFoodReturnedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.FOOD_RETURNED
+  courierId: string
+}
+export interface DeliveryFoodNotReturnedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.FOOD_NOT_RETURNED
+  courierId: string
 }
 export interface DeliveryFailedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FAILED
@@ -114,6 +136,9 @@ export type DeliveryEvent =
   | DeliveryOfferedEvent
   | DeliveryOfferExpiredEvent
   | DeliveryNoCourierAvailableEvent
+  | DeliveryCourierPaidForCancellationEvent
+  | DeliveryFoodReturnedEvent
+  | DeliveryFoodNotReturnedEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

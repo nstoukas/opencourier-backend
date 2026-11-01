@@ -40,6 +40,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     noCourierRetrySeconds: 30,
     savedCustomerRetentionMonths: 12,
     dispatchPhoneNumber: null,
+    cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

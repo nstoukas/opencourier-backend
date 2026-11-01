@@ -45,6 +45,9 @@ export type InstanceConfigSettings = {
   savedCustomerRetentionMonths: number
   // The co-op's dispatch line riders call from the job screen (row 72); null when none is set.
   dispatchPhoneNumber: string | null
+  // Spec 0015: the payout policy (a key of reassignmentPayoutPolicies) that pays a rider whose
+  // job is cancelled after they accepted it. The stored key, or the fallback when none is stored.
+  cancellationPayoutPolicy: string
 }
 
 export type InstanceDetails = {
@@ -110,6 +113,7 @@ export enum ConfigKey {
   NO_COURIER_RETRY_SECONDS = 'noCourierRetrySeconds',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
+  CANCELLATION_PAYOUT_POLICY = 'cancellationPayoutPolicy',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).
@@ -123,6 +127,8 @@ export const FALLBACK_REASSIGNMENT_PAYOUT_POLICIES: Record<string, number> = {
   NO_COMPENSATION: 0,
 }
 export const FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY = 'FULL_COMPENSATION'
+// Spec 0015: a cancelled job pays in full until the co-op votes otherwise (value 4).
+export const FALLBACK_CANCELLATION_PAYOUT_POLICY = 'FULL_COMPENSATION'
 
 export type ConfigMap = {
   [key in ConfigKey]?: string | number | boolean | null | InstanceDetails | string[]

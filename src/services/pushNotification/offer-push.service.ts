@@ -68,6 +68,28 @@ export class OfferPushService {
     )
   }
 
+  // A job this rider held was cancelled (spec 0015). Only the delivery id travels: the app reads the
+  // rest from its own route. Fire and forget, never throws.
+  jobCancelled(courierId: string, deliveryId: string): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendJobCancelled(courierId, deliveryId).catch((error) =>
+      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${error}`)
+    )
+  }
+
+  async sendJobCancelled(courierId: string, deliveryId: string): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = { type: NotificationEventType.JOB_CANCELLED, deliveryId }
+      const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
+      await this.handleSendResult(deliveryId, NotificationEventType.JOB_CANCELLED, result)
+    } catch (error) {
+      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${error}`)
+    }
+  }
+
   // The awaited form of newOffer(). Never throws.
   async sendNewOffer(courierId: string, deliveryId: string, insistent: boolean): Promise<void> {
     if (!this.pushNotificationService.isEnabled()) return

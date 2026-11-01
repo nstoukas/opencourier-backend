@@ -151,7 +151,9 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       mockCacheService,
       mockOfferPushService,
       // No dispatch stop is on in these tests (spec 0014).
-      { findOn: jest.fn().mockResolvedValue(null) } as any
+      { findOn: jest.fn().mockResolvedValue(null) } as any,
+      {} as any,
+      {} as any
     )
   })
 

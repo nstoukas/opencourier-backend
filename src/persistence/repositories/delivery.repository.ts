@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common'
-import { Delivery, EnumDeliveryEventType, EnumDeliveryStatus, Location, Prisma } from '@prisma/types'
+import {
+  Delivery,
+  EnumCancelledBy,
+  EnumCourierCompensationReason,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
+  Location,
+  Prisma,
+} from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -58,6 +66,32 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
 
     return result.count === 1
+  }
+
+  // Spec 0015, AC-10: cancellations from an ongoing status, cancelled between `from` and `to`, still
+  // missing a piece of their settlement: the rider's award, its event, or a restaurant's charge.
+  // Keyed on cancelledAt, not on status: a cancelled delivery can still move to FAILED.
+  async findCancellationsToSettle(from: Date, to: Date, ongoing: EnumDeliveryStatus[]): Promise<string[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        cancelledAt: { gte: from, lte: to },
+        cancelledFromStatus: { in: ongoing },
+        OR: [
+          {
+            courierId: { not: null },
+            courierCompensations: { none: { reason: EnumCourierCompensationReason.CANCELLATION } },
+          },
+          {
+            courierId: { not: null },
+            deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION } },
+          },
+          { cancelledBy: EnumCancelledBy.RESTAURANT, partnerId: { not: null }, partnerCharge: { is: null } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    })
+    return rows.map((row) => row.id)
   }
 
   // Every offer this rider currently holds: still looking for a rider, offered to them, and not
