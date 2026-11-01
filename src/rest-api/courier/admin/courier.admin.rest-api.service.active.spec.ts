@@ -218,6 +218,37 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       expect(mockUserDomainService.update).not.toHaveBeenCalled()
     })
 
+    test('throws 403 ForbiddenException "This login also belongs to an admin." when user role includes ADMIN and changes nothing', async () => {
+      // AC-10: rotate-password routes never change an admin's login or sign them out
+      const adminRiderUser = new UserEntity({
+        ...mockUser,
+        role: [EnumUserRole.COURIER, EnumUserRole.ADMIN],
+        credentialsChangedAt: null,
+      })
+      mockUserDomainService.findById.mockResolvedValue(adminRiderUser)
+
+      const call = service.rotatePassword(mockCourier.id, 'newPassword888', 'admin-user-1')
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('This login also belongs to an admin.')
+
+      // Nothing is updated
+      expect(mockPasswordService.hash).not.toHaveBeenCalled()
+      expect(mockUserDomainService.update).not.toHaveBeenCalled()
+
+      // Nothing is disconnected
+      expect(mockWebsocketDispatcher.disconnectUser).not.toHaveBeenCalled()
+
+      // Nothing is deleted
+      expect(mockCourierDeviceRepository.deleteAllForCourier).not.toHaveBeenCalled()
+
+      // Nothing is set Offline
+      expect(mockCourierDomainService.update).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.handleCourierStatusChanged).not.toHaveBeenCalled()
+
+      // No log written for password rotation
+      expect(loggerSpies.log).not.toHaveBeenCalled()
+    })
+
     test('updates password with hash and credentialsChangedAt, then performs cut off and logs ids only', async () => {
       const before = new Date()
       await service.rotatePassword(mockCourier.id, 'newSuperPassword99', 'admin-user-77')

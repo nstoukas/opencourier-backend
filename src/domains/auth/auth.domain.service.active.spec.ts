@@ -31,7 +31,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
     mockUserDomainService = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
-      findUserWithEmail: jest.fn(),
+      findUserWithEmail: jest.fn().mockResolvedValue(null),
     }
     mockCourierDomainService = {
       getByUserId: jest.fn(),
@@ -227,9 +227,10 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
         password: 'plainPassword123',
       })
 
-      // Two lookups: first as typed, then trimmed lower cased
+      // Two lookups: first as typed, then trimmed lower cased only because typed lookup found no user
       expect(mockUserDomainService.findByEmail).toHaveBeenCalledTimes(2)
       expect(mockUserDomainService.findByEmail).toHaveBeenNthCalledWith(1, typedInput)
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenCalledWith(typedInput)
       expect(mockUserDomainService.findByEmail).toHaveBeenNthCalledWith(2, 'rider@example.com')
 
       // Token carries user.email (stored), NOT typedInput
@@ -239,6 +240,83 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
         role: user.role,
       })
       expect(result.user).toBe(user)
+    })
+
+    test('when an account exists with the email exactly as typed but password is wrong, throws ForbiddenException and does NOT try lower cased form (no second password compare)', async () => {
+      const typedUser = makeUser({
+        id: 'user-typed-capital',
+        email: 'Rider@Example.com',
+        password: 'hashed-capital-password',
+      })
+      const lowerUser = makeUser({
+        id: 'user-lower',
+        email: 'rider@example.com',
+        password: 'hashed-lower-password',
+      })
+
+      mockUserDomainService.findByEmail.mockImplementation((emailToFind: string) => {
+        if (emailToFind === 'Rider@Example.com') return Promise.resolve(typedUser)
+        if (emailToFind === 'rider@example.com') return Promise.resolve(lowerUser)
+        const notFound = new Error('No User found')
+        notFound.name = 'NotFoundError'
+        return Promise.reject(notFound)
+      })
+      // findUserWithEmail confirms an account exists with the typed email
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(typedUser)
+
+      // Password matches lowerUser's password, but NOT typedUser's password
+      mockPasswordService.compare.mockImplementation((pass: string, hash: string) => {
+        if (hash === 'hashed-capital-password') return Promise.resolve(false)
+        if (hash === 'hashed-lower-password') return Promise.resolve(true)
+        return Promise.resolve(false)
+      })
+
+      const call = service.loginWithEmail({
+        email: 'Rider@Example.com',
+        password: 'submittedPassword',
+      })
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('These credentials are incorrect')
+
+      // Exactly one findByEmail call for typed email; lower cased form was NOT attempted
+      expect(mockUserDomainService.findByEmail).toHaveBeenCalledTimes(1)
+      expect(mockUserDomainService.findByEmail).toHaveBeenCalledWith('Rider@Example.com')
+      expect(mockUserDomainService.findByEmail).not.toHaveBeenCalledWith('rider@example.com')
+
+      // findUserWithEmail was checked for the typed email to confirm it exists
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenCalledWith('Rider@Example.com')
+
+      // Password comparison was only attempted once (for typedUser), never for lowerUser
+      expect(mockPasswordService.compare).toHaveBeenCalledTimes(1)
+      expect(mockPasswordService.compare).toHaveBeenCalledWith('submittedPassword', 'hashed-capital-password')
+      expect(mockPasswordService.compare).not.toHaveBeenCalledWith('submittedPassword', 'hashed-lower-password')
+
+      // No token session created
+      expect(mockTokenService.createEmailAuthSession).not.toHaveBeenCalled()
+    })
+
+    test('when typed email is already lower cased and trimmed, performs one lookup only and never queries findUserWithEmail', async () => {
+      const user = makeUser({ email: 'rider@example.com' })
+      mockUserDomainService.findByEmail.mockResolvedValue(user)
+      mockPasswordService.compare.mockResolvedValue(false)
+
+      const call = service.loginWithEmail({
+        email: 'rider@example.com',
+        password: 'wrongPassword',
+      })
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+
+      // Only one lookup was performed
+      expect(mockUserDomainService.findByEmail).toHaveBeenCalledTimes(1)
+      expect(mockUserDomainService.findByEmail).toHaveBeenCalledWith('rider@example.com')
+
+      // findUserWithEmail is never called because normalised === email
+      expect(mockUserDomainService.findUserWithEmail).not.toHaveBeenCalled()
+
+      // Exactly one compare
+      expect(mockPasswordService.compare).toHaveBeenCalledTimes(1)
     })
 
     test('throws ForbiddenException when neither typed nor normalized email matches', async () => {
