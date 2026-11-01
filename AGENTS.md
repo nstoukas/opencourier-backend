@@ -66,6 +66,13 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   phone number's `+`. A setting that is normally unset until a representative saves it (`dispatchPhoneNumber`) reads its
   missing row quietly; `getConfigValueOrDefault` warns on every read. Riders read it at `GET config/contact`, never the
   public metadata.
+- Every status write `processDeliveryEvent` makes is conditional on the status it read (`updateIfMatches`, decision 32.17):
+  a step that lost a race is saved as a failed transition. Pass extra fields (`courierId`, tap times) through
+  `updateDeliveryAndSendNotifications`' data argument, never as a plain `update` before it, or a loser still writes them.
+- A cancellation from an ongoing status pays the rider (spec 0015): a `CourierCompensation` (reason `CANCELLATION`, unique
+  `cancellationOf`) under the rule recorded on the delivery at the cancel (`cancellationPayoutPolicy`, decision 32.18), a
+  `PartnerCharge` when the restaurant cancelled, and the repeatable `cancellation-award-sweep` completes any missing piece
+  for 24 h. Its events go through `recordCancellationEvent`, outside `STATE_MACHINE`.
 
 ## Agent skills
 
