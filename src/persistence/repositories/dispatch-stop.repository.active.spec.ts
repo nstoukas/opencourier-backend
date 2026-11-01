@@ -63,7 +63,7 @@ describe('DispatchStopRepository (Spec 0014, AC-2, AC-3, AC-8, AC-11)', () => {
       createdByUserId: 'admin-1',
     }
 
-    test('takes advisory lock with $executeRaw (not $queryRaw) inside transaction and creates stop when no overlap', async () => {
+    test('takes advisory lock with $executeRaw (not $queryRaw) inside transaction and creates stop when no overlap (stopNow absent)', async () => {
       mockTx.dispatchStop.findFirst.mockResolvedValue(null)
       const createdStop = { id: 'stop-new', ...input }
       mockTx.dispatchStop.create.mockResolvedValue(createdStop)
@@ -83,6 +83,57 @@ describe('DispatchStopRepository (Spec 0014, AC-2, AC-3, AC-8, AC-11)', () => {
       })
       expect(mockTx.dispatchStop.create).toHaveBeenCalledWith({ data: input })
       expect(result).toBe(createdStop)
+    })
+
+    test('with stopNow: true, checks ONLY for a stop ON at data.startsAt (ON_AT rule), taking advisory lock first (Decision 29.6)', async () => {
+      mockTx.dispatchStop.findFirst.mockResolvedValue(null)
+      const createdStop = { id: 'stop-now-created', ...input }
+      mockTx.dispatchStop.create.mockResolvedValue(createdStop)
+
+      const result = await repository.createIfNoOverlap(input, { stopNow: true })
+
+      // Takes advisory lock first inside transaction
+      expect(mockPrisma.$transaction).toHaveBeenCalled()
+      expect(mockTx.$executeRaw).toHaveBeenCalled()
+      expect(mockTx.$queryRaw).not.toHaveBeenCalled()
+      // Checks ONLY the ON_AT rule at data.startsAt, NOT the full overlap rule
+      expect(mockTx.dispatchStop.findFirst).toHaveBeenCalledWith({
+        where: ON_AT(input.startsAt),
+      })
+      expect(mockTx.dispatchStop.create).toHaveBeenCalledWith({ data: input })
+      expect(result).toBe(createdStop)
+    })
+
+    test('with stopNow: true, returns null when a stop is already ON at data.startsAt, without creating (Decision 29.6)', async () => {
+      mockTx.dispatchStop.findFirst.mockResolvedValue({ id: 'active-stop-now' })
+
+      const result = await repository.createIfNoOverlap(input, { stopNow: true })
+
+      expect(mockTx.$executeRaw).toHaveBeenCalled()
+      expect(mockTx.dispatchStop.findFirst).toHaveBeenCalledWith({
+        where: ON_AT(input.startsAt),
+      })
+      expect(mockTx.dispatchStop.create).not.toHaveBeenCalled()
+      expect(result).toBeNull()
+    })
+
+    test('with stopNow: false, enforces full overlap rule and takes advisory lock first (Decision 29.6)', async () => {
+      // Overlapping stop found in the future scheduled window
+      mockTx.dispatchStop.findFirst.mockResolvedValue({ id: 'scheduled-future-stop' })
+
+      const result = await repository.createIfNoOverlap(input, { stopNow: false })
+
+      expect(mockTx.$executeRaw).toHaveBeenCalled()
+      expect(mockTx.dispatchStop.findFirst).toHaveBeenCalledWith({
+        where: {
+          cancelledAt: null,
+          endedAt: null,
+          startsAt: { lt: input.endsAt },
+          OR: [{ endsAt: null }, { endsAt: { gt: input.startsAt } }],
+        },
+      })
+      expect(mockTx.dispatchStop.create).not.toHaveBeenCalled()
+      expect(result).toBeNull()
     })
 
     test('returns null when an overlapping live stop is found, without creating', async () => {

@@ -110,7 +110,10 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
 
       const result = await service.create({ reason: EnumDispatchStopReason.HEAT }, adminUserId)
 
-      expect(mockDispatchStopRepository.createIfNoOverlap).toHaveBeenCalled()
+      expect(mockDispatchStopRepository.createIfNoOverlap).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: EnumDispatchStopReason.HEAT }),
+        { stopNow: true }
+      )
       // startWork ran inline!
       expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith('stop-now-1', expect.any(Date))
       expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith('Ended: dispatch stopped (heat)')
@@ -183,12 +186,38 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       ).rejects.toThrow(new BadRequestException('The end time does not exist in Athens time.'))
     })
 
-    test('throws 409 ConflictException when repository returns null due to overlap', async () => {
+    test('stop now (no startsOn) calls createIfNoOverlap with { stopNow: true } and throws 409 naming restart when repository returns null (Decision 29.6)', async () => {
       mockDispatchStopRepository.createIfNoOverlap.mockResolvedValue(null)
 
       await expect(
         service.create({ reason: EnumDispatchStopReason.HEAT }, adminUserId)
+      ).rejects.toThrow(new ConflictException('Dispatch is already stopped. Restart it first, or change that stop.'))
+
+      expect(mockDispatchStopRepository.createIfNoOverlap).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: EnumDispatchStopReason.HEAT }),
+        { stopNow: true }
+      )
+    })
+
+    test('scheduled stop (with startsOn) calls createIfNoOverlap with { stopNow: false } and throws 409 naming time overlap when repository returns null (Decision 29.6)', async () => {
+      mockDispatchStopRepository.createIfNoOverlap.mockResolvedValue(null)
+      const futureDate = dayjs().add(2, 'day').format('YYYY-MM-DD')
+
+      await expect(
+        service.create(
+          {
+            reason: EnumDispatchStopReason.STORM,
+            startsOn: { date: futureDate, time: '12:00' },
+            endsOn: { date: futureDate, time: '17:00' },
+          },
+          adminUserId
+        )
       ).rejects.toThrow(new ConflictException('Another dispatch stop already covers part of that time.'))
+
+      expect(mockDispatchStopRepository.createIfNoOverlap).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: EnumDispatchStopReason.STORM }),
+        { stopNow: false }
+      )
     })
 
     test('scheduled stop does NOT run startWork inline', async () => {
@@ -219,6 +248,10 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
         adminUserId
       )
 
+      expect(mockDispatchStopRepository.createIfNoOverlap).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: EnumDispatchStopReason.STORM }),
+        { stopNow: false }
+      )
       expect(mockDispatchStopRepository.markStarted).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).not.toHaveBeenCalled()
       expect(result.id).toBe('stop-sched-1')
@@ -537,6 +570,70 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
 
       expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).not.toHaveBeenCalled()
       expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith('stop-ew', expect.any(Date))
+    })
+
+    test('with a stop now on and a scheduled stop that starts later and ends earlier, when the scheduled stop end passes, endWork does not match waiting deliveries (another stop is still on) but marks end work done; when the stop now is restarted, endWork matches them (Decision 29.6)', async () => {
+      // Stop now: started earlier, no scheduled end (endsAt null), still on (endedAt null)
+      const stopNow: DispatchStop = {
+        id: 'stop-now-active',
+        reason: EnumDispatchStopReason.STORM,
+        startsAt: new Date('2026-07-15T10:00:00.000Z'),
+        endsAt: null,
+        startedAt: new Date('2026-07-15T10:00:00.000Z'),
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date('2026-07-15T10:00:00.000Z'),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      // Scheduled stop that started later (12:00) and ended earlier (14:00):
+      const scheduledStop: DispatchStop = {
+        id: 'stop-sched-subsumed',
+        reason: EnumDispatchStopReason.HEAT,
+        startsAt: new Date('2026-07-15T12:00:00.000Z'),
+        endsAt: new Date('2026-07-15T14:00:00.000Z'),
+        startedAt: new Date('2026-07-15T12:00:00.000Z'),
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date('2026-07-14T08:00:00.000Z'),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      // 1. When the scheduled stop's end passes (14:00), endWork runs for scheduledStop.
+      // Another stop (stopNow) is still on at this moment:
+      mockDispatchStopRepository.findOn.mockResolvedValue(stopNow)
+
+      await service.endWork(scheduledStop)
+
+      // endWork does NOT match waiting deliveries because stopNow is still on...
+      expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).not.toHaveBeenCalled()
+      // ...but marks scheduledStop's end work as done!
+      expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith('stop-sched-subsumed', expect.any(Date))
+
+      // 2. Later, admin restarts stopNow (ends it)
+      const restartedStopNow: DispatchStop = {
+        ...stopNow,
+        endedAt: new Date('2026-07-15T16:00:00.000Z'),
+        endedByUserId: adminUserId,
+      }
+      mockDispatchStopRepository.findById
+        .mockResolvedValueOnce(stopNow) // initial check in endOrCancel
+        .mockResolvedValueOnce({ ...restartedStopNow, endWorkDoneAt: new Date('2026-07-15T16:00:00.000Z') }) // reload check
+      mockDispatchStopRepository.endOrCancel.mockResolvedValue(restartedStopNow)
+      // When stopNow ends, no stop is on anymore
+      mockDispatchStopRepository.findOn.mockResolvedValue(null)
+
+      await service.endOrCancel('stop-now-active', adminUserId)
+
+      // When stop now is restarted, endWork matches them!
+      expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).toHaveBeenCalledTimes(1)
+      expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith('stop-now-active', expect.any(Date))
     })
   })
 
