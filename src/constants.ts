@@ -187,3 +187,11 @@ export const ORDER_PAYMENT_CANCELLATION_DELAY_MINUTES = 60
 export const EARNINGS_SUMMARY_DEFAULT_WINDOW_DAYS = 30
 export const EARNINGS_SUMMARY_DEFAULT_TIMEZONE = 'UTC'
 export const EARNINGS_SUMMARY_MAX_WINDOW_DAYS = 366
+
+// The instance's time zone (spec 0014): admins enter dispatch stops in it, and riders and restaurants
+// read every stop time in it. Volos is the only instance; a setting is a follow up if another one
+// ever serves outside Greece.
+export const INSTANCE_TIMEZONE = 'Europe/Athens'
+
+// A stop that starts within this many hours shows in the riders' and restaurants' banners (spec 0014).
+export const DISPATCH_STOP_LOOKAHEAD_HOURS = 12

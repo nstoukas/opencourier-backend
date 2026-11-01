@@ -37,6 +37,12 @@ export interface DeliveryReassignedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.REASSIGNED
   courierId: string
 }
+// Spec 0014. Dispatch stopped while `courierId` held this delivery, not yet picked up: it goes back
+// to waiting with nobody, and that rider is paid by the co-op's reassignment payout setting.
+export interface DeliveryReturnedToWaitingEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.RETURNED_TO_WAITING
+  courierId: string
+}
 
 
 // Spec 0002. An offer went out to `courierId` (actor SYSTEM for matching, ADMIN for an admin offer).
@@ -104,6 +110,7 @@ export type DeliveryEvent =
   | DeliveryCanceledEvent
   | DeliveryFailedEvent
   | DeliveryReassignedEvent
+  | DeliveryReturnedToWaitingEvent
   | DeliveryOfferedEvent
   | DeliveryOfferExpiredEvent
   | DeliveryNoCourierAvailableEvent

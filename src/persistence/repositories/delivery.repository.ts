@@ -74,6 +74,41 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return this.toDomainMany(deliveries)
   }
 
+  // Spec 0014. Every open offer (offered to a rider, not yet answered), and every delivery a rider
+  // holds that is not yet picked up. A dispatch stop ends the first and returns the second.
+  private static readonly OPEN_OFFER: Prisma.DeliveryWhereInput = {
+    status: EnumDeliveryStatus.ASSIGNING_COURIER,
+    matchedCourierId: { not: null },
+    courierId: null,
+  }
+  private static readonly HELD_BEFORE_PICKUP: Prisma.DeliveryWhereInput = {
+    status: {
+      in: [
+        EnumDeliveryStatus.ACCEPTED,
+        EnumDeliveryStatus.DISPATCHED,
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      ],
+    },
+    courierId: { not: null },
+  }
+
+  async findAllOpenOffers(): Promise<DeliveryEntity[]> {
+    return this.toDomainMany(await this.prisma.delivery.findMany({ where: DeliveryRepository.OPEN_OFFER }))
+  }
+
+  async findAllHeldBeforePickup(): Promise<DeliveryEntity[]> {
+    return this.toDomainMany(await this.prisma.delivery.findMany({ where: DeliveryRepository.HELD_BEFORE_PICKUP }))
+  }
+
+  // Two delivery counts, for the admin's preview before a stop (never a count per rider).
+  async countOpenOffersAndHeldBeforePickup(): Promise<{ offersToEnd: number; deliveriesToReturn: number }> {
+    const [offersToEnd, deliveriesToReturn] = await Promise.all([
+      this.prisma.delivery.count({ where: DeliveryRepository.OPEN_OFFER }),
+      this.prisma.delivery.count({ where: DeliveryRepository.HELD_BEFORE_PICKUP }),
+    ])
+    return { offersToEnd, deliveriesToReturn }
+  }
+
   // Deliveries waiting for a rider with nobody offered, the longest waiting first. "Waiting since"
   // is the latest NO_COURIER_AVAILABLE event, which starts the current waiting spell; a delivery
   // with none (it was waiting before spec 0002 shipped) counts from when it was created.

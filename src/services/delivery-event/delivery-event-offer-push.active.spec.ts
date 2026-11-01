@@ -149,7 +149,9 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       mockBullMQService,
       mockConfigDomainService as unknown as ConfigDomainService,
       mockCacheService,
-      mockOfferPushService
+      mockOfferPushService,
+      // No dispatch stop is on in these tests (spec 0014).
+      { findOn: jest.fn().mockResolvedValue(null) } as any
     )
   })
 

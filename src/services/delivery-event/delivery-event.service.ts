@@ -45,6 +45,8 @@ import { CacheService } from '../cache/cache.service'
 import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cache/rejected-couriers'
 import { OfferPushService } from '../pushNotification/offer-push.service'
 import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
+import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
+import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -85,7 +87,8 @@ const EVENTS_NOT_SENT_TO_PARTNERS: EnumDeliveryEventType[] = [
 ]
 
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
-type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING'
+// STOPPED: dispatch is stopped (spec 0014); no offer is made and nothing is recorded or retried.
+type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED'
 
 @Injectable()
 export class DeliveryEventService {
@@ -108,7 +111,8 @@ export class DeliveryEventService {
     private readonly configDomainService: ConfigDomainService,
     private readonly cacheService: CacheService,
     // Spec 0003: the push half of telling a rider about an offer (off unless Firebase is set up).
-    private readonly offerPushService: OfferPushService
+    private readonly offerPushService: OfferPushService,
+    private readonly dispatchStopRepository: DispatchStopRepository
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -186,6 +190,29 @@ export class DeliveryEventService {
             message: `No transition from ${currentStatus} via ${deliveryEvent.type}; the rider's step arrived after the delivery changed`,
           })
         }
+        return
+      }
+
+      if (deliveryEvent.type === EnumDeliveryEventType.RETURNED_TO_WAITING) {
+        // Spec 0014, AC-5: dispatch stopped before pickup. The delivery goes back to waiting with
+        // nobody, written only if it is still where it was read (same status, same rider), so a
+        // pickup tapped at the same moment wins and this is recorded as a failed transition.
+        const droppedCourierId = dbDelivery.courierId
+        if (!droppedCourierId || droppedCourierId !== deliveryEvent.courierId) {
+          throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} is not held by courier ${deliveryEvent.courierId}`)
+        }
+        const returned = await this.deliveryRepository.updateIfMatches(
+          deliveryId,
+          { status: currentStatus, courierId: droppedCourierId },
+          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        )
+        if (!returned) {
+          throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} changed while dispatch was stopping; not returned`)
+        }
+        const updatedDelivery = await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+        // The delivery no longer carries the rider's id, so tell them explicitly. No skip list: the
+        // rider did nothing wrong, and is offered it again first if they are nearest after the stop.
+        await this.notifyCourier(droppedCourierId, updatedDelivery, newStatus, currentStatus, deliveryEvent)
         return
       }
 
@@ -388,6 +415,8 @@ export class DeliveryEventService {
   }
 
   async offerDeliveryToCourierAsAdmin(deliveryId: string, courierId: string, message?: string): Promise<void> {
+    // A heat or storm stop binds admins too (spec 0014, AC-4, decision 29.1): restart dispatch first.
+    await this.refuseIfDispatchStopped()
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     if (!delivery.partnerId) {
@@ -590,6 +619,8 @@ export class DeliveryEventService {
       // sit near a rider the 20 km rule kept from this one), but every waiting delivery has its own
       // backstop retry pending, which finds that rider within noCourierRetrySeconds.
       if (result === 'NO_COURIER') break
+      // Dispatch is stopped (spec 0014): nothing is offered to anyone until it restarts.
+      if (result === 'STOPPED') break
     }
   }
 
@@ -677,11 +708,14 @@ export class DeliveryEventService {
     // delivery straight back to this rider. Nothing else about the rider changes: no count, no
     // status change (value 5). A failed write here must not stop the delivery moving on, so it is
     // logged and the rider may simply be offered it again.
+    // An offer ended because dispatch stopped is not the rider's miss (spec 0014, AC-5): no skip list.
     let addedToSkipList = false
-    try {
-      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
-    } catch (error) {
-      this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
+    if (reason !== 'STOPPED') {
+      try {
+        addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+      } catch (error) {
+        this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
+      }
     }
 
     let ended: boolean
@@ -777,11 +811,66 @@ export class DeliveryEventService {
     if (result === 'NOT_WAITING') {
       throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} is not waiting for a rider`)
     }
+    if (result === 'STOPPED') {
+      await this.refuseIfDispatchStopped()
+    }
 
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     if (!delivery.matchedCourierId) return undefined // answered or moved on in the meantime
     const courier = await this.courierRepository.findByIdOrThrow(delivery.matchedCourierId)
     return { courier, delivery }
+  }
+
+  // Spec 0014, AC-4: an admin's hand offer, a reassignment or a test route during a stop answers
+  // 409 with when dispatch restarts.
+  async refuseIfDispatchStopped(): Promise<void> {
+    const now = new Date()
+    const stop = await this.dispatchStopRepository.findOn(now)
+    if (stop) throw new CantUpdateDeliveryStatusError(adminRefusedMessage(stop, now))
+  }
+
+  // Start of a dispatch stop (spec 0014, AC-5, step 1): every open offer ends, its rider told, with
+  // no skip list entry. Never throws; returns how many ended.
+  async endAllOpenOffersForDispatchStop(message: string): Promise<number> {
+    let open: DeliveryEntity[]
+    try {
+      open = await this.deliveryRepository.findAllOpenOffers()
+    } catch (error) {
+      this.logger.error(`Could not look up open offers to end for a dispatch stop: ${error}`)
+      return 0
+    }
+    let ended = 0
+    for (const delivery of open) {
+      if (!delivery.matchedCourierId) continue
+      try {
+        const done = await this.endOffer({
+          deliveryId: delivery.id,
+          courierId: delivery.matchedCourierId,
+          offeredAt: delivery.offeredAt,
+          reason: 'STOPPED',
+          message,
+        })
+        if (done) ended += 1
+      } catch (error) {
+        this.logger.error(`Could not end the offer of delivery ${delivery.id} for a dispatch stop: ${error}`)
+      }
+    }
+    return ended
+  }
+
+  // End of a dispatch stop (spec 0014, AC-4): every waiting delivery, oldest first, gets an offer or
+  // a recorded "nobody free" with its backstop. Not matchWaitingDeliveries, which offers one only.
+  async matchAllWaitingDeliveriesAfterStop(): Promise<void> {
+    let waitingIds: string[]
+    try {
+      waitingIds = await this.deliveryRepository.findIdsWaitingForCourierOldestFirst()
+    } catch (error) {
+      this.logger.error(`Could not look up waiting deliveries after a dispatch stop: ${error}`)
+      return
+    }
+    for (const deliveryId of waitingIds) {
+      await this.offerOrWait(deliveryId)
+    }
   }
 
   // An accept that took the offer and then did not go through gives the offer back with its old
@@ -813,6 +902,7 @@ export class DeliveryEventService {
       return
     }
 
+    // STOPPED records nothing and arms no backstop: the end of the stop matches it again.
     if (result === 'NO_COURIER') {
       await this.recordNoCourierAvailable(deliveryId)
     }
@@ -823,6 +913,13 @@ export class DeliveryEventService {
   // offer written, in one conditional update with its start time and deadline, so a failure can
   // never leave an offer with no timer behind (flow 1).
   private async offerToNextCourier(deliveryId: string): Promise<OfferStepResult> {
+    // The one gate for every automatic offer (spec 0014, AC-4): while dispatch is stopped, nobody is
+    // offered anything. The end of the stop matches every waiting delivery again.
+    if (await this.dispatchStopRepository.findOn(new Date())) {
+      this.logger.log(`Dispatch is stopped; delivery ${deliveryId} waits`)
+      return 'STOPPED'
+    }
+
     const match = await this.deliveryMatchingService.findCourierForDelivery(deliveryId)
     if (!match) {
       this.logger.log(`No courier found for delivery ${deliveryId}`)

@@ -32,6 +32,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.CANCELED]: EnumDeliveryStatus.CANCELED,
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
+      [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
     },
   },
   [EnumDeliveryStatus.DISPATCHED]: {
@@ -41,6 +42,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
       [EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION]: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
+      [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
     },
   },
   [EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION]: {
@@ -49,6 +51,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.CANCELED]: EnumDeliveryStatus.CANCELED,
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
+      [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
     },
   },
   [EnumDeliveryStatus.PICKED_UP]: {

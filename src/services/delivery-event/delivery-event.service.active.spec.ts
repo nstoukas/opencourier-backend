@@ -107,7 +107,9 @@ describe('DeliveryEventService', () => {
       } as unknown as ConfigDomainService,
       { getOrDefault: jest.fn().mockResolvedValue([]), save: jest.fn() } as unknown as CacheService,
       // Spec 0003 added the offer push service; push is not under test here.
-      { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService
+      { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService,
+      // No dispatch stop is on in these tests (spec 0014).
+      { findOn: jest.fn().mockResolvedValue(null) } as any
     )
   })
 

@@ -60,6 +60,9 @@ export class DeliveryQuotePartnerRestApiController {
     const creationResult = await this.deliveryQuoteRestApiPartnerService.create(partner.id, data)
 
     if (!creationResult.deliveryQuote) {
+      if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED) {
+        throw new ServiceUnavailableException(creationResult.failureMessage ?? 'Delivery is stopped.')
+      }
       if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.OUTSIDE_SERVICE_AREA) {
         throw new ServiceUnavailableException(
           'Pickup or dropoff location is beyond the geo area this instance serves.'

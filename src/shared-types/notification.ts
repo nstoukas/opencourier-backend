@@ -18,8 +18,9 @@ export enum NotificationEventType {
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
-// MOVED: an admin gave the offer to another rider (row 61 review).
-export type OfferEndedReason = 'EXPIRED' | 'OFFLINE' | 'MOVED'
+// MOVED: an admin gave the offer to another rider (row 61 review). STOPPED: dispatch was stopped
+// for heat or a storm (spec 0014); not the rider's miss, so no skip list entry.
+export type OfferEndedReason = 'EXPIRED' | 'OFFLINE' | 'MOVED' | 'STOPPED'
 
 export interface OfferEndedMessage {
   deliveryId: string

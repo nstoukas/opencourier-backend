@@ -1,3 +1,5 @@
+import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
+import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { Injectable, Logger } from '@nestjs/common'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
@@ -12,11 +14,15 @@ import { isPositionInRegion } from 'src/utils/geoJsonUtils'
 export enum DeliveryQuoteCreationFailureReason {
   NO_AVAILABLE_COURIERS = 'NO_AVAILABLE_COURIERS',
   OUTSIDE_SERVICE_AREA = 'OUTSIDE_SERVICE_AREA',
+  // Dispatch is stopped for heat or a storm (spec 0014); failureMessage says until when.
+  DISPATCH_STOPPED = 'DISPATCH_STOPPED',
 }
 
 type DeliveryQuoteCreationResult = {
   deliveryQuote: Awaited<ReturnType<DeliveryQuoteDomainService['create']>> | null
   failureReason?: DeliveryQuoteCreationFailureReason
+  // The sentence the restaurant reads, when the reason carries one (DISPATCH_STOPPED).
+  failureMessage?: string
 }
 
 @Injectable()
@@ -27,7 +33,8 @@ export class DeliveryQuotePartnerRestApiService {
     private partnerDomainService: PartnerDomainService,
     private locationDomainService: LocationDomainService,
     private courierMatcherService: CourierMatcherService,
-    private configDomainService: ConfigDomainService
+    private configDomainService: ConfigDomainService,
+    private dispatchStopRepository: DispatchStopRepository
   ) {}
 
   async getByIdOrThrow(deliveryQuoteId: string) {
@@ -37,6 +44,17 @@ export class DeliveryQuotePartnerRestApiService {
   }
 
   async create(partnerId: string, input: DeliverQuoteCreatePartnerInput): Promise<DeliveryQuoteCreationResult> {
+    // Spec 0014, AC-6: no delivery is ordered while dispatch is stopped; the restaurant is told until when.
+    const now = new Date()
+    const stop = await this.dispatchStopRepository.findOn(now)
+    if (stop) {
+      return {
+        deliveryQuote: null,
+        failureReason: DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED,
+        failureMessage: restaurantStoppedMessage(stop, now),
+      }
+    }
+
     const partner = await this.partnerDomainService.getById(partnerId)
 
     if (!partner) {

@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
+import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import {
@@ -26,7 +28,8 @@ export class DeliveryPartnerRestApiService {
     private partnerDomainService: PartnerDomainService,
     private locationDomainService: LocationDomainService,
     private courierDomainService: CourierDomainService,
-    private quoteToDeliveryConversionService: QuoteToDeliveryConversionService
+    private quoteToDeliveryConversionService: QuoteToDeliveryConversionService,
+    private dispatchStopRepository: DispatchStopRepository
   ) {}
 
   async getManyByPartnerId(partnerId: string, page?: number, perPage?: number) {
@@ -74,6 +77,14 @@ export class DeliveryPartnerRestApiService {
 
     if (!partner) {
       throw new NotFoundException('Partner not found')
+    }
+
+    // Spec 0014, AC-6: refused before anything is created, so a quote taken before a stop cannot
+    // place an order during it.
+    const now = new Date()
+    const stop = await this.dispatchStopRepository.findOn(now)
+    if (stop) {
+      throw new ServiceUnavailableException(restaurantStoppedMessage(stop, now))
     }
 
     const deliveryQuote = await this.deliveryQuoteDomainService.getByIdOrThrow(input.quoteId)

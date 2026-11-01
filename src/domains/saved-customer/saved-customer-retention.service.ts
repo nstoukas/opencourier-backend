@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { INSTANCE_TIMEZONE } from 'src/constants'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 import { SavedCustomerDomainService } from './saved-customer.domain.service'
@@ -6,7 +7,7 @@ import { SavedCustomerDomainService } from './saved-customer.domain.service'
 const RETENTION_JOB_NAME = 'saved-customer-retention'
 // Every day at 04:00 Volos time, when no restaurant is ordering.
 const RETENTION_JOB_PATTERN = '0 4 * * *'
-const RETENTION_JOB_TIME_ZONE = 'Europe/Athens'
+const RETENTION_JOB_TIME_ZONE = INSTANCE_TIMEZONE
 
 // Deletes saved customers nobody has ordered for in savedCustomerRetentionMonths (spec 0005, AC-7).
 // `implements OnModuleInit` promises Nest an onModuleInit() method, which Nest calls once at startup.

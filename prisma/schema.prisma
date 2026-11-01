@@ -558,6 +558,8 @@ enum EnumDeliveryEventType {
   OFFERED
   OFFER_EXPIRED
   NO_COURIER_AVAILABLE
+  // A delivery accepted but not picked up, sent back to waiting when dispatch stops (spec 0014).
+  RETURNED_TO_WAITING
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -720,4 +722,36 @@ enum EnumUndeliverableAction {
 enum EnumDeliverableAction {
   MEET_AT_DOOR
   LEAVE_AT_DOOR
+}
+
+// Why dispatch was stopped (spec 0014).
+enum EnumDispatchStopReason {
+  HEAT
+  STORM
+  OTHER
+}
+
+// A stop of all dispatch, now or scheduled (spec 0014). The rows are the record members read and the
+// state the platform obeys: a stop is on while it has started, is not cancelled or ended, and its
+// end (if any) has not passed. Rows are never deleted.
+model DispatchStop {
+  id                String                 @id @default(cuid())
+  reason            EnumDispatchStopReason
+  startsAt          DateTime
+  // Null: until an admin restarts dispatch.
+  endsAt            DateTime?
+  createdByUserId   String
+  createdAt         DateTime               @default(now())
+  // When the start work ran (offers ended, accepted deliveries returned to waiting).
+  startedAt         DateTime?
+  // A restart before the planned end.
+  endedAt           DateTime?
+  endedByUserId     String?
+  // Cancelled before it started.
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  // When the end work ran (every waiting delivery matched again).
+  endWorkDoneAt     DateTime?
+
+  @@index([startsAt])
 }

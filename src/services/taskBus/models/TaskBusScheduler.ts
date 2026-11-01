@@ -10,6 +10,8 @@ export type TaskName =
   | 'offer-insist'
   // Spec 0005: every day, deletes saved customers unused for savedCustomerRetentionMonths.
   | 'saved-customer-retention'
+  // Every minute: start and end dispatch stops whose time came (spec 0014).
+  | 'dispatch-stop-tick'
 
 export abstract class TaskBusScheduler {
   abstract scheduleTask<T>(taskName: TaskName, scheduleAt: Date, payload: T): Promise<void>

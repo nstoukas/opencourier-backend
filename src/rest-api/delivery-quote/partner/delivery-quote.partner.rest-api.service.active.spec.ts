@@ -79,7 +79,9 @@ describe('DeliveryQuotePartnerRestApiService - service area check (AC-10)', () =
       partnerDomainService,
       locationDomainService,
       courierMatcherService,
-      configDomainService
+      configDomainService,
+      // No dispatch stop is on in these tests (spec 0014).
+      { findOn: jest.fn().mockResolvedValue(null) } as any
     )
   })
 

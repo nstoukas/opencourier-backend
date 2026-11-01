@@ -437,6 +437,8 @@ export class DeliveryDomainService {
     payoutPolicy?: string,
     message?: string
   ) {
+    // A heat or storm stop binds admins too (spec 0014, AC-4): restart dispatch first.
+    await this.deliveryEventService.refuseIfDispatchStopped()
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     if (!DELIVERY_ONGOING_STATUSES.includes(delivery.status)) {
