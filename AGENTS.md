@@ -55,6 +55,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   password set by an admin stamps `User.credentialsChangedAt`, and every token issued before it is refused with 401 in
   `AuthMiddleware` (both branches) and the socket handshake. A new place that turns a token into a user must call
   `isIssuedBeforeCredentialsChange` too, and tokens must carry the stored email (spec 0013).
+- A dispatch stop (spec 0014) is a `DispatchStop` row; while one is on, `offerToNextCourier` answers `'STOPPED'` and
+  makes no offer, and every other offer path (admin hand offer, reassign, accept, test routes) refuses with 409. A new
+  way to start work must check `refuseIfDispatchStopped` too. Start and end work run from a repeatable minute tick
+  (one off jobs here never retry) and are marked done only after they ran. Stop times are entered and shown in
+  `INSTANCE_TIMEZONE`, and the sentences riders and restaurants read are built on the server (`dispatch-stop-time.ts`).
 
 ## Agent skills
 
