@@ -5,7 +5,7 @@ import { ICourierUpdate } from './interfaces/ICourierUpdate'
 import { ICourierUpdateLocation } from './interfaces/ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from './interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from './interfaces/ICourierFindBySeniorityArgs'
-import { EnumCourierDeliverySetting, EnumCourierStatus } from '@prisma/types'
+import { EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
 
 @Injectable()
 export class CourierDomainService {
@@ -42,8 +42,8 @@ export class CourierDomainService {
     return courier
   }
 
-  async getManyCouriers(page?: number, perPage?: number) {
-    const couriers = await this.courierRepository.findManyPaginated(page, perPage)
+  async getManyCouriers(where: Prisma.CourierWhereInput, page?: number, perPage?: number) {
+    const couriers = await this.courierRepository.findManyPaginated(where, page, perPage)
 
     return couriers
   }

@@ -7,6 +7,7 @@ import { Roles } from 'src/decorators/roles.decorator'
 import { EnumCourierStatus, EnumUserRole } from '@prisma/types'
 import { CourierPaginatedAdminDto } from './dtos/courier.admin.paginated.dto'
 import { CourierFindManyAdminArgs } from './queries/courier-find-many.admin.args'
+import { adminCourierListWhere } from './queries/courier-list-filter'
 import { CourierAdminDto } from './dtos/courier.admin.dto'
 import { CourierUpdateAdminInput } from './queries/courier-update.admin.input'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
@@ -29,7 +30,12 @@ export class CourierAdminRestApiController {
   @swagger.ApiOperation({ summary: 'Get many couriers' })
   @Roles(EnumUserRole.ADMIN)
   async getManyCouriers(@common.Query() args: CourierFindManyAdminArgs): Promise<CourierPaginatedAdminDto> {
-    const couriers = await this.courierDomainService.getManyCouriers(args.page, args.perPage)
+    // The tab and the search, as one Prisma where (row 97).
+    const couriers = await this.courierDomainService.getManyCouriers(
+      adminCourierListWhere({ status: args.status, search: args.search }),
+      args.page,
+      args.perPage
+    )
 
     const dto = new CourierPaginatedAdminDto(couriers)
     return dto

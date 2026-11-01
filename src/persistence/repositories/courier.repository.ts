@@ -333,9 +333,9 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     }
   }
 
-  async findManyPaginated(page?: number, perPage?: number) {
+  async findManyPaginated(where: Prisma.CourierWhereInput, page?: number, perPage?: number) {
     const paginator = createPaginator<Courier, Prisma.CourierFindManyArgs, Prisma.CourierDelegate>()
-    const result = await paginator(this.prisma.courier, { orderBy: { createdAt: 'desc' } }, { page, perPage })
+    const result = await paginator(this.prisma.courier, { where, orderBy: { createdAt: 'desc' } }, { page, perPage })
 
     return {
       ...result,
