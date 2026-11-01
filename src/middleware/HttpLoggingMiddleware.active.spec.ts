@@ -37,6 +37,54 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
     test('keeps query string for paths that start with customers but are not /customers (AC-9)', () => {
       expect(redactSensitivePath('/customersfoo?q=1')).toBe('/customersfoo?q=1')
     })
+
+    describe('search parameter redaction (row 96 review fix)', () => {
+      test('redacts search parameter value when it is the first query parameter', () => {
+        const input = '/api/admin/v1/deliveries?search=kitchen&state=active'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?search=[redacted]&state=active')
+      })
+
+      test('redacts search parameter value when it is later in the query string', () => {
+        const input = '/api/admin/v1/deliveries?perPage=1&search=kitchen&state=active'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?perPage=1&search=[redacted]&state=active')
+      })
+
+      test('redacts search parameter value when it is the only query parameter', () => {
+        const input = '/api/admin/v1/deliveries?search=Nikolaos'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?search=[redacted]')
+      })
+
+      test('redacts search parameter value when it is at the end of the query string', () => {
+        const input = '/api/admin/v1/deliveries?state=active&search=kitchen'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?state=active&search=[redacted]')
+      })
+
+      test('redacts empty search parameter', () => {
+        const input = '/api/admin/v1/deliveries?search=&page=1'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?search=[redacted]&page=1')
+      })
+
+      test('redacts search parameter on any route and preserves fragments', () => {
+        const input = '/api/partner/v1/items?search=souvlaki#section'
+        expect(redactSensitivePath(input)).toBe('/api/partner/v1/items?search=[redacted]#section')
+      })
+
+      test('leaves URLs without search parameter unchanged', () => {
+        const input = '/api/admin/v1/deliveries?perPage=10&state=active'
+        expect(redactSensitivePath(input)).toBe('/api/admin/v1/deliveries?perPage=10&state=active')
+      })
+
+      test('still respects existing /customers query drop rule over search redaction', () => {
+        // Saved customers drops entire query string per spec 0005 AC-9
+        expect(redactSensitivePath('/api/partner/v1/customers?search=6912345678')).toBe('/api/partner/v1/customers')
+      })
+
+      test('redacts search alongside sensitive device tokens', () => {
+        expect(redactSensitivePath('/api/courier/v1/devices/secret-token-xyz?search=courier1')).toBe(
+          '/api/courier/v1/devices/:token?search=[redacted]'
+        )
+      })
+    })
   })
 
   describe('HttpLoggerMiddleware', () => {
@@ -130,6 +178,42 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
       closeHandler!()
 
       expect(loggerLogSpy).toHaveBeenCalledWith('GET /api/courier/v1/deliveries/del-456?filter=today 200 128 - TestAgent 127.0.0.1')
+    })
+
+    test('logs redacted search parameter on response close and never logs search query value (row 96 review fix)', () => {
+      let closeHandler: (() => void) | undefined
+
+      const mockRequest = {
+        method: 'GET',
+        originalUrl: '/api/admin/v1/deliveries?perPage=1&search=kitchen&state=active',
+        ip: '127.0.0.1',
+        get: jest.fn().mockImplementation((header: string) => {
+          if (header.toLowerCase() === 'user-agent') return 'AdminWeb/1.0'
+          return undefined
+        }),
+      } as unknown as Request
+
+      const mockResponse = {
+        statusCode: 200,
+        get: jest.fn().mockReturnValue('128'),
+        on: jest.fn().mockImplementation((event: string, handler: () => void) => {
+          if (event === 'close') {
+            closeHandler = handler
+          }
+        }),
+      } as unknown as Response
+
+      const next = jest.fn()
+
+      middleware.use(mockRequest, mockResponse, next)
+      expect(next).toHaveBeenCalledTimes(1)
+      closeHandler!()
+
+      expect(loggerLogSpy).toHaveBeenCalledTimes(1)
+      const logMessage = loggerLogSpy.mock.calls[0]![0] as string
+
+      expect(logMessage).toContain('/api/admin/v1/deliveries?perPage=1&search=[redacted]&state=active')
+      expect(logMessage).not.toContain('kitchen')
     })
   })
 })

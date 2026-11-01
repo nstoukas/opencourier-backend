@@ -33,6 +33,19 @@ describe('delivery-list-filter', () => {
       expect(where).toEqual({ courierId: 'courier-volos-1' })
     })
 
+    test('empty string courierId is kept as a filter (row 96 review fix)', () => {
+      // Empty courierId filters to deliveries matching empty string (none), as before row 96
+      const where = adminDeliveryListWhere({ courierId: '' })
+      expect(where).toEqual({ courierId: '' })
+      expect(where.courierId).toBe('')
+    })
+
+    test('undefined courierId does not add courierId to where', () => {
+      const where = adminDeliveryListWhere({ courierId: undefined })
+      expect(where).toEqual({})
+      expect('courierId' in where).toBe(false)
+    })
+
     describe('state filter (decision 96.1)', () => {
       test('state active = status notIn [DROPPED_OFF, CANCELED, FAILED]', () => {
         const where = adminDeliveryListWhere({ state: 'active' })
@@ -121,6 +134,82 @@ describe('delivery-list-filter', () => {
         expect(where.OR).toBeUndefined()
         expect(where).toEqual({})
       })
+
+      describe('LIKE wildcard escaping in search (row 96 review fix)', () => {
+        test('escapes % wildcard in all contains clauses and id endsWith', () => {
+          const where = adminDeliveryListWhere({ search: '%' })
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: '\\%' } },
+            ],
+          })
+        })
+
+        test('escapes _ wildcard in all contains clauses and id endsWith', () => {
+          const where = adminDeliveryListWhere({ search: '_' })
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: '\\_' } },
+            ],
+          })
+        })
+
+        test('escapes backslash in all contains clauses and id endsWith', () => {
+          const where = adminDeliveryListWhere({ search: '\\' })
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: '\\\\' } },
+            ],
+          })
+        })
+
+        test('escapes repeated wildcards (such as eight underscores)', () => {
+          const where = adminDeliveryListWhere({ search: '________' })
+          const expected = '\\_\\_\\_\\_\\_\\_\\_\\_'
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: expected } },
+            ],
+          })
+        })
+
+        test('escapes mixed wildcards and backslashes embedded in text', () => {
+          const where = adminDeliveryListWhere({ search: 'ORD_1042%\\extra' })
+          const expected = 'ORD\\_1042\\%\\\\extra'
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: expected } },
+            ],
+          })
+        })
+
+        test('leaves plain text unchanged without escaping', () => {
+          const where = adminDeliveryListWhere({ search: 'ORD-1042' })
+          expect(where).toEqual({
+            OR: [
+              { orderReference: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
+              { dropoffName: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
+              { pickupBusinessName: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
+              { id: { endsWith: 'ORD-1042' } },
+            ],
+          })
+        })
+      })
     })
 
     describe('combining courier, state, and search', () => {
@@ -180,6 +269,23 @@ describe('delivery-list-filter', () => {
         })
         expect(where.courierId).toBe('courier-42')
         expect(where.status).toBeUndefined()
+        expect(where.OR).toBeDefined()
+      })
+
+      test('combines empty string courierId with state active and search', () => {
+        const where = adminDeliveryListWhere({
+          courierId: '',
+          state: 'active',
+          search: 'souvlaki',
+        })
+        expect(where.courierId).toBe('')
+        expect(where.status).toEqual({
+          notIn: [
+            EnumDeliveryStatus.DROPPED_OFF,
+            EnumDeliveryStatus.CANCELED,
+            EnumDeliveryStatus.FAILED,
+          ],
+        })
         expect(where.OR).toBeDefined()
       })
     })
