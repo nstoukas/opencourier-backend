@@ -70,6 +70,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
   cancelledBy: EnumCancelledBy | null
   cancelledFromStatus: EnumDeliveryStatus | null
   cancelledAt: Date | null
+  // The cancelled job pay rule in force when it was cancelled (decision 32.18).
+  cancellationPayoutPolicy: string | null
   foodOutcome: EnumFoodOutcome | null
   foodOutcomeAt: Date | null
 
@@ -141,6 +143,7 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.cancelledBy = data.cancelledBy
     this.cancelledFromStatus = data.cancelledFromStatus
     this.cancelledAt = data.cancelledAt
+    this.cancellationPayoutPolicy = data.cancellationPayoutPolicy
     this.foodOutcome = data.foodOutcome
     this.foodOutcomeAt = data.foodOutcomeAt
 

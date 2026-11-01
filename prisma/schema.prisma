@@ -316,12 +316,15 @@ model Delivery {
   // A cancellation (spec 0015). Set with the CANCELED status write, which is conditional, so
   // cancelledFromStatus is always the status the cancellation really came from; it decides the
   // rider's pay, the restaurant's charge and the food instructions.
-  cancelledBy         EnumCancelledBy?
-  cancelledFromStatus EnumDeliveryStatus?
-  cancelledAt         DateTime?
+  cancelledBy              EnumCancelledBy?
+  cancelledFromStatus      EnumDeliveryStatus?
+  cancelledAt              DateTime?
+  // The cancelled job pay rule in force at the cancellation, written with it (decision 32.18): an
+  // award the sweep writes later still pays under it, whatever a representative saved since.
+  cancellationPayoutPolicy String?
   // What happened to food picked up before the cancellation: null until the rider records it.
-  foodOutcome         EnumFoodOutcome?
-  foodOutcomeAt       DateTime?
+  foodOutcome              EnumFoodOutcome?
+  foodOutcomeAt            DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

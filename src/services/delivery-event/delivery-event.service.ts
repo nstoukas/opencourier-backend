@@ -1124,6 +1124,15 @@ export class DeliveryEventService {
       oldStatus === EnumDeliveryStatus.ASSIGNING_COURIER
         ? { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
         : {}
+    // The pay rule in force now, kept with the cancellation (decision 32.18), so an award the sweep
+    // writes later pays under it even if a representative saves another rule meanwhile. A read that
+    // fails never stops the cancel: the award then reads the rule when it is written, as before.
+    let cancellationPayoutPolicy: string | null = null
+    try {
+      cancellationPayoutPolicy = await this.configDomainService.instanceConfig.getCancellationPayoutPolicy()
+    } catch (error) {
+      this.logger.warn(`Could not read cancellationPayoutPolicy while cancelling ${dbDelivery.id}: ${error}`)
+    }
 
     const written = await this.deliveryRepository.updateIfMatches(
       dbDelivery.id,
@@ -1133,6 +1142,7 @@ export class DeliveryEventService {
         cancelledBy,
         cancelledFromStatus: oldStatus,
         cancelledAt: new Date(),
+        cancellationPayoutPolicy,
         ...clearOffer,
       }
     )
@@ -1232,7 +1242,11 @@ export class DeliveryEventService {
       let award = await this.courierCompensationRepository.findCancellationAward(delivery.id)
       if (!award) {
         const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
-        const storedPolicy = await this.configDomainService.instanceConfig.getCancellationPayoutPolicy()
+        // The rule in force at the cancellation (decision 32.18); a delivery cancelled before that
+        // column existed, or whose read failed, falls back to the rule in force now.
+        const storedPolicy =
+          delivery.cancellationPayoutPolicy ??
+          (await this.configDomainService.instanceConfig.getCancellationPayoutPolicy())
         const { policy, amount, warnings } = resolveCancellationPayout(menu, storedPolicy, delivery.totalCompensation)
         logContext.amount = amount
         logContext.policy = policy
