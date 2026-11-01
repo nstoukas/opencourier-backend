@@ -3,6 +3,8 @@ import * as swagger from '@nestjs/swagger'
 import { EnumUserRole } from '@prisma/types'
 import { ADMIN_API_V1_PREFIX } from 'src/constants'
 import { Roles } from 'src/decorators/roles.decorator'
+import { CurrentUser } from 'src/decorators/currentUser.decorator'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import * as errors from 'src/errors'
 import { PartnerAdminDto } from './dtos/partner.admin.dto'
@@ -81,7 +83,8 @@ export class PartnerAdminRestApiController {
   async rotatePartnerPassword(
     @common.Param('id') id: string,
     @common.Body() body: PartnerRotatePasswordAdminInput,
+    @CurrentUser() admin: UserEntity,
   ): Promise<void> {
-    await this.partnerAdminRestApiService.rotatePassword(id, body.password)
+    await this.partnerAdminRestApiService.rotatePassword(id, body.password, admin.id)
   }
 }

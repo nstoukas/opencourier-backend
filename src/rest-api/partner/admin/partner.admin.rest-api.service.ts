@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common'
+import { EnumUserRole } from '@prisma/types'
+import { Injectable, Logger } from '@nestjs/common'
 import * as errors from 'src/errors'
 import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
@@ -15,6 +16,8 @@ import { PickupAddressAdminInput } from './queries/pickup-address.admin.input'
 
 @Injectable()
 export class PartnerAdminRestApiService {
+  private readonly logger = new Logger(PartnerAdminRestApiService.name)
+
   constructor(
     private partnerDomainService: PartnerDomainService,
     private locationDomainService: LocationDomainService,
@@ -77,16 +80,24 @@ export class PartnerAdminRestApiService {
     return this.partnerDomainService.getByIdOrThrow(partnerId)
   }
 
-  async rotatePassword(partnerId: string, newPassword: string): Promise<void> {
+  async rotatePassword(partnerId: string, newPassword: string, adminUserId: string): Promise<void> {
     const partner = await this.partnerDomainService.getByIdOrThrow(partnerId)
     if (!partner.userId) {
       throw new errors.NotFoundException('This partner has no login user')
+    }
+    const user = await this.userDomainService.findById(partner.userId)
+    if (user.role.includes(EnumUserRole.ADMIN)) {
+      // A password change now ends every older session (spec 0013), and these routes never sign an
+      // admin out (AC-10). A login that is both restaurant and admin is changed some other way.
+      throw new errors.ForbiddenException('This login also belongs to an admin.')
     }
 
     const hashedPassword = await this.passwordService.hash(newPassword)
     // The time is set with the password, so every older restaurant session is refused (spec 0013,
     // AC-9). `new Date()` is Node's clock, the one that signs each token's issue time.
     await this.userDomainService.update(partner.userId, { password: hashedPassword, credentialsChangedAt: new Date() })
+    // Ids only, never the password (spec 0013, AC-10).
+    this.logger.log(`Admin ${adminUserId} set a new password for partner ${partnerId}`)
   }
 
   // AIFLOW-NOTE: countryCode is included in formattedAddress for multi-country compatibility across the backend

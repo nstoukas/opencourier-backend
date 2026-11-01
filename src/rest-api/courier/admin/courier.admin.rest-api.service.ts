@@ -30,13 +30,18 @@ export class CourierAdminRestApiService {
   ) {}
 
   async createCourier(input: CourierCreateAdminInput, adminUserId: string): Promise<CourierEntity> {
-    // Stored trimmed and lower cased, as restaurant emails are; rider login also tries this form.
+    // Normalised here as well as in the input class, so a call that does not come through the HTTP
+    // pipe stores the same values (spec 0013; agy review). The email is lower cased, as restaurant
+    // emails are; rider login also tries this form.
     const email = input.email.trim().toLowerCase()
+    const firstName = input.firstName.trim()
+    const lastName = input.lastName.trim()
+    const phoneNumber = input.phoneNumber.replace(/\s+/g, '')
 
     if (await this.userDomainService.findUserWithEmailIgnoringCase(email)) {
       throw new errors.CourierEmailTakenException()
     }
-    if (await this.courierRepository.findByPhoneNumber(input.phoneNumber)) {
+    if (await this.courierRepository.findByPhoneNumber(phoneNumber)) {
       throw new errors.CourierPhoneTakenException()
     }
 
@@ -45,9 +50,9 @@ export class CourierAdminRestApiService {
     let courier: CourierEntity
     try {
       courier = await this.courierRepository.createWithLogin({
-        firstName: input.firstName,
-        lastName: input.lastName,
-        phoneNumber: input.phoneNumber,
+        firstName,
+        lastName,
+        phoneNumber,
         login: { email, hashedPassword },
       })
     } catch (error) {
