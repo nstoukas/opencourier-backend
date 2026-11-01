@@ -2,9 +2,6 @@ import { ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/com
 import {
   DispatchStop,
   EnumCourierCompensationReason,
-  EnumDeliveryEventSource,
-  EnumDeliveryEventType,
-  EnumDeliveryStatus,
   EnumDispatchStopReason,
   EnumEventActor,
 } from '@prisma/types'
@@ -163,8 +160,10 @@ export class DispatchStopService implements OnModuleInit {
   // Start work (spec 0014, AC-5): first every open offer ends, then every delivery held before
   // pickup is read (after the offers ended, so an accept that landed meanwhile is included) and
   // returned to waiting, its rider paid by the co-op's reassignment setting.
+  // The work runs first and is marked after, so a crash halfway is redone by the next tick; every
+  // step is safe to run twice (row 29 review).
   async startWork(stop: DispatchStop, actor: EnumEventActor): Promise<void> {
-    if (!(await this.dispatchStopRepository.markStarted(stop.id, new Date()))) return
+    if (stop.startedAt) return
     const why = reasonWords(stop.reason)
     const ended = await this.deliveryEventService.endAllOpenOffersForDispatchStop(`Ended: dispatch stopped (${why})`)
 
@@ -173,15 +172,18 @@ export class DispatchStopService implements OnModuleInit {
     for (const delivery of held) {
       if (await this.returnToWaiting(delivery.id, delivery.courierId, why, actor)) returned += 1
     }
+    await this.dispatchStopRepository.markStarted(stop.id, new Date())
     this.logger.log(`Dispatch stop ${stop.id} started: ${ended} offers ended, ${returned} deliveries returned to waiting`)
   }
 
   // End work (spec 0014, AC-4): every waiting delivery gets an offer or a recorded "nobody free".
   async endWork(stop: DispatchStop): Promise<void> {
-    if (!(await this.dispatchStopRepository.markEndWorkDone(stop.id, new Date()))) return
-    // A stop ending while another starts right away: nothing to match yet.
-    if (await this.dispatchStopRepository.findOn(new Date())) return
-    await this.deliveryEventService.matchAllWaitingDeliveriesAfterStop()
+    if (stop.endWorkDoneAt) return
+    // A stop ending while another starts right away: nothing to match yet (the other's end will).
+    if (!(await this.dispatchStopRepository.findOn(new Date()))) {
+      await this.deliveryEventService.matchAllWaitingDeliveriesAfterStop()
+    }
+    await this.dispatchStopRepository.markEndWorkDone(stop.id, new Date())
     this.logger.log(`Dispatch stop ${stop.id} ended: waiting deliveries matched again`)
   }
 
@@ -194,32 +196,29 @@ export class DispatchStopService implements OnModuleInit {
     actor: EnumEventActor
   ): Promise<boolean> {
     if (!courierId) return false
+    let outcome: Awaited<ReturnType<DeliveryEventService['returnToWaitingForDispatchStop']>>
     try {
-      await this.deliveryEventService.processDeliveryEvent({
+      outcome = await this.deliveryEventService.returnToWaitingForDispatchStop(
         deliveryId,
-        type: EnumDeliveryEventType.RETURNED_TO_WAITING,
-        actor,
-        source: EnumDeliveryEventSource.OPENCOURIER,
         courierId,
-        message: `Dispatch stopped (${why})`,
-      })
+        actor,
+        `Dispatch stopped (${why})`
+      )
     } catch (error) {
       this.logger.error(`Returning delivery ${deliveryId} to waiting failed: ${error}`)
       return false
     }
-
-    // The pipeline records a refused transition and does not throw, so read where it landed.
-    const after = await this.deliveryRepository.findById(deliveryId)
-    if (!after || after.status !== EnumDeliveryStatus.ASSIGNING_COURIER || after.courierId) return false
+    // Paid only when THIS call's write returned it: a second run, or a pickup that won, pays nothing.
+    if (!outcome.returned) return false
 
     const logContext = { deliveryId, droppedCourierId: courierId }
     try {
       const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
       const defaultPolicy = await this.configDomainService.instanceConfig.getReassignmentPayoutDefaultPolicy()
-      const { policy, amount } = resolveReassignmentPayout(menu, defaultPolicy, undefined, after.totalCompensation)
+      const { policy, amount } = resolveReassignmentPayout(menu, defaultPolicy, undefined, outcome.totalCompensation)
       await this.courierCompensationRepository.create({
         amount,
-        currencyCode: after.currencyCode,
+        currencyCode: outcome.currencyCode,
         reason: EnumCourierCompensationReason.REASSIGNMENT,
         policy,
         message: `Dispatch stopped (${why}): delivery returned to waiting`,

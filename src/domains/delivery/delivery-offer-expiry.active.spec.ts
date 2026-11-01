@@ -46,6 +46,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
     mockDeliveryEventService = {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
+      // No dispatch stop is on in these tests (spec 0014).
+      refuseIfDispatchStopped: jest.fn().mockResolvedValue(undefined),
       rearmOfferExpiry: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 

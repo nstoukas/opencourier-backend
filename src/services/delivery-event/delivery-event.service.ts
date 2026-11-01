@@ -15,6 +15,7 @@ import {
   DeliveryNoCourierAvailableEvent,
   DeliveryOfferedEvent,
   DeliveryOfferExpiredEvent,
+  DeliveryReturnedToWaitingEvent,
   OfferEndedMessage,
   OfferEndedReason,
   STATE_MACHINE,
@@ -194,26 +195,9 @@ export class DeliveryEventService {
       }
 
       if (deliveryEvent.type === EnumDeliveryEventType.RETURNED_TO_WAITING) {
-        // Spec 0014, AC-5: dispatch stopped before pickup. The delivery goes back to waiting with
-        // nobody, written only if it is still where it was read (same status, same rider), so a
-        // pickup tapped at the same moment wins and this is recorded as a failed transition.
-        const droppedCourierId = dbDelivery.courierId
-        if (!droppedCourierId || droppedCourierId !== deliveryEvent.courierId) {
-          throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} is not held by courier ${deliveryEvent.courierId}`)
-        }
-        const returned = await this.deliveryRepository.updateIfMatches(
-          deliveryId,
-          { status: currentStatus, courierId: droppedCourierId },
-          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
-        )
-        if (!returned) {
-          throw new CantUpdateDeliveryStatusError(`Delivery ${deliveryId} changed while dispatch was stopping; not returned`)
-        }
-        const updatedDelivery = await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
-        // The delivery no longer carries the rider's id, so tell them explicitly. No skip list: the
-        // rider did nothing wrong, and is offered it again first if they are nearest after the stop.
-        await this.notifyCourier(droppedCourierId, updatedDelivery, newStatus, currentStatus, deliveryEvent)
-        return
+        // Spec 0014: written only by returnToWaitingForDispatchStop, in one conditional write with
+        // its status (row 29 review). Never processed as an ordinary event.
+        throw new CantUpdateDeliveryStatusError('RETURNED_TO_WAITING is recorded by a dispatch stop only')
       }
 
       if (deliveryEvent.type === EnumDeliveryEventType.REASSIGNED) {
@@ -858,6 +842,73 @@ export class DeliveryEventService {
     return ended
   }
 
+  // Start of a dispatch stop (spec 0014, AC-5, step 2): one delivery held before pickup goes back to
+  // waiting with nobody. Status and rider change in ONE conditional write on the status and rider
+  // that were read, so a pickup (or any step) written first wins and nothing is returned; this is
+  // the admin hand offer's pattern (row 29 review). Returns whether THIS call returned it, with the
+  // amounts the rider is paid from, so the pay follows this write and never a later read.
+  async returnToWaitingForDispatchStop(
+    deliveryId: string,
+    courierId: string,
+    actor: EnumEventActor,
+    message: string
+  ): Promise<{ returned: false } | { returned: true; totalCompensation: number | null; currencyCode: string }> {
+    const delivery = await this.deliveryRepository.findById(deliveryId)
+    const returnable: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+    ]
+    if (!delivery || delivery.courierId !== courierId || !returnable.includes(delivery.status)) {
+      return { returned: false }
+    }
+    const oldStatus = delivery.status
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { status: oldStatus, courierId },
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+        offerExpiresAt: null,
+      }
+    )
+    if (!written) return { returned: false }
+
+    // From here the delivery is back to waiting. Each step is guarded, so a failed notification
+    // cannot hide the return (the payment still follows).
+    const event: DeliveryReturnedToWaitingEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.RETURNED_TO_WAITING,
+      actor,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId,
+      message,
+    }
+    try {
+      await this.saveDeliveryEvent(event, {
+        transitionSuccessful: true,
+        oldStatus,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
+    } catch (error) {
+      this.logger.error(`Could not record RETURNED_TO_WAITING for delivery ${deliveryId}: ${error}`)
+    }
+    try {
+      const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      if (updated.partnerId) {
+        await this.notifyPartner(updated.partnerId, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+      }
+      // The delivery no longer carries the rider's id, so tell them explicitly. No skip list: the
+      // rider did nothing wrong.
+      await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+    } catch (error) {
+      this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} went back to waiting: ${error}`)
+    }
+    return { returned: true, totalCompensation: delivery.totalCompensation, currencyCode: delivery.currencyCode }
+  }
+
   // End of a dispatch stop (spec 0014, AC-4): every waiting delivery, oldest first, gets an offer or
   // a recorded "nobody free" with its backstop. Not matchWaitingDeliveries, which offers one only.
   async matchAllWaitingDeliveriesAfterStop(): Promise<void> {
@@ -949,6 +1000,18 @@ export class DeliveryEventService {
     if (!claimed) {
       this.logger.log(`Delivery ${deliveryId} was offered or taken meanwhile; not offering it to ${courier.id}`)
       return 'NOT_WAITING'
+    }
+
+    // A stop that began while this matching ran has already ended the open offers it could see, so
+    // this one would survive it: look again, and take the claim back (row 29 review).
+    if (await this.dispatchStopRepository.findOn(new Date())) {
+      await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courier.id, offeredAt, courierId: null },
+        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+      )
+      this.logger.log(`Dispatch stopped while delivery ${deliveryId} was being offered; offer taken back`)
+      return 'STOPPED'
     }
 
     this.logger.log(`Delivery ${deliveryId} is being offered to courier: ${courier.id}`)

@@ -74,6 +74,8 @@ export class DispatchStopRepository extends EntityRepository {
   async endOrCancel(id: string, now: Date, userId: string): Promise<DispatchStop | null> {
     const stop = await this.findById(id)
     if (!stop || stop.endedAt || stop.cancelledAt) return null
+    // A stop that already ended by itself has nothing left to restart (row 29 review).
+    if (stop.endsAt && stop.endsAt <= now) return null
     const notStarted = stop.startsAt > now
     const changed = await this.prisma.dispatchStop.updateMany({
       where: { id, endedAt: null, cancelledAt: null },

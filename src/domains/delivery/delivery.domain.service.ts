@@ -133,6 +133,9 @@ export class DeliveryDomainService {
   // Spec 0002, AC-5: an accept that reaches the server before the offer ends wins; one that arrives
   // after (expired, moved on, cancelled) gets 409 "This offer has ended" and changes nothing.
   async acceptDelivery(deliveryId: string, courierId: string) {
+    // No rider takes work during a heat or storm stop (spec 0014; row 29 review): an offer that
+    // slipped past the stop's start cannot be accepted.
+    await this.deliveryEventService.refuseIfDispatchStopped()
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER || delivery.matchedCourierId !== courierId) {
