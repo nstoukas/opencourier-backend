@@ -146,6 +146,56 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       expect(loggedText).not.toContain(validInput.phoneNumber)
     })
 
+    test('cleans whitespace from names and phone directly in service and uses cleaned phone for duplicate check (AC-1, AC-3)', async () => {
+      // Direct call without the HTTP ValidationPipe
+      const rawInput: CourierCreateAdminInput = {
+        firstName: ' Nikos ',
+        lastName: '  Pap ',
+        phoneNumber: '+30 690 000 0000',
+        email: '  nikos.pap@coop.gr  ',
+        password: 'plainSecretPassword888',
+      }
+
+      const result = await service.createCourier(rawInput, 'admin-user-99')
+
+      // Pre-check for phone duplicate uses cleaned phone
+      expect(mockCourierRepository.findByPhoneNumber).toHaveBeenCalledWith('+306900000000')
+
+      // Repository createWithLogin receives trimmed names and cleaned phone
+      expect(mockCourierRepository.createWithLogin).toHaveBeenCalledWith({
+        firstName: 'Nikos',
+        lastName: 'Pap',
+        phoneNumber: '+306900000000',
+        login: {
+          email: 'nikos.pap@coop.gr',
+          hashedPassword: 'hashed!secure!pw',
+        },
+      })
+
+      expect(result).toBe(mockCourier)
+    })
+
+    test('phone duplicate check uses cleaned phone when raw input has spaces (AC-3)', async () => {
+      mockCourierRepository.findByPhoneNumber.mockImplementation(async (phone: string) => {
+        if (phone === '+306900000000') return mockCourier
+        return null
+      })
+
+      const rawInput: CourierCreateAdminInput = {
+        firstName: ' Nikos ',
+        lastName: '  Pap ',
+        phoneNumber: '+30 690 000 0000',
+        email: 'nikos.pap@coop.gr',
+        password: 'plainSecretPassword888',
+      }
+
+      await expect(service.createCourier(rawInput, 'admin-user-99')).rejects.toThrow(
+        errors.CourierPhoneTakenException,
+      )
+      expect(mockCourierRepository.findByPhoneNumber).toHaveBeenCalledWith('+306900000000')
+      expect(mockCourierRepository.createWithLogin).not.toHaveBeenCalled()
+    })
+
     test('throws CourierEmailTakenException (409) and creates nothing when email is already taken in any case', async () => {
       mockUserDomainService.findUserWithEmailIgnoringCase.mockResolvedValue(mockUser)
 

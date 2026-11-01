@@ -331,6 +331,27 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
         })
       ).rejects.toThrow(errors.ForbiddenException)
     })
+
+    test('throws ForbiddenException after trying the lower cased form when a mixed case login ("Unknown@Example.com") matches nobody (AC-8)', async () => {
+      const notFoundError = new Error('No User found')
+      notFoundError.name = 'NotFoundError'
+      mockUserDomainService.findByEmail.mockRejectedValue(notFoundError)
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
+
+      const call = service.loginWithEmail({
+        email: 'Unknown@Example.com',
+        password: 'wrongPassword',
+      })
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('These credentials are incorrect')
+
+      // Verifies fallback: typed email lookup first, check existence, then lower cased lookup
+      expect(mockUserDomainService.findByEmail).toHaveBeenCalledTimes(2)
+      expect(mockUserDomainService.findByEmail).toHaveBeenNthCalledWith(1, 'Unknown@Example.com')
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenCalledWith('Unknown@Example.com')
+      expect(mockUserDomainService.findByEmail).toHaveBeenNthCalledWith(2, 'unknown@example.com')
+    })
   })
 
   describe('AC-7: registerCourier removal', () => {

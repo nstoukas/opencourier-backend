@@ -306,5 +306,35 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       expect(next).toHaveBeenCalledWith()
       expect(socket.userId).toBe('courier-user-1')
     })
+
+    test('accepts connection when token was issued in the same second as credentialsChangedAt (iat === changeSeconds)', async () => {
+      const changeDate = new Date('2026-11-01T12:00:10.000Z')
+      const changeSeconds = Math.floor(changeDate.getTime() / 1000)
+
+      mockJwtService.verify.mockReturnValue({
+        sub: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: ['COURIER'],
+        iat: changeSeconds,
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        credentialsChangedAt: changeDate,
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer same-second-token' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await middleware(socket, next)
+
+      expect(next).toHaveBeenCalledWith()
+      expect(socket.userId).toBe('courier-user-1')
+    })
   })
 })

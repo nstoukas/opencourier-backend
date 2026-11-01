@@ -1,8 +1,9 @@
+import { EnumCountryCode, EnumUserRole } from '@prisma/types'
 import { PartnerAdminRestApiController } from './partner.admin.rest-api.controller'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
-import { EnumCountryCode } from '@prisma/types'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
 
 describe('PartnerAdminRestApiController', () => {
   let controller: PartnerAdminRestApiController
@@ -125,14 +126,30 @@ describe('PartnerAdminRestApiController', () => {
   })
 
   describe('rotatePartnerPassword', () => {
-    test('delegates password rotation to admin REST API service and returns undefined (204 No Content)', async () => {
+    test('passes admin ID from @CurrentUser to rotatePassword and returns undefined (204 No Content) (AC-10)', async () => {
       mockPartnerAdminRestApiService.rotatePassword.mockResolvedValue(undefined)
+      const mockAdmin = new UserEntity({
+        id: 'admin-user-42',
+        email: 'admin@coop.gr',
+        password: 'hashed-admin-pw',
+        role: [EnumUserRole.ADMIN],
+        username: null,
+        apiKey: null,
+        credentialsChangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-      const result = await controller.rotatePartnerPassword('partner-100', { password: 'newSecurePassword123' })
+      const result = await controller.rotatePartnerPassword(
+        'partner-100',
+        { password: 'newSecurePassword123' },
+        mockAdmin,
+      )
 
       expect(mockPartnerAdminRestApiService.rotatePassword).toHaveBeenCalledWith(
         'partner-100',
         'newSecurePassword123',
+        'admin-user-42',
       )
       expect(result).toBeUndefined()
     })

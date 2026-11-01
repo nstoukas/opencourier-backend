@@ -1,4 +1,4 @@
-import { EnumCountryCode } from '@prisma/types'
+import { EnumCountryCode, EnumUserRole } from '@prisma/types'
 import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
@@ -17,6 +17,7 @@ describe('PartnerAdminRestApiService', () => {
   let mockUserDomainService: jest.Mocked<UserDomainService>
   let mockAuthDomainService: jest.Mocked<AuthDomainService>
   let mockPasswordService: jest.Mocked<PasswordService>
+  let loggerLogSpy: jest.SpyInstance
 
   // Helper object representing a standard mock partner domain entity
   const mockPartnerEntity = new PartnerEntity({
@@ -86,6 +87,7 @@ describe('PartnerAdminRestApiService', () => {
     mockUserDomainService = {
       findUserWithEmail: jest.fn(),
       update: jest.fn(),
+      findById: jest.fn(),
     } as unknown as jest.Mocked<UserDomainService>
 
     mockAuthDomainService = {
@@ -103,6 +105,12 @@ describe('PartnerAdminRestApiService', () => {
       mockAuthDomainService,
       mockPasswordService,
     )
+
+    loggerLogSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
   })
 
   describe('createRestaurant', () => {
@@ -378,13 +386,26 @@ describe('PartnerAdminRestApiService', () => {
   })
 
   describe('rotatePassword', () => {
-    test('7a. hashes new password and updates user when partner has a valid userId (carrying credentialsChangedAt)', async () => {
+    test('7a. hashes new password, updates user with credentialsChangedAt, and logs admin and partner IDs without password (AC-9, AC-10)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      const mockUser = new UserEntity({
+        id: 'user-200',
+        email: 'taverna@volos.gr',
+        password: 'old-hashed-password',
+        role: [EnumUserRole.PARTNER],
+        username: null,
+        apiKey: null,
+        credentialsChangedAt: null,
+        createdAt: new Date('2026-07-01T10:00:00Z'),
+        updatedAt: new Date('2026-07-01T10:00:00Z'),
+      })
+      mockUserDomainService.findById.mockResolvedValue(mockUser)
 
       const before = new Date()
-      await service.rotatePassword('partner-100', 'newSuperSecret888')
+      await service.rotatePassword('partner-100', 'newSuperSecret888', 'admin-user-77')
       const after = new Date()
 
+      expect(mockUserDomainService.findById).toHaveBeenCalledWith('user-200')
       expect(mockPasswordService.hash).toHaveBeenCalledWith('newSuperSecret888')
       expect(mockUserDomainService.update).toHaveBeenCalledWith('user-200', {
         password: 'hashed!password123',
@@ -395,18 +416,56 @@ describe('PartnerAdminRestApiService', () => {
       expect(updateCall?.credentialsChangedAt).toBeInstanceOf(Date)
       expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeGreaterThanOrEqual(before.getTime())
       expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeLessThanOrEqual(after.getTime())
+
+      // AC-10: logs one line naming admin id and partner id, never the password
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 set a new password for partner partner-100')
+      const loggedText = loggerLogSpy.mock.calls.map((c) => c.join(' ')).join(' ')
+      expect(loggedText).not.toContain('newSuperSecret888')
+      expect(loggedText).not.toContain('hashed!password123')
     })
 
-    test('7b. throws NotFoundException when partner has no userId', async () => {
+    test('7b. throws ForbiddenException "This login also belongs to an admin." and updates nothing when partner user has ADMIN role (AC-10)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      const adminPartnerUser = new UserEntity({
+        id: 'user-200',
+        email: 'taverna-admin@volos.gr',
+        password: 'admin-hashed-pw',
+        role: [EnumUserRole.PARTNER, EnumUserRole.ADMIN],
+        username: null,
+        apiKey: null,
+        credentialsChangedAt: null,
+        createdAt: new Date('2026-07-01T10:00:00Z'),
+        updatedAt: new Date('2026-07-01T10:00:00Z'),
+      })
+      mockUserDomainService.findById.mockResolvedValue(adminPartnerUser)
+
+      const call = service.rotatePassword('partner-100', 'newSuperSecret888', 'admin-user-77')
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('This login also belongs to an admin.')
+
+      // Nothing updated, hashed, or logged
+      expect(mockPasswordService.hash).not.toHaveBeenCalled()
+      expect(mockUserDomainService.update).not.toHaveBeenCalled()
+      expect(loggerLogSpy).not.toHaveBeenCalled()
+    })
+
+    test('7c. throws NotFoundException when partner has no userId and updates nothing', async () => {
       const partnerWithoutUser = new PartnerEntity({
         ...mockPartnerEntity,
         userId: null,
       })
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
 
-      await expect(service.rotatePassword('partner-100', 'anotherPassword')).rejects.toThrow(errors.NotFoundException)
-      await expect(service.rotatePassword('partner-100', 'anotherPassword')).rejects.toThrow('This partner has no login user')
+      await expect(service.rotatePassword('partner-100', 'anotherPassword', 'admin-user-77')).rejects.toThrow(
+        errors.NotFoundException,
+      )
+      await expect(service.rotatePassword('partner-100', 'anotherPassword', 'admin-user-77')).rejects.toThrow(
+        'This partner has no login user',
+      )
+      expect(mockUserDomainService.findById).not.toHaveBeenCalled()
       expect(mockUserDomainService.update).not.toHaveBeenCalled()
+      expect(loggerLogSpy).not.toHaveBeenCalled()
     })
   })
 })
