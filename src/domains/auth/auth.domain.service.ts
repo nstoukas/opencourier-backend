@@ -45,7 +45,10 @@ export class AuthDomainService {
     // admin stores (spec 0013, AC-8). A stored email with capitals still logs in.
     let user = await this.validateUser(password, email)
     const normalised = email.trim().toLowerCase()
-    if (!user && normalised !== email) {
+    // Only when no account has the email exactly as typed: after a wrong password on that account,
+    // trying another account that differs only in capitals would log in to the wrong one (row 16
+    // review).
+    if (!user && normalised !== email && !(await this.userDomainService.findUserWithEmail(email))) {
       user = await this.validateUser(password, normalised)
     }
 

@@ -42,8 +42,6 @@ export class CourierDeviceRepository extends EntityRepository {
     })
   }
 
-  // Deletes a token only if it belongs to this rider, so a rider can never unregister someone
-  // else's phone. Deleting a token that is not there is not an error (the endpoint answers 204).
   // Every device of one rider, after an admin set a new password: no offer push reaches the old
   // phone; the app registers its device again at the next login (spec 0013).
   async deleteAllForCourier(courierId: string): Promise<number> {
@@ -51,6 +49,8 @@ export class CourierDeviceRepository extends EntityRepository {
     return result.count
   }
 
+  // Deletes a token only if it belongs to this rider, so a rider can never unregister someone
+  // else's phone. Deleting a token that is not there is not an error (the endpoint answers 204).
   async deleteForCourier(courierId: string, token: string): Promise<void> {
     await this.prisma.courierDevice.deleteMany({ where: { token, courierId } })
   }

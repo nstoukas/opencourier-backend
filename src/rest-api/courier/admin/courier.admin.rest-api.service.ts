@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { EnumCourierStatus } from '@prisma/types'
+import { EnumCourierStatus, EnumUserRole } from '@prisma/types'
 import * as errors from 'src/errors'
 import { PasswordService } from 'src/domains/auth/password.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
@@ -76,6 +76,11 @@ export class CourierAdminRestApiService {
     if (!user.email) {
       // A dev script account with no email: a password would never let it log in.
       throw new errors.NotFoundException('This rider has no login.')
+    }
+    if (user.role.includes(EnumUserRole.ADMIN)) {
+      // These routes never sign an admin out (spec 0013, AC-10). A login that is both rider and
+      // admin has its password changed some other way (row 16 review).
+      throw new errors.ForbiddenException('This login also belongs to an admin.')
     }
 
     const hashedPassword = await this.passwordService.hash(newPassword)
