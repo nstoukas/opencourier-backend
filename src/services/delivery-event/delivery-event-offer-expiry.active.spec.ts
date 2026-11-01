@@ -1018,8 +1018,9 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       })
 
       // Updates status to CANCELED and clears offer fields
-      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         'del-cancel-wait',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null },
         expect.objectContaining({
           status: EnumDeliveryStatus.CANCELED,
           matchedCourierId: null,

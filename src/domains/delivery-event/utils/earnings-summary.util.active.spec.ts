@@ -1,3 +1,4 @@
+import { EnumCourierCompensationReason } from '@prisma/types'
 import {
   CourierEarningsRow,
   CourierEarningsDeliveryRow,
@@ -10,6 +11,7 @@ import {
   dedupeEarliestDropOff,
   formatDropoffAddress,
   listEarningsDeliveriesForDay,
+  compensationToEarningsDelivery,
 } from './earnings-summary.util'
 
 describe('earnings-summary.util', () => {
@@ -500,6 +502,52 @@ describe('earnings-summary.util', () => {
       // Second entry is the drop-off row
       expect(result[1]?.deliveryId).toBe('del-completed-1')
       expect(result[1]?.kind).toBeUndefined()
+    })
+  })
+
+  describe('compensationToEarningsDelivery (Spec 0015 AC-15)', () => {
+    const baseCompRow: CourierCompensationDeliveryRow = {
+      deliveryId: 'del-comp-1',
+      createdAt: new Date('2026-11-01T10:00:00Z'),
+      amount: 450,
+      pickupBusinessName: 'Volos Tavern',
+      dropoffLocation: {
+        formattedAddress: 'Main St 1, Volos',
+        street: 'Main St 1',
+        city: 'Volos',
+        state: 'Magnesia',
+      },
+    }
+
+    it('maps reason CANCELLATION to kind CANCELLATION_COMPENSATION', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.CANCELLATION,
+      })
+
+      expect(result.kind).toBe('CANCELLATION_COMPENSATION')
+      expect(result.compensation).toBe(450)
+      expect(result.tips).toBe(0)
+      expect(result.total).toBe(450)
+      expect(result.droppedOffAt).toEqual(baseCompRow.createdAt)
+    })
+
+    it('maps reason REASSIGNMENT to kind REASSIGNMENT_COMPENSATION', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.REASSIGNMENT,
+      })
+
+      expect(result.kind).toBe('REASSIGNMENT_COMPENSATION')
+    })
+
+    it('maps absent / undefined reason to kind REASSIGNMENT_COMPENSATION', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: undefined as any,
+      })
+
+      expect(result.kind).toBe('REASSIGNMENT_COMPENSATION')
     })
   })
 

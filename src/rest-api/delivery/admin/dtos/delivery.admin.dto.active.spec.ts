@@ -1,8 +1,9 @@
 import { DeliveryAdminDto } from './delivery.admin.dto'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
+import { EnumCancelledBy, EnumDeliveryStatus, EnumFoodOutcome } from '@prisma/types'
 
-describe('DeliveryAdminDto (AC-7)', () => {
+describe('DeliveryAdminDto (AC-7, AC-13)', () => {
   const sampleDelivery = new DeliveryEntity({
     id: 'del-1',
     pickupName: 'Partner A',
@@ -66,5 +67,53 @@ describe('DeliveryAdminDto (AC-7)', () => {
 
     expect(dto.baseFee).toBeNull()
     expect(dto.distanceFee).toBeNull()
+  })
+
+  describe('Cancellation fields and partner charge (Spec 0015 AC-13)', () => {
+    it('returns cancellation fields and partnerCharge as null for non-cancelled delivery', () => {
+      const dto = new DeliveryAdminDto(sampleDelivery)
+
+      expect(dto.cancelledBy).toBeNull()
+      expect(dto.cancelledFromStatus).toBeNull()
+      expect(dto.cancelledAt).toBeNull()
+      expect(dto.foodOutcome).toBeNull()
+      expect(dto.foodOutcomeAt).toBeNull()
+      expect(dto.partnerCharge).toBeNull()
+    })
+
+    it('carries cancellation fields and partnerCharge when delivery was cancelled', () => {
+      const cancelledAt = new Date('2026-11-01T10:00:00Z')
+      const foodOutcomeAt = new Date('2026-11-01T10:15:00Z')
+      const chargeCreatedAt = new Date('2026-11-01T10:00:01Z')
+
+      const cancelledDelivery = new DeliveryEntity({
+        ...sampleDelivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+        cancelledAt,
+        foodOutcome: EnumFoodOutcome.RETURNED,
+        foodOutcomeAt,
+      } as any)
+
+      const partnerCharge = {
+        amount: 1250,
+        currencyCode: 'EUR',
+        createdAt: chargeCreatedAt,
+      }
+
+      const dto = new DeliveryAdminDto(cancelledDelivery, sampleQuote, undefined, partnerCharge)
+
+      expect(dto.cancelledBy).toBe(EnumCancelledBy.RESTAURANT)
+      expect(dto.cancelledFromStatus).toBe(EnumDeliveryStatus.PICKED_UP)
+      expect(dto.cancelledAt).toBe(cancelledAt)
+      expect(dto.foodOutcome).toBe(EnumFoodOutcome.RETURNED)
+      expect(dto.foodOutcomeAt).toBe(foodOutcomeAt)
+      expect(dto.partnerCharge).toEqual({
+        amount: 1250,
+        currencyCode: 'EUR',
+        createdAt: chargeCreatedAt,
+      })
+    })
   })
 })

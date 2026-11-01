@@ -224,4 +224,37 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
       expect(result.dispatchPhoneNumber).toBeUndefined()
     })
   })
+
+  describe('Clause 6: cancellationPayoutPolicy text guard (@RefuseIfNotSentAsString, Spec 0015 AC-4)', () => {
+    const invalidTextValues = [100, 0, true, false, null, [], {}]
+
+    invalidTextValues.forEach((invalidValue) => {
+      it(`refuses non-text ${JSON.stringify(invalidValue)} for cancellationPayoutPolicy with BadRequestException naming the setting`, async () => {
+        const promise = pipe.transform(
+          { cancellationPayoutPolicy: invalidValue },
+          { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+        )
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('cancellationPayoutPolicy must be sent as text')
+      })
+    })
+
+    it('passes real JSON string untouched for cancellationPayoutPolicy', async () => {
+      const result = (await pipe.transform(
+        { cancellationPayoutPolicy: 'FULL_COMPENSATION' },
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.cancellationPayoutPolicy).toBe('FULL_COMPENSATION')
+    })
+
+    it('leaves cancellationPayoutPolicy undefined when left out from body', async () => {
+      const result = (await pipe.transform(
+        {},
+        { type: 'body', metatype: InstanceConfigSettingsAdminInput }
+      )) as InstanceConfigSettingsAdminInput
+
+      expect(result.cancellationPayoutPolicy).toBeUndefined()
+    })
+  })
 })

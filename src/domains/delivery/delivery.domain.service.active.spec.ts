@@ -5,6 +5,7 @@ import {
   EnumDeliveryStatus,
   EnumEventActor,
   EnumCourierCompensationReason,
+  EnumCancelledBy,
 } from '@prisma/types'
 import { DeliveryDomainService } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
@@ -37,6 +38,7 @@ describe('DeliveryDomainService', () => {
       update: jest.fn(),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       create: jest.fn(),
+      findPartnerCharge: jest.fn(),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockEventEmitter = {
@@ -951,6 +953,112 @@ describe('DeliveryDomainService', () => {
       expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
       expect(result).toBe(updatedDelivery)
       expect(result.status).toBe(EnumDeliveryStatus.CANCELED)
+    })
+  })
+
+  describe('Cancellation and cancelledBy (Spec 0015 AC-5, AC-6)', () => {
+    const deliveryId = 'del-cancel-test'
+    const partnerId = 'partner-1'
+
+    beforeEach(() => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        partnerId,
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-1',
+      } as any)
+    })
+
+    describe('cancelDelivery', () => {
+      it('defaults cancelledBy to RESTAURANT when omitted', async () => {
+        await service.cancelDelivery(deliveryId)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.PARTNER,
+            source: EnumDeliveryEventSource.PARTNER_APP,
+            cancelledBy: EnumCancelledBy.RESTAURANT,
+            message: `Delivery ${deliveryId} was canceled by partner ${partnerId} (cancelled by: RESTAURANT)`,
+          })
+        )
+      })
+
+      it('accepts explicit cancelledBy CUSTOMER', async () => {
+        await service.cancelDelivery(deliveryId, EnumCancelledBy.CUSTOMER)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            cancelledBy: EnumCancelledBy.CUSTOMER,
+            message: `Delivery ${deliveryId} was canceled by partner ${partnerId} (cancelled by: CUSTOMER)`,
+          })
+        )
+      })
+    })
+
+    describe('submitDeliveryEvent', () => {
+      it('throws BadRequestException (400) if cancelledBy is sent with an eventType other than CANCELED', async () => {
+        await expect(
+          service.submitDeliveryEvent({
+            deliveryId,
+            eventType: EnumDeliveryEventType.ACCEPTED,
+            cancelledBy: EnumCancelledBy.CUSTOMER,
+          } as any)
+        ).rejects.toThrow(new BadRequestException('cancelledBy can only be sent with eventType CANCELED'))
+
+        expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      })
+
+      it('defaults cancelledBy to COOP when admin cancels with eventType CANCELED and no cancelledBy', async () => {
+        await service.submitDeliveryEvent({
+          deliveryId,
+          eventType: EnumDeliveryEventType.CANCELED,
+        })
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.ADMIN,
+            source: EnumDeliveryEventSource.OPENCOURIER,
+            cancelledBy: EnumCancelledBy.COOP,
+            message: 'order canceled by admin (cancelled by: COOP)',
+          })
+        )
+      })
+
+      it('uses provided cancelledBy when admin cancels with eventType CANCELED', async () => {
+        await service.submitDeliveryEvent({
+          deliveryId,
+          eventType: EnumDeliveryEventType.CANCELED,
+          cancelledBy: EnumCancelledBy.CUSTOMER,
+        })
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.ADMIN,
+            cancelledBy: EnumCancelledBy.CUSTOMER,
+            message: 'order canceled by admin (cancelled by: CUSTOMER)',
+          })
+        )
+      })
+    })
+
+    describe('getPartnerCharge', () => {
+      it('delegates to deliveryRepository.findPartnerCharge', async () => {
+        const mockCharge = { id: 'charge-1', amount: 1500, currencyCode: 'EUR' }
+        ;(mockDeliveryRepository as any).findPartnerCharge.mockResolvedValue(mockCharge)
+
+        const result = await service.getPartnerCharge(deliveryId)
+
+        expect((mockDeliveryRepository as any).findPartnerCharge).toHaveBeenCalledWith(deliveryId)
+        expect(result).toBe(mockCharge)
+      })
     })
   })
 })

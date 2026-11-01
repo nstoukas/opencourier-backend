@@ -396,5 +396,54 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
 
       expect(() => service.offerEnded('courier-1', { deliveryId: 'del-1', reason: 'MOVED' })).not.toThrow()
     })
+
+    test('jobCancelled swallows rejections without crashing', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Push crashed'))
+
+      expect(() => service.jobCancelled('courier-1', 'del-1')).not.toThrow()
+    })
+  })
+
+  describe('sendJobCancelled (Spec 0015 AC-7)', () => {
+    test('sends JOB_CANCELLED data message with deliveryId to all devices with 300s TTL', async () => {
+      await service.sendJobCancelled('courier-1', 'del-push-1')
+
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+        ['token-device-a', 'token-device-b'],
+        {
+          type: NotificationEventType.JOB_CANCELLED,
+          deliveryId: 'del-push-1',
+        },
+        PUSH_DEFAULT_TTL_SECONDS
+      )
+    })
+
+    test('returns immediately without sending when push is disabled', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      await service.sendJobCancelled('courier-1', 'del-push-1')
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    it('returns without sending when courier has no push tokens registered', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValueOnce([])
+
+      await service.sendJobCancelled('courier-1', 'del-push-1')
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('prunes dead tokens when reported by sendJobCancelled', async () => {
+      mockPushNotificationService.sendData.mockResolvedValue({
+        deadTokens: ['token-device-a'],
+        failureCodes: [],
+      })
+
+      await service.sendJobCancelled('courier-1', 'del-push-1')
+
+      expect(mockCourierDeviceRepository.deleteByTokens).toHaveBeenCalledWith(['token-device-a'])
+    })
   })
 })

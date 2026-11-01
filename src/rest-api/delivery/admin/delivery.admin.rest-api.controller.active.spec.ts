@@ -83,6 +83,8 @@ describe('DeliveryAdminRestApiController', () => {
     mockDeliveryDomainService = {
       getById: jest.fn(),
       getByIdOrThrow: jest.fn(),
+      getByIdOrThrowWithQuote: jest.fn(),
+      getPartnerCharge: jest.fn(),
       getMany: jest.fn(),
       update: jest.fn(),
       submitDeliveryEvent: jest.fn(),
@@ -418,6 +420,52 @@ describe('DeliveryAdminRestApiController', () => {
       const method = Reflect.getMetadata(METHOD_METADATA, controller.getDeliveries)
       expect(path).toBe('/')
       expect(method).toBe(RequestMethod.GET)
+    })
+  })
+
+  describe('getDelivery (Spec 0015 AC-13)', () => {
+    it('carries partnerCharge on cancelled delivery when present', async () => {
+      const mockCancelledDelivery = {
+        id: mockDeliveryId,
+        cancelledAt: new Date('2026-11-01T10:00:00Z'),
+        status: EnumDeliveryStatus.CANCELED,
+      }
+      const mockCharge = {
+        amount: 850,
+        currencyCode: 'EUR',
+        createdAt: new Date('2026-11-01T10:00:01Z'),
+      }
+
+      mockDeliveryDomainService.getByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: mockCancelledDelivery as any,
+        quote: null as any,
+      })
+      mockDeliveryDomainService.getOfferViews.mockResolvedValue(new Map())
+      mockDeliveryDomainService.getPartnerCharge.mockResolvedValue(mockCharge as any)
+
+      const dto = await controller.getDelivery(mockDeliveryId)
+
+      expect(mockDeliveryDomainService.getPartnerCharge).toHaveBeenCalledWith(mockDeliveryId)
+      expect(dto.partnerCharge).toEqual(mockCharge)
+    })
+
+    it('returns partnerCharge as null and does not query getPartnerCharge when delivery was not cancelled', async () => {
+      const mockActiveDelivery = {
+        id: mockDeliveryId,
+        cancelledAt: null,
+        status: EnumDeliveryStatus.ACCEPTED,
+      }
+
+      mockDeliveryDomainService.getByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: mockActiveDelivery as any,
+        quote: null as any,
+      })
+      mockDeliveryDomainService.getOfferViews.mockResolvedValue(new Map())
+
+      const dto = await controller.getDelivery(mockDeliveryId)
+
+      expect(mockDeliveryDomainService.getPartnerCharge).not.toHaveBeenCalled()
+      expect(dto.partnerCharge).toBeNull()
     })
   })
 })

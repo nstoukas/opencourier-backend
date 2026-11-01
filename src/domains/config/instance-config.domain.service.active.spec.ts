@@ -257,6 +257,142 @@ describe('InstanceConfigDomainService', () => {
       )
       expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
     })
+
+    describe('cancellationPayoutPolicy (Spec 0015 AC-4)', () => {
+      it('getCancellationPayoutPolicy returns stored policy when present', async () => {
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({
+            key: ConfigKey.CANCELLATION_PAYOUT_POLICY,
+            value: 'HALF_COMPENSATION',
+            type: 'string',
+          })
+        )
+        const policy = await service.getCancellationPayoutPolicy()
+        expect(policy).toBe('HALF_COMPENSATION')
+      })
+
+      it('getCancellationPayoutPolicy falls back to FULL_COMPENSATION quietly when missing from DB', async () => {
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+        const policy = await service.getCancellationPayoutPolicy()
+        expect(policy).toBe('FULL_COMPENSATION')
+      })
+
+      it('getStoredCancellationPayoutPolicy returns null quietly when missing from DB', async () => {
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+        const policy = await service.getStoredCancellationPayoutPolicy()
+        expect(policy).toBeNull()
+      })
+
+      it('throws BadRequestException (400) when saving cancellationPayoutPolicy not on the menu', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.REASSIGNMENT_PAYOUT_POLICIES) {
+            return new ConfigEntity({
+              key: ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+              value: JSON.stringify({ FULL_COMPENSATION: 100, HALF_COMPENSATION: 50 }),
+              type: 'object',
+            })
+          }
+          throw notFoundError
+        })
+
+        await expect(
+          service.setInstanceConfigSettings({
+            cancellationPayoutPolicy: 'NOT_ON_MENU',
+          })
+        ).rejects.toThrow(BadRequestException)
+
+        try {
+          await service.setInstanceConfigSettings({
+            cancellationPayoutPolicy: 'NOT_ON_MENU',
+          })
+        } catch (err: any) {
+          expect(err.message).toContain("Invalid cancellationPayoutPolicy 'NOT_ON_MENU'")
+          expect(err.message).toContain('Allowed policies: FULL_COMPENSATION, HALF_COMPENSATION')
+        }
+      })
+
+      it('throws BadRequestException (400) when menu save drops the stored cancellationPayoutPolicy', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.CANCELLATION_PAYOUT_POLICY) {
+            return new ConfigEntity({
+              key: ConfigKey.CANCELLATION_PAYOUT_POLICY,
+              value: 'HALF_COMPENSATION',
+              type: 'string',
+            })
+          }
+          if (key === ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY) {
+            return new ConfigEntity({
+              key: ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
+              value: 'FULL_COMPENSATION',
+              type: 'string',
+            })
+          }
+          throw notFoundError
+        })
+
+        // The new menu keeps FULL_COMPENSATION (so default policy check passes) but drops HALF_COMPENSATION
+        await expect(
+          service.setInstanceConfigSettings({
+            reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
+          })
+        ).rejects.toThrow(BadRequestException)
+
+        try {
+          await service.setInstanceConfigSettings({
+            reassignmentPayoutPolicies: { FULL_COMPENSATION: 100 },
+          })
+        } catch (err: any) {
+          expect(err.message).toContain(
+            "the stored cancellationPayoutPolicy 'HALF_COMPENSATION' is not a key in the new menu"
+          )
+          expect(err.message).toContain('Send cancellationPayoutPolicy together with reassignmentPayoutPolicies')
+        }
+      })
+
+      it('throws BadRequestException (400) when menu save drops FULL_COMPENSATION with no stored cancellation rule', async () => {
+        // Pass reassignmentPayoutDefaultPolicy too, so the reassignment check does not answer first
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        await expect(
+          service.setInstanceConfigSettings({
+            reassignmentPayoutPolicies: { CUSTOM_POLICY: 80 },
+            reassignmentPayoutDefaultPolicy: 'CUSTOM_POLICY',
+          })
+        ).rejects.toThrow(BadRequestException)
+
+        try {
+          await service.setInstanceConfigSettings({
+            reassignmentPayoutPolicies: { CUSTOM_POLICY: 80 },
+            reassignmentPayoutDefaultPolicy: 'CUSTOM_POLICY',
+          })
+        } catch (err: any) {
+          expect(err.message).toContain(
+            "this instance has no stored cancellationPayoutPolicy, so the built-in fallback 'FULL_COMPENSATION' applies"
+          )
+          expect(err.message).toContain('Send cancellationPayoutPolicy together with reassignmentPayoutPolicies')
+        }
+      })
+
+      it('succeeds when same request sets both new menu and new cancellationPayoutPolicy', async () => {
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        await service.setInstanceConfigSettings({
+          reassignmentPayoutPolicies: { CUSTOM_A: 100, CUSTOM_B: 70 },
+          reassignmentPayoutDefaultPolicy: 'CUSTOM_A',
+          cancellationPayoutPolicy: 'CUSTOM_B',
+        })
+
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
+          JSON.stringify({ CUSTOM_A: 100, CUSTOM_B: 70 })
+        )
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.CANCELLATION_PAYOUT_POLICY, 'CUSTOM_B')
+      })
+    })
   })
 
   describe('quoteRatePerDistanceUnit', () => {

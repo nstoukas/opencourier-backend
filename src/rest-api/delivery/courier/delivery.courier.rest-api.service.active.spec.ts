@@ -1,4 +1,5 @@
 import { EnumDeliveryIssueReason, EnumDeliveryStatus } from '@prisma/types'
+import { ConflictException } from '@nestjs/common'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
@@ -39,6 +40,7 @@ describe('DeliveryRestApiCourierService', () => {
       markAsPickedUp: jest.fn(),
       courierArrivedAtDropOff: jest.fn(),
       markAsDelivered: jest.fn(),
+      cancelDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryDomainService>
 
     mockLocationNoteDomainService = {
@@ -343,6 +345,29 @@ describe('DeliveryRestApiCourierService', () => {
       await service.markAsDelivered(deliveryId, courierId, { note: 'Left with concierge' })
 
       expect(mockLocationNoteDomainService.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('cancelDelivery (Spec 0015 decision 32.14)', () => {
+    it('answers 409 ConflictException and never calls domain cancelDelivery', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValueOnce({
+        id: deliveryId,
+        courierId,
+        status: EnumDeliveryStatus.PICKED_UP,
+      } as any)
+
+      await expect(service.cancelDelivery(deliveryId, courierId)).rejects.toThrow(
+        new ConflictException('A rider cannot cancel a job. Report an issue or call dispatch.')
+      )
+
+      expect(mockDeliveryDomainService.cancelDelivery).not.toHaveBeenCalled()
+    })
+
+    it('answers 404 DeliveryNotFoundException when delivery does not belong to courier or is not found', async () => {
+      mockDeliveryDomainService.getById.mockResolvedValueOnce(null)
+
+      await expect(service.cancelDelivery('del-other', courierId)).rejects.toThrow(DeliveryNotFoundException)
+      expect(mockDeliveryDomainService.cancelDelivery).not.toHaveBeenCalled()
     })
   })
 })
