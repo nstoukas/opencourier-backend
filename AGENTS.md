@@ -60,6 +60,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   way to start work must check `refuseIfDispatchStopped` too. Start and end work run from a repeatable minute tick
   (one off jobs here never retry) and are marked done only after they ran. Stop times are entered and shown in
   `INSTANCE_TIMEZONE`, and the sentences riders and restaurants read are built on the server (`dispatch-stop-time.ts`).
+- The customer's phone (`dropoffPhoneNumber`) is in `DeliveryCourierDto` only while the rider holds the delivery
+  (`CUSTOMER_PHONE_VISIBLE_STATUSES`, row 33); the socket dispatchers log ids and statuses, never the DTO.
+- A text setting needs `@RefuseIfNotSentAsString()` (row 72): the ValidationPipe turns a JSON number into text, losing a
+  phone number's `+`. A setting that is normally unset until a representative saves it (`dispatchPhoneNumber`) reads its
+  missing row quietly; `getConfigValueOrDefault` warns on every read. Riders read it at `GET config/contact`, never the
+  public metadata.
 
 ## Agent skills
 
