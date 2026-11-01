@@ -13,6 +13,19 @@ const formatAddress = (address: LocationEntity) => {
   return formattedAddress
 }
 
+
+// Row 33 (wishlist item 17): riders call customers from their own phones, so the number reaches the
+// app only while the rider holds the delivery. Every courier response and socket message is built
+// through this DTO, so the rule holds everywhere at once.
+const CUSTOMER_PHONE_VISIBLE_STATUSES: EnumDeliveryStatus[] = [
+  EnumDeliveryStatus.ACCEPTED,
+  EnumDeliveryStatus.DISPATCHED,
+  EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+  EnumDeliveryStatus.PICKED_UP,
+  EnumDeliveryStatus.ON_THE_WAY,
+  EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+]
+
 export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
   id!: string
@@ -44,8 +57,11 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
   dropoffName: string
 
-  @ApiProperty({ type: String })
-  dropoffPhoneNumber: string
+  // The customer's number, only while this rider holds the delivery (row 33): from ACCEPTED until
+  // they reach the drop off. Left out of the response (undefined, so not in the JSON at all) in an
+  // offer and once it is dropped off, cancelled or failed.
+  @ApiProperty({ type: String, required: false })
+  dropoffPhoneNumber?: string
 
   @ApiProperty({ type: Object, nullable: true })
   dropoffBusinessName: string | null
@@ -193,7 +209,7 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffName = data.dropoffName
-    this.dropoffPhoneNumber = data.dropoffPhoneNumber
+    this.dropoffPhoneNumber = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) ? data.dropoffPhoneNumber : undefined
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
