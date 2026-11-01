@@ -718,9 +718,18 @@ export class InstanceConfigDomainService {
   // The co-op's dispatch line (row 72), or null when none is set. Saving already refuses
   // anything that is not a phone number, so a bad stored value means a hand edit of the table:
   // show no dispatch button rather than one that dials nonsense, and log it so it gets fixed.
+  // A missing row is the normal state until a representative saves a number, so it is read
+  // quietly: getConfigValueOrDefault would log "Missing variable" on every rider's read (row 72 review).
   async getDispatchPhoneNumber(): Promise<string | null> {
-    const stored = await this.getConfigValueOrDefault(ConfigKey.DISPATCH_PHONE_NUMBER, '')
-    const value = stored.value
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.DISPATCH_PHONE_NUMBER)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return null
+      }
+      throw error
+    }
 
     if (value === '' || value === null) {
       return null
