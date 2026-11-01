@@ -25,7 +25,8 @@ export class AblyDispatcher extends WebsocketDispatcher {
   }
 
   async sendOfferToCourier(userId: string, delivery: DeliveryCourierDto) {
-    this.logger.log(`emitting event to courier: ${JSON.stringify(delivery)}, channel: COURIER:${userId}`)
+    // Ids only: the delivery carries the customer's name and number (row 33 review).
+    this.logger.log(`emitting offer of delivery ${delivery.id} to courier, channel: COURIER:${userId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.NEW_DELIVERY_OFFER, delivery)
   }
   async dispatchDeliveryStatusUpdated(
@@ -40,10 +41,9 @@ export class AblyDispatcher extends WebsocketDispatcher {
       newStatus,
     }
 
+    // Ids and statuses only: the delivery carries the customer's name and number (row 33 review).
     this.logger.log(
-      `emitting ${NotificationEventType.DELIVERY_STATUS_UPDATED} event to courier: ${JSON.stringify(
-        data
-      )}, channel: COURIER:${userId}`
+      `emitting ${NotificationEventType.DELIVERY_STATUS_UPDATED} for delivery ${delivery.id} (${oldStatus} -> ${newStatus}), channel: COURIER:${userId}`
     )
 
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.DELIVERY_STATUS_UPDATED, data)
