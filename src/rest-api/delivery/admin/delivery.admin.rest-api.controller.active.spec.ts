@@ -16,6 +16,8 @@ import {
   EnumEventActor,
   EnumUserRole,
 } from '@prisma/types'
+import { adminDeliveryListWhere } from './queries/delivery-list-filter'
+import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
 
 describe('DeliveryAdminRestApiController', () => {
   let controller: DeliveryAdminRestApiController
@@ -85,6 +87,7 @@ describe('DeliveryAdminRestApiController', () => {
       update: jest.fn(),
       submitDeliveryEvent: jest.fn(),
       reassignDelivery: jest.fn(),
+      getOfferViews: jest.fn(),
     } as unknown as jest.Mocked<DeliveryDomainService>
 
     // Create minimal mock for DeliveryEventDomainService
@@ -309,6 +312,112 @@ describe('DeliveryAdminRestApiController', () => {
       expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.submitDeliveryEvent).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.reassignDelivery).toHaveBeenCalledTimes(0)
+    })
+  })
+
+  describe('getDeliveries (row 96)', () => {
+    // Paginated delivery data fixture
+    const mockDeliveriesData = {
+      data: [
+        {
+          id: 'del-1',
+          orderReference: 'ORD-101',
+          pickupBusinessName: 'Souvlaki tou Nikou',
+          dropoffName: 'Elena Kostopoulou',
+          courierId: 'courier-1',
+          status: EnumDeliveryStatus.ACCEPTED,
+          createdAt: new Date('2026-10-31T20:00:00.000Z'),
+          updatedAt: new Date('2026-10-31T20:00:00.000Z'),
+        } as any,
+      ],
+      total: 1,
+      page: 1,
+      perPage: 10,
+      totalPages: 1,
+    }
+
+    beforeEach(() => {
+      mockDeliveryDomainService.getMany.mockResolvedValue(mockDeliveriesData)
+      mockDeliveryDomainService.getOfferViews.mockResolvedValue(new Map())
+    })
+
+    test('passes courierId, state, and search converted to where to deliveryDomainService.getMany with page and perPage', async () => {
+      const args: DeliveryFindManyAdminArgs = {
+        courierId: 'courier-1',
+        state: 'active',
+        search: 'Nikou',
+        page: 2,
+        perPage: 15,
+      }
+
+      const result = await controller.getDeliveries(args)
+
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledWith(
+        adminDeliveryListWhere({
+          courierId: 'courier-1',
+          state: 'active',
+          search: 'Nikou',
+        }),
+        2,
+        15
+      )
+      expect(mockDeliveryDomainService.getOfferViews).toHaveBeenCalledWith(mockDeliveriesData.data)
+      expect(result.data).toHaveLength(1)
+    })
+
+    test('fails if state is dropped on the way to getMany', async () => {
+      // Must pass state to adminDeliveryListWhere and forward resulting status rule
+      await controller.getDeliveries({ state: 'active' })
+
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledTimes(1)
+      const call = mockDeliveryDomainService.getMany.mock.calls[0]
+      expect(call).toBeDefined()
+      const calledWhere = call![0]
+      expect(calledWhere).toHaveProperty('status')
+      expect(calledWhere.status).toEqual({
+        notIn: [
+          EnumDeliveryStatus.DROPPED_OFF,
+          EnumDeliveryStatus.CANCELED,
+          EnumDeliveryStatus.FAILED,
+        ],
+      })
+    })
+
+    test('fails if search is dropped on the way to getMany', async () => {
+      // Must pass search to adminDeliveryListWhere and forward resulting OR rule
+      await controller.getDeliveries({ search: 'ORD-101' })
+
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledTimes(1)
+      const call = mockDeliveryDomainService.getMany.mock.calls[0]
+      expect(call).toBeDefined()
+      const calledWhere = call![0]
+      expect(calledWhere).toHaveProperty('OR')
+      expect(calledWhere.OR).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            orderReference: { contains: 'ORD-101', mode: 'insensitive' },
+          }),
+        ])
+      )
+    })
+
+    test('passes empty where when no filter args are provided', async () => {
+      await controller.getDeliveries({})
+
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledWith({}, undefined, undefined)
+    })
+
+    test('getDeliveries handler carries @Roles(ADMIN)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.getDeliveries)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('getDeliveries is routed at PATH "/" with METHOD GET', () => {
+      const path = Reflect.getMetadata(PATH_METADATA, controller.getDeliveries)
+      const method = Reflect.getMetadata(METHOD_METADATA, controller.getDeliveries)
+      expect(path).toBe('/')
+      expect(method).toBe(RequestMethod.GET)
     })
   })
 })
