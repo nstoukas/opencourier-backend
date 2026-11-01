@@ -1,3 +1,4 @@
+import { EnumCourierCompensationReason } from '@prisma/types'
 import { dayjs } from 'src/core/utils/time'
 import {
   CourierEarningsRow,
@@ -73,7 +74,8 @@ export function compensationToEarningsDelivery(row: CourierCompensationDeliveryR
     compensation: row.amount,
     tips: 0,
     total: row.amount,
-    kind: 'REASSIGNMENT_COMPENSATION',
+    kind:
+      row.reason === EnumCourierCompensationReason.CANCELLATION ? 'CANCELLATION_COMPENSATION' : 'REASSIGNMENT_COMPENSATION',
   }
 }
 

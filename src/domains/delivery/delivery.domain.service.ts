@@ -266,6 +266,11 @@ export class DeliveryDomainService {
     return delivery
   }
 
+  // Spec 0015: what the restaurant was charged for this delivery's cancellation, if anything.
+  async getPartnerCharge(deliveryId: string) {
+    return this.deliveryRepository.findPartnerCharge(deliveryId)
+  }
+
   // `cancelledBy` is who asked (spec 0015): the restaurant itself, or its customer through it.
   async cancelDelivery(deliveryId: string, cancelledBy: EnumCancelledBy = EnumCancelledBy.RESTAURANT) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)

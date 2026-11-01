@@ -1,3 +1,5 @@
+import { EnumCourierCompensationReason } from '@prisma/types'
+
 // One completed delivery, flattened to just what the earnings report needs.
 export interface CourierEarningsRow {
   deliveryId: string
@@ -24,6 +26,8 @@ export interface CourierEarningsDeliveryRow extends CourierEarningsRow {
 export interface CourierCompensationRow {
   deliveryId: string
   amount: number
+  // REASSIGNMENT or CANCELLATION (spec 0015); left out (older callers, fixtures) it reads as REASSIGNMENT.
+  reason?: EnumCourierCompensationReason
   createdAt: Date
 }
 
@@ -46,6 +50,7 @@ export interface EarningsDelivery {
   compensation: number // totalCompensation ?? 0, integer cents
   tips: number // integer cents
   total: number // compensation + tips
-  kind?: 'REASSIGNMENT_COMPENSATION'
+  // A pay that is not a drop off: a reassigned rider's payout, or a cancelled job's (spec 0015).
+  kind?: 'REASSIGNMENT_COMPENSATION' | 'CANCELLATION_COMPENSATION'
 }
 

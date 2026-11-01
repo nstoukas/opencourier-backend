@@ -28,7 +28,7 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ type: String, description: 'Instance currency code, e.g. EUR' })
   currency: string
 
-  @ApiProperty({ required: false, type: String, description: 'Optional line item kind, e.g. REASSIGNMENT_COMPENSATION' })
+  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION or CANCELLATION_COMPENSATION' })
   kind?: string
 
   constructor(delivery: EarningsDelivery, meta: { currency: string }) {

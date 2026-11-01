@@ -94,6 +94,29 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return rows.map((row) => row.id)
   }
 
+  // Spec 0015: this rider's jobs cancelled since `since` from an ongoing status, newest first, with
+  // the restaurant's location and the cancellation award (null until it is written). Any status
+  // since (a cancelled delivery can still become FAILED).
+  async findCancelledJobsForCourier(courierId: string, since: Date, ongoing: EnumDeliveryStatus[]) {
+    return this.prisma.delivery.findMany({
+      where: { courierId, cancelledAt: { gte: since }, cancelledFromStatus: { in: ongoing } },
+      orderBy: { cancelledAt: 'desc' },
+      take: 20,
+      include: {
+        pickupLocation: true,
+        courierCompensations: { where: { reason: EnumCourierCompensationReason.CANCELLATION, courierId } },
+      },
+    })
+  }
+
+  // Spec 0015: the restaurant's charge for this delivery's cancellation, or null.
+  async findPartnerCharge(deliveryId: string) {
+    return this.prisma.partnerCharge.findUnique({
+      where: { deliveryId },
+      select: { amount: true, currencyCode: true, createdAt: true },
+    })
+  }
+
   // Every offer this rider currently holds: still looking for a rider, offered to them, and not
   // yet taken. Automatic and admin offers alike.
   async findOpenOffersForCourier(courierId: string): Promise<DeliveryEntity[]> {

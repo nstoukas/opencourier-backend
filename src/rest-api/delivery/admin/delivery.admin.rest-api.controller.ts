@@ -61,7 +61,9 @@ export class DeliveryAdminRestApiController {
     const { delivery, quote } = await this.deliveryDomainService.getByIdOrThrowWithQuote(deliveryId)
 
     const offerViews = await this.deliveryDomainService.getOfferViews([delivery])
-    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id))
+    // Spec 0015, AC-13: a restaurant's cancellation charge, shown on the delivery's page.
+    const partnerCharge = delivery.cancelledAt ? await this.deliveryDomainService.getPartnerCharge(delivery.id) : null
+    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id), partnerCharge)
     return dto
   }
 

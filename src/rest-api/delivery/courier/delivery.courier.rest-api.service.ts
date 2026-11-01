@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { ConflictException, Injectable, Logger } from '@nestjs/common'
 import {
   EnumDeliveryIssueReason,
   EnumDeliveryStatus,
@@ -7,7 +7,7 @@ import {
 } from '@prisma/types'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
-import { CantUpdateDeliveryStatusError, DeliveryNotFoundException } from 'src/errors'
+import { DeliveryNotFoundException } from 'src/errors'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryWhereArgs } from 'src/domains/delivery/types/delivery-where-args.type'
 import { IDeliveryReportIssue } from 'src/domains/delivery/interfaces/IDeliveryReportIssue'
@@ -181,21 +181,18 @@ export class DeliveryRestApiCourierService {
     return this.deliveryIssueDomainService.report({ deliveryId, courierId, reason: input.reason, note: input.note })
   }
 
-  async cancelDelivery(deliveryId: string, courierId: string) {
+  // Spec 0015 (decision 32.14): a rider cannot cancel a job. Cancelling now pays the rider and can
+  // charge the restaurant, so it must come from whoever asked for it (the restaurant, or the co-op
+  // through an admin). The app never called this; a rider who cannot finish reports an issue or
+  // calls dispatch. The route stays so an old client gets a clear answer instead of a 404.
+  async cancelDelivery(deliveryId: string, courierId: string): Promise<never> {
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    //TODO: add some check to see if the delivery can be cancelled
-    if (delivery.status !== EnumDeliveryStatus.PICKED_UP) {
-      throw new CantUpdateDeliveryStatusError('Delivery can not be cancelled')
-    }
-
-    const updatedDelivery = await this.deliveryDomainService.cancelDelivery(deliveryId)
-
-    return updatedDelivery
+    throw new ConflictException('A rider cannot cancel a job. Report an issue or call dispatch.')
   }
 
   async markAsDispatched(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {

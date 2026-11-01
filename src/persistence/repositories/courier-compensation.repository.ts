@@ -71,6 +71,8 @@ export class CourierCompensationRepository
       select: {
         deliveryId: true,
         amount: true,
+        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
+        reason: true,
         createdAt: true,
       },
       orderBy: {
@@ -96,6 +98,8 @@ export class CourierCompensationRepository
       select: {
         deliveryId: true,
         amount: true,
+        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
+        reason: true,
         createdAt: true,
         delivery: {
           select: {
@@ -119,6 +123,7 @@ export class CourierCompensationRepository
     return rows.map((r) => ({
       deliveryId: r.deliveryId,
       amount: r.amount,
+      reason: r.reason,
       createdAt: r.createdAt,
       pickupBusinessName: r.delivery.pickupBusinessName,
       dropoffLocation: r.delivery.dropoffLocation,
@@ -137,6 +142,8 @@ export class CourierCompensationRepository
       select: {
         deliveryId: true,
         amount: true,
+        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
+        reason: true,
         createdAt: true,
         delivery: {
           select: {
@@ -160,6 +167,7 @@ export class CourierCompensationRepository
     return rows.map((r) => ({
       deliveryId: r.deliveryId,
       amount: r.amount,
+      reason: r.reason,
       createdAt: r.createdAt,
       pickupBusinessName: r.delivery.pickupBusinessName,
       dropoffLocation: r.delivery.dropoffLocation,

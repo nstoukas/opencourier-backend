@@ -1,3 +1,4 @@
+import { EnumCourierCompensationReason } from '@prisma/types'
 import { Injectable, Logger } from '@nestjs/common'
 import { dayjs } from 'src/core/utils/time'
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
@@ -64,6 +65,10 @@ export class DeliveryEventDomainService {
     return compensationToEarningsDelivery({
       deliveryId: first.deliveryId,
       amount: totalAmount,
+      // A cancellation names the line (spec 0015) even if this rider was also reassigned off it once.
+      reason: compRows.some((r) => r.reason === EnumCourierCompensationReason.CANCELLATION)
+        ? EnumCourierCompensationReason.CANCELLATION
+        : first.reason,
       createdAt: first.createdAt,
       pickupBusinessName: first.pickupBusinessName,
       dropoffLocation: first.dropoffLocation,

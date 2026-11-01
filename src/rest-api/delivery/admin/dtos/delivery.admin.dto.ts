@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
+import {
+  EnumCancelledBy,
+  EnumDeliverableAction,
+  EnumDeliveryStatus,
+  EnumFoodOutcome,
+  EnumUndeliverableAction,
+  Prisma,
+} from '@prisma/types'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
@@ -189,9 +196,35 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date, nullable: true })
   waitingForCourierSince: Date | null
 
+  // Spec 0015, AC-13: a cancellation, who asked for it and what happened to the food. The rider's
+  // award is in the events (COURIER_PAID_FOR_CANCELLATION); the restaurant's charge is below.
+  @ApiProperty({ enum: EnumCancelledBy, nullable: true })
+  cancelledBy: EnumCancelledBy | null
+
+  @ApiProperty({ enum: EnumDeliveryStatus, nullable: true })
+  cancelledFromStatus: EnumDeliveryStatus | null
+
+  @ApiProperty({ type: Date, nullable: true })
+  cancelledAt: Date | null
+
+  @ApiProperty({ enum: EnumFoodOutcome, nullable: true })
+  foodOutcome: EnumFoodOutcome | null
+
+  @ApiProperty({ type: Date, nullable: true })
+  foodOutcomeAt: Date | null
+
+  // Only the get by id endpoint loads it; null elsewhere and when there is no charge.
+  @ApiProperty({ type: Object, nullable: true })
+  partnerCharge: { amount: number; currencyCode: string; createdAt: Date } | null
+
   // `quote?` = optional: the list and event endpoints build this DTO without loading a quote.
   // `offerView?` = optional too: only the list and get by id endpoints look the rider name up.
-  constructor(data: DeliveryEntity, quote?: DeliveryQuoteEntity, offerView?: DeliveryOfferView) {
+  constructor(
+    data: DeliveryEntity,
+    quote?: DeliveryQuoteEntity,
+    offerView?: DeliveryOfferView,
+    partnerCharge?: { amount: number; currencyCode: string; createdAt: Date } | null
+  ) {
     this.id = data.id
     this.pickupName = data.pickupName
     this.pickupPhoneNumber = data.pickupPhoneNumber
@@ -253,5 +286,11 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.offerExpiresAt = data.offerExpiresAt
     this.matchedCourierName = offerView?.matchedCourierName ?? null
     this.waitingForCourierSince = offerView?.waitingForCourierSince ?? null
+    this.cancelledBy = data.cancelledBy ?? null
+    this.cancelledFromStatus = data.cancelledFromStatus ?? null
+    this.cancelledAt = data.cancelledAt ?? null
+    this.foodOutcome = data.foodOutcome ?? null
+    this.foodOutcomeAt = data.foodOutcomeAt ?? null
+    this.partnerCharge = partnerCharge ?? null
   }
 }
