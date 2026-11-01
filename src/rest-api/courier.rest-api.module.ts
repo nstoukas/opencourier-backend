@@ -7,6 +7,7 @@ import { CourierCourierRestApiModule } from './courier/courier/courier.courier.r
 import { PayoutCourierRestApiModule } from './payout/courier/payouts.courier.rest-api.module'
 import { CourierSettingCourierRestApiModule } from './courier-setting/courier/courier-setting.courier.rest-api.module'
 import { CourierDeviceCourierRestApiModule } from './courier-device/courier/courier-device.courier.rest-api.module'
+import { DispatchStopCourierRestApiModule } from './dispatch-stop/courier/dispatch-stop.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -18,6 +19,8 @@ import { CourierDeviceCourierRestApiModule } from './courier-device/courier/cour
     CourierSettingCourierRestApiModule,
     PayoutCourierRestApiModule,
     CourierDeviceCourierRestApiModule,
+    // Whether dispatch is stopped, for the Home banner (spec 0014).
+    DispatchStopCourierRestApiModule,
   ],
 })
 export class CourierRestApiModule {}

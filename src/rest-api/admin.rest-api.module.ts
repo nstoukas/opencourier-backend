@@ -7,7 +7,7 @@ import { LocationAdminRestApiModule } from './location/admin/location.admin.rest
 import { ConfigAdminRestApiModule } from './config/admin/config.admin.rest-api.module'
 import { UserAdminRestApiModule } from './user/admin/user.admin.rest-api.module'
 import { PartnerAdminRestApiModule } from './partner/admin/partner.admin.rest-api.module'
-import { DispatchStopRestApiModule } from './dispatch-stop/dispatch-stop.rest-api.module'
+import { DispatchStopAdminRestApiModule } from './dispatch-stop/admin/dispatch-stop.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -19,8 +19,8 @@ import { DispatchStopRestApiModule } from './dispatch-stop/dispatch-stop.rest-ap
     ConfigAdminRestApiModule,
     UserAdminRestApiModule,
     PartnerAdminRestApiModule,
-    // The admin, courier and partner dispatch stop routes (spec 0014): one module, three namespaces.
-    DispatchStopRestApiModule,
+    // Stopping dispatch for heat or a storm (spec 0014).
+    DispatchStopAdminRestApiModule,
   ],
 })
 export class AdminRestApiModule {}

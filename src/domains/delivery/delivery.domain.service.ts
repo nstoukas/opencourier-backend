@@ -162,6 +162,19 @@ export class DeliveryDomainService {
       throw new OfferHasEndedException()
     }
 
+    // A stop that began between the first check and the claim: give the offer back and refuse. The
+    // stop's minute sweep catches what slips past even this (agy review of row 29).
+    try {
+      await this.deliveryEventService.refuseIfDispatchStopped()
+    } catch (error) {
+      await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+      )
+      throw error
+    }
+
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,
       type: EnumDeliveryEventType.ACCEPTED,

@@ -83,7 +83,11 @@ export class DispatchStopService implements OnModuleInit {
       if (startsAt <= now) throw new errors.BadRequestException('A scheduled stop must start in the future.')
       if (!endsAt) throw new errors.BadRequestException('A scheduled stop needs an end time.')
     }
-    if (endsAt && endsAt <= startsAt) throw new errors.BadRequestException('The end must come after the start.')
+    if (endsAt && endsAt <= startsAt) {
+      throw new errors.BadRequestException(
+        'The end must come after the start. For a stop through midnight, set the end on the next day.'
+      )
+    }
 
     const stop = await this.dispatchStopRepository.createIfNoOverlap(
       { reason: input.reason, startsAt, endsAt, createdByUserId: adminUserId },
@@ -151,6 +155,11 @@ export class DispatchStopService implements OnModuleInit {
       for (const stop of await this.dispatchStopRepository.findDueToStart(now)) {
         await this.startWork(stop, EnumEventActor.SYSTEM)
       }
+      // While a stop is on, the start work runs again every minute: an accept or an offer that raced
+      // the start, or a return that failed, is caught within a minute. Every step is safe twice
+      // (agy review of row 29).
+      const on = await this.dispatchStopRepository.findOn(now)
+      if (on?.startedAt) await this.sweep(on, EnumEventActor.SYSTEM)
       for (const stop of await this.dispatchStopRepository.findDueToEnd(now)) {
         await this.endWork(stop)
       }
@@ -166,6 +175,13 @@ export class DispatchStopService implements OnModuleInit {
   // step is safe to run twice (row 29 review).
   async startWork(stop: DispatchStop, actor: EnumEventActor): Promise<void> {
     if (stop.startedAt) return
+    await this.sweep(stop, actor)
+    await this.dispatchStopRepository.markStarted(stop.id, new Date())
+  }
+
+  // End every open offer, then return every delivery held before pickup. Run at the start and then
+  // every minute while the stop is on.
+  private async sweep(stop: DispatchStop, actor: EnumEventActor): Promise<void> {
     const why = reasonWords(stop.reason)
     const ended = await this.deliveryEventService.endAllOpenOffersForDispatchStop(`Ended: dispatch stopped (${why})`)
 
@@ -174,8 +190,9 @@ export class DispatchStopService implements OnModuleInit {
     for (const delivery of held) {
       if (await this.returnToWaiting(delivery.id, delivery.courierId, why, actor)) returned += 1
     }
-    await this.dispatchStopRepository.markStarted(stop.id, new Date())
-    this.logger.log(`Dispatch stop ${stop.id} started: ${ended} offers ended, ${returned} deliveries returned to waiting`)
+    if (ended > 0 || returned > 0) {
+      this.logger.log(`Dispatch stop ${stop.id}: ${ended} offers ended, ${returned} deliveries returned to waiting`)
+    }
   }
 
   // End work (spec 0014, AC-4): every waiting delivery gets an offer or a recorded "nobody free".
