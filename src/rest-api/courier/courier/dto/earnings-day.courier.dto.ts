@@ -25,6 +25,14 @@ export class EarningsDeliveryCourierDto {
   @ApiProperty({ type: Number, description: 'Total earnings (compensation + tips) in integer cents' })
   total: number
 
+  // A pay that is not a drop off. Without it the app cannot label a cancelled job (row 32 verify).
+  @ApiProperty({
+    required: false,
+    type: String,
+    description: 'Optional line item kind: REASSIGNMENT_COMPENSATION or CANCELLATION_COMPENSATION',
+  })
+  kind?: string
+
   constructor(data: EarningsDelivery) {
     this.deliveryId = data.deliveryId
     this.droppedOffAt = data.droppedOffAt
@@ -33,6 +41,7 @@ export class EarningsDeliveryCourierDto {
     this.compensation = data.compensation
     this.tips = data.tips
     this.total = data.total
+    this.kind = data.kind
   }
 }
 
