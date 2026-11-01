@@ -88,6 +88,19 @@ describe('DeliveryDomainService', () => {
   })
 
   describe('reassignDelivery', () => {
+    test('refuses reassignment with CantUpdateDeliveryStatusError when dispatch is stopped (spec 0014, AC-4)', async () => {
+      mockDeliveryEventService.refuseIfDispatchStopped.mockRejectedValueOnce(
+        new CantUpdateDeliveryStatusError('Dispatch is stopped until 17:00.')
+      )
+
+      await expect(service.reassignDelivery('del-stopped', 'courier-new')).rejects.toThrow(
+        'Dispatch is stopped until 17:00.'
+      )
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
+    })
+
     // Test Plan Case 17 (guards): Non-ongoing status (e.g. DROPPED_OFF, CREATED, ASSIGNING_COURIER)
     test('throws CantUpdateDeliveryStatusError and performs no side effects when delivery is not in an ongoing status', async () => {
       const nonOngoingStatuses = [

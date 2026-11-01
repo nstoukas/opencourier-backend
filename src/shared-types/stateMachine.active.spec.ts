@@ -92,4 +92,22 @@ describe('stateMachine', () => {
       }
     }
   })
+
+  // Spec 0014: Dispatch stop - RETURNED_TO_WAITING before pickup
+  test('allows RETURNED_TO_WAITING transition to ASSIGNING_COURIER from ACCEPTED, DISPATCHED, COURIER_ARRIVED_AT_PICKUP_LOCATION, and from nowhere else', () => {
+    const allowedStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+    ]
+
+    for (const status of Object.values(EnumDeliveryStatus)) {
+      const transition = STATE_MACHINE[status]?.on?.[EnumDeliveryEventType.RETURNED_TO_WAITING]
+      if (allowedStatuses.includes(status)) {
+        expect(transition).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+      } else {
+        expect(transition).toBeUndefined()
+      }
+    }
+  })
 })
