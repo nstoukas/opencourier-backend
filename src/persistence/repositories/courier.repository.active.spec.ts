@@ -16,6 +16,8 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     $queryRaw: jest.Mock
     courier: {
       findUniqueOrThrow: jest.Mock
+      findMany: jest.Mock
+      count: jest.Mock
     }
   }
 
@@ -59,6 +61,8 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       $queryRaw: jest.fn(),
       courier: {
         findUniqueOrThrow: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([sampleCourierRecord]),
+        count: jest.fn().mockResolvedValue(1),
       },
     }
 
@@ -286,6 +290,62 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
         expect(querySql.values).toContain(activeStatus)
       }
+    })
+  })
+
+  describe('findManyPaginated (scope row 97, Clause 3)', () => {
+    test('passes where and orderBy createdAt desc to prisma.courier.findMany via paginator', async () => {
+      const where: Prisma.CourierWhereInput = {
+        status: { in: [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL] },
+      }
+
+      const result = await repository.findManyPaginated(where, 1, 10)
+
+      expect(mockPrisma.courier.findMany).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.courier.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          skip: 0,
+        })
+      )
+      expect(mockPrisma.courier.count).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.courier.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+        })
+      )
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0]).toBeInstanceOf(CourierEntity)
+      expect(result.data[0]?.id).toBe('courier-volos-1')
+      expect(result.pagination?.currentPage).toBe(1)
+      expect(result.pagination?.totalItems).toBe(1)
+    })
+
+    test('Clause 3: fails if where is dropped in the repository on the way to prisma.courier', async () => {
+      const where: Prisma.CourierWhereInput = {
+        status: EnumCourierStatus.OFFLINE,
+        AND: [
+          {
+            OR: [
+              { firstName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
+            ],
+          },
+        ],
+      }
+
+      await repository.findManyPaginated(where, 2, 15)
+
+      expect(mockPrisma.courier.findMany).toHaveBeenCalledTimes(1)
+      const findManyCall = mockPrisma.courier.findMany.mock.calls[0][0]
+      expect(findManyCall).toHaveProperty('where')
+      expect(findManyCall.where).toBe(where)
+      expect(findManyCall.where).toEqual(where)
+
+      const countCall = mockPrisma.courier.count.mock.calls[0][0]
+      expect(countCall).toHaveProperty('where')
+      expect(countCall.where).toBe(where)
     })
   })
 })
