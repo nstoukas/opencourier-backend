@@ -1027,6 +1027,45 @@ describe('DeliveryDomainService', () => {
           })
         )
       })
+
+      it('returns the delivery read again after processDeliveryEvent (status CANCELED), not the read from before it', async () => {
+        // Spec 0015 / agy review: cancelDelivery must return the freshly re-read delivery after processDeliveryEvent
+        const initialDelivery = {
+          id: deliveryId,
+          partnerId,
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: 'courier-1',
+        }
+        const updatedDelivery = {
+          id: deliveryId,
+          partnerId,
+          status: EnumDeliveryStatus.CANCELED,
+          courierId: 'courier-1',
+          cancelledBy: EnumCancelledBy.RESTAURANT,
+        }
+
+        mockDeliveryRepository.findByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery as any)
+          .mockResolvedValueOnce(updatedDelivery as any)
+
+        const result = await service.cancelDelivery(deliveryId)
+
+        // Must query findByIdOrThrow twice: once before event, once after
+        expect(mockDeliveryRepository.findByIdOrThrow).toHaveBeenCalledTimes(2)
+        // Must return the second findByIdOrThrow result with status CANCELED, not the stale initial read
+        expect(result).toBe(updatedDelivery)
+        expect(result.status).toBe(EnumDeliveryStatus.CANCELED)
+
+        // Verify the re-read happens after processDeliveryEvent in invocation call order
+        const [firstFindOrder, secondFindOrder] = mockDeliveryRepository.findByIdOrThrow.mock.invocationCallOrder
+        const [processEventOrder] = mockDeliveryEventService.processDeliveryEvent.mock.invocationCallOrder
+
+        expect(firstFindOrder).toBeDefined()
+        expect(secondFindOrder).toBeDefined()
+        expect(processEventOrder).toBeDefined()
+        expect(firstFindOrder!).toBeLessThan(processEventOrder!)
+        expect(secondFindOrder!).toBeGreaterThan(processEventOrder!)
+      })
     })
 
     describe('submitDeliveryEvent', () => {

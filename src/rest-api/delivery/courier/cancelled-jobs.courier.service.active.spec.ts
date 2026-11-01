@@ -418,11 +418,12 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
         outcome: EnumFoodOutcome.RETURNED,
       })
 
-      // Verified findCancelledJobsForCourier was queried with new Date(0) (not 24h window)
+      // Verified findCancelledJobsForCourier was queried with new Date(0) (not 24h window) and deliveryId (spec 0015, agy review)
       expect(mockDeliveryRepository.findCancelledJobsForCourier).toHaveBeenCalledWith(
         courierId,
         new Date(0),
-        DELIVERY_ONGOING_STATUSES
+        DELIVERY_ONGOING_STATUSES,
+        'del-old-cancelled'
       )
       expect(result.id).toBe('del-old-cancelled')
       expect(result.foodOutcome).toBe(EnumFoodOutcome.RETURNED)
@@ -441,6 +442,13 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
       await expect(
         service.recordFoodOutcome(deliveryId, courierId, { outcome: EnumFoodOutcome.RETURNED })
       ).rejects.toThrow(DeliveryNotFoundException)
+
+      expect(mockDeliveryRepository.findCancelledJobsForCourier).toHaveBeenCalledWith(
+        courierId,
+        new Date(0),
+        DELIVERY_ONGOING_STATUSES,
+        deliveryId
+      )
     })
   })
 

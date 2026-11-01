@@ -86,7 +86,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
       repository = new DeliveryRepository(mockPrisma as unknown as PrismaService)
     })
 
-    it('queries by courierId, cancelledAt >= since, cancelledFromStatus in ongoing, sorted desc by cancelledAt', async () => {
+    it('queries by courierId, cancelledAt >= since, cancelledFromStatus in ongoing, sorted desc by cancelledAt without id when deliveryId is omitted', async () => {
       const since = new Date('2026-10-31T12:00:00Z')
       mockPrisma.delivery.findMany.mockResolvedValueOnce([])
 
@@ -107,6 +107,34 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
           },
         },
       })
+      const calledWhere = mockPrisma.delivery.findMany.mock.calls[0][0].where
+      expect(calledWhere).not.toHaveProperty('id')
+    })
+
+    it('adds { id: deliveryId } to where clause only when deliveryId is given (spec 0015, agy review)', async () => {
+      const since = new Date('2026-10-31T12:00:00Z')
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([])
+
+      await repository.findCancelledJobsForCourier('courier-1', since, DELIVERY_ONGOING_STATUSES, 'del-specific-1')
+
+      expect(mockPrisma.delivery.findMany).toHaveBeenCalledWith({
+        where: {
+          courierId: 'courier-1',
+          cancelledAt: { gte: since },
+          cancelledFromStatus: { in: DELIVERY_ONGOING_STATUSES },
+          id: 'del-specific-1',
+        },
+        orderBy: { cancelledAt: 'desc' },
+        take: 20,
+        include: {
+          pickupLocation: true,
+          courierCompensations: {
+            where: { reason: EnumCourierCompensationReason.CANCELLATION, courierId: 'courier-1' },
+          },
+        },
+      })
+      const calledWhere = mockPrisma.delivery.findMany.mock.calls[0][0].where
+      expect(calledWhere.id).toBe('del-specific-1')
     })
 
     it('findPartnerCharge queries partnerCharge by deliveryId with selected fields', async () => {
