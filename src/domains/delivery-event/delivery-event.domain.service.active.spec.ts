@@ -1,3 +1,4 @@
+import { EnumCourierCompensationReason } from '@prisma/types'
 import { DeliveryEventDomainService } from './delivery-event.domain.service'
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
@@ -190,6 +191,43 @@ describe('DeliveryEventDomainService', () => {
         tips: 0,
         total: 400,
         kind: 'REASSIGNMENT_COMPENSATION',
+      })
+    })
+
+    test('maps CANCELLATION compensation entries to kind CANCELLATION_COMPENSATION (spec 0015 AC-15)', async () => {
+      const courierId = 'courier-123'
+      const date = '2026-07-10'
+      const timezone = 'UTC'
+
+      mockRepository.findCompletedDeliveryRowsForCourier.mockResolvedValue([])
+      mockCompensationRepository.findDetailedRowsForCourierDay.mockResolvedValue([
+        {
+          deliveryId: 'del-cancel-comp',
+          createdAt: new Date('2026-07-10T14:30:00Z'),
+          amount: 450,
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          pickupBusinessName: 'Souvlaki Bar',
+          dropoffLocation: {
+            formattedAddress: 'Dimitriadis 100',
+            street: 'Dimitriadis 100',
+            city: 'Volos',
+            state: 'Thessaly',
+          },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveriesForCourierDay(courierId, date, timezone)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        deliveryId: 'del-cancel-comp',
+        droppedOffAt: new Date('2026-07-10T14:30:00Z'),
+        dropoffAddress: 'Dimitriadis 100',
+        pickupBusinessName: 'Souvlaki Bar',
+        compensation: 450,
+        tips: 0,
+        total: 450,
+        kind: 'CANCELLATION_COMPENSATION',
       })
     })
   })

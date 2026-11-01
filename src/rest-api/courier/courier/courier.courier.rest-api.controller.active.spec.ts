@@ -208,6 +208,54 @@ describe('CourierCourierRestApiController', () => {
       await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow(BadRequestException)
       await expect(controller.getMyEarningsDay(args, mockCourier)).rejects.toThrow('Invalid date')
     })
+
+    test('returns CANCELLATION_COMPENSATION kind for cancelled job compensation rows (spec 0015 AC-15)', async () => {
+      // Mock domain service returning a day with a drop-off, a reassignment award, and a cancellation award
+      mockDeliveryEventDomainService.getEarningsDeliveriesForCourierDay.mockResolvedValue([
+        {
+          deliveryId: 'del-completed-1',
+          droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+          dropoffAddress: 'Iasonos 12, Volos',
+          pickupBusinessName: 'Ta Koutsavakia',
+          compensation: 500,
+          tips: 100,
+          total: 600,
+        },
+        {
+          deliveryId: 'del-reassigned-1',
+          droppedOffAt: new Date('2026-07-10T12:00:00Z'),
+          dropoffAddress: 'Ermou 4, Volos',
+          pickupBusinessName: 'O Gyros tis Elladas',
+          compensation: 300,
+          tips: 0,
+          total: 300,
+          kind: 'REASSIGNMENT_COMPENSATION',
+        },
+        {
+          deliveryId: 'del-cancelled-1',
+          droppedOffAt: new Date('2026-07-10T15:00:00Z'),
+          dropoffAddress: 'Dimitriadis 100, Volos',
+          pickupBusinessName: 'Taverna Nosh',
+          compensation: 400,
+          tips: 0,
+          total: 400,
+          kind: 'CANCELLATION_COMPENSATION',
+        },
+      ])
+
+      const result = await controller.getMyEarningsDay({ date: '2026-07-10' }, mockCourier)
+
+      expect(result.deliveries).toHaveLength(3)
+      expect(result.deliveries[0]?.kind).toBeUndefined()
+      expect(result.deliveries[1]?.kind).toBe('REASSIGNMENT_COMPENSATION')
+      expect(result.deliveries[2]?.kind).toBe('CANCELLATION_COMPENSATION')
+
+      // Verify the kind survives serialization to JSON as sent over the wire
+      const json = JSON.parse(JSON.stringify(result))
+      expect(json.deliveries[0]?.kind).toBeUndefined()
+      expect(json.deliveries[1]?.kind).toBe('REASSIGNMENT_COMPENSATION')
+      expect(json.deliveries[2]?.kind).toBe('CANCELLATION_COMPENSATION')
+    })
   })
 
   describe('getMyEarningsDeliveryDetail', () => {
