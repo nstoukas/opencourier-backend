@@ -12,6 +12,8 @@ import {
 import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT, DEFAULT_QUOTE_BASE_FEE } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
 import { DISPATCH_PHONE_NUMBER_REFUSAL } from './dispatch-phone-number'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
+import { PRISMA_RECORD_NOT_FOUND_ERROR } from 'src/prisma.util'
 
 describe('InstanceConfigDomainService', () => {
   let service: InstanceConfigDomainService
@@ -941,39 +943,96 @@ describe('InstanceConfigDomainService', () => {
     })
   })
 
-  describe('getDispatchPhoneNumber (row 72, decisions 72.1 to 72.3)', () => {
+  describe('getDispatchPhoneNumber (row 72, decisions 72.1 to 72.3, review fix)', () => {
     const notFoundError = new Error('Record not found in config table')
     notFoundError.name = 'NotFoundError'
 
-    it('returns null when config row is missing', async () => {
+    // Requirement 1: Missing row (Prisma record not found error) returns null quietly without logger.warn
+    it('returns null and logs no warning when config row is missing with NotFoundError', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+      // Simulate Prisma error with name: 'NotFoundError'
       configRepository.getByKey.mockRejectedValueOnce(notFoundError)
 
       const result = await service.getDispatchPhoneNumber()
+
       expect(result).toBeNull()
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
     })
 
-    it('returns null when stored value is empty string "" or null', async () => {
+    it('returns null and logs no warning when config row is missing with PrismaClientKnownRequestError P2025', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+      // Simulate Prisma error with code: 'P2025'
+      const p2025Error = new PrismaClientKnownRequestError('Record not found in config table', {
+        code: PRISMA_RECORD_NOT_FOUND_ERROR,
+        clientVersion: '5.3.1',
+      })
+      configRepository.getByKey.mockRejectedValueOnce(p2025Error)
+
+      const result = await service.getDispatchPhoneNumber()
+
+      expect(result).toBeNull()
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
+    // Requirement 2: Any other error from getByKey is thrown, not swallowed
+    it('throws any other error from getByKey rather than swallowing it', async () => {
+      const dbError = new Error('Database connection failed')
+      configRepository.getByKey.mockRejectedValueOnce(dbError)
+
+      await expect(service.getDispatchPhoneNumber()).rejects.toThrow('Database connection failed')
+    })
+
+    it('throws non-P2025 Prisma errors rather than swallowing them', async () => {
+      const otherPrismaError = new PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.3.1',
+      })
+      configRepository.getByKey.mockRejectedValueOnce(otherPrismaError)
+
+      await expect(service.getDispatchPhoneNumber()).rejects.toThrow(otherPrismaError)
+    })
+
+    // Requirement 3: Earlier behaviour still holds
+    it('returns null without a warning when stored value is empty string "" or null', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+      // Empty string represents a cleared dispatch line; must return null with no warning
       configRepository.getByKey.mockResolvedValueOnce(
         new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '', type: 'string' })
       )
       expect(await service.getDispatchPhoneNumber()).toBeNull()
+      expect(warnSpy).not.toHaveBeenCalled()
 
+      // Stored null also returns null with no warning
       configRepository.getByKey.mockResolvedValueOnce(
         new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: null as any, type: 'string' })
       )
       expect(await service.getDispatchPhoneNumber()).toBeNull()
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      warnSpy.mockRestore()
     })
 
-    it('returns stored value itself when valid and normalized', async () => {
+    it('returns stored value itself without a warning when valid and normalized', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+      // Valid E.164 phone number with leading +
       configRepository.getByKey.mockResolvedValueOnce(
         new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '+302421012345', type: 'string' })
       )
       expect(await service.getDispatchPhoneNumber()).toBe('+302421012345')
+      expect(warnSpy).not.toHaveBeenCalled()
 
+      // Valid national phone number without leading +
       configRepository.getByKey.mockResolvedValueOnce(
         new ConfigEntity({ key: ConfigKey.DISPATCH_PHONE_NUMBER, value: '2421012345', type: 'string' })
       )
       expect(await service.getDispatchPhoneNumber()).toBe('2421012345')
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      warnSpy.mockRestore()
     })
 
     it('returns null and logs a warning for hand-edited bad value ("call me", number type, unnormalized)', async () => {
@@ -1013,7 +1072,7 @@ describe('InstanceConfigDomainService', () => {
       warnSpy.mockRestore()
     })
 
-    it('includes dispatchPhoneNumber in getInstanceConfigSettings output', async () => {
+    it('includes dispatchPhoneNumber in getInstanceConfigSettings output when present', async () => {
       configRepository.getByKey.mockImplementation(async (key: string) => {
         if (key === ConfigKey.DISPATCH_PHONE_NUMBER) {
           return new ConfigEntity({
@@ -1027,6 +1086,26 @@ describe('InstanceConfigDomainService', () => {
 
       const settings = await service.getInstanceConfigSettings()
       expect(settings.dispatchPhoneNumber).toBe('+302421012345')
+    })
+
+    // Requirement 4: getInstanceConfigSettings returns null and logs no missing variable warning for dispatchPhoneNumber
+    it('returns dispatchPhoneNumber: null in getInstanceConfigSettings with no dispatchPhoneNumber row and logs no "Missing variable \'dispatchPhoneNumber\'" warning', async () => {
+      const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+      // All keys reject with notFoundError, simulating missing configuration rows
+      configRepository.getByKey.mockImplementation(async () => {
+        throw notFoundError
+      })
+
+      const settings = await service.getInstanceConfigSettings()
+
+      expect(settings.dispatchPhoneNumber).toBeNull()
+      // Other keys may log warnings, but dispatchPhoneNumber must NOT log "Missing variable 'dispatchPhoneNumber'"
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining(`Missing variable '${ConfigKey.DISPATCH_PHONE_NUMBER}'`)
+      )
+
+      warnSpy.mockRestore()
     })
   })
 
