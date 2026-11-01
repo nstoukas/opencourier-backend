@@ -211,16 +211,9 @@ describe('DeliveryEventService', () => {
     // Test Plan Case 4: Success path is pinned so a future edit cannot swap that one instead
     test('records oldStatus and newStatus correctly on successful status transition', async () => {
       // Setup delivery in ON_THE_WAY status with no partnerId/courierId (avoids notification side-effects)
-      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         id: 'del-success',
         status: EnumDeliveryStatus.ON_THE_WAY,
-        partnerId: null,
-        courierId: null,
-      } as any)
-
-      mockDeliveryRepository.update.mockResolvedValueOnce({
-        id: 'del-success',
-        status: EnumDeliveryStatus.DROPPED_OFF,
         partnerId: null,
         courierId: null,
       } as any)
@@ -234,6 +227,15 @@ describe('DeliveryEventService', () => {
       }
 
       await service.processDeliveryEvent(droppedOffEvent)
+
+      // Assert status was updated conditionally (decision 32.17)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        'del-success',
+        { status: EnumDeliveryStatus.ON_THE_WAY },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.DROPPED_OFF,
+        })
+      )
 
       // Assert event was saved with transitionSuccessful: true and correct oldStatus -> newStatus
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
@@ -624,8 +626,9 @@ describe('DeliveryEventService', () => {
 
       await service.processDeliveryEvent(event)
 
-      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         'del-pickup',
+        { status: EnumDeliveryStatus.DISPATCHED },
         expect.objectContaining({
           status: EnumDeliveryStatus.PICKED_UP,
           pickupReadyAt: tapTime,
@@ -651,11 +654,11 @@ describe('DeliveryEventService', () => {
 
       await service.processDeliveryEvent(event)
 
-      const updateCall = mockDeliveryRepository.update.mock.calls.find(
-        (call) => call[0] === 'del-pickup-now' && (call[1] as any)?.status === EnumDeliveryStatus.PICKED_UP
+      const updateCall = mockDeliveryRepository.updateIfMatches.mock.calls.find(
+        (call: any) => call[0] === 'del-pickup-now' && (call[2] as any)?.status === EnumDeliveryStatus.PICKED_UP
       )
       expect(updateCall).toBeDefined()
-      const pickupReadyAt = (updateCall?.[1] as any)?.pickupReadyAt as Date
+      const pickupReadyAt = (updateCall?.[2] as any)?.pickupReadyAt as Date
       expect(pickupReadyAt).toBeInstanceOf(Date)
       expect(pickupReadyAt.getTime()).toBeGreaterThanOrEqual(before)
       expect(pickupReadyAt.getTime()).toBeLessThanOrEqual(Date.now())
@@ -681,8 +684,9 @@ describe('DeliveryEventService', () => {
 
       await service.processDeliveryEvent(event)
 
-      expect(mockDeliveryRepository.update).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         'del-dropoff',
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION },
         expect.objectContaining({
           status: EnumDeliveryStatus.DROPPED_OFF,
           dropoffReadyAt: tapTime,
@@ -709,11 +713,11 @@ describe('DeliveryEventService', () => {
 
       await service.processDeliveryEvent(event)
 
-      const updateCall = mockDeliveryRepository.update.mock.calls.find(
-        (call) => call[0] === 'del-dropoff-now' && (call[1] as any)?.status === EnumDeliveryStatus.DROPPED_OFF
+      const updateCall = mockDeliveryRepository.updateIfMatches.mock.calls.find(
+        (call: any) => call[0] === 'del-dropoff-now' && (call[2] as any)?.status === EnumDeliveryStatus.DROPPED_OFF
       )
       expect(updateCall).toBeDefined()
-      const dropoffReadyAt = (updateCall?.[1] as any)?.dropoffReadyAt as Date
+      const dropoffReadyAt = (updateCall?.[2] as any)?.dropoffReadyAt as Date
       expect(dropoffReadyAt).toBeInstanceOf(Date)
       expect(dropoffReadyAt.getTime()).toBeGreaterThanOrEqual(before)
       expect(dropoffReadyAt.getTime()).toBeLessThanOrEqual(Date.now())

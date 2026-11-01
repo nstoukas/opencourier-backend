@@ -63,6 +63,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
           ],
         },
         select: { id: true },
+        orderBy: { cancelledAt: 'asc' },
         take: 200,
       })
 

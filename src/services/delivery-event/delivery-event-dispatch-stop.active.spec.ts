@@ -362,8 +362,13 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       const count = await service.endAllOpenOffersForDispatchStop('Ended: dispatch stopped (heat)')
 
       expect(count).toBe(2)
-      // updateIfMatches was called for both deliveries clearing matchedCourierId, offeredAt, offerExpiresAt
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
+      // updateIfMatches was called for both deliveries clearing matchedCourierId, offeredAt, offerExpiresAt (2 calls),
+      // plus the OFFER_EXPIRED status step write for each (2 calls, decision 32.17).
+      const clearOfferCalls = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
+        (call: any) => (call[2] as any)?.matchedCourierId === null
+      )
+      expect(clearOfferCalls).toHaveLength(2)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(4)
       // Critical check: cacheService.save was NEVER called to add either courier to the rejected/skip list!
       expect(mockCacheService.save).not.toHaveBeenCalled()
       // Web socket and push notified of offer ended

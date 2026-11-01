@@ -47,6 +47,15 @@ describe('DeliveryCancelPartnerInput and partner cancel (Spec 0015 AC-5)', () =>
       ).rejects.toThrow(BadRequestException)
     })
 
+    it('refuses cancelledBy: null with BadRequestException (400) (not @IsOptional, row 32 review)', async () => {
+      await expect(
+        pipe.transform(
+          { cancelledBy: null },
+          { type: 'body', metatype: DeliveryCancelPartnerInput }
+        )
+      ).rejects.toThrow(BadRequestException)
+    })
+
     it('refuses invalid strings and non-enum values with BadRequestException (400)', async () => {
       for (const badValue of ['JUNK', 'admin', 'restaurant', 123, true, []]) {
         await expect(
@@ -95,6 +104,24 @@ describe('DeliveryCancelPartnerInput and partner cancel (Spec 0015 AC-5)', () =>
 
       expect(mockDeliveryDomainService.getByIdOrThrow).toHaveBeenCalledWith(deliveryId)
       expect(mockDeliveryDomainService.cancelDelivery).toHaveBeenCalledWith(deliveryId, EnumCancelledBy.RESTAURANT)
+    })
+
+    it('turns null cancelledBy into RESTAURANT (??, never into COOP)', async () => {
+      await service.cancel(deliveryId, partnerId, null as any)
+
+      expect(mockDeliveryDomainService.cancelDelivery).toHaveBeenCalledWith(
+        deliveryId,
+        EnumCancelledBy.RESTAURANT
+      )
+    })
+
+    it('turns undefined cancelledBy into RESTAURANT (??, never into COOP)', async () => {
+      await service.cancel(deliveryId, partnerId, undefined)
+
+      expect(mockDeliveryDomainService.cancelDelivery).toHaveBeenCalledWith(
+        deliveryId,
+        EnumCancelledBy.RESTAURANT
+      )
     })
 
     it('cancels delivery with explicit cancelledBy CUSTOMER', async () => {

@@ -985,6 +985,36 @@ describe('DeliveryDomainService', () => {
         )
       })
 
+      it('turns null requestedBy into RESTAURANT (??, never COOP) on emitted CANCELED event (row 32 review)', async () => {
+        await service.cancelDelivery(deliveryId, null as any)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.PARTNER,
+            source: EnumDeliveryEventSource.PARTNER_APP,
+            cancelledBy: EnumCancelledBy.RESTAURANT,
+            message: `Delivery ${deliveryId} was canceled by partner ${partnerId} (cancelled by: RESTAURANT)`,
+          })
+        )
+      })
+
+      it('turns undefined requestedBy into RESTAURANT on emitted CANCELED event', async () => {
+        await service.cancelDelivery(deliveryId, undefined)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.PARTNER,
+            source: EnumDeliveryEventSource.PARTNER_APP,
+            cancelledBy: EnumCancelledBy.RESTAURANT,
+            message: `Delivery ${deliveryId} was canceled by partner ${partnerId} (cancelled by: RESTAURANT)`,
+          })
+        )
+      })
+
       it('accepts explicit cancelledBy CUSTOMER', async () => {
         await service.cancelDelivery(deliveryId, EnumCancelledBy.CUSTOMER)
 

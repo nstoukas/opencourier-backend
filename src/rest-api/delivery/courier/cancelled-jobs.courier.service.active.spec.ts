@@ -391,6 +391,57 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
       expect(result.id).toBe(deliveryId)
       expect(result.foodOutcome).toBe(EnumFoodOutcome.RETURNED)
     })
+
+    it('answers the job row (built with toDto) rather than 404 for a job cancelled more than 24 h ago (row 32 review)', async () => {
+      const cancelled30HoursAgo = new Date(Date.now() - 30 * 3600 * 1000)
+      const oldDelivery = {
+        id: 'del-old-cancelled',
+        courierId,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: cancelled30HoursAgo,
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+        cancelledBy: EnumCancelledBy.CUSTOMER,
+        foodOutcome: null,
+      }
+      mockDeliveryRepository.findById.mockResolvedValueOnce(oldDelivery as any)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+
+      const oldCancelledRow = {
+        ...sampleCancelledRow,
+        id: 'del-old-cancelled',
+        cancelledAt: cancelled30HoursAgo,
+        foodOutcome: EnumFoodOutcome.RETURNED,
+      }
+      mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([oldCancelledRow as any])
+
+      const result = await service.recordFoodOutcome('del-old-cancelled', courierId, {
+        outcome: EnumFoodOutcome.RETURNED,
+      })
+
+      // Verified findCancelledJobsForCourier was queried with new Date(0) (not 24h window)
+      expect(mockDeliveryRepository.findCancelledJobsForCourier).toHaveBeenCalledWith(
+        courierId,
+        new Date(0),
+        DELIVERY_ONGOING_STATUSES
+      )
+      expect(result.id).toBe('del-old-cancelled')
+      expect(result.foodOutcome).toBe(EnumFoodOutcome.RETURNED)
+    })
+
+    it("still answers 404 DeliveryNotFoundException when delivery row is not this rider's in findCancelledJobsForCourier", async () => {
+      mockDeliveryRepository.findById.mockResolvedValueOnce({
+        id: deliveryId,
+        courierId,
+        cancelledAt: new Date(Date.now() - 30 * 3600 * 1000),
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+      } as any)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+      mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([]) // not found for this courier
+
+      await expect(
+        service.recordFoodOutcome(deliveryId, courierId, { outcome: EnumFoodOutcome.RETURNED })
+      ).rejects.toThrow(DeliveryNotFoundException)
+    })
   })
 
   describe('FoodOutcomeCourierInput ValidationPipe checks', () => {

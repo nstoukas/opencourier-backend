@@ -186,14 +186,20 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       })
 
       // In the happy path the only write that sets matchedCourierId is the single updateIfMatches call
-      // made after calculateDeliveryAmountsForMatchedCourier resolved (mock invocationCallOrder)
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+      // made after calculateDeliveryAmountsForMatchedCourier resolved (mock invocationCallOrder).
+      // The status transition (CREATED -> ASSIGNING_COURIER) is also an updateIfMatches call now (decision 32.17).
+      const offerWrites = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
+        (call) => (call[2] as any)?.matchedCourierId !== undefined
+      )
+      expect(offerWrites).toHaveLength(1)
       const calcCallOrder =
         mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mock.invocationCallOrder[0]
-      const updateIfMatchesCallOrder = mockDeliveryRepository.updateIfMatches.mock.invocationCallOrder[0]
+      const offerWriteCallOrder = mockDeliveryRepository.updateIfMatches.mock.invocationCallOrder.find(
+        (order) => order > calcCallOrder!
+      )
       expect(calcCallOrder).toBeDefined()
-      expect(updateIfMatchesCallOrder).toBeDefined()
-      expect(calcCallOrder!).toBeLessThan(updateIfMatchesCallOrder!)
+      expect(offerWriteCallOrder).toBeDefined()
+      expect(calcCallOrder!).toBeLessThan(offerWriteCallOrder!)
 
       // No repository write of any kind via deliveryRepository.update sets matchedCourierId, offeredAt or offerExpiresAt
       expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
@@ -234,7 +240,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       )
 
       // Verify offerExpiresAt is approximately offeredAt + 20 seconds
-      const updateData = mockDeliveryRepository.updateIfMatches.mock.calls[0]![2] as any
+      const updateData = offerWrites[0]![2] as any
       const diffMs = updateData.offerExpiresAt.getTime() - updateData.offeredAt.getTime()
       expect(diffMs).toBe(20 * 1000)
 
@@ -299,8 +305,12 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(createdEvent)
 
-      // In expiry OFF mode, only updateIfMatches writes matchedCourierId; update never sets offer fields
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+      // In expiry OFF mode, only updateIfMatches writes matchedCourierId; update never sets offer fields.
+      // One updateIfMatches is for status (CREATED -> ASSIGNING_COURIER), exactly one is for the offer fields.
+      const offerWrites = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
+        (call) => (call[2] as any)?.matchedCourierId !== undefined
+      )
+      expect(offerWrites).toHaveLength(1)
       expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ matchedCourierId: expect.anything() })
@@ -359,8 +369,17 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(createdEvent)
 
-      // Offer fields are NOT updated: NO repository write of any kind sets matchedCourierId, offeredAt or offerExpiresAt
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      // Offer fields are NOT updated: NO repository write of any kind sets matchedCourierId, offeredAt or offerExpiresAt.
+      // updateIfMatches was called only for the status write (CREATED -> ASSIGNING_COURIER), never with offer fields.
+      const offerWrites = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
+        (call) => (call[2] as any)?.matchedCourierId !== undefined
+      )
+      expect(offerWrites).toHaveLength(0)
+      for (const call of mockDeliveryRepository.updateIfMatches.mock.calls) {
+        expect(call[2]).not.toHaveProperty('matchedCourierId')
+        expect(call[2]).not.toHaveProperty('offeredAt')
+        expect(call[2]).not.toHaveProperty('offerExpiresAt')
+      }
       expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ matchedCourierId: expect.anything() })
@@ -747,7 +766,12 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.endOpenOffersForCourier(courierId)
 
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
+      // Each open offer gets 1 updateIfMatches to clear offer fields and 1 to record the OFFER_EXPIRED status step.
+      const clearOfferCalls = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
+        (call) => (call[2] as any)?.matchedCourierId === null
+      )
+      expect(clearOfferCalls).toHaveLength(2)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(4)
 
       // Verify the where clause for reason OFFLINE does NOT require offerExpiresAt <= now
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(

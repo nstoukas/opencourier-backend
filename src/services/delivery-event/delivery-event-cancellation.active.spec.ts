@@ -77,6 +77,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
 
     mockWebsocketDispatcher = {
       sendOfferToCourier: jest.fn().mockResolvedValue(undefined),
+      sendOfferEnded: jest.fn().mockResolvedValue(undefined),
       dispatchDeliveryStatusUpdated: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<WebsocketDispatcher>
 
@@ -113,7 +114,6 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
 
     mockDeliveryMatchingService = {
       matchDeliveryToCourier: jest.fn(),
-      matchWaitingDeliveries: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryMatchingService>
 
     mockDeliveryCalculationService = {
@@ -253,6 +253,97 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       expect(mockCourierCompensationRepository.createCancellationAwardOnce).not.toHaveBeenCalled()
       expect(mockPartnerChargeRepository.createOnce).not.toHaveBeenCalled()
       expect(mockOfferPushService.jobCancelled).not.toHaveBeenCalled()
+    })
+
+    it('Decision 32.17: when DROPPED_OFF updateIfMatches misses (e.g. status moved to CANCELED under it), saves a failed transition, sends NO notifications, does NOT call matchWaitingDeliveries, and leaves no successful DROPPED_OFF event', async () => {
+      // Step was read as COURIER_ARRIVED_AT_DROPOFF_LOCATION
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      // Status moved to CANCELED under it: updateIfMatches fails
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+      const matchWaitingSpy = jest.spyOn(service, 'matchWaitingDeliveries')
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.DROPPED_OFF,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        deliveredData: {},
+      })
+
+      // 1. updateIfMatches was attempted conditionally on { status: COURIER_ARRIVED_AT_DROPOFF_LOCATION }
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION },
+        expect.objectContaining({ status: EnumDeliveryStatus.DROPPED_OFF })
+      )
+
+      // 2. Old unconditional deliveryRepository.update was NOT called
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
+        deliveryId,
+        expect.objectContaining({ status: EnumDeliveryStatus.DROPPED_OFF })
+      )
+
+      // 3. Failed transition is saved with transitionSuccessful: false
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          transitionSuccessful: false,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          newStatus: EnumDeliveryStatus.DROPPED_OFF,
+        })
+      )
+      // 4. NO successful event row written
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          transitionSuccessful: true,
+        })
+      )
+
+      // 5. NO notifications sent
+      expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).not.toHaveBeenCalled()
+      expect(mockPartnerWebhookService.sendDeliveryUpdatePartnerWebhook).not.toHaveBeenCalled()
+
+      // 6. matchWaitingDeliveries was NOT called (rider does not get new orders for a failed drop-off)
+      expect(matchWaitingSpy).not.toHaveBeenCalled()
+    })
+
+    it('Decision 32.17: when PICKED_UP updateIfMatches misses (e.g. status moved to CANCELED under it), saves a failed transition, writes no successful row, and sends no notification', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.DISPATCHED })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.DISPATCHED },
+        expect.objectContaining({ status: EnumDeliveryStatus.PICKED_UP })
+      )
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.PICKED_UP,
+          transitionSuccessful: false,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.PICKED_UP,
+        })
+      )
+
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          transitionSuccessful: true,
+        })
+      )
+      expect(mockWebsocketDispatcher.dispatchDeliveryStatusUpdated).not.toHaveBeenCalled()
     })
   })
 
@@ -602,6 +693,267 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
           type: EnumDeliveryEventType.FOOD_NOT_RETURNED,
           courierId: 'rider-789',
         })
+      )
+    })
+  })
+
+  describe('Decision 32.17: ACCEPTED, DISPATCHED, ON_THE_WAY write courierId inside the conditional write', () => {
+    it('ACCEPTED writes courierId and offerExpiresAt: null inside updateIfMatches with NO prior unconditional update', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null, matchedCourierId: courierId })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId,
+      })
+
+      // Written in updateIfMatches
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId,
+          offerExpiresAt: null,
+        })
+      )
+
+      // NO unconditional repository update before or during
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+    })
+
+    it('an ACCEPTED whose conditional write misses leaves NO courierId written', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null, matchedCourierId: courierId })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false) // lost race (e.g. cancelled)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId,
+      })
+
+      // NO courierId written to repository via update
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      // Failed transition recorded
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.ACCEPTED,
+          transitionSuccessful: false,
+        })
+      )
+    })
+
+    it('DISPATCHED writes courierId inside updateIfMatches with NO unconditional update', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED, courierId })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.DISPATCHED,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId,
+      })
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.ACCEPTED },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.DISPATCHED,
+          courierId,
+        })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+    })
+
+    it('ON_THE_WAY writes courierId inside updateIfMatches with NO unconditional update', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.PICKED_UP, courierId })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.ON_THE_WAY,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId,
+      })
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.PICKED_UP },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ON_THE_WAY,
+          courierId,
+        })
+      )
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Cancel from ASSIGNING_COURIER with open offer sends OFFER_ENDED with reason MOVED (row 32 review)', () => {
+    it('sends OFFER_ENDED with reason MOVED to the offered rider when cancelled from ASSIGNING_COURIER with matchedCourierId', async () => {
+      const offeredCourierId = 'courier-offered-1'
+      const offeredCourier = { id: offeredCourierId, userId: 'user-offered-1' }
+      mockCourierRepository.findById.mockResolvedValueOnce(offeredCourier as any)
+
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: offeredCourierId,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      expect(mockCourierRepository.findById).toHaveBeenCalledWith(offeredCourierId)
+      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-offered-1', {
+        deliveryId,
+        reason: 'MOVED',
+      })
+      expect(mockOfferPushService.offerEnded).toHaveBeenCalledWith(offeredCourierId, {
+        deliveryId,
+        reason: 'MOVED',
+      })
+    })
+
+    it('a failure sending OFFER_ENDED is logged and NEVER undoes the cancel', async () => {
+      const offeredCourierId = 'courier-offered-fail'
+      mockCourierRepository.findById.mockRejectedValueOnce(new Error('DB disconnect'))
+
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: offeredCourierId,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      } as any)
+
+      // Must not throw:
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      // Cancel was successful and recorded
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.CANCELED,
+          transitionSuccessful: true,
+        })
+      )
+    })
+
+    it('does NOT send OFFER_ENDED when matchedCourierId is null', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: null,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      expect(mockWebsocketDispatcher.sendOfferEnded).not.toHaveBeenCalled()
+      expect(mockOfferPushService.offerEnded).not.toHaveBeenCalled()
+    })
+
+    it('does NOT send OFFER_ENDED when cancel came from another status (e.g. ACCEPTED)', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        matchedCourierId: null,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.CANCELED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+      })
+
+      expect(mockWebsocketDispatcher.sendOfferEnded).not.toHaveBeenCalled()
+      expect(mockOfferPushService.offerEnded).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('settleCancellation when ongoing status has no courierId (row 32 review)', () => {
+    it('logs a warning naming the delivery when cancelledFromStatus is ongoing and courierId is null, and awards nothing', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'warn')
+      const delivery = makeDelivery({
+        id: 'del-no-rider-ongoing',
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+        courierId: null, // ongoing status but no courier!
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+
+      await service.settleCancellation('del-no-rider-ongoing')
+
+      // 1. Logs warning naming delivery and cancelledFromStatus
+      expect(loggerSpy).toHaveBeenCalledWith(
+        'Delivery del-no-rider-ongoing was cancelled from ACCEPTED with no rider: no cancellation pay'
+      )
+
+      // 2. Awards nothing
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION })
       )
     })
   })
