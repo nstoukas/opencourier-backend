@@ -51,6 +51,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - The HTTP logger redacts any `search=` value on every route (row 96): a search can be a person's name. A Prisma `contains` does not escape LIKE wildcards; escape `%`, `_` and the backslash yourself, as `delivery-list-filter.ts` does.
 - Matching SQL is tested as text; no test here runs SQL against a database, so a wrong `AND`/`OR`
   inside it can pass the suite (decision 61.20).
+- Riders exist only through admin `POST /api/admin/v1/courier` (or seeds and dev scripts); there is no public sign up. A
+  password set by an admin stamps `User.credentialsChangedAt`, and every token issued before it is refused with 401 in
+  `AuthMiddleware` (both branches) and the socket handshake. A new place that turns a token into a user must call
+  `isIssuedBeforeCredentialsChange` too, and tokens must carry the stored email (spec 0013).
 
 ## Agent skills
 
