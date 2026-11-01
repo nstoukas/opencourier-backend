@@ -4,6 +4,7 @@ import { COURIER_API_V1_PREFIX } from '../../../constants'
 import { ConfigDomainService } from '../../../domains/config/config.domain.service'
 import { AppVersionCustomerInput } from './queries/app-version.courier.input'
 import { AppVersionCustomerDto } from './dtos/app-version.courier.dto'
+import { ContactCourierDto } from './dtos/contact.courier.dto'
 import { Public } from '../../../decorators/public.decorator'
 
 @swagger.ApiBearerAuth()
@@ -21,5 +22,13 @@ export class ConfigCourierRestApiController {
   async checkAppVersion(@common.Body() data: AppVersionCustomerInput): Promise<AppVersionCustomerDto> {
     const result = await this.configDomainService.checkCourierAppVersion(data)
     return new AppVersionCustomerDto(result)
+  }
+
+  // Signed in riders only (no @Public): the numbers a rider calls from the job screen (row 72).
+  @common.Get('contact')
+  @swagger.ApiOkResponse({ type: ContactCourierDto })
+  async getContact(): Promise<ContactCourierDto> {
+    const dispatchPhoneNumber = await this.configDomainService.instanceConfig.getDispatchPhoneNumber()
+    return new ContactCourierDto({ dispatchPhoneNumber })
   }
 }

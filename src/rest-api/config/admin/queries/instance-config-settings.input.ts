@@ -35,4 +35,5 @@ export class InstanceConfigSettingsInput {
   offerExpirySeconds?: number
   noCourierRetrySeconds?: number
   savedCustomerRetentionMonths?: number
+  dispatchPhoneNumber?: string
 }

@@ -64,6 +64,8 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     offerExpirySeconds: DEFAULT_OFFER_EXPIRY_SECONDS,
     noCourierRetrySeconds: DEFAULT_NO_COURIER_RETRY_SECONDS,
     savedCustomerRetentionMonths: DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
+    // No dispatch line until a representative types one on Instance configuration (row 72).
+    dispatchPhoneNumber: '',
   }
 
   for (const [key, value] of Object.entries(initialConfigsData)) {

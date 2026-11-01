@@ -40,6 +40,7 @@ describe('InstanceConfigSettingsDto', () => {
     offerExpirySeconds: 60,
     noCourierRetrySeconds: 30,
     savedCustomerRetentionMonths: 12,
+    dispatchPhoneNumber: null,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

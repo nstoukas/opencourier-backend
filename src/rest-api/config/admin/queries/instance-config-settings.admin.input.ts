@@ -13,6 +13,7 @@ import {
 } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
 import { RefuseIfNotSentAsBoolean } from 'src/decorators/refuseIfNotSentAsBoolean.decorator'
+import { RefuseIfNotSentAsString } from 'src/decorators/refuseIfNotSentAsString.decorator'
 import { InstanceConfigSettingsInput } from './instance-config-settings.input'
 
 export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsInput {
@@ -121,6 +122,15 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   @RefuseIfNotSentAsNumber()
   savedCustomerRetentionMonths?: number
+
+  // The co-op's dispatch line (row 72). Text, not a number: a leading + or 0 must survive.
+  // An empty text clears it; the phone number check lives in the domain service.
+  // @RefuseIfNotSentAsString(): without it a JSON number is turned into text and loses its +.
+  @ApiProperty({ type: String, required: false })
+  @IsOptional()
+  @IsString()
+  @RefuseIfNotSentAsString()
+  dispatchPhoneNumber?: string
 
   // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
   @ApiProperty({ type: Boolean, required: false })

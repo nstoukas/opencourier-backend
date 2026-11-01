@@ -43,6 +43,8 @@ export type InstanceConfigSettings = {
   noCourierRetrySeconds: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
+  // The co-op's dispatch line riders call from the job screen (row 72); null when none is set.
+  dispatchPhoneNumber: string | null
 }
 
 export type InstanceDetails = {
@@ -107,6 +109,7 @@ export enum ConfigKey {
   OFFER_EXPIRY_SECONDS = 'offerExpirySeconds',
   NO_COURIER_RETRY_SECONDS = 'noCourierRetrySeconds',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
+  DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).

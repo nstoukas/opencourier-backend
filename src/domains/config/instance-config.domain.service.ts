@@ -47,6 +47,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { ConfigKey } from 'src/shared-types/index'
 import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
+import { DISPATCH_PHONE_NUMBER_REFUSAL, normalizeDispatchPhoneNumber } from './dispatch-phone-number'
 
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
@@ -147,6 +148,7 @@ export class InstanceConfigDomainService {
     const offerExpirySeconds = await this.getOfferExpirySeconds()
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
+    const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -179,6 +181,7 @@ export class InstanceConfigDomainService {
       offerExpirySeconds,
       noCourierRetrySeconds,
       savedCustomerRetentionMonths,
+      dispatchPhoneNumber,
     }
   }
 
@@ -292,6 +295,18 @@ export class InstanceConfigDomainService {
       throw new BadRequestException('offerExpiryEnabled must be true or false')
     }
 
+    // The dispatch line (row 72): normalized here so the save below writes what was checked.
+    // typeof also catches a JSON null, which @IsOptional lets through.
+    let dispatchPhoneNumber: string | undefined
+    if (data.dispatchPhoneNumber !== undefined) {
+      const normalized =
+        typeof data.dispatchPhoneNumber === 'string' ? normalizeDispatchPhoneNumber(data.dispatchPhoneNumber) : null
+      if (normalized === null) {
+        throw new BadRequestException(DISPATCH_PHONE_NUMBER_REFUSAL)
+      }
+      dispatchPhoneNumber = normalized
+    }
+
     // Phase 2 — write validated settings to the database repository.
     // Numeric settings use !== undefined, never `if (data.x)`: see NUMERIC_SETTING_RULES.
     if (data.courierMatcherType) {
@@ -384,6 +399,11 @@ export class InstanceConfigDomainService {
         ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
         data.savedCustomerRetentionMonths
       )
+    }
+
+    // !== undefined, never a truthy check: '' is how a representative clears the number.
+    if (dispatchPhoneNumber !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.DISPATCH_PHONE_NUMBER, dispatchPhoneNumber)
     }
 
     // Update the updated_at timestamp whenever config is changed
@@ -693,6 +713,24 @@ export class InstanceConfigDomainService {
       SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
       SAVED_CUSTOMER_RETENTION_MONTHS_MAX
     )
+  }
+
+  // The co-op's dispatch line (row 72), or null when none is set. Saving already refuses
+  // anything that is not a phone number, so a bad stored value means a hand edit of the table:
+  // show no dispatch button rather than one that dials nonsense, and log it so it gets fixed.
+  async getDispatchPhoneNumber(): Promise<string | null> {
+    const stored = await this.getConfigValueOrDefault(ConfigKey.DISPATCH_PHONE_NUMBER, '')
+    const value = stored.value
+
+    if (value === '' || value === null) {
+      return null
+    }
+    if (typeof value === 'string' && normalizeDispatchPhoneNumber(value) === value) {
+      return value
+    }
+
+    this.logger.warn(`Invalid ${ConfigKey.DISPATCH_PHONE_NUMBER} in config, showing riders no dispatch number`)
+    return null
   }
 
   // Saving already refuses anything outside the range, so a bad stored value means someone edited

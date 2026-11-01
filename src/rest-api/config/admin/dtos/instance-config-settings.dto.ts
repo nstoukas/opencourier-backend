@@ -88,6 +88,9 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
+  @ApiProperty({ type: String, nullable: true })
+  dispatchPhoneNumber: string | null
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -118,5 +121,6 @@ export class InstanceConfigSettingsDto {
     this.offerExpirySeconds = data.offerExpirySeconds
     this.noCourierRetrySeconds = data.noCourierRetrySeconds
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
+    this.dispatchPhoneNumber = data.dispatchPhoneNumber
   }
 }
