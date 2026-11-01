@@ -7,6 +7,7 @@ import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.serv
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
 import { ADMIN_API_V1_PREFIX } from 'src/constants'
 import { DeliveryAdminPaginatedDto } from './dtos/delivery.admin.paginated.dto'
+import { adminDeliveryListWhere } from './queries/delivery-list-filter'
 import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
 import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
 import { DeliveryEventAdminDto } from './dtos/delivery-event.admin.dto'
@@ -35,10 +36,9 @@ export class DeliveryAdminRestApiController {
   @swagger.ApiOperation({ summary: 'Get deliveries' })
   @Roles(EnumUserRole.ADMIN)
   async getDeliveries(@common.Query() args: DeliveryFindManyAdminArgs): Promise<DeliveryAdminPaginatedDto> {
+    // The courier, the status filter and the search, as one Prisma where (row 96).
     const deliveries = await this.deliveryDomainService.getMany(
-      {
-        courierId: args.courierId,
-      },
+      adminDeliveryListWhere({ courierId: args.courierId, state: args.state, search: args.search }),
       args.page,
       args.perPage
     )
