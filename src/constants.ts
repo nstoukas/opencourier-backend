@@ -114,6 +114,13 @@ export const OFFER_EXPIRY_GRACE_SECONDS = 3
 export const DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS = 12
 export const SAVED_CUSTOMER_RETENTION_MONTHS_MIN = 1
 export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
+
+// Order history (spec 0017). A restaurant sees its deliveries from this many days back (rolling, 24 h days),
+// plus any still open. The operative value is the co-op setting restaurantHistoryDays; this is its fallback
+// when the Config row is missing, and the range it must stay in.
+export const DEFAULT_RESTAURANT_HISTORY_DAYS = 30
+export const RESTAURANT_HISTORY_DAYS_MIN = 1
+export const RESTAURANT_HISTORY_DAYS_MAX = 365
 // Phones are read as Greek numbers unless they start with a country code: this instance serves Volos.
 export const DEFAULT_PHONE_REGION = 'GR'
 

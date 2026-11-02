@@ -27,6 +27,16 @@ export class DeliveryFindManyAdminArgs {
   @IsOptional()
   courierId?: string
 
+  // One restaurant's deliveries, its whole history (spec 0017, AC-7). Combines with the rest.
+  @ApiProperty({
+    required: false,
+    type: String,
+  })
+  @IsString()
+  @MaxLength(64)
+  @IsOptional()
+  partnerId?: string
+
   // Which deliveries to list (row 96): all, active, dropped_off or canceled.
   @ApiProperty({
     required: false,

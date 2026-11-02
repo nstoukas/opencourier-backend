@@ -1,5 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
-import { EnumCancelledBy } from '@prisma/types'
+import { EnumCancelledBy, EnumDeliveryStatus } from '@prisma/types'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { isInPartnerHistory, olderThanHistoryMessage, partnerHistoryWhere } from './partner-history'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
@@ -36,30 +38,43 @@ export class DeliveryPartnerRestApiService {
     private locationDomainService: LocationDomainService,
     private courierDomainService: CourierDomainService,
     private quoteToDeliveryConversionService: QuoteToDeliveryConversionService,
-    private dispatchStopRepository: DispatchStopRepository
+    private dispatchStopRepository: DispatchStopRepository,
+    private configDomainService: ConfigDomainService
   ) {}
 
+  // Spec 0017: the restaurant's deliveries within the co-op's period, or still open, and the period
+  // itself, which the page shows ("your orders from the last 30 days").
   async getManyByPartnerId(partnerId: string, page?: number, perPage?: number) {
+    const historyDays = await this.configDomainService.instanceConfig.getRestaurantHistoryDays()
     const deliveries = await this.deliveryDomainService.getMany(
-      {
-        partnerId,
-      },
+      partnerHistoryWhere(partnerId, historyDays, new Date()),
       page,
       perPage
     )
 
-    return deliveries
+    return { ...deliveries, historyDays }
+  }
+
+  // Spec 0017 (AC-3): every route that takes a delivery id. Ownership first, so another restaurant's
+  // delivery is a plain 404 and the period sentence never reveals it; then the period.
+  private async assertVisibleToPartner(
+    delivery: { partnerId: string | null; createdAt: Date; status: EnumDeliveryStatus } | null,
+    partnerId: string
+  ): Promise<void> {
+    if (!delivery || delivery.partnerId !== partnerId) {
+      throw new DeliveryNotFoundException('Delivery not found')
+    }
+    const historyDays = await this.configDomainService.instanceConfig.getRestaurantHistoryDays()
+    if (!isInPartnerHistory(delivery, historyDays, new Date())) {
+      throw new DeliveryNotFoundException(olderThanHistoryMessage(historyDays))
+    }
   }
 
   async getByIdWithRelations(deliveryId: string, partnerId: string) {
     const delivery = await this.deliveryDomainService.getById(deliveryId)
-
+    await this.assertVisibleToPartner(delivery, partnerId)
     if (!delivery) {
-      throw new NotFoundException('Delivery not found')
-    }
-
-    if (delivery.partnerId !== partnerId) {
-      throw new NotFoundException('Delivery not found')
+      throw new DeliveryNotFoundException('Delivery not found')
     }
 
     const locations = await this.locationDomainService.getByIds([delivery.pickupLocationId, delivery.dropoffLocationId])
@@ -211,10 +226,7 @@ export class DeliveryPartnerRestApiService {
 
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
-
-    if (delivery.partnerId !== partnerId) {
-      throw new DeliveryNotFoundException('Delivery not found')
-    }
+    await this.assertVisibleToPartner(delivery, partnerId)
 
     const dropoffLocation = await this.locationDomainService.getById(delivery.dropoffLocationId)
     if (!dropoffLocation) {
@@ -262,10 +274,7 @@ export class DeliveryPartnerRestApiService {
   // `?? RESTAURANT`, not a default parameter: a default applies to undefined only, never to null.
   async cancel(deliveryId: string, partnerId: string, cancelledBy?: EnumCancelledBy | null) {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
-
-    if (delivery.partnerId !== partnerId) {
-      throw new DeliveryNotFoundException('Delivery not found')
-    }
+    await this.assertVisibleToPartner(delivery, partnerId)
 
     const updatedDelivery = await this.deliveryDomainService.cancelDelivery(
       deliveryId,

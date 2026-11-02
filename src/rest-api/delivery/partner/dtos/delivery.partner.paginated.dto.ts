@@ -26,8 +26,14 @@ export class DeliveryPartnerPaginatedDto implements PaginatedResult<DeliveryPart
   @Expose()
   pagination?: PaginationDto
 
-  constructor(data: { data: DeliveryEntity[]; pagination?: PaginationDto }) {
+  // Spec 0017: how many days back the list reaches for ended orders (open ones always show).
+  @ApiProperty({ required: true, type: Number })
+  @Expose()
+  historyDays: number
+
+  constructor(data: { data: DeliveryEntity[]; pagination?: PaginationDto }, historyDays: number) {
     this.data = data.data.map((location) => new DeliveryPartnerDto(location))
     this.pagination = data.pagination
+    this.historyDays = historyDays
   }
 }

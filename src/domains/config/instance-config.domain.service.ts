@@ -26,6 +26,9 @@ import {
   DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
   SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
   SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
+  DEFAULT_RESTAURANT_HISTORY_DAYS,
+  RESTAURANT_HISTORY_DAYS_MIN,
+  RESTAURANT_HISTORY_DAYS_MAX,
 } from 'src/constants'
 import {
   EnumCourierCompensationCalculationType,
@@ -110,6 +113,14 @@ export const NUMERIC_SETTING_RULES: {
     min: SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
     max: SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
   },
+  // Order history (spec 0017): how far back a restaurant sees its own orders.
+  {
+    key: 'restaurantHistoryDays',
+    whyZeroIsRefused: 'a restaurant would not see the orders it sent today once they ended',
+    mustBeInteger: true,
+    min: RESTAURANT_HISTORY_DAYS_MIN,
+    max: RESTAURANT_HISTORY_DAYS_MAX,
+  },
 ]
 
 @Injectable()
@@ -149,6 +160,7 @@ export class InstanceConfigDomainService {
     const offerExpirySeconds = await this.getOfferExpirySeconds()
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
+    const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
 
@@ -183,6 +195,7 @@ export class InstanceConfigDomainService {
       offerExpirySeconds,
       noCourierRetrySeconds,
       savedCustomerRetentionMonths,
+      restaurantHistoryDays,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
     }
@@ -437,6 +450,9 @@ export class InstanceConfigDomainService {
         ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
         data.savedCustomerRetentionMonths
       )
+    }
+    if (data.restaurantHistoryDays !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
     }
 
     if (data.cancellationPayoutPolicy !== undefined) {
@@ -754,6 +770,16 @@ export class InstanceConfigDomainService {
       DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
       SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
       SAVED_CUSTOMER_RETENTION_MONTHS_MAX
+    )
+  }
+
+  // Spec 0017: how many days back a restaurant sees its ended orders (open ones always show).
+  async getRestaurantHistoryDays(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.RESTAURANT_HISTORY_DAYS,
+      DEFAULT_RESTAURANT_HISTORY_DAYS,
+      RESTAURANT_HISTORY_DAYS_MIN,
+      RESTAURANT_HISTORY_DAYS_MAX
     )
   }
 

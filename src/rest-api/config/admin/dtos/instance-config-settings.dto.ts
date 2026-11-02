@@ -88,6 +88,9 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
+  @ApiProperty({ type: Number })
+  restaurantHistoryDays: number
+
   @ApiProperty({ type: String, nullable: true })
   dispatchPhoneNumber: string | null
 
@@ -124,6 +127,7 @@ export class InstanceConfigSettingsDto {
     this.offerExpirySeconds = data.offerExpirySeconds
     this.noCourierRetrySeconds = data.noCourierRetrySeconds
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
+    this.restaurantHistoryDays = data.restaurantHistoryDays
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.cancellationPayoutPolicy = data.cancellationPayoutPolicy
   }

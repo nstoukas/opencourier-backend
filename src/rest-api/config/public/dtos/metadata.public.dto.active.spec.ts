@@ -39,6 +39,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     offerExpirySeconds: 60,
     noCourierRetrySeconds: 30,
     savedCustomerRetentionMonths: 12,
+    restaurantHistoryDays: 30,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }

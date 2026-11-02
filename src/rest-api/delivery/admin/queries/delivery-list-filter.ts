@@ -18,10 +18,14 @@ export function adminDeliveryListWhere(filter: {
   courierId?: string
   state?: AdminDeliveryState
   search?: string
+  partnerId?: string
 }): Prisma.DeliveryWhereInput {
   const where: Prisma.DeliveryWhereInput = {}
   // As before row 96: a courierId sent (even empty) is a filter; only a missing one is not.
   if (filter.courierId !== undefined) where.courierId = filter.courierId
+  // Spec 0017 (AC-7): one restaurant's whole history, no age limit. Empty means every restaurant.
+  const partnerId = filter.partnerId?.trim()
+  if (partnerId) where.partnerId = partnerId
 
   switch (filter.state) {
     case 'active':

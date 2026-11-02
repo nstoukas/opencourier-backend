@@ -6,6 +6,7 @@ import { DeliveryPartnerRestApiController } from './delivery.partner.rest-api.co
 import { PartnerDomainModule } from 'src/domains/partner/partner.domain.module'
 import { LocationDomainModule } from 'src/domains/location/location.domain.module'
 import { CourierDomainModule } from 'src/domains/courier/courier.domain.module'
+import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
 import { QuoteToDeliveryConversionModule } from 'src/services/quote-to-delivery-conversion/quote-to-delivery-conversion.module'
 
 @Module({
@@ -18,6 +19,7 @@ import { QuoteToDeliveryConversionModule } from 'src/services/quote-to-delivery-
     LocationDomainModule,
     CourierDomainModule,
     QuoteToDeliveryConversionModule.forRoot(),
+    ConfigDomainModule,
   ],
   controllers: [DeliveryPartnerRestApiController],
 })

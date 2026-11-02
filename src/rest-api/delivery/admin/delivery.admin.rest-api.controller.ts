@@ -36,9 +36,14 @@ export class DeliveryAdminRestApiController {
   @swagger.ApiOperation({ summary: 'Get deliveries' })
   @Roles(EnumUserRole.ADMIN)
   async getDeliveries(@common.Query() args: DeliveryFindManyAdminArgs): Promise<DeliveryAdminPaginatedDto> {
-    // The courier, the status filter and the search, as one Prisma where (row 96).
+    // The courier, the restaurant, the status filter and the search, as one Prisma where (row 96, spec 0017).
     const deliveries = await this.deliveryDomainService.getMany(
-      adminDeliveryListWhere({ courierId: args.courierId, state: args.state, search: args.search }),
+      adminDeliveryListWhere({
+        courierId: args.courierId,
+        state: args.state,
+        search: args.search,
+        partnerId: args.partnerId,
+      }),
       args.page,
       args.perPage
     )

@@ -43,7 +43,7 @@ export class DeliveryPartnerRestApiController {
   ): Promise<DeliveryPartnerPaginatedDto> {
     const result = await this.deliveryPartnerRestApiService.getManyByPartnerId(partner.id, args.page, args.perPage)
 
-    const dto = new DeliveryPartnerPaginatedDto(result)
+    const dto = new DeliveryPartnerPaginatedDto(result, result.historyDays)
 
     return dto
   }
