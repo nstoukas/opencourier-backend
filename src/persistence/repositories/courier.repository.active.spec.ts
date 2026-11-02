@@ -1,6 +1,7 @@
-import { CourierRepository, busyCourierDeliverySubQuery } from './courier.repository'
+import { CourierRepository, activeSosCourierSubQuery, busyCourierDeliverySubQuery } from './courier.repository'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { DELIVERY_ONGOING_STATUSES } from '../../shared-types/stateMachine'
+import { ACTIVE_SOS_WHERE } from 'src/domains/sos/sos-incident-state'
 import { CourierEntity } from '../../domains/courier/entities/courier.entity'
 import {
   EnumCourierDeliverySetting,
@@ -23,6 +24,9 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       findUniqueOrThrow: jest.Mock
       findMany: jest.Mock
       count: jest.Mock
+    }
+    sosIncident: {
+      findFirst: jest.Mock
     }
   }
 
@@ -73,6 +77,9 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
         findMany: jest.fn().mockResolvedValue([sampleCourierRecord]),
         count: jest.fn().mockResolvedValue(1),
       },
+      sosIncident: {
+        findFirst: jest.fn(),
+      },
     }
 
     repository = new CourierRepository(mockPrisma as unknown as PrismaService)
@@ -113,6 +120,19 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     })
   })
 
+  describe('activeSosCourierSubQuery (Pins 1 & 7, Spec 0022 AC-7)', () => {
+    test('correlates SosIncident with Courier.id and requires closedAt, safeAt, and falseAlarmAt all IS NULL', () => {
+      const subQuery = activeSosCourierSubQuery()
+
+      expect(subQuery).toBeDefined()
+      expect(typeof subQuery.sql).toBe('string')
+      expect(subQuery.sql).toContain('"SosIncident"."courierId" = "Courier"."id"')
+      expect(subQuery.sql).toContain('"SosIncident"."closedAt" IS NULL')
+      expect(subQuery.sql).toContain('"SosIncident"."safeAt" IS NULL')
+      expect(subQuery.sql).toContain('"SosIncident"."falseAlarmAt" IS NULL')
+    })
+  })
+
   describe('findNearestAvailableCourier', () => {
     const defaultArgs = {
       location: { latitude: 39.36, longitude: 22.95 },
@@ -146,6 +166,10 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       const sharedSubQuery = busyCourierDeliverySubQuery()
       expect(querySql.sql).toContain('NOT EXISTS')
       expect(querySql.sql).toContain(sharedSubQuery.sql)
+
+      // Verify the query checks NOT EXISTS for active SOS (Pin 7, Spec 0022 AC-7)
+      const sosSubQuery = activeSosCourierSubQuery()
+      expect(querySql.sql).toContain(sosSubQuery.sql)
 
       // AC-1: Every active status must be in query values so busy riders get no second offer
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
@@ -242,6 +266,10 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(querySql.sql).toContain('ORDER BY seniority ASC')
       expect(querySql.sql).toContain('NOT EXISTS')
       expect(querySql.sql).toContain(sharedSubQuery.sql)
+
+      // Verify the query checks NOT EXISTS for active SOS (Pin 7, Spec 0022 AC-7)
+      const sosSubQuery = activeSosCourierSubQuery()
+      expect(querySql.sql).toContain(sosSubQuery.sql)
 
       // AC-1: Every active status must be in query values so busy riders get no second offer
       for (const activeStatus of ACTIVE_DELIVERY_STATUSES) {
@@ -435,6 +463,32 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       const result = await repository.findByPhoneNumber('+306999999999')
 
       expect(result).toBeNull()
+    })
+  })
+
+  describe('hasActiveSos (Pin 7, Spec 0022 AC-7)', () => {
+    test('queries sosIncident.findFirst with courierId and ACTIVE_SOS_WHERE', async () => {
+      mockPrisma.sosIncident.findFirst.mockResolvedValueOnce({ id: 'sos-active-1' })
+
+      const result = await repository.hasActiveSos('courier-1')
+
+      expect(result).toBe(true)
+      expect(mockPrisma.sosIncident.findFirst).toHaveBeenCalledWith({
+        where: { courierId: 'courier-1', ...ACTIVE_SOS_WHERE },
+        select: { id: true },
+      })
+    })
+
+    test('returns false when findFirst returns null', async () => {
+      mockPrisma.sosIncident.findFirst.mockResolvedValueOnce(null)
+
+      const result = await repository.hasActiveSos('courier-2')
+
+      expect(result).toBe(false)
+      expect(mockPrisma.sosIncident.findFirst).toHaveBeenCalledWith({
+        where: { courierId: 'courier-2', ...ACTIVE_SOS_WHERE },
+        select: { id: true },
+      })
     })
   })
 })

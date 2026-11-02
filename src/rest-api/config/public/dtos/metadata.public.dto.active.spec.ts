@@ -41,6 +41,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
@@ -103,5 +104,12 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     const dto = new MetadataPublicDto(baseData)
     expect((dto as any).arrivalRadiusMetres).toBeUndefined()
     expect((dto.config as any).arrivalRadiusMetres).toBeUndefined()
+  })
+
+  // Spec 0022, AC-11: sosLocationRetentionDays is an admin setting, not on public metadata
+  it('does NOT include sosLocationRetentionDays on public metadata (spec 0022 AC-11)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect((dto as any).sosLocationRetentionDays).toBeUndefined()
+    expect((dto.config as any).sosLocationRetentionDays).toBeUndefined()
   })
 })

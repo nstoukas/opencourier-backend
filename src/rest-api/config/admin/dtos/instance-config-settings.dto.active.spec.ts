@@ -42,6 +42,7 @@ describe('InstanceConfigSettingsDto', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
@@ -151,5 +152,11 @@ describe('InstanceConfigSettingsDto', () => {
       arrivalRadiusMetres: 0,
     })
     expect(dtoZero.arrivalRadiusMetres).toBe(0)
+  })
+
+  // Spec 0022, AC-11: InstanceConfigSettingsDto exposes sosLocationRetentionDays
+  it('exposes sosLocationRetentionDays (Spec 0022 AC-11)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.sosLocationRetentionDays).toBe(30)
   })
 })

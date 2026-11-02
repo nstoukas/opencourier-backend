@@ -21,6 +21,8 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { OfferPushService } from '../pushNotification/offer-push.service'
 import { TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
+import { CantUpdateDeliveryStatusError } from 'src/errors'
+import { SOS_SENTENCES } from 'src/domains/sos/sos-incident-state'
 
 describe('DeliveryEventService', () => {
   let service: DeliveryEventService
@@ -51,6 +53,7 @@ describe('DeliveryEventService', () => {
     mockCourierRepository = {
       findByIdOrThrow: jest.fn(),
       updateById: jest.fn().mockResolvedValue({} as any),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<CourierRepository>
 
     mockDeliveryRepository = {
@@ -757,6 +760,24 @@ describe('DeliveryEventService', () => {
             'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
         })
       )
+    })
+  })
+
+  describe('refuseIfCourierInSos (Pin 7, Spec 0022 AC-7)', () => {
+    test('throws CantUpdateDeliveryStatusError (409) with fixed sentence when courier has an active SOS', async () => {
+      mockCourierRepository.hasActiveSos.mockResolvedValueOnce(true)
+
+      await expect(service.refuseIfCourierInSos('courier-sos-1')).rejects.toThrow(
+        new CantUpdateDeliveryStatusError(SOS_SENTENCES.courierInSos)
+      )
+      expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('courier-sos-1')
+    })
+
+    test('resolves without error when courier has no active SOS', async () => {
+      mockCourierRepository.hasActiveSos.mockResolvedValueOnce(false)
+
+      await expect(service.refuseIfCourierInSos('courier-free-1')).resolves.toBeUndefined()
+      expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('courier-free-1')
     })
   })
 })

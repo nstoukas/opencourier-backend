@@ -15,6 +15,9 @@ import {
   DEFAULT_ARRIVAL_RADIUS_METRES,
   ARRIVAL_RADIUS_METRES_MIN,
   ARRIVAL_RADIUS_METRES_MAX,
+  DEFAULT_SOS_LOCATION_RETENTION_DAYS,
+  SOS_LOCATION_RETENTION_DAYS_MIN,
+  SOS_LOCATION_RETENTION_DAYS_MAX,
 } from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
 import { DISPATCH_PHONE_NUMBER_REFUSAL } from './dispatch-phone-number'
@@ -1230,6 +1233,194 @@ describe('InstanceConfigDomainService', () => {
 
         const settings = await service.getInstanceConfigSettings()
         expect(settings.restaurantHistoryDays).toBe(45)
+      })
+    })
+
+    describe('getSosLocationRetentionDays (Spec 0022 AC-11, Decision 73.8)', () => {
+      it('returns default 30 and logs no warning when config row is missing with NotFoundError', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns valid stored number when within 1 to 365', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: '45', type: 'number' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(45)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming sosLocationRetentionDays when stored value is 0', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: '0', type: 'number' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming sosLocationRetentionDays when stored value is 366', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: '366', type: 'number' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming sosLocationRetentionDays when stored value is 2.5', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: '2.5', type: 'number' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming sosLocationRetentionDays when stored value is a string ("invalid")', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: 'invalid', type: 'string' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming sosLocationRetentionDays when stored value is null', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SOS_LOCATION_RETENTION_DAYS, value: null as any, type: 'string' })
+        )
+
+        const result = await service.getSosLocationRetentionDays()
+
+        expect(result).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('rethrows when repository throws an error other than NotFoundError', async () => {
+        const otherPrismaError = new PrismaClientKnownRequestError('Connection timeout', {
+          code: 'P1001',
+          clientVersion: '5.0.0',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(otherPrismaError)
+
+        await expect(service.getSosLocationRetentionDays()).rejects.toThrow(otherPrismaError)
+      })
+
+      it('returns sosLocationRetentionDays: 30 in getInstanceConfigSettings with no row and logs no missing variable warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+
+        expect(settings.sosLocationRetentionDays).toBe(DEFAULT_SOS_LOCATION_RETENTION_DAYS)
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining(`Missing variable '${ConfigKey.SOS_LOCATION_RETENTION_DAYS}'`)
+        )
+        warnSpy.mockRestore()
+      })
+    })
+
+    describe('setInstanceConfigSettings - sosLocationRetentionDays (Spec 0022 AC-11, Decision 73.8)', () => {
+      it('refuses 0 with whyZeroIsRefused sentence, "", 366, 2.5, "30", -1 naming the setting', async () => {
+        // 0 refused with whyZeroIsRefused sentence
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: 0 } as any)
+        ).rejects.toThrow('sosLocationRetentionDays cannot be 0: the positions shared during an SOS would be deleted the day they were recorded')
+
+        // "" refused
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: '' } as any)
+        ).rejects.toThrow('sosLocationRetentionDays')
+
+        // 366 refused (> max 365)
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: 366 } as any)
+        ).rejects.toThrow('sosLocationRetentionDays must be 365 or less')
+
+        // 2.5 refused (must be whole)
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: 2.5 } as any)
+        ).rejects.toThrow('sosLocationRetentionDays must be a whole number')
+
+        // "30" string refused
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: '30' } as any)
+        ).rejects.toThrow('sosLocationRetentionDays')
+
+        // -1 refused (< 0)
+        await expect(
+          service.setInstanceConfigSettings({ sosLocationRetentionDays: -1 } as any)
+        ).rejects.toThrow('sosLocationRetentionDays cannot be negative')
+      })
+
+      it('saves valid whole values 1, 30 and 365 under ConfigKey.SOS_LOCATION_RETENTION_DAYS', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        for (const validVal of [1, 30, 365]) {
+          await service.setInstanceConfigSettings({ sosLocationRetentionDays: validVal })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(
+            ConfigKey.SOS_LOCATION_RETENTION_DAYS,
+            validVal
+          )
+        }
+      })
+
+      it('includes sosLocationRetentionDays in getInstanceConfigSettings output', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.SOS_LOCATION_RETENTION_DAYS) {
+            return new ConfigEntity({
+              key: ConfigKey.SOS_LOCATION_RETENTION_DAYS,
+              value: '60',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.sosLocationRetentionDays).toBe(60)
       })
     })
 

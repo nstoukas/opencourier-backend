@@ -54,6 +54,8 @@ describe('DeliveryDomainService', () => {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
       // No dispatch stop is on in these tests (spec 0014).
       refuseIfDispatchStopped: jest.fn().mockResolvedValue(undefined),
+      // No courier is in SOS by default in these tests (spec 0022).
+      refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
       offerDeliveryToCourierAsAdmin: jest.fn(),
       occurredAtForCourierTap: jest.fn(),
     } as unknown as jest.Mocked<DeliveryEventService>
@@ -98,6 +100,20 @@ describe('DeliveryDomainService', () => {
       await expect(service.reassignDelivery('del-stopped', 'courier-new')).rejects.toThrow(
         'Dispatch is stopped until 17:00.'
       )
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
+    })
+
+    test('refuses reassignment with CantUpdateDeliveryStatusError when new courier has active SOS before reading delivery (spec 0022, AC-7)', async () => {
+      mockDeliveryEventService.refuseIfCourierInSos.mockRejectedValueOnce(
+        new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
+      )
+
+      await expect(service.reassignDelivery('del-sos', 'courier-in-sos')).rejects.toThrow(
+        'This rider has an active SOS and cannot be given a delivery until it ends.'
+      )
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-in-sos')
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
       expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
@@ -696,6 +712,81 @@ describe('DeliveryDomainService', () => {
       await expect(
         service.submitDeliveryEvent(submitEventPayload as any)
       ).rejects.toThrow(new BadRequestException('Use POST /api/admin/v1/deliveries/:id/reassign to reassign a delivery'))
+    })
+
+    test('refuses ACCEPTED event with BadRequestException when courierId is missing (spec 0022, AC-7)', async () => {
+      await expect(
+        service.submitDeliveryEvent({
+          deliveryId: 'del-1',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+        } as any)
+      ).rejects.toThrow(new BadRequestException('courierId is required when submitting ACCEPTED to assign a courier'))
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).not.toHaveBeenCalled()
+    })
+
+    test('refuses ACCEPTED event with CantUpdateDeliveryStatusError when courier has active SOS before reading delivery (spec 0022, AC-7)', async () => {
+      mockDeliveryEventService.refuseIfCourierInSos.mockRejectedValueOnce(
+        new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
+      )
+
+      await expect(
+        service.submitDeliveryEvent({
+          deliveryId: 'del-1',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+          courierId: 'courier-sos',
+        })
+      ).rejects.toThrow('This rider has an active SOS and cannot be given a delivery until it ends.')
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-sos')
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).not.toHaveBeenCalled()
+    })
+
+    test('calls acceptDelivery when courier is already matched to delivery and not in SOS (spec 0022, AC-7)', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: 'del-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-matched',
+      } as any)
+      const acceptSpy = jest.spyOn(service, 'acceptDelivery').mockResolvedValueOnce({} as any)
+
+      await service.submitDeliveryEvent({
+        deliveryId: 'del-1',
+        eventType: EnumDeliveryEventType.ACCEPTED,
+        courierId: 'courier-matched',
+      })
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-matched')
+      expect(acceptSpy).toHaveBeenCalledWith('del-1', 'courier-matched')
+      expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).not.toHaveBeenCalled()
+      acceptSpy.mockRestore()
+    })
+
+    test('calls offerDeliveryToCourierAsAdmin when courier is not matched to delivery and not in SOS (spec 0022, AC-7)', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: 'del-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-other',
+      } as any)
+      const acceptSpy = jest.spyOn(service, 'acceptDelivery')
+
+      await service.submitDeliveryEvent(
+        {
+          deliveryId: 'del-1',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+          courierId: 'courier-target',
+        },
+        'Admin assigned directly'
+      )
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-target')
+      expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).toHaveBeenCalledWith(
+        'del-1',
+        'courier-target',
+        'Admin assigned directly'
+      )
+      expect(acceptSpy).not.toHaveBeenCalled()
     })
   })
 
