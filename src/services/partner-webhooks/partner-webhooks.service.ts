@@ -50,15 +50,14 @@ export class PartnerWebhookService {
       courier,
     }
 
-    // Send webhook request to partner
-    console.log(`Sending webhook to partner: "${partner.name}"`)
-    console.log(webhookPayload)
+    // Send webhook request to partner. Logged by ids and statuses only: the payload carries the customer's
+    // name, phone, floor and doorbell (spec 0016, AC-12; the rest of the logs are row 95).
+    console.log(
+      `Sending webhook to partner ${partner.id}: delivery ${delivery.id} ${event.oldStatus} -> ${event.status}`
+    )
 
     const response: AxiosResponse = await this.httpService.axiosRef.post(partner.webhookUrl, webhookPayload)
 
-    // const data = (await firstValueFrom(response))
-
-    console.log(`Response`)
-    console.log(response)
+    console.log(`Webhook to partner ${partner.id} answered ${response.status}`)
   }
 }

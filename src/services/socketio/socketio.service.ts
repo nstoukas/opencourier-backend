@@ -31,7 +31,8 @@ export class SocketIOService {
     }
 
     channel.emit(messageName, message)
-    this.logger.log(`Publishing message to channel ${channelName}: ${messageName}, ${JSON.stringify(message)}`)
+    // Ids only: a delivery message carries the customer's phone, floor and doorbell (spec 0016, AC-12).
+    this.logger.log(`Publishing message to channel ${channelName}: ${messageName}, delivery ${deliveryIdOf(message) ?? '-'}`)
   }
 
   // Spec 0013: closes every open connection of one user (an admin set a new password). The socket
@@ -59,4 +60,12 @@ export class SocketIOService {
 
     return foundClient
   }
+}
+
+// The delivery a socket message is about, for the log line: `{ delivery: { id } }` or `{ deliveryId }`.
+function deliveryIdOf(message: unknown): string | undefined {
+  if (!message || typeof message !== 'object') return undefined
+  const value = message as { delivery?: { id?: unknown }; deliveryId?: unknown }
+  const id = value.delivery?.id ?? value.deliveryId
+  return typeof id === 'string' ? id : undefined
 }
