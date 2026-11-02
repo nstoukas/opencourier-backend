@@ -98,6 +98,13 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   quote. A leg OSRM cannot give is null (`Promise.allSettled`); an offer is never held back for it. The offer push does
   not carry it yet (decision 70.4).
 
+- A rider's free hand back (spec 0020) is `POST courier deliveries/:id/hand-back`, inside `handBackUntil` (stored at the
+  accept from the co-op setting `handBackSeconds`, plus the 3 s offer grace), only at ACCEPTED or DISPATCHED. It is
+  recorded as `HANDED_BACK` by `DeliveryEventService.handBack` (skip list first, one conditional write, then
+  `offerOrWait`); `processDeliveryEvent` refuses that type. No pay, no charge. Every write that takes a rider off a
+  delivery must also null `acceptedAt` and `handBackUntil`; while the window (and its grace) runs, the courier DTO
+  withholds the customer's phone, floor and doorbell. An automatic accept is marked only in the ACCEPTED message (value 5).
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
