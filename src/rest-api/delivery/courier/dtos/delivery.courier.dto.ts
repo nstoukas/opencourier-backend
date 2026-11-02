@@ -222,11 +222,12 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffName = data.dropoffName
-    this.dropoffPhoneNumber = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) ? data.dropoffPhoneNumber : undefined
+    // Row 33 and spec 0016: the customer's details only while the rider holds the delivery.
+    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
+    this.dropoffPhoneNumber = holdsDelivery ? data.dropoffPhoneNumber : undefined
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
-    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
     this.dropoffFloor = holdsDelivery ? data.dropoffFloor : undefined
     this.dropoffDoorbell = holdsDelivery ? data.dropoffDoorbell : undefined
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt

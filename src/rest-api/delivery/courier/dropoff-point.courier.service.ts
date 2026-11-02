@@ -90,13 +90,17 @@ export class DropoffPointCourierService {
     }
 
     // One move per delivery: claimed by a conditional write, so two taps sent at once record one move.
+    // The status is part of the condition too (the decision 32.17 pattern): a drop off or a cancel that
+    // lands between the read above and this write makes the claim miss.
     const claimed = await this.deliveryRepository.updateIfMatches(
       deliveryId,
-      { courierId, dropoffPointCorrectedAt: null },
+      { courierId, dropoffPointCorrectedAt: null, status: { in: DROPOFF_POINT_CORRECTABLE_STATUSES } },
       { dropoffPointCorrectedAt: new Date() }
     )
     if (!claimed) {
-      throw new ConflictException(ALREADY_MOVED_MESSAGE)
+      // Say which race was lost: another move, or the job moved on.
+      const now = await this.deliveryRepository.findById(deliveryId)
+      throw new ConflictException(now?.dropoffPointCorrectedAt ? ALREADY_MOVED_MESSAGE : WRONG_STATUS_MESSAGE)
     }
 
     try {
@@ -116,9 +120,14 @@ export class DropoffPointCourierService {
       )
       return { savedCustomerUpdated: outcome === 'updated', distanceMetres: metres }
     } catch (error) {
-      // Nothing was recorded, so the move is given back and the rider can try again.
-      await this.deliveryRepository.updateIfMatches(deliveryId, { courierId }, { dropoffPointCorrectedAt: null })
       this.logger.error(`DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${error}`, (error as Error).stack)
+      // Nothing was recorded, so the move is given back and the rider can try again. A failure here is
+      // logged on its own; the error the rider gets is still the first one.
+      try {
+        await this.deliveryRepository.updateIfMatches(deliveryId, { courierId }, { dropoffPointCorrectedAt: null })
+      } catch (releaseError) {
+        this.logger.error(`DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${releaseError}`)
+      }
       throw error
     }
   }
@@ -138,6 +147,14 @@ export class DropoffPointCourierService {
     const customer = await this.savedCustomerRepository.findByPhone(partnerId, phone)
     if (!customer) {
       return 'none'
+    }
+    // Already at the new point: an earlier try moved it, then failed to record its event and gave the
+    // claim back. Saying "the restaurant moved it" here would be a false line in the audit trail.
+    if (
+      haversineDistanceInMetres(customer.latitude, customer.longitude, newPoint.latitude, newPoint.longitude) <=
+      SAVED_CUSTOMER_UNCHANGED_METRES
+    ) {
+      return 'updated'
     }
     const metresFromDelivery = haversineDistanceInMetres(
       customer.latitude,

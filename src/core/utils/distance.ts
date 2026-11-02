@@ -6,7 +6,13 @@ function degreesToRadians(degrees: number): number {
 
 // Spec 0016: the distance between two points in metres (a rider's pin move, the 5 m "unchanged" check).
 export function haversineDistanceInMetres(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  return (haversineDistanceInMiles(lat1, lon1, lat2, lon2) / KM_TO_MILES_RATIO) * 1000
+  const R = 6371000 // Earth's radius in metres
+  const dLat = degreesToRadians(lat2 - lat1)
+  const dLon = degreesToRadians(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 export function haversineDistanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
