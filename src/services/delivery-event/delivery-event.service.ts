@@ -21,6 +21,7 @@ import {
   DeliveryReturnedToWaitingEvent,
   DeliveryCourierPaidForCancellationEvent,
   DeliveryFoodReturnedEvent,
+  DeliveryDropoffPointCorrectedEvent,
   DeliveryFoodNotReturnedEvent,
   DELIVERY_ONGOING_STATUSES,
   OfferEndedMessage,
@@ -1329,6 +1330,15 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
+  // Spec 0016. Records a rider's drop off pin move: no status change, so never through
+  // processDeliveryEvent (which would drop it). Old and new status are both the current one.
+  async recordDropoffPointCorrectedEvent(
+    event: DeliveryDropoffPointCorrectedEvent,
+    status: EnumDeliveryStatus
+  ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
   private async endDelivery(
     dbDelivery: DeliveryEntity,
     deliveryEvent: DeliveryEvent,
@@ -1527,13 +1537,15 @@ export class DeliveryEventService {
     // Only OFFERED and OFFER_EXPIRED name a rider in the courierId column (spec 0002). Every
     // other event leaves it out (null), even when the event object carries a courierId.
     // Checking `type` narrows the union, so TypeScript knows courierId is a string on these two.
-    // Spec 0015 adds the three cancellation records, which are each about one rider.
+    // Spec 0015 adds the three cancellation records, which are each about one rider; spec 0016 the
+    // rider's drop off pin move.
     const riderId =
       deliveryEvent.type === EnumDeliveryEventType.OFFERED ||
       deliveryEvent.type === EnumDeliveryEventType.OFFER_EXPIRED ||
       deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION ||
       deliveryEvent.type === EnumDeliveryEventType.FOOD_RETURNED ||
-      deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED
+      deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED ||
+      deliveryEvent.type === EnumDeliveryEventType.DROPOFF_POINT_CORRECTED
         ? deliveryEvent.courierId
         : undefined
 

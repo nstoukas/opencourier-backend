@@ -18,6 +18,8 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
     notes: '2nd floor',
     addressLine1: 'Iasonos 10',
     addressLine2: null,
+    floor: null,
+    doorbell: null,
     city: 'Volos',
     zipCode: '38221',
     latitude: 39.362,

@@ -35,6 +35,19 @@ export class SavedCustomerCreatePartnerInput {
   @MaxLength(255)
   addressLine2?: string | null
 
+  // Spec 0016: the floor and the name on the doorbell, each optional, at most the column's length.
+  @ApiProperty({ required: false, nullable: true, maxLength: 20 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  floor?: string | null
+
+  @ApiProperty({ required: false, nullable: true, maxLength: 60 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  doorbell?: string | null
+
   @ApiProperty({ required: true })
   @IsString()
   @MaxLength(255)

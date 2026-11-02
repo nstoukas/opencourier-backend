@@ -52,6 +52,12 @@ export interface DeliveryFoodNotReturnedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FOOD_NOT_RETURNED
   courierId: string
 }
+// Spec 0016: a rider moved the drop off pin to where they stand. Recorded by DeliveryEventService
+// without a status change, never through processDeliveryEvent.
+export interface DeliveryDropoffPointCorrectedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.DROPOFF_POINT_CORRECTED
+  courierId: string
+}
 export interface DeliveryFailedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FAILED
 }
@@ -139,6 +145,7 @@ export type DeliveryEvent =
   | DeliveryCourierPaidForCancellationEvent
   | DeliveryFoodReturnedEvent
   | DeliveryFoodNotReturnedEvent
+  | DeliveryDropoffPointCorrectedEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

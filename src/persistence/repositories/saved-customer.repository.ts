@@ -12,6 +12,8 @@ export type SavedCustomerFields = {
   notes: string | null
   addressLine1: string
   addressLine2: string | null
+  floor: string | null
+  doorbell: string | null
   city: string
   zipCode: string | null
   latitude: number
@@ -74,6 +76,26 @@ export class SavedCustomerRepository extends EntityRepository {
       select: { id: true },
     })
     return found?.id ?? null
+  }
+
+  // Spec 0016: the customer a delivery was for, by the restaurant and the customer's phone (E.164).
+  async findByPhone(partnerId: string, phone: string): Promise<SavedCustomer | null> {
+    return this.prisma.savedCustomer.findUnique({ where: { partnerId_phone: { partnerId, phone } } })
+  }
+
+  // Spec 0016: moves only the map point, and only if it is still exactly the point read (`from`), so
+  // a restaurant's edit made in between always wins. lastUsedAt is not touched. False on a miss.
+  async movePointIfUnchanged(
+    partnerId: string,
+    id: string,
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number }
+  ): Promise<boolean> {
+    const result = await this.prisma.savedCustomer.updateMany({
+      where: { id, partnerId, latitude: from.latitude, longitude: from.longitude },
+      data: { latitude: to.latitude, longitude: to.longitude },
+    })
+    return result.count === 1
   }
 
   // A new customer. Throws Prisma's unique error (P2002) when the restaurant already has this phone.

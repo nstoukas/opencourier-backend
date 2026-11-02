@@ -54,6 +54,13 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, nullable: true })
   dropoffSellerNotes: string | null
 
+  // Spec 0016: the floor and the name on the doorbell, as the restaurant sent them.
+  @ApiProperty({ type: String, nullable: true })
+  dropoffFloor: string | null
+
+  @ApiProperty({ type: String, nullable: true })
+  dropoffDoorbell: string | null
+
   @ApiProperty({ type: Object, nullable: true })
   dropoffVerification: Prisma.JsonValue | null
 
@@ -240,6 +247,8 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
+    this.dropoffFloor = data.dropoffFloor
+    this.dropoffDoorbell = data.dropoffDoorbell
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

@@ -20,6 +20,12 @@ import { CourierDomainService } from 'src/domains/courier/courier.domain.service
 import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.input'
 import { QuoteToDeliveryConversionService } from 'src/services/quote-to-delivery-conversion/quote-to-delivery-conversion.service'
 
+// An optional text a restaurant sends (spec 0016's floor and doorbell): trimmed, and empty stored as none.
+function optionalText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed === '' ? null : trimmed
+}
+
 @Injectable()
 export class DeliveryPartnerRestApiService {
   private readonly logger = new Logger(DeliveryPartnerRestApiService.name)
@@ -171,6 +177,8 @@ export class DeliveryPartnerRestApiService {
       dropoffEta: deliveryQuote.dropoffEta,
       dropoffDeadlineAt: input.dropoffDeadlineAt,
       dropoffSellerNotes: input.dropoffSellerNotes,
+      dropoffFloor: optionalText(input.dropoffFloor),
+      dropoffDoorbell: optionalText(input.dropoffDoorbell),
       dropoffVerification: input.dropoffVerification as any as JsonValue,
 
       deliverableAction: input.deliverableAction as EnumDeliverableAction,

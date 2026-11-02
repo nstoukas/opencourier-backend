@@ -10,6 +10,9 @@ export class SavedCustomerDto {
   @ApiProperty({ type: String, nullable: true }) notes: string | null
   @ApiProperty() addressLine1: string
   @ApiProperty({ type: String, nullable: true }) addressLine2: string | null
+  // Spec 0016: the floor and the name on the doorbell.
+  @ApiProperty({ type: String, nullable: true }) floor: string | null
+  @ApiProperty({ type: String, nullable: true }) doorbell: string | null
   @ApiProperty() city: string
   @ApiProperty({ type: String, nullable: true }) zipCode: string | null
   @ApiProperty() latitude: number
@@ -26,6 +29,8 @@ export class SavedCustomerDto {
     this.notes = customer.notes
     this.addressLine1 = customer.addressLine1
     this.addressLine2 = customer.addressLine2
+    this.floor = customer.floor
+    this.doorbell = customer.doorbell
     this.city = customer.city
     this.zipCode = customer.zipCode
     this.latitude = customer.latitude

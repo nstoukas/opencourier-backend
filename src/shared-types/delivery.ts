@@ -117,6 +117,8 @@ export interface DeliveryCreationDetails {
   dropoffLongitude: number
   dropoffNotes: string
   dropoffSellerNotes: string
+  dropoffFloor?: string | null
+  dropoffDoorbell?: string | null
   dropoffVerification?: DeliveryVerification
   deliverableAction: EnumDeliverableAction
   undeliverableAction?: EnumUndeliverableAction

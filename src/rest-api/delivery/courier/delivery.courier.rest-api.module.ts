@@ -7,17 +7,21 @@ import { DeliveryIssueDomainModule } from 'src/domains/delivery-issue/delivery-i
 import { LocationNoteReactionDomainModule } from 'src/domains/location-note-reaction/location-note-reaction.domain.module'
 import { CancelledJobsCourierService } from './cancelled-jobs.courier.service'
 import { CancelledJobsCourierRestApiController } from './cancelled-jobs.courier.rest-api.controller'
+import { DropoffPointCourierService } from './dropoff-point.courier.service'
+import { DropoffPointCourierRestApiController } from './dropoff-point.courier.rest-api.controller'
+import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
 
 @Module({
-  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService],
+  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService],
   exports: [DeliveryRestApiCourierService],
   imports: [
     DeliveryDomainModule,
     LocationNoteDomainModule,
     LocationNoteReactionDomainModule,
     DeliveryIssueDomainModule,
+    ConfigDomainModule,
   ],
   // CancelledJobsCourierRestApiController first: its `cancelled-jobs` must match before `GET :deliveryId`.
-  controllers: [CancelledJobsCourierRestApiController, DeliveryCourierRestApiController],
+  controllers: [CancelledJobsCourierRestApiController, DropoffPointCourierRestApiController, DeliveryCourierRestApiController],
 })
 export class DeliveryCourierRestApiModule {}

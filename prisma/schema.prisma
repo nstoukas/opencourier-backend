@@ -184,6 +184,10 @@ model SavedCustomer {
   latitude         Float
   longitude        Float
   formattedAddress String?  @postgres.VarChar(255)
+  // Spec 0016: floor and the name on the doorbell. addressLine2 above is no longer written by
+  // request-web; the migration moved its values into doorbell.
+  floor            String?  @postgres.VarChar(20)
+  doorbell         String?  @postgres.VarChar(60)
   // Moved only by an order using this customer, and never backwards. The retention job reads it.
   lastUsedAt       DateTime @default(now())
 
@@ -267,6 +271,13 @@ model Delivery {
   dropoffReadyAt      DateTime? @postgres.Timestamptz(6)
   dropoffEta          DateTime? @postgres.Timestamptz(6)
   dropoffDeadlineAt   DateTime? @postgres.Timestamptz(6)
+  // Spec 0016: the floor and the name on the doorbell, the delivery's own copy. Never in the shared
+  // Location row, which findOrCreate reuses across deliveries and restaurants.
+  dropoffFloor        String?   @postgres.VarChar(20)
+  dropoffDoorbell     String?   @postgres.VarChar(60)
+  // Spec 0016: when the rider moved the drop off pin (at most once per delivery). The delivery's own
+  // Location never moves; the move is a DROPOFF_POINT_CORRECTED event and reaches the saved customer.
+  dropoffPointCorrectedAt DateTime? @postgres.Timestamptz(6)
 
   deliverableAction        EnumDeliverableAction    @default(MEET_AT_DOOR)
   undeliverableAction      EnumUndeliverableAction?
@@ -581,6 +592,8 @@ enum EnumDeliveryEventType {
   COURIER_PAID_FOR_CANCELLATION
   FOOD_RETURNED
   FOOD_NOT_RETURNED
+  // Spec 0016: a rider moved the drop off pin to where they stand. No status change, never in STATE_MACHINE.
+  DROPOFF_POINT_CORRECTED
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its

@@ -4,6 +4,11 @@ function degreesToRadians(degrees: number): number {
   return (degrees * Math.PI) / 180
 }
 
+// Spec 0016: the distance between two points in metres (a rider's pin move, the 5 m "unchanged" check).
+export function haversineDistanceInMetres(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  return (haversineDistanceInMiles(lat1, lon1, lat2, lon2) / KM_TO_MILES_RATIO) * 1000
+}
+
 export function haversineDistanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371 // Earth's radius in kilometers
   const dLat = degreesToRadians(lat2 - lat1)

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsBoolean, IsDate, IsEnum, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsDate, IsEnum, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
 import { DeliveryAddressInput } from './delivery-address-input'
 import { DeliveryCreationDetails } from 'src/shared-types/index'
 import { DeliveryOrderItemInput } from './delivery-order-item.input'
@@ -128,6 +128,20 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   })
   @IsString()
   dropoffSellerNotes: string
+
+  // Spec 0016: the floor and the name on the doorbell, each optional. Stored in the delivery's own
+  // columns (never the shared Location row), so the limits match those columns.
+  @ApiProperty({ required: false, type: String, nullable: true, maxLength: 20 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  dropoffFloor?: string | null
+
+  @ApiProperty({ required: false, type: String, nullable: true, maxLength: 60 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  dropoffDoorbell?: string | null
 
   @ApiProperty({
     required: false,

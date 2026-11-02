@@ -23,6 +23,9 @@ export class DeliveryEntity implements Delivery {
   dropoffBusinessName: string | null
   dropoffNotes: string | null
   dropoffSellerNotes: string | null
+  dropoffFloor: string | null
+  dropoffDoorbell: string | null
+  dropoffPointCorrectedAt: Date | null
   dropoffVerification: Prisma.JsonValue | null
   dropoffReadyAt: Date | null
   dropoffEta: Date | null
@@ -92,6 +95,9 @@ export class DeliveryEntity implements Delivery {
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
+    this.dropoffFloor = data.dropoffFloor
+    this.dropoffDoorbell = data.dropoffDoorbell
+    this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

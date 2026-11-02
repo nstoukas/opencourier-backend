@@ -72,6 +72,19 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, nullable: true })
   dropoffSellerNotes: string | null
 
+  // Spec 0016 (AC-7): the floor and the doorbell name are personal details like the customer's
+  // phone, so they follow the same rule (row 33): sent only while the rider holds the delivery,
+  // left out of the JSON otherwise.
+  @ApiProperty({ type: String, nullable: true, required: false })
+  dropoffFloor?: string | null
+
+  @ApiProperty({ type: String, nullable: true, required: false })
+  dropoffDoorbell?: string | null
+
+  // Spec 0016 (AC-8): set once the rider moved the drop off pin; the app then hides the button.
+  @ApiProperty({ type: Date, nullable: true })
+  dropoffPointCorrectedAt: Date | null
+
   @ApiProperty({ type: Object, nullable: true })
   dropoffVerification: Prisma.JsonValue | null
 
@@ -213,6 +226,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
+    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
+    this.dropoffFloor = holdsDelivery ? data.dropoffFloor : undefined
+    this.dropoffDoorbell = holdsDelivery ? data.dropoffDoorbell : undefined
+    this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

@@ -61,6 +61,13 @@ export class DeliveryDropoffPartnerDto {
   @ApiProperty({ type: String, nullable: true })
   dropoffSellerNotes: string | null
 
+  // Spec 0016: the floor and the name on the doorbell, as the restaurant sent them.
+  @ApiProperty({ type: String, nullable: true })
+  dropoffFloor: string | null
+
+  @ApiProperty({ type: String, nullable: true })
+  dropoffDoorbell: string | null
+
   constructor(data: DeliveryEntity, pickupLocation: LocationEntity) {
     this.id = pickupLocation.id
 
@@ -82,5 +89,7 @@ export class DeliveryDropoffPartnerDto {
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes
     this.dropoffSellerNotes = data.dropoffSellerNotes
+    this.dropoffFloor = data.dropoffFloor
+    this.dropoffDoorbell = data.dropoffDoorbell
   }
 }

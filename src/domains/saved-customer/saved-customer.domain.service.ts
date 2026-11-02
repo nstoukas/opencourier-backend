@@ -15,6 +15,9 @@ export type SavedCustomerInput = {
   notes?: string | null
   addressLine1: string
   addressLine2?: string | null
+  // Spec 0016: the floor and the name on the doorbell.
+  floor?: string | null
+  doorbell?: string | null
   city: string
   zipCode?: string | null
   latitude: number
@@ -85,6 +88,8 @@ export class SavedCustomerDomainService {
     if (input.notes !== undefined) fields.notes = optionalText(input.notes)
     if (input.addressLine1 !== undefined) fields.addressLine1 = this.checkRequiredText(input.addressLine1, 'street')
     if (input.addressLine2 !== undefined) fields.addressLine2 = optionalText(input.addressLine2)
+    if (input.floor !== undefined) fields.floor = optionalText(input.floor)
+    if (input.doorbell !== undefined) fields.doorbell = optionalText(input.doorbell)
     if (input.city !== undefined) fields.city = this.checkRequiredText(input.city, 'city')
     if (input.zipCode !== undefined) fields.zipCode = optionalText(input.zipCode)
     if (input.formattedAddress !== undefined) fields.formattedAddress = optionalText(input.formattedAddress)
@@ -155,6 +160,8 @@ export class SavedCustomerDomainService {
       notes: optionalText(input.notes),
       addressLine1: this.checkRequiredText(input.addressLine1, 'street'),
       addressLine2: optionalText(input.addressLine2),
+      floor: optionalText(input.floor),
+      doorbell: optionalText(input.doorbell),
       city: this.checkRequiredText(input.city, 'city'),
       zipCode: optionalText(input.zipCode),
       latitude: input.latitude,
