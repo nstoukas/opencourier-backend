@@ -1,14 +1,17 @@
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
-import { RequestMethod } from '@nestjs/common'
-import { EnumDeliveryIssueReason, EnumUserRole } from '@prisma/types'
+import { Logger, RequestMethod } from '@nestjs/common'
+import { EnumDeliveryIssueReason, EnumDeliveryStatus, EnumUserRole } from '@prisma/types'
 import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.controller'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { DeliveryNotFoundException } from 'src/errors'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
+import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
+import { NewDeliveryCourier } from './types/new-delivery.courier.type'
 
 describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
   let controller: DeliveryCourierRestApiController
@@ -165,6 +168,203 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
         mockCourier.id,
         input
       )
+    })
+  })
+})
+
+describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, Row 70)', () => {
+  let controller: DeliveryCourierRestApiController
+  let mockDeliveryRestApiCourierService: jest.Mocked<DeliveryRestApiCourierService>
+  let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
+  let mockOsrmRoutingService: jest.Mocked<OsrmRoutingService>
+
+  const courierWithLocation: CourierEntity = {
+    id: 'courier-loc-1',
+    firstName: 'Alexandros',
+    lastName: 'Iordanidis',
+    currentLocation: { latitude: 39.36, longitude: 22.94 },
+  } as CourierEntity
+
+  const createMockOffer = (id: string, pLat: number, pLon: number, dLat: number, dLon: number): NewDeliveryCourier =>
+    ({
+      id,
+      status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      createdAt: new Date('2026-11-02T10:00:00.000Z'),
+      totalCompensation: 500,
+      currencyCode: 'EUR',
+      pickupBusinessName: `Business ${id}`,
+      pickupLocation: {
+        id: `loc-p-${id}`,
+        latitude: pLat,
+        longitude: pLon,
+        street: 'Iasonos',
+        houseNumber: '10',
+        city: 'Volos',
+        state: 'Magnesia',
+      },
+      dropoffLocation: {
+        id: `loc-d-${id}`,
+        latitude: dLat,
+        longitude: dLon,
+        street: 'Dimitriadis',
+        houseNumber: '20',
+        city: 'Volos',
+        state: 'Magnesia',
+      },
+    } as unknown as NewDeliveryCourier)
+
+  beforeEach(() => {
+    mockDeliveryRestApiCourierService = {
+      getMyNewDeliveries: jest.fn(),
+    } as unknown as jest.Mocked<DeliveryRestApiCourierService>
+
+    mockDeliveryDomainService = {} as jest.Mocked<DeliveryDomainService>
+
+    mockOsrmRoutingService = {
+      getRoute: jest.fn(),
+    } as unknown as jest.Mocked<OsrmRoutingService>
+
+    controller = new DeliveryCourierRestApiController(
+      mockDeliveryRestApiCourierService,
+      mockDeliveryDomainService,
+      mockOsrmRoutingService
+    )
+  })
+
+  test('getMyNewDeliveries handler carries @Roles(COURIER) decorator metadata', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, controller.getMyNewDeliveries)
+    expect(roles).toEqual([EnumUserRole.COURIER])
+  })
+
+  test('getMyNewDeliveries is routed at PATH new with METHOD GET', () => {
+    const path = Reflect.getMetadata(PATH_METADATA, controller.getMyNewDeliveries)
+    const method = Reflect.getMetadata(METHOD_METADATA, controller.getMyNewDeliveries)
+    expect(path).toBe('new')
+    expect(method).toBe(RequestMethod.GET)
+  })
+
+  test('passes courier.currentLocation as rider and each offer pickup and dropoff, computes trips lined up by position', async () => {
+    const offer1 = createMockOffer('del-1', 39.365, 22.945, 39.375, 22.955)
+    const offer2 = createMockOffer('del-2', 39.368, 22.948, 39.378, 22.958)
+
+    mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
+      data: [offer1, offer2],
+      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+    })
+
+    // Offer 1: rider leg (600m, 70s), dropoff leg (1200m, 130s) -> total 200s -> 4 min
+    // Offer 2: rider leg (800m, 90s), dropoff leg (1500m, 160s) -> total 250s -> 5 min
+    mockOsrmRoutingService.getRoute
+      .mockResolvedValueOnce({ distanceMetres: 600, durationSeconds: 70, points: [] })
+      .mockResolvedValueOnce({ distanceMetres: 1200, durationSeconds: 130, points: [] })
+      .mockResolvedValueOnce({ distanceMetres: 800, durationSeconds: 90, points: [] })
+      .mockResolvedValueOnce({ distanceMetres: 1500, durationSeconds: 160, points: [] })
+
+    const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, courierWithLocation)
+
+    expect(mockDeliveryRestApiCourierService.getMyNewDeliveries).toHaveBeenCalledWith(
+      courierWithLocation.id,
+      1,
+      10
+    )
+
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledTimes(4)
+    // Offer 1 rider leg: rider -> pickup
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenNthCalledWith(1, {
+      fromLocation: courierWithLocation.currentLocation,
+      toLocation: offer1.pickupLocation,
+    })
+    // Offer 1 dropoff leg: pickup -> dropoff
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenNthCalledWith(2, {
+      fromLocation: offer1.pickupLocation,
+      toLocation: offer1.dropoffLocation,
+    })
+    // Offer 2 rider leg: rider -> pickup
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenNthCalledWith(3, {
+      fromLocation: courierWithLocation.currentLocation,
+      toLocation: offer2.pickupLocation,
+    })
+    // Offer 2 dropoff leg: pickup -> dropoff
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenNthCalledWith(4, {
+      fromLocation: offer2.pickupLocation,
+      toLocation: offer2.dropoffLocation,
+    })
+
+    expect(result).toBeInstanceOf(NewDeliveriesCourierPaginatedDto)
+    expect(result.data).toHaveLength(2)
+    expect(result.data[0]?.offerTrip).toEqual({
+      toPickupMetres: 600,
+      toDropoffMetres: 1200,
+      minutes: 4,
+    })
+    expect(result.data[1]?.offerTrip).toEqual({
+      toPickupMetres: 800,
+      toDropoffMetres: 1500,
+      minutes: 5,
+    })
+  })
+
+  test('an OSRM that always rejects still returns every offer with null figures', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const offer1 = createMockOffer('del-err-1', 39.365, 22.945, 39.375, 22.955)
+    const offer2 = createMockOffer('del-err-2', 39.368, 22.948, 39.378, 22.958)
+
+    mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
+      data: [offer1, offer2],
+      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+    })
+
+    mockOsrmRoutingService.getRoute.mockRejectedValue(new Error('OSRM network timeout'))
+
+    const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, courierWithLocation)
+
+    expect(result).toBeInstanceOf(NewDeliveriesCourierPaginatedDto)
+    expect(result.data).toHaveLength(2)
+    expect(result.data[0]?.offerTrip).toEqual({
+      toPickupMetres: null,
+      toDropoffMetres: null,
+      minutes: null,
+    })
+    expect(result.data[1]?.offerTrip).toEqual({
+      toPickupMetres: null,
+      toDropoffMetres: null,
+      minutes: null,
+    })
+
+    warnSpy.mockRestore()
+  })
+
+  test('when courier has no currentLocation (null), rider leg is null and not requested', async () => {
+    const courierWithoutLocation = {
+      ...courierWithLocation,
+      currentLocation: null,
+    } as unknown as CourierEntity
+
+    const offer = createMockOffer('del-no-loc', 39.365, 22.945, 39.375, 22.955)
+
+    mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
+      data: [offer],
+      pagination: { totalItems: 1, totalPages: 1, currentItems: 1, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+    })
+
+    mockOsrmRoutingService.getRoute.mockResolvedValue({
+      distanceMetres: 1350,
+      durationSeconds: 150,
+      points: [],
+    })
+
+    const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, courierWithoutLocation)
+
+    // Only 1 call for pickup -> dropoff (rider leg not called because rider location is null)
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledTimes(1)
+    expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledWith({
+      fromLocation: offer.pickupLocation,
+      toLocation: offer.dropoffLocation,
+    })
+    expect(result.data[0]?.offerTrip).toEqual({
+      toPickupMetres: null,
+      toDropoffMetres: 1350,
+      minutes: null,
     })
   })
 })

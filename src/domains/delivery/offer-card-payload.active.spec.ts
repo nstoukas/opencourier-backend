@@ -2,6 +2,7 @@ import { EnumDistanceUnit } from '@prisma/types'
 import {
   OFFER_CARD_PAYLOAD_KEYS,
   buildOfferCardPayload,
+  dropoffAreaOf,
   OfferCardSource,
   OfferCardOptions,
 } from './offer-card-payload'
@@ -42,6 +43,18 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
 
     expect(payloadKeys).toEqual(expectedKeys)
     expect(payloadKeys).toHaveLength(11)
+  })
+
+  test('offer push is unchanged (Spec 0019 AC-2, Decision 70.4): allow list has no toPickupKm and no toDropoffKm', () => {
+    const source = createValidSource()
+    const payload = buildOfferCardPayload(source, defaultOptions)
+
+    // The offer card split figures remain in the offer list API only, not on push
+    expect(OFFER_CARD_PAYLOAD_KEYS).not.toContain('toPickupKm')
+    expect(OFFER_CARD_PAYLOAD_KEYS).not.toContain('toDropoffKm')
+    expect((payload as any).toPickupKm).toBeUndefined()
+    expect((payload as any).toDropoffKm).toBeUndefined()
+    expect(payload.distanceKm).toBe('2.3')
   })
 
   test('AC-10: buildOfferCardPayload with full delivery object containing every customer field never leaks markers', () => {
