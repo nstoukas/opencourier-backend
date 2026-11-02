@@ -83,6 +83,7 @@ are the exceptions, each kept additive or as narrow as possible:
 | `DispatchStop` table and `EnumDispatchStopReason` (migration `20261101080000_add_dispatch_stop`); event type `RETURNED_TO_WAITING` from ACCEPTED, DISPATCHED and arrived at pickup; a gate in `offerToNextCourier`; a repeatable minute job (row 29) | The Ministry stops delivery in heatwaves, and nothing could stop offers or return a delivery to waiting with nobody. Additive. | `2a17d40` |
 | Who cancelled, from which status and when, and the food outcome on `Delivery`; `PartnerCharge` table; `CourierCompensation.cancellationOf` and reason `CANCELLATION`; three event types recorded outside `STATE_MACHINE`; `Delivery.cancellationPayoutPolicy` (migrations `20261101120000_add_cancellation_pay`, `20261101130000_add_cancellation_policy_at_cancel`); the CANCELED write and every status write in `updateDeliveryAndSendNotifications` made conditional; the rider cancel route refuses (row 32) | A cancellation mid job paid the rider nothing and said nothing about the food. Additive except the conditional writes (a cancel that loses a race is now a failed transition) and the rider cancel route. | `1ce975f`, `e542d20`, `1399458` |
 | `Delivery.acceptedAt` and `handBackUntil` (migration `20261102150000_add_hand_back`); event type `HANDED_BACK`, recorded by `DeliveryEventService.handBack` outside the switch; setting `handBackSeconds`; optional `{ automatic }` body on the courier accept; courier `POST deliveries/:id/hand-back` (row 71) | A rider could not give back a job taken by a slip or an unwanted auto accept, and an automatic accept looked like a tap on the record. Additive; no pay or charge either way. | `ca392af` |
+| Setting `arrivalRadiusMetres` (0 switches detection off, else 20 to 300 m, default 50) on the admin settings and the courier `GET config/contact`; optional `{ detected }` body on the courier `arrived-at-pickup` and `arrived-at-dropoff` routes (row 19) | The rider's app now notices arrival by itself, and members must be able to tell a detected arrival from a tapped one, because waiting pay will start from it. Additive; no schema change; the mark is only the event's message. | `1a6969b` |
 
 ---
 
@@ -111,6 +112,22 @@ mobile halves. This is a core change, listed in the table above.
 - Tests: by agy (`7a2d826`, `d71e26c`), 1775 passing; 20 checked by hand by putting their bug back.
   Reviewed by Fable (approve with nits, fixed) and by agy (fix needed, ruled: no fix for this row,
   decision 71.15). A known race with a reassign is decision 71.14.
+
+### Arrival detected by the rider's app, marked on the record (scope row 19, spec 0021): `1a6969b` to `b6ca49c`
+Built on the branch `feat/quicker-delivery-screens` and merged on 2 November, with the courier app,
+adminweb and request-web halves. This is a core change, listed in the table above.
+- **The co-op sets the radius.** `arrivalRadiusMetres` (whole metres; 0 switches detection off,
+  otherwise 20 to 300; 50 when never set, read quietly). A new `zeroSwitchesOff` field in
+  `NUMERIC_SETTING_RULES` lets 0 skip the range, and 1 to 19 is refused with "must be 20 or more,
+  or 0 to switch detection off". Riders' apps read it from `GET config/contact`, which already
+  carried the dispatch number.
+- **An arrival says how it was made.** The two courier arrived routes take an optional
+  `{ detected }` (refused unless sent as a JSON boolean). The event's message ends with
+  "(detected by the app)" or "(tapped by the rider)". There's no column, so a rider's taps can't be
+  counted (value 5). An older app that sends nothing counts as tapped.
+- Tests by agy (`710a716`, `b6ca49c`): 1864 pass; 8 checked by hand by putting their bug back.
+  Reviewed by Fable (approve with nits; its one test gap closed in `b6ca49c`). Verified live with
+  the courier app on an emulator.
 
 ### Pay when a job is cancelled (scope row 32, spec 0015): `1ce975f` to `0480cff`
 Built on the branch `feat/cancellation-pay` and merged on 2 November, with its adminweb,
