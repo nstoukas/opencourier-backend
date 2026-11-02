@@ -6,7 +6,7 @@ by moped in Volos. Restaurants pay a flat subscription; couriers are paid piece-
 delivery, so pricing and matching are the pay structure.
 
 Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipeline`
-(79 commits, 25 July – 26 October 2026). Each entry names its commit, and the commit
+(192 commits, 25 July to 2 November 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
 Scope row 49 (zero is a valid value for every co-op setting) was built on the branch
@@ -42,6 +42,16 @@ Scope row 26's backend half (saved customers for restaurants, spec 0005) was bui
 `feat/saved-customers` and merged in on 26 October, together with its request-web and adminweb
 halves. With it the suite is at **786 passing tests**; typecheck is clean and lint is unchanged.
 
+On 2 November the stack built from 27 October to 2 November was merged in, in this order:
+row 66 (rider issue reports), 20 (tap time), 96 and 97 (admin list filters), 16 (admin issued
+riders), 29 (dispatch stop), 33 and 72 (customer phone and contact), 32 (pay when a job is
+cancelled), 31 (floor, doorbell and pin), 28 (order history), 69 (map route), 70 (offer trip)
+and 71 (auto accept and the hand back), then the separate branch `fix/refresh-tokens-dto`
+(decision 66.12, `c6d2cac`). With them the suite is at **1783 passing tests**; typecheck is
+clean and lint is unchanged. The five GA rows (pay and matching: 20, 16, 29, 32, 71) have their
+own entries under Added and in the core changes table; every other row's core change is in the
+deviation ledger in the workspace's `memory.md`.
+
 Sibling forks: `opencourier-adminweb`, `opencourier-request-web`, `opencourier-mobile`,
 `opencourier-demo-registry`.
 
@@ -68,10 +78,117 @@ are the exceptions, each kept additive or as narrow as possible:
 | New `SavedCustomer` table (migration `20261026150000_add_saved_customer`), partner routes `/api/partner/v1/customers` and admin routes `/api/admin/v1/partners/:partnerId/customers`, setting `savedCustomerRetentionMonths`, BullMQ repeatable job `saved-customer-retention` (`addRepeatableJob` gains a time zone), `libphonenumber-js` 1.13.15; the HTTP logger drops `/customers` query strings; `ResponseFormatMiddleware` passes `conflictingCustomerId`; `isUniqueConstraintError` matches by name and code; `SentryInterceptor` registered with `request: false` (row 26) | Restaurants retyped every customer. Customers' details are personal data, so the row brings a co-op retention setting and a real delete, and keeps those details out of logs, error bodies and error reports. Additive; no `DeliveryEvent` (a saved customer affects neither pay nor assignment). | `f972791` |
 | `yarn.lock` tracked (upstream ignored it) | Without it a fresh install resolves `firebase-admin`'s tree afresh and can drift (decision 58.12). No code change. | `6b4d49d` |
 | `Delivery.offeredAt` and `offerExpiresAt`, `DeliveryEvent.courierId`, event types `OFFERED`, `OFFER_EXPIRED` and `NO_COURIER_AVAILABLE`, actor `SYSTEM`; two BullMQ jobs; accept and decline written conditionally (migration `20261025120000_add_offer_expiry`, row 61) | Nothing on the server ever ended an offer, so a phone that was off held a delivery forever, and offers and "no rider free" left no event to audit. Additive: Postgres cannot drop enum values, so a revert would leave them unused. | `b364c66` |
+| `DeliveryEvent.occurredAt`, backfilled from `createdAt`, with an index (migration `20261031200000_add_delivery_event_occurred_at`); optional `tapAgeMs` on the five courier job step routes; four of those routes read the delivery again after the event; earnings read `occurredAt` (row 20) | A step sent late from a phone with no signal counted on the day it arrived, and a step the state machine dropped answered with the old status. Additive; `createdAt` keeps its meaning. | `e1876d6` |
+| `User.credentialsChangedAt` (migration `20261101060000_add_user_credentials_changed_at`); tokens issued before it refused with 401 in `AuthMiddleware` and the socket handshake; admin create rider and rotate password routes; public `POST /api/courier/v1/auth/register` removed (row 16) | An open sign up let strangers into the offer pool, and a new password signed nothing out. Same pattern as the partner sign up removal (`ed3b762`). | `d8d989e` |
+| `DispatchStop` table and `EnumDispatchStopReason` (migration `20261101080000_add_dispatch_stop`); event type `RETURNED_TO_WAITING` from ACCEPTED, DISPATCHED and arrived at pickup; a gate in `offerToNextCourier`; a repeatable minute job (row 29) | The Ministry stops delivery in heatwaves, and nothing could stop offers or return a delivery to waiting with nobody. Additive. | `2a17d40` |
+| Who cancelled, from which status and when, and the food outcome on `Delivery`; `PartnerCharge` table; `CourierCompensation.cancellationOf` and reason `CANCELLATION`; three event types recorded outside `STATE_MACHINE`; `Delivery.cancellationPayoutPolicy` (migrations `20261101120000_add_cancellation_pay`, `20261101130000_add_cancellation_policy_at_cancel`); the CANCELED write and every status write in `updateDeliveryAndSendNotifications` made conditional; the rider cancel route refuses (row 32) | A cancellation mid job paid the rider nothing and said nothing about the food. Additive except the conditional writes (a cancel that loses a race is now a failed transition) and the rider cancel route. | `1ce975f`, `e542d20`, `1399458` |
+| `Delivery.acceptedAt` and `handBackUntil` (migration `20261102150000_add_hand_back`); event type `HANDED_BACK`, recorded by `DeliveryEventService.handBack` outside the switch; setting `handBackSeconds`; optional `{ automatic }` body on the courier accept; courier `POST deliveries/:id/hand-back` (row 71) | A rider could not give back a job taken by a slip or an unwanted auto accept, and an automatic accept looked like a tap on the record. Additive; no pay or charge either way. | `ca392af` |
 
 ---
 
 ## Added
+
+### Auto accept on the record, and a free hand back in the first minute (scope row 71, spec 0020): `ca392af` to `640afb5`
+Built on the branch `feat/auto-accept-hand-back` and merged on 2 November, with its adminweb and
+mobile halves. This is a core change, listed in the table above.
+- **An automatic accept is marked.** The courier accept takes an optional `{ automatic }` body; when
+  it is `true`, the ACCEPTED event's message ends with "(accepted automatically)". Nothing else
+  stores it, so automatic accepts cannot be counted per rider (value 5).
+- **The co-op sets the window.** `handBackSeconds` (whole seconds 0 to 300, default 60; 0 switches
+  the hand back off). `handBackUntil` is worked out at the accept, so changing the setting never
+  moves a window already running. If the setting cannot be read, the accept still goes through
+  with 60.
+- **The hand back.** `POST /api/courier/v1/deliveries/:id/hand-back` returns the job to matching:
+  the rider goes on the delivery's skip list, one conditional write on status and rider clears the
+  rider and the window, a `HANDED_BACK` event is recorded, and a new offer round starts. No pay and
+  no charge either way. Not yours is 404; at the restaurant or later is 409; after the window (plus
+  a 3 second grace) is 409 with a sentence worded for the setting.
+- **Details wait for the window to close.** While it runs, the customer's phone, floor and doorbell
+  are withheld (decision 71.10). Each courier delivery carries `handBackUntil` and the list carries
+  `serverNow`, so the phone counts down by the server's clock.
+- Every write that takes the rider off a delivery (reassign, dispatch stop return, cancel, hand
+  back) clears both new columns (`ae95aad`).
+- Tests: by agy (`7a2d826`, `d71e26c`), 1775 passing; 20 checked by hand by putting their bug back.
+  Reviewed by Fable (approve with nits, fixed) and by agy (fix needed, ruled: no fix for this row,
+  decision 71.15). A known race with a reassign is decision 71.14.
+
+### Pay when a job is cancelled (scope row 32, spec 0015): `1ce975f` to `0480cff`
+Built on the branch `feat/cancellation-pay` and merged on 2 November, with its adminweb,
+request-web and mobile halves. This is a core change, listed in the table above.
+- **The rider is paid** when a delivery is cancelled anywhere from accepted to arrived at drop off,
+  under the co-op's `cancellationPayoutPolicy` (a key of the payout policy menu, full pay when
+  unset). The rule is recorded with the cancel, so a later change of setting never reaches an award
+  already owed (decision 32.18, `1399458`). The award is a `CourierCompensation` row and a
+  `COURIER_PAID_FOR_CANCELLATION` event.
+- **The restaurant is charged** for its own cancellations (`PartnerCharge`). Who cancelled travels in
+  the partner cancel body (default RESTAURANT) and the admin CANCELED event (default COOP).
+- **Races are settled by the database.** The cancel writes only if the status and rider are still
+  what it read, so a drop off or pickup that got there first wins and nothing is paid or charged.
+  Every status write in `updateDeliveryAndSendNotifications` is now conditional the same way
+  (decision 32.17, `badde22`).
+- **Nothing is lost.** A repeatable minute job, `cancellation-award-sweep`, completes any
+  cancellation from the last 24 hours still missing its award, event or charge.
+- **Rider routes.** `GET /api/courier/v1/deliveries/cancelled-jobs` (an allow list, nothing about the
+  customer) and `POST :id/food-outcome` (once, only after a pickup; `FOOD_RETURNED` or
+  `FOOD_NOT_RETURNED` with a note). A `JOB_CANCELLED` push. The rider's own cancel route now
+  answers 409 (decision 32.14).
+- Fixed by the live verify: the earnings day list dropped each line's kind (`f38279d`), and a late
+  award paid under the rule in force when the sweep ran (`1399458`).
+- Tests: by agy (`3f91764`, `c861973`, `1ffd3bf`, `6c5ca25`, `99ece61`), 1426 passing; every put
+  the bug back check repeated by hand. Reviewed by Fable (3 majors, fixed) and by agy (2 findings
+  fixed in `180f0c2`, 1 did not hold).
+
+### Stop dispatch for heat and storms (scope row 29, spec 0014): `2a17d40` to `5a68225`
+Built on the branch `feat/dispatch-stop` and merged on 2 November, with its adminweb, request-web
+and mobile halves. This is a core change, listed in the table above.
+- **Stop now, or a window in Athens time.** `GET/POST /api/admin/v1/dispatch-stops`, a preview of
+  what a stop would touch, and `POST .../:id/end`. A time that does not exist (the hour skipped in
+  spring) is refused. Two admins stopping at once cannot both pass the overlap check (an advisory
+  lock).
+- **While a stop is on, no offer goes out.** `offerToNextCourier`, the one place every automatic
+  offer is made, answers `'STOPPED'`. An admin's hand offer, a reassignment and the test routes
+  answer 409; a restaurant's quote and order answer 503 with the sentence and the end time.
+- **At the start**, open offers end (not counted as the rider's miss) and every delivery accepted
+  but not picked up gets `RETURNED_TO_WAITING`; its rider is paid by the co-op's reassignment
+  setting, after the return, so a pickup tapped at the same moment wins. **At the end**, every
+  waiting delivery gets an offer or a recorded "nobody free".
+- A repeatable minute job runs each stop's start and end work once, and retries by design. Stop now
+  is blocked only by a stop already on, never by one scheduled later (decision 29.6, `0bf4a2f`).
+- `GET /api/courier/v1/dispatch-state` and `/api/partner/v1/dispatch-state` give the reason, times
+  and sentence, never who stopped it.
+- Tests: by agy (`fad6255`, `f6fc9be`, `76fa2a2`, `5a68225`), 1203 passing; every put the bug back
+  check repeated by hand. Reviewed by a fresh model (`/check review`, fixes `3711e77`) and by agy (fixes `2756da5`).
+
+### Rider accounts issued by the co-op (scope row 16, spec 0013): `d8d989e` to `841ad98`
+Built on the branch `feat/admin-issued-riders` and merged on 2 November, with its adminweb and
+mobile halves. This is a core change, listed in the table above.
+- **Only an admin creates a rider.** `POST /api/admin/v1/courier` creates the login and the courier
+  in one write; the email is stored lower cased, and a taken email or phone is a 409 naming which.
+  The public `POST /api/courier/v1/auth/register` is gone.
+- **A new password cuts the old phone off.** `POST /api/admin/v1/courier/:id/rotate-password` sets
+  `credentialsChangedAt`; every token issued before it answers 401 "Your password was changed. Log
+  in again." (access, refresh and socket). The rider's sockets close, their push devices are
+  deleted, and they go Offline. A restaurant's password change sets the time too, and spares admins
+  (`b2273a3`).
+- Login tries the email as typed, then trimmed and lower cased. Logs carry ids only.
+- Tests: by agy (`be86e99`, `048f600`, `bfc8351`), 1114 passing; every put the bug back check
+  repeated by hand. Reviewed by a fresh model (`/check review`, fixes `f50d059`) and by agy (fixes `b2273a3`).
+
+### The time a rider tapped, on every delivery event (scope row 20, spec 0009): `e1876d6` to `20c6273`
+Built on the branch `feat/bad-signal-tap-time` and merged on 2 November, with its mobile half (the
+phone's outbox). This is a core change, listed in the table above.
+- **The phone sends an age, not a date.** The five courier job step routes take an optional
+  `tapAgeMs` ("I tapped this 90 seconds ago"), a whole number from 0 to 7 days, refused unless sent
+  as a real JSON number (`3ac6edd`). The server subtracts it from its own clock, raised to the
+  previous step and capped at the arrival, so a wrong phone clock cannot move pay.
+- **`occurredAt` on every event**, and earnings count a delivery on the day it was tapped. A
+  Delivered tapped at 23:50 and sent at 00:20 counts on the right day. `pickupReadyAt` and
+  `dropoffReadyAt` take the tap.
+- **The answer tells the truth.** Four step routes used to answer with the delivery as it was before
+  the event; they now read it again, so the app sees when a step was refused. A repeated step stores
+  its note once; a late step that no longer applies is kept as a failed row (`bd06404`).
+- The admin events list carries `occurredAt`.
+- Tests: by agy (`b21b8ab`, `83446fb`), 919 passing; 20 checked by hand by putting their bug back.
 
 ### Saved customers for restaurants (scope row 26, spec 0005): `f972791` to `e7746b7`
 Built on the branch `feat/saved-customers` and merged on 26 October, together with the request-web
