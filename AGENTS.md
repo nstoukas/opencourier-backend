@@ -105,6 +105,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   delivery must also null `acceptedAt` and `handBackUntil`; while the window (and its grace) runs, the courier DTO
   withholds the customer's phone, floor and doorbell. An automatic accept is marked only in the ACCEPTED message (value 5).
 
+- Arrival detection (spec 0021): the rider's app decides arrival; the server only marks it. `ArrivedCourierInput`'s
+  optional `detected` ends the ARRIVED event's message with "(detected by the app)" or "(tapped by the rider)"
+  (`arrivalHow`), nothing else stores it (value 5), and admins have no arrival event to submit. `arrivalRadiusMetres`
+  (0 = off, else 20 to 300, default 50) rides on the courier `GET config/contact`. A numeric setting whose 0 means "off"
+  sets `zeroSwitchesOff` in `NUMERIC_SETTING_RULES` instead of `min: 0`.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
