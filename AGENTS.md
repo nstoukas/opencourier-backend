@@ -73,6 +73,13 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `cancellationOf`) under the rule recorded on the delivery at the cancel (`cancellationPayoutPolicy`, decision 32.18), a
   `PartnerCharge` when the restaurant cancelled, and the repeatable `cancellation-award-sweep` completes any missing piece
   for 24 h. Its events go through `recordCancellationEvent`, outside `STATE_MACHINE`.
+- A rider's drop off pin move (spec 0016) is `POST courier deliveries/:id/dropoff-point`: once per delivery
+  (`dropoffPointCorrectedAt`, claimed by a conditional write that also checks the status), recorded as
+  `DROPOFF_POINT_CORRECTED` outside `STATE_MACHINE`, and moves only the restaurant's saved customer (by partner and normalised
+  phone, and only if still at the delivery's point). It never touches the delivery's `Location`, which `findOrCreate` shares
+  between deliveries. Floor and doorbell are the delivery's own columns and follow the phone's visibility rule.
+- Never log a whole delivery or message: the partner webhook and `SocketIOService.publishMessage` log ids and statuses only
+  (decision 31.18), because a delivery carries the customer's name, phone, floor and doorbell.
 
 ## Agent skills
 
