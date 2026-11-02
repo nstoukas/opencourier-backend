@@ -323,7 +323,6 @@ export class DeliveryEventService {
           // the race to a cancel leaves no rider on the cancelled delivery.
           // Spec 0020: the accept time and the end of the free hand back, stored now so a later change
           // of the setting never moves a running minute (0 seconds: no hand back).
-          const acceptedAt = new Date()
           // A setting that cannot be read must never cost a rider their accept (value 4): the
           // default window is used and the failure logged.
           let handBackSeconds = DEFAULT_HAND_BACK_SECONDS
@@ -332,6 +331,8 @@ export class DeliveryEventService {
           } catch (error) {
             this.logger.warn(`Could not read handBackSeconds while accepting ${deliveryEvent.deliveryId}: ${error}`)
           }
+          // Taken after the read, so a slow read does not shorten the window (row 71 review).
+          const acceptedAt = new Date()
           await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
             courierId,
             offerExpiresAt: null,
@@ -983,7 +984,8 @@ export class DeliveryEventService {
       actor: EnumEventActor.COURIER,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: written ? 'Handed back within the first minute' : 'Hand back refused: the order changed first',
+      // The window's length is a co-op setting, so the message names none (row 71 review).
+      message: written ? 'Handed back within the free window' : 'Hand back refused: the order changed first',
     }
 
     if (!written) {
@@ -1021,8 +1023,15 @@ export class DeliveryEventService {
     } catch (error) {
       this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} was handed back: ${error}`)
     }
-    // Straight back to matching; nobody free means the usual no courier spell and retry.
-    await this.offerOrWait(deliveryId)
+    // Straight back to matching; nobody free means the usual no courier spell and retry. The hand
+    // back is done whatever happens here: a failure is logged and the backstop sweep still finds
+    // the waiting delivery, so the rider is never answered 500 for an order they gave back (row 71
+    // review).
+    try {
+      await this.offerOrWait(deliveryId)
+    } catch (error) {
+      this.logger.error(`Could not start matching after delivery ${deliveryId} was handed back: ${error}`)
+    }
     return true
   }
 

@@ -3,6 +3,7 @@ import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Pri
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
+import { OFFER_EXPIRY_GRACE_SECONDS } from 'src/constants'
 
 const formatAddress = (address: LocationEntity) => {
   const { street, city, state } = address
@@ -77,10 +78,6 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   // left out of the JSON otherwise.
   @ApiProperty({ type: String, nullable: true, required: false })
   dropoffFloor?: string | null
-
-  // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
-  @ApiProperty({ type: Date, nullable: true })
-  handBackUntil: Date | null
 
   @ApiProperty({ type: String, nullable: true, required: false })
   dropoffDoorbell?: string | null
@@ -208,6 +205,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date, nullable: true })
   offerExpiresAt: Date | null
 
+  // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
+  @ApiProperty({ type: Date, nullable: true })
+  handBackUntil: Date | null
+
   @ApiProperty({ type: String, nullable: true })
   dropoffLocationFormattedAddress: string | null
 
@@ -234,10 +235,17 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
       handBackUntil.getTime() > Date.now() &&
       (data.status === EnumDeliveryStatus.ACCEPTED || data.status === EnumDeliveryStatus.DISPATCHED)
     this.handBackUntil = inHandBackWindow ? handBackUntil : null
+    // The details stay hidden through the hand back's grace too (row 71 review): the server still
+    // takes a hand back for OFFER_EXPIRY_GRACE_SECONDS after handBackUntil, so a rider who fetched
+    // in those seconds could otherwise read them and still give the order back.
+    const inHandBackGrace =
+      handBackUntil !== null &&
+      handBackUntil.getTime() + OFFER_EXPIRY_GRACE_SECONDS * 1000 > Date.now() &&
+      (data.status === EnumDeliveryStatus.ACCEPTED || data.status === EnumDeliveryStatus.DISPATCHED)
     // Row 33 and spec 0016: the customer's details only while the rider holds the delivery. Spec 0020
     // (AC-4, decision 71.10): not during the free hand back either, so a rider who gives the order back
     // has not been given the customer's phone, floor or doorbell.
-    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) && !inHandBackWindow
+    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) && !inHandBackGrace
     this.dropoffPhoneNumber = holdsDelivery ? data.dropoffPhoneNumber : undefined
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes

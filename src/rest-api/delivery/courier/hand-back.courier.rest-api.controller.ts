@@ -1,7 +1,7 @@
 import * as common from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
-import { EnumUserRole } from '@prisma/types'
+import { EnumDeliveryStatus, EnumUserRole } from '@prisma/types'
 import { COURIER_API_V1_PREFIX } from '../../../constants'
 import { Roles } from 'src/decorators/roles.decorator'
 import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
@@ -27,7 +27,7 @@ export class HandBackCourierRestApiController {
   async handBack(
     @common.Param('deliveryId') deliveryId: string,
     @CurrentUserCourier() courier: CourierEntity
-  ): Promise<{ status: string }> {
+  ): Promise<{ status: EnumDeliveryStatus }> {
     return this.handBackCourierService.handBack(deliveryId, courier.id)
   }
 }
