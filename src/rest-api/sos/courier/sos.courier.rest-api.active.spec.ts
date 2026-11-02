@@ -138,20 +138,40 @@ describe('SosCourierRestApiController & Inputs (Pins 3, 4, 5, 6)', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    test('refuses coordinates sent as strings ("39.1")', async () => {
-      await expect(
-        pipe.transform(
-          { points: [{ ...validPoint, latitude: '39.1' }] },
-          { type: 'body', metatype: SosPointsCourierInput }
-        )
-      ).rejects.toThrow(BadRequestException)
+    test('refuses coordinates sent as strings or non-numbers ("39.1", true, false, "")', async () => {
+      for (const badValue of ['39.1', true, false, '']) {
+        await expect(
+          pipe.transform(
+            { points: [{ ...validPoint, latitude: badValue }] },
+            { type: 'body', metatype: SosPointsCourierInput }
+          )
+        ).rejects.toThrow(BadRequestException)
 
-      await expect(
-        pipe.transform(
-          { points: [{ ...validPoint, longitude: '22.9' }] },
-          { type: 'body', metatype: SosPointsCourierInput }
-        )
-      ).rejects.toThrow(BadRequestException)
+        expect(() =>
+          plainToInstance(
+            SosPointCourierInput,
+            { ...validPoint, latitude: badValue },
+            { enableImplicitConversion: true }
+          )
+        ).toThrow(BadRequestException)
+      }
+
+      for (const badValue of ['22.9', true, false, '']) {
+        await expect(
+          pipe.transform(
+            { points: [{ ...validPoint, longitude: badValue }] },
+            { type: 'body', metatype: SosPointsCourierInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+
+        expect(() =>
+          plainToInstance(
+            SosPointCourierInput,
+            { ...validPoint, longitude: badValue },
+            { enableImplicitConversion: true }
+          )
+        ).toThrow(BadRequestException)
+      }
     })
 
     test('refuses out-of-range coordinates (latitude > 90 or < -90, longitude > 180 or < -180)', async () => {
@@ -200,6 +220,34 @@ describe('SosCourierRestApiController & Inputs (Pins 3, 4, 5, 6)', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
+    test('accepts point when accuracyMetres is omitted', async () => {
+      const { accuracyMetres, ...pointWithoutAccuracy } = validPoint
+      const result = await pipe.transform(
+        { points: [pointWithoutAccuracy] },
+        { type: 'body', metatype: SosPointsCourierInput }
+      )
+      expect(result.points[0].accuracyMetres).toBeUndefined()
+    })
+
+    test('refuses accuracyMetres when not sent as a JSON number ("15", true, false, "")', async () => {
+      for (const badValue of ['15', true, false, '']) {
+        await expect(
+          pipe.transform(
+            { points: [{ ...validPoint, accuracyMetres: badValue }] },
+            { type: 'body', metatype: SosPointsCourierInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+
+        expect(() =>
+          plainToInstance(
+            SosPointCourierInput,
+            { ...validPoint, accuracyMetres: badValue },
+            { enableImplicitConversion: true }
+          )
+        ).toThrow(BadRequestException)
+      }
+    })
+
     test('refuses ageMs when negative or exceeding 7 days', async () => {
       await expect(
         pipe.transform(
@@ -214,6 +262,25 @@ describe('SosCourierRestApiController & Inputs (Pins 3, 4, 5, 6)', () => {
           { type: 'body', metatype: SosPointsCourierInput }
         )
       ).rejects.toThrow(BadRequestException)
+    })
+
+    test('refuses ageMs when not sent as a JSON number ("5000", true, false, "")', async () => {
+      for (const badValue of ['5000', true, false, '']) {
+        await expect(
+          pipe.transform(
+            { points: [{ ...validPoint, ageMs: badValue }] },
+            { type: 'body', metatype: SosPointsCourierInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+
+        expect(() =>
+          plainToInstance(
+            SosPointCourierInput,
+            { ...validPoint, ageMs: badValue },
+            { enableImplicitConversion: true }
+          )
+        ).toThrow(BadRequestException)
+      }
     })
 
     test('validation error message NEVER contains the sensitive coordinate value sent (AC-13)', async () => {
