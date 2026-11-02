@@ -43,6 +43,9 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       dropoffBusinessName: null,
       dropoffNotes: '3rd floor, ring bell',
       dropoffSellerNotes: null,
+      dropoffFloor: '3',
+      dropoffDoorbell: 'Papadopoulou',
+      dropoffPointCorrectedAt: null,
       dropoffVerification: null,
       dropoffReadyAt: null,
       dropoffEta: new Date('2026-11-01T08:45:00.000Z'),
@@ -346,6 +349,87 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       const serialized = JSON.parse(JSON.stringify(newDeliveryDto))
       expect('dropoffPhoneNumber' in serialized).toBe(false)
       expect(serialized.pickupPhoneNumber).toBe(restaurantPhone)
+    })
+  })
+
+  describe('Floor, Doorbell and DropoffPointCorrectedAt Privacy (Spec 0016 AC-7)', () => {
+    const heldStatuses = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      EnumDeliveryStatus.PICKED_UP,
+      EnumDeliveryStatus.ON_THE_WAY,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+    ]
+
+    const unheldStatuses = [
+      EnumDeliveryStatus.CREATED,
+      EnumDeliveryStatus.ASSIGNING_COURIER,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.CANCELED,
+    ]
+
+    describe.each(heldStatuses)('Held status %s carries floor and doorbell', (status) => {
+      test(`carries dropoffFloor and dropoffDoorbell in ${status}`, () => {
+        const delivery = createMockDelivery(status)
+        const dto = new DeliveryCourierDto(delivery)
+
+        expect(dto.dropoffFloor).toBe('3')
+        expect(dto.dropoffDoorbell).toBe('Papadopoulou')
+
+        const serialized = JSON.parse(JSON.stringify(dto))
+        expect(serialized.dropoffFloor).toBe('3')
+        expect(serialized.dropoffDoorbell).toBe('Papadopoulou')
+        expect('dropoffFloor' in serialized).toBe(true)
+        expect('dropoffDoorbell' in serialized).toBe(true)
+      })
+    })
+
+    describe.each(unheldStatuses)('Unheld status %s hides floor and doorbell', (status) => {
+      test(`leaves dropoffFloor and dropoffDoorbell undefined and absent from JSON in ${status}`, () => {
+        const delivery = createMockDelivery(status)
+        const dto = new DeliveryCourierDto(delivery)
+
+        expect(dto.dropoffFloor).toBeUndefined()
+        expect(dto.dropoffDoorbell).toBeUndefined()
+
+        const jsonStr = JSON.stringify(dto)
+        expect(jsonStr).not.toContain('"dropoffFloor"')
+        expect(jsonStr).not.toContain('"dropoffDoorbell"')
+
+        const serialized = JSON.parse(jsonStr)
+        expect('dropoffFloor' in serialized).toBe(false)
+        expect('dropoffDoorbell' in serialized).toBe(false)
+      })
+    })
+
+    describe('dropoffPointCorrectedAt present in every status', () => {
+      test.each([...heldStatuses, ...unheldStatuses])(
+        'includes dropoffPointCorrectedAt (null) in status %s',
+        (status) => {
+          const delivery = createMockDelivery(status, { dropoffPointCorrectedAt: null })
+          const dto = new DeliveryCourierDto(delivery)
+
+          expect(dto.dropoffPointCorrectedAt).toBeNull()
+          const serialized = JSON.parse(JSON.stringify(dto))
+          expect(serialized.dropoffPointCorrectedAt).toBeNull()
+          expect('dropoffPointCorrectedAt' in serialized).toBe(true)
+        }
+      )
+
+      test.each([...heldStatuses, ...unheldStatuses])(
+        'includes dropoffPointCorrectedAt (Date) in status %s',
+        (status) => {
+          const correctedDate = new Date('2026-11-02T01:30:00.000Z')
+          const delivery = createMockDelivery(status, { dropoffPointCorrectedAt: correctedDate })
+          const dto = new DeliveryCourierDto(delivery)
+
+          expect(dto.dropoffPointCorrectedAt).toEqual(correctedDate)
+          const serialized = JSON.parse(JSON.stringify(dto))
+          expect(serialized.dropoffPointCorrectedAt).toBe('2026-11-02T01:30:00.000Z')
+          expect('dropoffPointCorrectedAt' in serialized).toBe(true)
+        }
+      )
     })
   })
 })

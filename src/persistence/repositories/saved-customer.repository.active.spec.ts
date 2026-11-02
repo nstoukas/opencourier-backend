@@ -368,4 +368,56 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
       expect(count).toBe(5)
     })
   })
+
+  describe('findByPhone (Spec 0016 AC-10)', () => {
+    it('queries findUnique by partnerId_phone compound key', async () => {
+      const mockCustomer = { id: customerId, partnerId, ...sampleFields }
+      mockPrisma.savedCustomer.findUnique.mockResolvedValue(mockCustomer)
+
+      const result = await repository.findByPhone(partnerId, '+306912345678')
+
+      expect(mockPrisma.savedCustomer.findUnique).toHaveBeenCalledWith({
+        where: { partnerId_phone: { partnerId, phone: '+306912345678' } },
+      })
+      expect(result).toEqual(mockCustomer)
+    })
+  })
+
+  describe('movePointIfUnchanged (Spec 0016 AC-10)', () => {
+    it('updates only latitude and longitude when point matches exact read point, never touching lastUsedAt', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
+
+      const fromPoint = { latitude: 39.362, longitude: 22.945 }
+      const toPoint = { latitude: 39.364, longitude: 22.948 }
+
+      const result = await repository.movePointIfUnchanged(partnerId, customerId, fromPoint, toPoint)
+
+      expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: customerId,
+          partnerId,
+          latitude: fromPoint.latitude,
+          longitude: fromPoint.longitude,
+        },
+        data: {
+          latitude: toPoint.latitude,
+          longitude: toPoint.longitude,
+        },
+      })
+      expect(result).toBe(true)
+    })
+
+    it('returns false when updateMany matches 0 rows (point was changed in between or deleted)', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 0 })
+
+      const result = await repository.movePointIfUnchanged(
+        partnerId,
+        customerId,
+        { latitude: 39.362, longitude: 22.945 },
+        { latitude: 39.364, longitude: 22.948 }
+      )
+
+      expect(result).toBe(false)
+    })
+  })
 })

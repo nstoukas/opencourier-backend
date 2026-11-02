@@ -723,4 +723,40 @@ describe('DeliveryEventService', () => {
       expect(dropoffReadyAt.getTime()).toBeLessThanOrEqual(Date.now())
     })
   })
+
+  describe('recordDropoffPointCorrectedEvent and saveDeliveryEvent courierId (Spec 0016 AC-9, AC-11)', () => {
+    test('writes courierId for DROPOFF_POINT_CORRECTED event and keeps oldStatus = newStatus = current status', async () => {
+      const deliveryId = 'del-dropoff-corr-1'
+      const courierId = 'courier-r31-1'
+      const status = EnumDeliveryStatus.PICKED_UP
+
+      await service.recordDropoffPointCorrectedEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          message:
+            'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
+        },
+        status
+      )
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+          actor: EnumEventActor.COURIER,
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'courier-r31-1',
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.PICKED_UP,
+          newStatus: EnumDeliveryStatus.PICKED_UP,
+          message:
+            'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
+        })
+      )
+    })
+  })
 })

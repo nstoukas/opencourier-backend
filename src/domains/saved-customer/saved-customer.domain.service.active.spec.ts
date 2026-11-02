@@ -61,6 +61,8 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
     notes: 'Ring bell twice',
     addressLine1: 'Iasonos 10',
     addressLine2: null,
+    floor: null,
+    doorbell: null,
     city: 'Volos',
     zipCode: '38221',
     latitude: 39.362,
@@ -106,6 +108,8 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
         notes: 'Ring bell twice',
         addressLine1: 'Iasonos 10',
         addressLine2: null,
+        floor: null,
+        doorbell: null,
         city: 'Volos',
         zipCode: '38221',
         latitude: 39.362,
@@ -113,6 +117,40 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
         formattedAddress: 'Iasonos 10, Volos',
       })
       expect(result).toEqual({ customer: existingCustomerRecord, created: true })
+    })
+
+    it('creates customer carrying floor and doorbell (trimmed, empty string stored as null) (Spec 0016 AC-3)', async () => {
+      repository.create.mockResolvedValue(existingCustomerRecord)
+
+      // 1. Trimmed floor and doorbell
+      await service.create(
+        partnerId,
+        { ...validInput, floor: '  3rd floor  ', doorbell: '  Papadopoulou  ' },
+        'refuse',
+        false
+      )
+      expect(repository.create).toHaveBeenCalledWith(
+        partnerId,
+        expect.objectContaining({
+          floor: '3rd floor',
+          doorbell: 'Papadopoulou',
+        })
+      )
+
+      // 2. Whitespace-only floor and empty doorbell stored as null
+      await service.create(
+        partnerId,
+        { ...validInput, floor: '   ', doorbell: '' },
+        'refuse',
+        false
+      )
+      expect(repository.create).toHaveBeenCalledWith(
+        partnerId,
+        expect.objectContaining({
+          floor: null,
+          doorbell: null,
+        })
+      )
     })
 
     it('delegates to upsertByPhone with markUsed when onPhoneClash is update', async () => {
@@ -288,6 +326,35 @@ describe('SavedCustomerDomainService (AC-4, AC-5, AC-6, AC-7, AC-9, AC-10)', () 
         partnerId,
         customerId,
         { notes: null, name: 'Updated Name' },
+        false
+      )
+    })
+
+    it('updates customer carrying floor and doorbell (trimmed, empty string stored as null) (Spec 0016 AC-3)', async () => {
+      repository.findOwned.mockResolvedValue(existingCustomerRecord)
+      repository.update.mockResolvedValue({ ...existingCustomerRecord, floor: '4th', doorbell: 'Dimas' })
+
+      // 1. Trimmed floor and doorbell
+      await service.update(partnerId, customerId, { floor: '  4th  ', doorbell: '  Dimas  ' }, false)
+      expect(repository.update).toHaveBeenCalledWith(
+        partnerId,
+        customerId,
+        expect.objectContaining({
+          floor: '4th',
+          doorbell: 'Dimas',
+        }),
+        false
+      )
+
+      // 2. Whitespace-only floor and empty doorbell stored as null
+      await service.update(partnerId, customerId, { floor: '   ', doorbell: '' }, false)
+      expect(repository.update).toHaveBeenCalledWith(
+        partnerId,
+        customerId,
+        expect.objectContaining({
+          floor: null,
+          doorbell: null,
+        }),
         false
       )
     })

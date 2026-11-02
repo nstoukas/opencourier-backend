@@ -65,4 +65,36 @@ describe('SavedCustomerCreatePartnerInput through ValidationPipe (Spec 0005)', (
     const longName = 'A'.repeat(256)
     await expect(transform({ ...validBody, name: longName })).rejects.toBeInstanceOf(BadRequestException)
   })
+
+  it('accepts valid floor (<= 20 chars) and doorbell (<= 60 chars) (Spec 0016 AC-3)', async () => {
+    const transformed = await transform({
+      ...validBody,
+      floor: '3rd floor',
+      doorbell: 'Papadopoulou',
+    })
+    expect(transformed.floor).toBe('3rd floor')
+    expect(transformed.doorbell).toBe('Papadopoulou')
+  })
+
+  it('refuses floor longer than 20 characters with 400 BadRequestException (Spec 0016 AC-3)', async () => {
+    await expect(
+      transform({ ...validBody, floor: '123456789012345678901' })
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('refuses doorbell longer than 60 characters with 400 BadRequestException (Spec 0016 AC-3)', async () => {
+    await expect(
+      transform({ ...validBody, doorbell: 'A'.repeat(61) })
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('refuses non-string floor or doorbell with 400 BadRequestException (Spec 0016 AC-3)', async () => {
+    await expect(
+      transform({ ...validBody, floor: 123 })
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    await expect(
+      transform({ ...validBody, doorbell: true })
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
 })
