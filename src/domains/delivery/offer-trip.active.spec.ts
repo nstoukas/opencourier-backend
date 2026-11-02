@@ -65,6 +65,28 @@ describe('offerTripFor (Spec 0019 AC-1, Row 70)', () => {
     })
   })
 
+  it('offerTripFor rounds minutes UP: legs of 100 s and 100 s give 4 minutes (200 s is 3.33 min), and 60 s + 60 s give exactly 2', async () => {
+    // 100 s + 100 s = 200 s (3.33 min): Math.ceil rounds up to 4 minutes, while Math.round would give 3
+    const osrmCeil = {
+      getRoute: jest
+        .fn()
+        .mockResolvedValueOnce(makeRouteResult(500, 100))
+        .mockResolvedValueOnce(makeRouteResult(800, 100)),
+    }
+    const tripCeil = await offerTripFor(baseInput, osrmCeil)
+    expect(tripCeil.minutes).toBe(4)
+
+    // Exact whole minute boundary: 60 s + 60 s = 120 s gives exactly 2 minutes
+    const osrmExact = {
+      getRoute: jest
+        .fn()
+        .mockResolvedValueOnce(makeRouteResult(500, 60))
+        .mockResolvedValueOnce(makeRouteResult(800, 60)),
+    }
+    const tripExact = await offerTripFor(baseInput, osrmExact)
+    expect(tripExact.minutes).toBe(2)
+  })
+
   it('rider to restaurant leg uses rider then pickup, the other pickup then dropoff (argument order to getRoute)', async () => {
     const osrm = {
       getRoute: jest
@@ -159,25 +181,95 @@ describe('offerTripFor (Spec 0019 AC-1, Row 70)', () => {
     })
   })
 
-  it('a failure is logged with the delivery id and never with coordinates (Value 5)', async () => {
+  it('when both legs succeed it logs nothing', async () => {
     const osrm = {
-      getRoute: jest.fn().mockRejectedValue(new Error('Route timeout')),
+      getRoute: jest
+        .fn()
+        .mockResolvedValueOnce(makeRouteResult(500, 60))
+        .mockResolvedValueOnce(makeRouteResult(800, 60)),
+    }
+
+    await offerTripFor(baseInput, osrm)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('when rider leg fails, logs exactly one warning naming the delivery id and unknown rider to restaurant without coordinates or error message', async () => {
+    const errorMessage = 'OSRM connection timeout on rider leg'
+    const osrm = {
+      getRoute: jest
+        .fn()
+        .mockRejectedValueOnce(new Error(errorMessage))
+        .mockResolvedValueOnce(makeRouteResult(800, 120)),
     }
 
     await offerTripFor(baseInput, osrm)
 
-    expect(warnSpy).toHaveBeenCalled()
-    const allWarnCalls = warnSpy.mock.calls.map((c) => c[0] as string).join(' ')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const warnMessage = warnSpy.mock.calls[0][0]
+    expect(warnMessage).toBe(`Offer trip for delivery ${deliveryId}: unknown rider to restaurant`)
+    // Must NOT contain the failure's own error message
+    expect(warnMessage).not.toContain(errorMessage)
+    // Must NOT contain any coordinates (Value 5)
+    expect(warnMessage).not.toContain(String(riderLocation.latitude))
+    expect(warnMessage).not.toContain(String(riderLocation.longitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.latitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.longitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.latitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.longitude))
+  })
 
-    // Warning includes deliveryId
-    expect(allWarnCalls).toContain(deliveryId)
-    // Warning must NOT contain any coordinate values
-    expect(allWarnCalls).not.toContain(String(riderLocation.latitude))
-    expect(allWarnCalls).not.toContain(String(riderLocation.longitude))
-    expect(allWarnCalls).not.toContain(String(pickupLocation.latitude))
-    expect(allWarnCalls).not.toContain(String(pickupLocation.longitude))
-    expect(allWarnCalls).not.toContain(String(dropoffLocation.latitude))
-    expect(allWarnCalls).not.toContain(String(dropoffLocation.longitude))
+  it('when dropoff leg fails, logs exactly one warning naming the delivery id and unknown restaurant to customer without coordinates or error message', async () => {
+    const errorMessage = 'NoRoute: pickup to dropoff'
+    const osrm = {
+      getRoute: jest
+        .fn()
+        .mockResolvedValueOnce(makeRouteResult(500, 60))
+        .mockRejectedValueOnce(new Error(errorMessage)),
+    }
+
+    await offerTripFor(baseInput, osrm)
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const warnMessage = warnSpy.mock.calls[0][0]
+    expect(warnMessage).toBe(`Offer trip for delivery ${deliveryId}: unknown restaurant to customer`)
+    // Must NOT contain the failure's own error message
+    expect(warnMessage).not.toContain(errorMessage)
+    // Must NOT contain any coordinates (Value 5)
+    expect(warnMessage).not.toContain(String(riderLocation.latitude))
+    expect(warnMessage).not.toContain(String(riderLocation.longitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.latitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.longitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.latitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.longitude))
+  })
+
+  it('when both legs fail, logs exactly one warning naming the delivery id and both legs joined by "and" without coordinates or error messages', async () => {
+    const error1 = 'Rider leg connection reset'
+    const error2 = 'Dropoff leg timeout'
+    const osrm = {
+      getRoute: jest
+        .fn()
+        .mockRejectedValueOnce(new Error(error1))
+        .mockRejectedValueOnce(new Error(error2)),
+    }
+
+    await offerTripFor(baseInput, osrm)
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const warnMessage = warnSpy.mock.calls[0][0]
+    expect(warnMessage).toBe(
+      `Offer trip for delivery ${deliveryId}: unknown rider to restaurant and restaurant to customer`
+    )
+    // Must NOT contain the failures' own error messages
+    expect(warnMessage).not.toContain(error1)
+    expect(warnMessage).not.toContain(error2)
+    // Must NOT contain any coordinates (Value 5)
+    expect(warnMessage).not.toContain(String(riderLocation.latitude))
+    expect(warnMessage).not.toContain(String(riderLocation.longitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.latitude))
+    expect(warnMessage).not.toContain(String(pickupLocation.longitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.latitude))
+    expect(warnMessage).not.toContain(String(dropoffLocation.longitude))
   })
 
   it('a null pickup or dropoff gives null for the legs that need it', async () => {
