@@ -773,14 +773,31 @@ export class InstanceConfigDomainService {
     )
   }
 
-  // Spec 0017: how many days back a restaurant sees its ended orders (open ones always show).
+  // Spec 0017: how many days back a restaurant sees its ended orders (open ones always show). Read on
+  // every partner list and order call, so a missing row (an instance seeded before row 28, until a
+  // representative saves the card) is read quietly as the default; a bad stored value still warns.
   async getRestaurantHistoryDays(): Promise<number> {
-    return this.getWholeNumberInRange(
-      ConfigKey.RESTAURANT_HISTORY_DAYS,
-      DEFAULT_RESTAURANT_HISTORY_DAYS,
-      RESTAURANT_HISTORY_DAYS_MIN,
-      RESTAURANT_HISTORY_DAYS_MAX
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.RESTAURANT_HISTORY_DAYS)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_RESTAURANT_HISTORY_DAYS
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= RESTAURANT_HISTORY_DAYS_MIN &&
+      value <= RESTAURANT_HISTORY_DAYS_MAX
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config (${String(value)}), using the default ${DEFAULT_RESTAURANT_HISTORY_DAYS}`
     )
+    return DEFAULT_RESTAURANT_HISTORY_DAYS
   }
 
   // The co-op's dispatch line (row 72), or null when none is set. Saving already refuses
