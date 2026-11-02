@@ -499,6 +499,9 @@ and adminweb halves of the row. This is a core change, listed in the table above
 - Ignored local scratch files and pipeline artifacts (`.aiflow/`, `plan.md`). `e7e5c50`
 - `AGENTS.md`, context for AI coding tools that points at the co-op workspace rulebook, and a
   `CLAUDE.md` that imports it.
+- Jest runs at most 4 test processes (`maxWorkers: 4` in `jest.config.js`). Its default, one per
+  core minus one, peaked at 12.1 GB on a 16 core machine and took 15 s; 4 workers take 8 s and
+  4.5 GB. The uncapped suite was the largest share of the dev machine running out of memory.
 
 ---
 
