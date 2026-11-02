@@ -169,11 +169,28 @@ describe('DeliveryRestApiCourierService', () => {
         expect.objectContaining({
           tapAgeMs: 1200,
           receivedAt: expect.any(Date),
-        })
+        }),
+        undefined
       )
 
       await service.courierArrivedAtPickup(deliveryId, courierId, {})
-      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(deliveryId, undefined)
+      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(deliveryId, undefined, undefined)
+    })
+
+    test('courierArrivedAtPickup passes detected boolean and tapAgeMs to domain service (Spec 0021 AC-4)', async () => {
+      await service.courierArrivedAtPickup(deliveryId, courierId, { tapAgeMs: 1500, detected: true })
+      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(
+        deliveryId,
+        expect.objectContaining({ tapAgeMs: 1500 }),
+        true
+      )
+
+      await service.courierArrivedAtPickup(deliveryId, courierId, { detected: false })
+      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(
+        deliveryId,
+        undefined,
+        false
+      )
     })
 
     test('markAsPickedUp passes tap when tapAgeMs sent, undefined when absent', async () => {
@@ -199,11 +216,28 @@ describe('DeliveryRestApiCourierService', () => {
         expect.objectContaining({
           tapAgeMs: 3400,
           receivedAt: expect.any(Date),
-        })
+        }),
+        undefined
       )
 
       await service.courierArrivedAtDropOff(deliveryId, courierId, {})
-      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(deliveryId, undefined)
+      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(deliveryId, undefined, undefined)
+    })
+
+    test('courierArrivedAtDropOff passes detected boolean and tapAgeMs to domain service (Spec 0021 AC-4)', async () => {
+      await service.courierArrivedAtDropOff(deliveryId, courierId, { tapAgeMs: 2500, detected: true })
+      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(
+        deliveryId,
+        expect.objectContaining({ tapAgeMs: 2500 }),
+        true
+      )
+
+      await service.courierArrivedAtDropOff(deliveryId, courierId, { detected: false })
+      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(
+        deliveryId,
+        undefined,
+        false
+      )
     })
 
     test('markAsDelivered passes tap when tapAgeMs sent, undefined when absent', async () => {

@@ -135,4 +135,17 @@ describe('seedInitialInstanceConfig', () => {
 
     expect(quoteTypeCreateCall).toBeUndefined()
   })
+
+  // Spec 0021 AC-11: arrivalRadiusMetres is seeded as '50' with type: 'number'
+  it('seeds arrivalRadiusMetres as 50 with number type (Spec 0021 AC-11)', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const arrivalRadiusCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'arrivalRadiusMetres'
+    )
+
+    expect(arrivalRadiusCall).toBeDefined()
+    expect(arrivalRadiusCall[0].data.value).toBe('50')
+    expect(arrivalRadiusCall[0].data.type).toBe('number')
+  })
 })

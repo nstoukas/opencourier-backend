@@ -9,7 +9,13 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types'
-import { DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT, DEFAULT_QUOTE_BASE_FEE } from 'src/constants'
+import {
+  DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT,
+  DEFAULT_QUOTE_BASE_FEE,
+  DEFAULT_ARRIVAL_RADIUS_METRES,
+  ARRIVAL_RADIUS_METRES_MIN,
+  ARRIVAL_RADIUS_METRES_MAX,
+} from 'src/constants'
 import { ConfigEntity } from './entities/config.entity'
 import { DISPATCH_PHONE_NUMBER_REFUSAL } from './dispatch-phone-number'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
@@ -1447,6 +1453,273 @@ describe('InstanceConfigDomainService', () => {
 
         const settings = await service.getInstanceConfigSettings()
         expect(settings.handBackSeconds).toBe(120)
+      })
+    })
+
+    describe('getArrivalRadiusMetres (Spec 0021 AC-11)', () => {
+      it('returns default 50 and logs no warning when config row is missing with NotFoundError', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(DEFAULT_ARRIVAL_RADIUS_METRES)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs no warning when config row is missing with PrismaClientKnownRequestError P2025', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        const prismaP2025 = new PrismaClientKnownRequestError('Record not found', {
+          code: 'P2025',
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(prismaP2025)
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(DEFAULT_ARRIVAL_RADIUS_METRES)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns stored valid value (e.g. 100) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: '100', type: 'number' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(100)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns stored boundary values (0, 20 and 300) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+        for (const boundary of [0, ARRIVAL_RADIUS_METRES_MIN, ARRIVAL_RADIUS_METRES_MAX]) {
+          configRepository.getByKey.mockResolvedValueOnce(
+            new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: String(boundary), type: 'number' })
+          )
+          expect(await service.getArrivalRadiusMetres()).toBe(boundary)
+          expect(warnSpy).not.toHaveBeenCalled()
+        }
+
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is negative (-1)', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: '-1', type: 'number' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (-1), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is 1 to 19 (e.g. 10)', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: '10', type: 'number' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (10), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is 301', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: '301', type: 'number' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (301), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is non-integer (25.5)', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: '25.5', type: 'number' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (25.5), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is a string ("invalid")', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: 'invalid', type: 'string' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (invalid), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 50 and logs a warning naming arrivalRadiusMetres when stored value is null', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.ARRIVAL_RADIUS_METRES, value: null as any, type: 'string' })
+        )
+
+        const result = await service.getArrivalRadiusMetres()
+
+        expect(result).toBe(50)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (null), using the default 50`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('throws any other error from getByKey rather than swallowing it', async () => {
+        const genericError = new Error('Database connection failed')
+        configRepository.getByKey.mockRejectedValueOnce(genericError)
+
+        await expect(service.getArrivalRadiusMetres()).rejects.toThrow(genericError)
+      })
+
+      it('throws non-P2025 Prisma errors from getByKey rather than swallowing them', async () => {
+        const otherPrismaError = new PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(otherPrismaError)
+
+        await expect(service.getArrivalRadiusMetres()).rejects.toThrow(otherPrismaError)
+      })
+
+      it('returns arrivalRadiusMetres: 50 in getInstanceConfigSettings with no row and logs no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+
+        expect(settings.arrivalRadiusMetres).toBe(50)
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining(`Missing variable '${ConfigKey.ARRIVAL_RADIUS_METRES}'`)
+        )
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES}`)
+        )
+        warnSpy.mockRestore()
+      })
+    })
+
+    describe('setInstanceConfigSettings - arrivalRadiusMetres (Spec 0021 AC-11)', () => {
+      it('refuses 1 to 19 with exactly "arrivalRadiusMetres must be 20 or more, or 0 to switch detection off"', async () => {
+        for (const val of [1, 10, 19]) {
+          await expect(
+            service.setInstanceConfigSettings({ arrivalRadiusMetres: val } as any)
+          ).rejects.toThrow('arrivalRadiusMetres must be 20 or more, or 0 to switch detection off')
+        }
+      })
+
+      it('refuses 301 (> max 300) with exactly "arrivalRadiusMetres must be 300 or less"', async () => {
+        await expect(
+          service.setInstanceConfigSettings({ arrivalRadiusMetres: 301 } as any)
+        ).rejects.toThrow('arrivalRadiusMetres must be 300 or less')
+      })
+
+      it('refuses 25.5 (non-integer) with exactly "arrivalRadiusMetres must be a whole number"', async () => {
+        await expect(
+          service.setInstanceConfigSettings({ arrivalRadiusMetres: 25.5 } as any)
+        ).rejects.toThrow('arrivalRadiusMetres must be a whole number')
+      })
+
+      it('refuses negative (-1) with exactly "arrivalRadiusMetres cannot be negative"', async () => {
+        await expect(
+          service.setInstanceConfigSettings({ arrivalRadiusMetres: -1 } as any)
+        ).rejects.toThrow('arrivalRadiusMetres cannot be negative')
+      })
+
+      it('refuses non-number types ("50", null, true) with "arrivalRadiusMetres must be a number"', async () => {
+        for (const badVal of ['50', null, true]) {
+          await expect(
+            service.setInstanceConfigSettings({ arrivalRadiusMetres: badVal } as any)
+          ).rejects.toThrow('arrivalRadiusMetres must be a number')
+        }
+      })
+
+      it('accepts and saves 0 (switches detection off)', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+        await service.setInstanceConfigSettings({ arrivalRadiusMetres: 0 })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.ARRIVAL_RADIUS_METRES, 0)
+      })
+
+      it('saves valid whole values 0, 20, 50 and 300 under ConfigKey.ARRIVAL_RADIUS_METRES', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        for (const validVal of [0, 20, 50, 300]) {
+          await service.setInstanceConfigSettings({ arrivalRadiusMetres: validVal })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(
+            ConfigKey.ARRIVAL_RADIUS_METRES,
+            validVal
+          )
+        }
+      })
+
+      it('includes arrivalRadiusMetres in getInstanceConfigSettings output when row is stored', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.ARRIVAL_RADIUS_METRES) {
+            return new ConfigEntity({
+              key: ConfigKey.ARRIVAL_RADIUS_METRES,
+              value: '100',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.arrivalRadiusMetres).toBe(100)
+      })
+
+      it('ensures zeroSwitchesOff does not alter behaviour of other numeric setting rules (Spec 0021 AC-11)', async () => {
+        // handBackSeconds still accepts 0 through its own min of 0 (not via zeroSwitchesOff)
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+        await expect(service.setInstanceConfigSettings({ handBackSeconds: 0 })).resolves.not.toThrow()
+
+        // offerExpirySeconds still refuses 10 with 'must be 20 or more' WITHOUT the 'or 0' suffix
+        await expect(
+          service.setInstanceConfigSettings({ offerExpirySeconds: 10 } as any)
+        ).rejects.toThrow(/^offerExpirySeconds must be 20 or more$/)
+
+        // Verify only arrivalRadiusMetres has zeroSwitchesOff defined among rules
+        const rulesWithZeroSwitchesOff = NUMERIC_SETTING_RULES.filter((r) => r.zeroSwitchesOff !== undefined)
+        expect(rulesWithZeroSwitchesOff).toHaveLength(1)
+        expect(rulesWithZeroSwitchesOff[0]?.key).toBe('arrivalRadiusMetres')
+        expect(rulesWithZeroSwitchesOff[0]?.zeroSwitchesOff).toBe('detection')
       })
     })
 

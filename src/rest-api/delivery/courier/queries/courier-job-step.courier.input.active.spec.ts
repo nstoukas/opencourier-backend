@@ -4,13 +4,15 @@ import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { CourierJobStepCourierInput } from './courier-job-step.courier.input'
 import { MarkDeliveryAsPickedUpCourierInput } from './mark-delivery-as-picked-up.courier.input'
 import { MarkDeliveryAsDeliveredCourierInput } from './mark-delivery-as-delivered.courier.input'
+import { ArrivedCourierInput } from './arrived.courier.input'
 
 describe('CourierJobStepCourierInput & child inputs (Spec 0009, AC-7 bounds)', () => {
-  // Test all 3 classes: the base input and the two inputs extending it
+  // Test all 4 classes: the base input and the three inputs extending it
   const inputClasses = [
     { name: 'CourierJobStepCourierInput', cls: CourierJobStepCourierInput },
     { name: 'MarkDeliveryAsPickedUpCourierInput', cls: MarkDeliveryAsPickedUpCourierInput },
     { name: 'MarkDeliveryAsDeliveredCourierInput', cls: MarkDeliveryAsDeliveredCourierInput },
+    { name: 'ArrivedCourierInput', cls: ArrivedCourierInput },
   ]
 
   // ValidationPipe matching global pipe options in src/main.ts

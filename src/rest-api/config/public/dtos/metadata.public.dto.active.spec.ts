@@ -41,6 +41,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    arrivalRadiusMetres: 50,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }
@@ -95,5 +96,12 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     const dto = new MetadataPublicDto(baseData)
     expect((dto as any).restaurantHistoryDays).toBeUndefined()
     expect((dto.config as any).restaurantHistoryDays).toBeUndefined()
+  })
+
+  // Spec 0021, AC-11: arrivalRadiusMetres is for riders, not public metadata
+  it('does NOT include arrivalRadiusMetres on public metadata (spec 0021 AC-11)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect((dto as any).arrivalRadiusMetres).toBeUndefined()
+    expect((dto.config as any).arrivalRadiusMetres).toBeUndefined()
   })
 })

@@ -123,8 +123,8 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
       )
     })
 
-    test('courierArrivedAtPickup forwards input to service', async () => {
-      const input = { tapAgeMs: 3000 }
+    test('courierArrivedAtPickup forwards input (including detected boolean) to service', async () => {
+      const input = { tapAgeMs: 3000, detected: true }
       await controller.courierArrivedAtPickup(deliveryId, input, mockCourier)
 
       expect(mockDeliveryRestApiCourierService.courierArrivedAtPickup).toHaveBeenCalledWith(
@@ -134,8 +134,8 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
       )
     })
 
-    test('courierArrivedAtDropoff forwards input to service', async () => {
-      const input = { tapAgeMs: 2500 }
+    test('courierArrivedAtDropoff forwards input (including detected boolean) to service', async () => {
+      const input = { tapAgeMs: 2500, detected: false }
       await controller.courierArrivedAtDropoff(deliveryId, input, mockCourier)
 
       expect(mockDeliveryRestApiCourierService.courierArrivedAtDropOff).toHaveBeenCalledWith(

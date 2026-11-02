@@ -42,6 +42,7 @@ describe('InstanceConfigSettingsDto', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    arrivalRadiusMetres: 50,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }
@@ -138,5 +139,17 @@ describe('InstanceConfigSettingsDto', () => {
       dispatchPhoneNumber: null,
     })
     expect(dtoNull.dispatchPhoneNumber).toBeNull()
+  })
+
+  // Spec 0021, AC-11: InstanceConfigSettingsDto exposes arrivalRadiusMetres
+  it('exposes arrivalRadiusMetres (Spec 0021 AC-11)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.arrivalRadiusMetres).toBe(50)
+
+    const dtoZero = new InstanceConfigSettingsDto({
+      ...baseConfigData,
+      arrivalRadiusMetres: 0,
+    })
+    expect(dtoZero.arrivalRadiusMetres).toBe(0)
   })
 })

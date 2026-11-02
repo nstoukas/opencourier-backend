@@ -7,7 +7,7 @@ import {
   EnumCourierCompensationReason,
   EnumCancelledBy,
 } from '@prisma/types'
-import { DeliveryDomainService } from './delivery.domain.service'
+import { DeliveryDomainService, arrivalHow } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CacheService } from 'src/services/cache/cache.service'
@@ -840,6 +840,145 @@ describe('DeliveryDomainService', () => {
       expect(mockDeliveryEventService.occurredAtForCourierTap).not.toHaveBeenCalled()
       const eventWithoutTap = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]?.[0]
       expect(eventWithoutTap?.occurredAt).toBeUndefined()
+    })
+
+    describe('arrivalHow helper (Spec 0021 AC-4)', () => {
+      it('returns " (detected by the app)" when detected is true', () => {
+        expect(arrivalHow(true)).toBe(' (detected by the app)')
+      })
+
+      it('returns " (tapped by the rider)" when detected is false', () => {
+        expect(arrivalHow(false)).toBe(' (tapped by the rider)')
+      })
+
+      it('returns " (tapped by the rider)" when detected is undefined', () => {
+        expect(arrivalHow(undefined)).toBe(' (tapped by the rider)')
+        expect(arrivalHow()).toBe(' (tapped by the rider)')
+      })
+    })
+
+    describe('courierArrivedAtPickup and courierArrivedAtDropOff detected suffix (Spec 0021 AC-4)', () => {
+      test('courierArrivedAtPickup includes " (detected by the app)" when detected is true', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.DISPATCHED,
+        } as any)
+
+        await service.courierArrivedAtPickup(deliveryId, undefined, true)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at pickup location: ${courierId} (detected by the app)`,
+          })
+        )
+      })
+
+      test('courierArrivedAtPickup includes " (tapped by the rider)" when detected is false or omitted', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.DISPATCHED,
+        } as any)
+
+        // false
+        await service.courierArrivedAtPickup(deliveryId, undefined, false)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at pickup location: ${courierId} (tapped by the rider)`,
+          })
+        )
+
+        // omitted
+        await service.courierArrivedAtPickup(deliveryId)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at pickup location: ${courierId} (tapped by the rider)`,
+          })
+        )
+      })
+
+      test('courierArrivedAtPickup preserves tap occurredAt alongside detected true', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.DISPATCHED,
+        } as any)
+
+        await service.courierArrivedAtPickup(deliveryId, tap, true)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: computedOccurredAt,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at pickup location: ${courierId} (detected by the app)`,
+          })
+        )
+      })
+
+      test('courierArrivedAtDropOff includes " (detected by the app)" when detected is true', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.PICKED_UP,
+        } as any)
+
+        await service.courierArrivedAtDropOff(deliveryId, undefined, true)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at dropoff location: ${courierId} (detected by the app)`,
+          })
+        )
+      })
+
+      test('courierArrivedAtDropOff includes " (tapped by the rider)" when detected is false or omitted', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.PICKED_UP,
+        } as any)
+
+        // false
+        await service.courierArrivedAtDropOff(deliveryId, undefined, false)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at dropoff location: ${courierId} (tapped by the rider)`,
+          })
+        )
+
+        // omitted
+        await service.courierArrivedAtDropOff(deliveryId)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at dropoff location: ${courierId} (tapped by the rider)`,
+          })
+        )
+      })
+
+      test('courierArrivedAtDropOff preserves tap occurredAt alongside detected true', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          courierId,
+          status: EnumDeliveryStatus.PICKED_UP,
+        } as any)
+
+        await service.courierArrivedAtDropOff(deliveryId, tap, true)
+
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION,
+            occurredAt: computedOccurredAt,
+            message: `Delivery ${deliveryId} was status changed: courier arrived at dropoff location: ${courierId} (detected by the app)`,
+          })
+        )
+      })
     })
 
     test('markAsDelivered puts occurredAt on event when tap provided, omits when absent', async () => {
