@@ -79,7 +79,7 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
 // number (spec 0003, value sourcing). Some stored streets carry the number even though it is also
 // stored on its own, so a street that contains the house number falls back to the town too, and a
 // town that contains it gives nothing. Erring towards less detail is the safe direction (AC-10).
-function dropoffAreaOf(location: OfferCardSource['dropoffLocation']): string {
+export function dropoffAreaOf(location: OfferCardSource['dropoffLocation']): string {
   if (!location) return ''
   const houseNumber = location.houseNumber?.trim() ?? ''
   const street = location.street?.trim() ?? ''

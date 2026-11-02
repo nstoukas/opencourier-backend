@@ -107,9 +107,12 @@ describe('Delivery DTOs - Offer Expiry Fields (Spec 0002, AC-9, AC-11)', () => {
   describe('NewDeliveriesCourierPaginatedDto (AC-9)', () => {
     it('includes serverNow date on response for phone clock synchronization', () => {
       const before = new Date()
-      const paginatedDto = new NewDeliveriesCourierPaginatedDto({
-        data: [baseDelivery as any],
-      })
+      const paginatedDto = new NewDeliveriesCourierPaginatedDto(
+        {
+          data: [baseDelivery as any],
+        },
+        []
+      )
       const after = new Date()
 
       expect(paginatedDto.serverNow).toBeInstanceOf(Date)

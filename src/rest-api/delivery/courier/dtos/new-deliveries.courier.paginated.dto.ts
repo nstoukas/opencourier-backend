@@ -4,6 +4,7 @@ import { Expose, Type } from 'class-transformer'
 import { PaginationDto } from '../../../../core/dtos/PaginationDto'
 import { NewDeliveryCourierDto } from './new-delivery.courier.dto'
 import { NewDeliveryCourier } from '../types/new-delivery.courier.type'
+import { OfferTrip, UNKNOWN_OFFER_TRIP } from 'src/domains/delivery/offer-trip'
 
 export class NewDeliveriesCourierPaginatedDto {
   @ApiProperty({
@@ -31,8 +32,9 @@ export class NewDeliveriesCourierPaginatedDto {
   @Expose()
   serverNow: Date
 
-  constructor(data: { data: NewDeliveryCourier[]; pagination?: PaginationDto }) {
-    this.data = data.data.map((order) => new NewDeliveryCourierDto(order))
+  // `offerTrips` lines up with `data`, one per offer (spec 0019).
+  constructor(data: { data: NewDeliveryCourier[]; pagination?: PaginationDto }, offerTrips: OfferTrip[]) {
+    this.data = data.data.map((order, index) => new NewDeliveryCourierDto(order, offerTrips[index] ?? UNKNOWN_OFFER_TRIP))
     this.pagination = data.pagination
     this.serverNow = new Date()
   }

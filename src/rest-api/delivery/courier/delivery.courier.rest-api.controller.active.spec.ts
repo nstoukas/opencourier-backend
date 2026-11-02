@@ -50,7 +50,9 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
 
     controller = new DeliveryCourierRestApiController(
       mockDeliveryRestApiCourierService,
-      mockDeliveryDomainService
+      mockDeliveryDomainService,
+      // Spec 0019: OSRM for the offer trip figures (mechanical fixture for the new argument).
+      { getRoute: jest.fn().mockRejectedValue(new Error('no OSRM in this test')) } as never
     )
   })
 

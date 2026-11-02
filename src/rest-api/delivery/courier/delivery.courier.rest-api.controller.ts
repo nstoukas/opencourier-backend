@@ -1,4 +1,6 @@
 import * as common from '@nestjs/common'
+import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
+import { offerTripFor } from 'src/domains/delivery/offer-trip'
 import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
 import { COURIER_API_V1_PREFIX } from '../../../constants'
@@ -26,7 +28,9 @@ import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.serv
 export class DeliveryCourierRestApiController {
   constructor(
     private readonly deliveryRestApiCourierService: DeliveryRestApiCourierService,
-    private readonly deliveryDomainService: DeliveryDomainService
+    private readonly deliveryDomainService: DeliveryDomainService,
+    // The co-op's road routing, for each offer's trip figures (spec 0019).
+    private readonly osrmRoutingService: OsrmRoutingService
   ) {}
 
   @common.Get('new')
@@ -43,7 +47,24 @@ export class DeliveryCourierRestApiController {
   ): Promise<NewDeliveriesCourierPaginatedDto> {
     const deliveries = await this.deliveryRestApiCourierService.getMyNewDeliveries(courier.id, args.page, args.perPage)
 
-    const dto = new NewDeliveriesCourierPaginatedDto(deliveries)
+    // Every offer's two legs at once, from the location the app last sent for dispatch (the courier
+    // the login check loaded). A leg OSRM cannot give is null; no offer waits longer than the OSRM
+    // timeout or is left out (spec 0019, AC-1).
+    const offerTrips = await Promise.all(
+      deliveries.data.map((delivery) =>
+        offerTripFor(
+          {
+            deliveryId: delivery.id,
+            pickup: delivery.pickupLocation ?? null,
+            dropoff: delivery.dropoffLocation ?? null,
+            rider: courier.currentLocation ?? null,
+          },
+          this.osrmRoutingService
+        )
+      )
+    )
+
+    const dto = new NewDeliveriesCourierPaginatedDto(deliveries, offerTrips)
     return dto
   }
 

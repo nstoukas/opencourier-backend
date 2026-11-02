@@ -342,7 +342,8 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       const rawDelivery = createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER) as any
 
       const newDeliveryDto = new NewDeliveryCourierDto(
-        rawDelivery as NewDeliveryCourier
+        rawDelivery as NewDeliveryCourier,
+        { toPickupMetres: null, toDropoffMetres: null, minutes: null }
       )
 
       expect(newDeliveryDto.dropoffPhoneNumber).toBeUndefined()
