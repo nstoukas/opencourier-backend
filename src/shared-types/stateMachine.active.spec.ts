@@ -110,4 +110,21 @@ describe('stateMachine', () => {
       }
     }
   })
+
+  // Spec 0020: Auto accept and hand back - HANDED_BACK from ACCEPTED and DISPATCHED to ASSIGNING_COURIER (AC-6)
+  test('allows HANDED_BACK transition to ASSIGNING_COURIER from ACCEPTED and DISPATCHED, and from nowhere else', () => {
+    const allowedStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+    ]
+
+    for (const status of Object.values(EnumDeliveryStatus)) {
+      const transition = STATE_MACHINE[status]?.on?.[EnumDeliveryEventType.HANDED_BACK]
+      if (allowedStatuses.includes(status)) {
+        expect(transition).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+      } else {
+        expect(transition).toBeUndefined()
+      }
+    }
+  })
 })

@@ -368,3 +368,77 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
     })
   })
 })
+
+describe('DeliveryCourierRestApiController.acceptDelivery (Spec 0020 AC-1)', () => {
+  let controller: DeliveryCourierRestApiController
+  let mockDeliveryRestApiCourierService: jest.Mocked<DeliveryRestApiCourierService>
+  let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
+
+  const mockCourier = {
+    id: 'courier-42',
+    firstName: 'Alexandros',
+    lastName: 'Iordanidis',
+  } as CourierEntity
+
+  const deliveryId = 'del-accept-123'
+  const mockDeliveryResult = {
+    id: deliveryId,
+    status: EnumDeliveryStatus.ACCEPTED,
+    courierId: 'courier-42',
+  } as any
+
+  beforeEach(() => {
+    mockDeliveryRestApiCourierService = {
+      acceptDelivery: jest.fn().mockResolvedValue(mockDeliveryResult),
+    } as unknown as jest.Mocked<DeliveryRestApiCourierService>
+
+    mockDeliveryDomainService = {} as jest.Mocked<DeliveryDomainService>
+
+    controller = new DeliveryCourierRestApiController(
+      mockDeliveryRestApiCourierService,
+      mockDeliveryDomainService,
+      { getRoute: jest.fn() } as never
+    )
+  })
+
+  test('calls service with automatic: true when input has automatic true', async () => {
+    const result = await controller.acceptDelivery(deliveryId, mockCourier, { automatic: true })
+
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
+      deliveryId,
+      mockCourier.id,
+      true
+    )
+    expect(result.id).toBe(deliveryId)
+  })
+
+  test('calls service with automatic: false when input has automatic false', async () => {
+    await controller.acceptDelivery(deliveryId, mockCourier, { automatic: false })
+
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
+      deliveryId,
+      mockCourier.id,
+      false
+    )
+  })
+
+  test('calls service with automatic: false when body is default/empty', async () => {
+    await controller.acceptDelivery(deliveryId, mockCourier, {})
+
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
+      deliveryId,
+      mockCourier.id,
+      false
+    )
+  })
+
+  test('acceptDelivery handler carries @Roles(COURIER) decorator metadata and POST :deliveryId/accept route', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, controller.acceptDelivery)
+    expect(roles).toEqual([EnumUserRole.COURIER])
+
+    const path = Reflect.getMetadata(PATH_METADATA, controller.acceptDelivery)
+    const method = Reflect.getMetadata(METHOD_METADATA, controller.acceptDelivery)
+    expect(path).toBe(':deliveryId/accept')
+    expect(method).toBe(RequestMethod.POST)
+  })
+})

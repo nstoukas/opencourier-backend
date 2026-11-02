@@ -193,6 +193,66 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       expect(result.id).toBe(deliveryId)
     })
 
+    it('Spec 0020 AC-1: automatic true makes the ACCEPTED message end with " (accepted automatically)"', async () => {
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offeredAt,
+          offerExpiresAt: new Date(Date.now() + 15000),
+          courierId: null,
+        } as any)
+        .mockResolvedValueOnce({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: courierId,
+        } as any)
+
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+
+      await service.acceptDelivery(deliveryId, courierId, true)
+
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
+        deliveryId,
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        message: `Courier ${courierId} accepted delivery ${deliveryId} (accepted automatically)`,
+      })
+    })
+
+    it('Spec 0020 AC-1: automatic false does NOT end with " (accepted automatically)"', async () => {
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offeredAt,
+          offerExpiresAt: new Date(Date.now() + 15000),
+          courierId: null,
+        } as any)
+        .mockResolvedValueOnce({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: courierId,
+        } as any)
+
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+
+      await service.acceptDelivery(deliveryId, courierId, false)
+
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
+        deliveryId,
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        message: `Courier ${courierId} accepted delivery ${deliveryId}`,
+      })
+    })
+
     it('throws 409 OfferHasEndedException when delivery status is not ASSIGNING_COURIER', async () => {
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         id: deliveryId,
@@ -259,7 +319,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenLastCalledWith(
         deliveryId,
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        { courierId: null, offerExpiresAt }
+        { courierId: null, offerExpiresAt, acceptedAt: null, handBackUntil: null }
       )
       // Rollback re-arms the offer expiry timer (AC-5, review fix)
       expect(mockDeliveryEventService.rearmOfferExpiry).toHaveBeenCalledWith(

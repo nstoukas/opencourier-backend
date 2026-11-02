@@ -760,10 +760,13 @@ describe('InstanceConfigDomainService', () => {
           const promise = service.setInstanceConfigSettings({ [rule.key]: rule.min! - 1 })
           await expect(promise).rejects.toThrow(BadRequestException)
           // A minimum of 1 puts min - 1 at 0, which the zero rule refuses first, with its own reason.
+          // A minimum of 0 puts min - 1 at -1, which the negative check refuses as cannot be negative.
           const expected =
             rule.min! - 1 === 0 && rule.whyZeroIsRefused !== null
               ? `${rule.key} cannot be 0`
-              : `${rule.key} must be ${rule.min} or more`
+              : rule.min === 0
+                ? `${rule.key} cannot be negative`
+                : `${rule.key} must be ${rule.min} or more`
           await expect(promise).rejects.toThrow(expected)
           expect(configRepository.saveByKey).not.toHaveBeenCalled()
         })
@@ -1221,6 +1224,229 @@ describe('InstanceConfigDomainService', () => {
 
         const settings = await service.getInstanceConfigSettings()
         expect(settings.restaurantHistoryDays).toBe(45)
+      })
+    })
+
+    describe('getHandBackSeconds (Spec 0020 AC-2)', () => {
+      it('returns default 60 and logs no warning when config row is missing with NotFoundError', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs no warning when config row is missing with PrismaClientKnownRequestError P2025', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        const prismaP2025 = new PrismaClientKnownRequestError('Record not found', {
+          code: 'P2025',
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(prismaP2025)
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns stored valid value (e.g. 120) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '120', type: 'number' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(120)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns stored boundary values (0 and 300) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '0', type: 'number' })
+        )
+        expect(await service.getHandBackSeconds()).toBe(0)
+        expect(warnSpy).not.toHaveBeenCalled()
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '300', type: 'number' })
+        )
+        expect(await service.getHandBackSeconds()).toBe(300)
+        expect(warnSpy).not.toHaveBeenCalled()
+
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs a warning naming handBackSeconds when stored value is -1', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '-1', type: 'number' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.HAND_BACK_SECONDS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs a warning naming handBackSeconds when stored value is 301', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '301', type: 'number' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.HAND_BACK_SECONDS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs a warning naming handBackSeconds when stored value is 2.5', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: '2.5', type: 'number' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.HAND_BACK_SECONDS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs a warning naming handBackSeconds when stored value is a string ("invalid")', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: 'invalid', type: 'string' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.HAND_BACK_SECONDS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 60 and logs a warning naming handBackSeconds when stored value is null', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.HAND_BACK_SECONDS, value: null as any, type: 'string' })
+        )
+
+        const result = await service.getHandBackSeconds()
+
+        expect(result).toBe(60)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.HAND_BACK_SECONDS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('throws any other error from getByKey rather than swallowing it', async () => {
+        const genericError = new Error('Database connection failed')
+        configRepository.getByKey.mockRejectedValueOnce(genericError)
+
+        await expect(service.getHandBackSeconds()).rejects.toThrow(genericError)
+      })
+
+      it('throws non-P2025 Prisma errors from getByKey rather than swallowing them', async () => {
+        const otherPrismaError = new PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(otherPrismaError)
+
+        await expect(service.getHandBackSeconds()).rejects.toThrow(otherPrismaError)
+      })
+
+      it('returns handBackSeconds: 60 in getInstanceConfigSettings with no row and logs no "Missing variable \'handBackSeconds\'" warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+
+        expect(settings.handBackSeconds).toBe(60)
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining(`Missing variable '${ConfigKey.HAND_BACK_SECONDS}'`)
+        )
+        warnSpy.mockRestore()
+      })
+    })
+
+    describe('setInstanceConfigSettings - handBackSeconds (Spec 0020 AC-2)', () => {
+      it('refuses -1, 301, 2.5, "60" naming the setting, and accepts 0', async () => {
+        // -1 refused
+        await expect(
+          service.setInstanceConfigSettings({ handBackSeconds: -1 } as any)
+        ).rejects.toThrow('handBackSeconds cannot be negative')
+
+        // 301 refused (> max 300)
+        await expect(
+          service.setInstanceConfigSettings({ handBackSeconds: 301 } as any)
+        ).rejects.toThrow('handBackSeconds must be 300 or less')
+
+        // 2.5 refused (must be integer)
+        await expect(
+          service.setInstanceConfigSettings({ handBackSeconds: 2.5 } as any)
+        ).rejects.toThrow('handBackSeconds must be a whole number')
+
+        // "60" string refused
+        await expect(
+          service.setInstanceConfigSettings({ handBackSeconds: '60' } as any)
+        ).rejects.toThrow('handBackSeconds')
+
+        // 0 is valid (switches hand back off)
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+        await service.setInstanceConfigSettings({ handBackSeconds: 0 })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.HAND_BACK_SECONDS, 0)
+      })
+
+      it('saves valid whole values 0, 60 and 300 under ConfigKey.HAND_BACK_SECONDS', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        for (const validVal of [0, 60, 300]) {
+          await service.setInstanceConfigSettings({ handBackSeconds: validVal })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(
+            ConfigKey.HAND_BACK_SECONDS,
+            validVal
+          )
+        }
+      })
+
+      it('includes handBackSeconds in getInstanceConfigSettings output', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.HAND_BACK_SECONDS) {
+            return new ConfigEntity({
+              key: ConfigKey.HAND_BACK_SECONDS,
+              value: '120',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.handBackSeconds).toBe(120)
       })
     })
 

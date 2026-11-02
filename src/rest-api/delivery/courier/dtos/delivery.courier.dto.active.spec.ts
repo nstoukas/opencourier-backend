@@ -433,4 +433,142 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       )
     })
   })
+
+  describe('Free Hand Back Window & Privacy (Spec 0020 AC-3, AC-4, Decision 71.10)', () => {
+    const fixedNow = new Date('2026-11-02T12:00:00.000Z').getTime()
+    const futureDate = new Date('2026-11-02T12:01:00.000Z') // +60s in future
+    const pastDate = new Date('2026-11-02T11:59:50.000Z') // -10s in past
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(fixedNow)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('handBackUntil is set only while in the future AND status is ACCEPTED or DISPATCHED', () => {
+      // In ACCEPTED with future date: set
+      const acceptedDelivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        handBackUntil: futureDate,
+      })
+      const acceptedDto = new DeliveryCourierDto(acceptedDelivery)
+      expect(acceptedDto.handBackUntil).toEqual(futureDate)
+
+      // In DISPATCHED with future date: set
+      const dispatchedDelivery = createMockDelivery(EnumDeliveryStatus.DISPATCHED, {
+        handBackUntil: futureDate,
+      })
+      const dispatchedDto = new DeliveryCourierDto(dispatchedDelivery)
+      expect(dispatchedDto.handBackUntil).toEqual(futureDate)
+
+      // In ACCEPTED with past date: null
+      const pastAcceptedDelivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        handBackUntil: pastDate,
+      })
+      const pastAcceptedDto = new DeliveryCourierDto(pastAcceptedDelivery)
+      expect(pastAcceptedDto.handBackUntil).toBeNull()
+
+      // In DISPATCHED with past date: null
+      const pastDispatchedDelivery = createMockDelivery(EnumDeliveryStatus.DISPATCHED, {
+        handBackUntil: pastDate,
+      })
+      const pastDispatchedDto = new DeliveryCourierDto(pastDispatchedDelivery)
+      expect(pastDispatchedDto.handBackUntil).toBeNull()
+
+      // At COURIER_ARRIVED_AT_PICKUP_LOCATION (at restaurant): null even with future date
+      const atRestaurantDelivery = createMockDelivery(
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        { handBackUntil: futureDate }
+      )
+      const atRestaurantDto = new DeliveryCourierDto(atRestaurantDelivery)
+      expect(atRestaurantDto.handBackUntil).toBeNull()
+
+      // Other statuses (PICKED_UP, ON_THE_WAY, CANCELED, etc.): null even with future date
+      for (const status of [
+        EnumDeliveryStatus.PICKED_UP,
+        EnumDeliveryStatus.ON_THE_WAY,
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+        EnumDeliveryStatus.DROPPED_OFF,
+        EnumDeliveryStatus.CANCELED,
+        EnumDeliveryStatus.FAILED,
+        EnumDeliveryStatus.ASSIGNING_COURIER,
+        EnumDeliveryStatus.CREATED,
+      ]) {
+        const d = createMockDelivery(status, { handBackUntil: futureDate })
+        const dto = new DeliveryCourierDto(d)
+        expect(dto.handBackUntil).toBeNull()
+      }
+
+      // When delivery.handBackUntil column is null: null
+      const nullColDelivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        handBackUntil: null,
+      })
+      const nullColDto = new DeliveryCourierDto(nullColDelivery)
+      expect(nullColDto.handBackUntil).toBeNull()
+    })
+
+    test('while in hand back window: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell are undefined and omitted from JSON', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        handBackUntil: futureDate,
+        dropoffPhoneNumber: customerPhone,
+        dropoffFloor: '3',
+        dropoffDoorbell: 'Papadopoulou',
+        dropoffName: 'Giannis Papadopoulos',
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      // Withheld: undefined
+      expect(dto.dropoffPhoneNumber).toBeUndefined()
+      expect(dto.dropoffFloor).toBeUndefined()
+      expect(dto.dropoffDoorbell).toBeUndefined()
+
+      // Omitted from serialized JSON
+      const jsonStr = JSON.stringify(dto)
+      const serialized = JSON.parse(jsonStr)
+      expect('dropoffPhoneNumber' in serialized).toBe(false)
+      expect('dropoffFloor' in serialized).toBe(false)
+      expect('dropoffDoorbell' in serialized).toBe(false)
+
+      // Decision 71.10: customer's name and address are NOT withheld
+      expect(dto.dropoffName).toBe('Giannis Papadopoulos')
+      expect(serialized.dropoffName).toBe('Giannis Papadopoulos')
+      expect(dto.dropoffLocationFormattedAddress).toContain('Dimitriadis 120')
+    })
+
+    test('once handBackUntil is past: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell show again', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        handBackUntil: pastDate,
+        dropoffPhoneNumber: customerPhone,
+        dropoffFloor: '3',
+        dropoffDoorbell: 'Papadopoulou',
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.handBackUntil).toBeNull()
+      expect(dto.dropoffPhoneNumber).toBe(customerPhone)
+      expect(dto.dropoffFloor).toBe('3')
+      expect(dto.dropoffDoorbell).toBe('Papadopoulou')
+
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.dropoffPhoneNumber).toBe(customerPhone)
+      expect(serialized.dropoffFloor).toBe('3')
+      expect(serialized.dropoffDoorbell).toBe('Papadopoulou')
+    })
+
+    test('at COURIER_ARRIVED_AT_PICKUP_LOCATION: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell show even if date is ahead', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        handBackUntil: futureDate,
+        dropoffPhoneNumber: customerPhone,
+        dropoffFloor: '2',
+        dropoffDoorbell: 'Smith',
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.handBackUntil).toBeNull()
+      expect(dto.dropoffPhoneNumber).toBe(customerPhone)
+      expect(dto.dropoffFloor).toBe('2')
+      expect(dto.dropoffDoorbell).toBe('Smith')
+    })
+  })
 })

@@ -424,6 +424,8 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          acceptedAt: null,
+          handBackUntil: null,
         }
       )
       // Must NOT update status unconditionally afterwards
@@ -495,6 +497,8 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          acceptedAt: null,
+          handBackUntil: null,
         }
       )
 
