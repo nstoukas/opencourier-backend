@@ -93,6 +93,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - OSRM runs at `--verbosity WARNING` (`docker-compose.osrm.yml`): at INFO it logs every request path, and a path holds a
   rider's or a customer's coordinates (value 5). Never raise it.
 
+- Each offer in `GET courier deliveries/new` carries `offerTrip` (spec 0019): km to the restaurant from the rider's stored
+  location and km to the customer, from OSRM, plus minutes when both are known. Display only: pay comes from the stored
+  quote. A leg OSRM cannot give is null (`Promise.allSettled`); an offer is never held back for it. The offer push does
+  not carry it yet (decision 70.4).
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
