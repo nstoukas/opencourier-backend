@@ -43,8 +43,11 @@ export class AuthCourierRestApiController {
   @swagger.ApiOkResponse({ type: UserInfoCourierDto })
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @Roles(EnumUserRole.COURIER)
-  async refreshTokens(@CurrentUser() user: UserEntity, @common.Req() req: Request) {
-    return await this.authDomainService.refreshTokens(user.id, req.headers['x-refresh-token']?.toString() || '')
+  async refreshTokens(@CurrentUser() user: UserEntity, @common.Req() req: Request): Promise<UserInfoCourierDto> {
+    const result = await this.authDomainService.refreshTokens(user.id, req.headers['x-refresh-token']?.toString() || '')
+    // The same answer as login: the new session and the user's id, email and roles, never the
+    // whole user row (it carried the password hash and the API key; decision 66.12).
+    return new UserInfoCourierDto(result)
   }
 
   // No public sign up: the co-op issues every rider's login from admin (spec 0013, AC-7).
