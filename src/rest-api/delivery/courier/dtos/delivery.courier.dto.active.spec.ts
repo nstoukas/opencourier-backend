@@ -1,4 +1,5 @@
 import { EnumDeliveryStatus } from '@prisma/types'
+import { OFFER_EXPIRY_GRACE_SECONDS } from 'src/constants'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { DeliveryCourierDto } from './delivery.courier.dto'
 import { DeliveryCourierPaginatedDto } from './delivery.courier.paginated.dto'
@@ -534,6 +535,64 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect(dto.dropoffName).toBe('Giannis Papadopoulos')
       expect(serialized.dropoffName).toBe('Giannis Papadopoulos')
       expect(dto.dropoffLocationFormattedAddress).toContain('Dimitriadis 120')
+    })
+
+    test('the customer phone, floor and doorbell stay hidden for OFFER_EXPIRY_GRACE_SECONDS after handBackUntil (status ACCEPTED or DISPATCHED), while handBackUntil is already null', () => {
+      // handBackUntil passed 1 second ago (inside the 3s OFFER_EXPIRY_GRACE_SECONDS window)
+      const inGraceHandBackUntil = new Date(fixedNow - 1000)
+
+      for (const status of [EnumDeliveryStatus.ACCEPTED, EnumDeliveryStatus.DISPATCHED]) {
+        const delivery = createMockDelivery(status, {
+          handBackUntil: inGraceHandBackUntil,
+          dropoffPhoneNumber: customerPhone,
+          dropoffFloor: '3',
+          dropoffDoorbell: 'Papadopoulou',
+        })
+        const dto = new DeliveryCourierDto(delivery)
+
+        // handBackUntil is already null once handBackUntil has passed
+        expect(dto.handBackUntil).toBeNull()
+
+        // Details stay hidden during grace
+        expect(dto.dropoffPhoneNumber).toBeUndefined()
+        expect(dto.dropoffFloor).toBeUndefined()
+        expect(dto.dropoffDoorbell).toBeUndefined()
+
+        // Omitted from serialized JSON
+        const serialized = JSON.parse(JSON.stringify(dto))
+        expect('dropoffPhoneNumber' in serialized).toBe(false)
+        expect('dropoffFloor' in serialized).toBe(false)
+        expect('dropoffDoorbell' in serialized).toBe(false)
+      }
+    })
+
+    test('after OFFER_EXPIRY_GRACE_SECONDS past handBackUntil: handBackUntil is null and customer phone, floor and doorbell show (ACCEPTED and DISPATCHED)', () => {
+      // handBackUntil passed 4 seconds ago (strictly after the 3s OFFER_EXPIRY_GRACE_SECONDS window)
+      const afterGraceHandBackUntil = new Date(fixedNow - (OFFER_EXPIRY_GRACE_SECONDS + 1) * 1000)
+
+      for (const status of [EnumDeliveryStatus.ACCEPTED, EnumDeliveryStatus.DISPATCHED]) {
+        const delivery = createMockDelivery(status, {
+          handBackUntil: afterGraceHandBackUntil,
+          dropoffPhoneNumber: customerPhone,
+          dropoffFloor: '3',
+          dropoffDoorbell: 'Papadopoulou',
+        })
+        const dto = new DeliveryCourierDto(delivery)
+
+        // handBackUntil is null
+        expect(dto.handBackUntil).toBeNull()
+
+        // Details show after grace has passed
+        expect(dto.dropoffPhoneNumber).toBe(customerPhone)
+        expect(dto.dropoffFloor).toBe('3')
+        expect(dto.dropoffDoorbell).toBe('Papadopoulou')
+
+        // Present in serialized JSON
+        const serialized = JSON.parse(JSON.stringify(dto))
+        expect(serialized.dropoffPhoneNumber).toBe(customerPhone)
+        expect(serialized.dropoffFloor).toBe('3')
+        expect(serialized.dropoffDoorbell).toBe('Papadopoulou')
+      }
     })
 
     test('once handBackUntil is past: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell show again', () => {

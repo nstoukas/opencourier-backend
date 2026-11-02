@@ -226,6 +226,54 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       expect(handBackUntil.getTime() - acceptedAt.getTime()).toBe(120 * 1000)
     })
 
+    it('acceptedAt is taken after getHandBackSeconds resolves so a slow read does not shorten the window', async () => {
+      jest.useFakeTimers()
+      try {
+        const initialTime = new Date('2026-11-02T12:00:00.000Z')
+        jest.setSystemTime(initialTime)
+        const readDelayMs = 5000 // 5 seconds simulated latency on config read
+        const handBackSeconds = 60
+
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          partnerId,
+          courierId: null,
+        } as any)
+        mockDeliveryRepository.findById.mockResolvedValue({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          partnerId,
+          courierId: null,
+        } as any)
+
+        // The mocked read advances the fake clock
+        mockConfigDomainService.instanceConfig.getHandBackSeconds.mockImplementation(async () => {
+          jest.advanceTimersByTime(readDelayMs)
+          return handBackSeconds
+        })
+
+        await service.processDeliveryEvent({
+          deliveryId,
+          type: EnumDeliveryEventType.ACCEPTED,
+          actor: EnumEventActor.COURIER,
+          courierId,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        })
+
+        const lastCall = mockDeliveryRepository.updateIfMatches.mock.calls[0]
+        const updateData = lastCall[2]
+        const acceptedAt = updateData.acceptedAt as Date
+        const handBackUntil = updateData.handBackUntil as Date
+
+        const timeAfterRead = new Date(initialTime.getTime() + readDelayMs)
+        expect(acceptedAt.getTime()).toBe(timeAfterRead.getTime())
+        expect(handBackUntil.getTime()).toBe(timeAfterRead.getTime() + handBackSeconds * 1000)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
     it('sets handBackUntil null when handBackSeconds setting is 0 (hand back switched off)', async () => {
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
         id: deliveryId,
@@ -437,7 +485,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
           transitionSuccessful: true,
           oldStatus: EnumDeliveryStatus.ACCEPTED,
           newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
-          message: 'Handed back within the first minute',
+          message: 'Handed back within the free window',
         })
       )
 
@@ -450,6 +498,48 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       // 6. AC-7: No compensation and no partner charge created
       expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
       expect(mockPartnerChargeRepository.create).not.toHaveBeenCalled()
+    })
+
+    it('when offerOrWait throws (for example recordNoCourierAvailable rejects), handBack still returns true, logs the error, and the HANDED_BACK event was saved', async () => {
+      const errorSpy = jest.spyOn(service['logger'], 'error').mockImplementation()
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        partnerId,
+        courierId: null,
+      } as any)
+
+      // Cause offerOrWait to throw: no courier free -> recordNoCourierAvailable rejects
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue(null)
+      jest
+        .spyOn(service as any, 'recordNoCourierAvailable')
+        .mockRejectedValue(new Error('DB failure recording no courier available'))
+
+      const result = await service.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
+
+      // 1. handBack still returns true (the hand back is done, never answers 500)
+      expect(result).toBe(true)
+
+      // 2. The matching failure is logged
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not start matching after delivery ${deliveryId} was handed back`)
+      )
+
+      // 3. The HANDED_BACK event was saved
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.HANDED_BACK,
+          courierId,
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.ACCEPTED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          message: 'Handed back within the free window',
+        })
+      )
+
+      errorSpy.mockRestore()
     })
 
     it('skip list cache failure is logged and hand back still proceeds', async () => {
