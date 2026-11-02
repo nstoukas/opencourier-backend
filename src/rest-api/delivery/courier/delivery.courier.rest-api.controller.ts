@@ -55,8 +55,8 @@ export class DeliveryCourierRestApiController {
         offerTripFor(
           {
             deliveryId: delivery.id,
-            pickup: delivery.pickupLocation ?? null,
-            dropoff: delivery.dropoffLocation ?? null,
+            pickup: delivery.pickupLocation,
+            dropoff: delivery.dropoffLocation,
             rider: courier.currentLocation ?? null,
           },
           this.osrmRoutingService
