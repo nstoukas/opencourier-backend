@@ -1,4 +1,5 @@
 import * as common from '@nestjs/common'
+import { AcceptDeliveryCourierInput } from './queries/accept-delivery.courier.input'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { offerTripFor } from 'src/domains/delivery/offer-trip'
 import * as swagger from '@nestjs/swagger'
@@ -180,12 +181,19 @@ export class DeliveryCourierRestApiController {
     type: errors.ForbiddenException,
   })
   @swagger.ApiOperation({ summary: 'Accept a delivery' })
+  @swagger.ApiBody({ type: AcceptDeliveryCourierInput, required: false })
   @Roles(EnumUserRole.COURIER)
   async acceptDelivery(
     @common.Param('deliveryId') deliveryId: string,
-    @CurrentUserCourier() courier: CourierEntity
+    @CurrentUserCourier() courier: CourierEntity,
+    // Optional (spec 0020): an old app sends no body, or an empty one.
+    @common.Body() input: AcceptDeliveryCourierInput = {}
   ): Promise<DeliveryCourierDto> {
-    const deliveries = await this.deliveryRestApiCourierService.acceptDelivery(deliveryId, courier.id)
+    const deliveries = await this.deliveryRestApiCourierService.acceptDelivery(
+      deliveryId,
+      courier.id,
+      input.automatic === true
+    )
 
     const dto = new DeliveryCourierDto(deliveries)
     return dto

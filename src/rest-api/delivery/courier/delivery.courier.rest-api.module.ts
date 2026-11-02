@@ -13,9 +13,11 @@ import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
 import { OsrmRoutingModule } from 'src/services/osrm/osrm-routing.module'
 import { DeliveryRouteCourierService } from './route.courier.service'
 import { DeliveryRouteCourierRestApiController } from './route.courier.rest-api.controller'
+import { HandBackCourierService } from './hand-back.courier.service'
+import { HandBackCourierRestApiController } from './hand-back.courier.rest-api.controller'
 
 @Module({
-  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService],
+  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService, HandBackCourierService],
   exports: [DeliveryRestApiCourierService],
   imports: [
     DeliveryDomainModule,
@@ -30,6 +32,7 @@ import { DeliveryRouteCourierRestApiController } from './route.courier.rest-api.
     CancelledJobsCourierRestApiController,
     DropoffPointCourierRestApiController,
     DeliveryRouteCourierRestApiController,
+    HandBackCourierRestApiController,
     DeliveryCourierRestApiController,
   ],
 })

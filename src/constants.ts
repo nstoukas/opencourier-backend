@@ -121,6 +121,11 @@ export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
 export const DEFAULT_RESTAURANT_HISTORY_DAYS = 30
 export const RESTAURANT_HISTORY_DAYS_MIN = 1
 export const RESTAURANT_HISTORY_DAYS_MAX = 365
+// The free hand back (spec 0020): a rider can give an accepted order back for this many seconds after
+// accepting it. The operative value is the co-op setting handBackSeconds; 0 switches the hand back off.
+export const DEFAULT_HAND_BACK_SECONDS = 60
+export const HAND_BACK_SECONDS_MIN = 0
+export const HAND_BACK_SECONDS_MAX = 300
 // Phones are read as Greek numbers unless they start with a country code: this instance serves Volos.
 export const DEFAULT_PHONE_REGION = 'GR'
 

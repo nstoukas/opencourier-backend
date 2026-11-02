@@ -278,6 +278,10 @@ model Delivery {
   // Spec 0016: when the rider moved the drop off pin (at most once per delivery). The delivery's own
   // Location never moves; the move is a DROPOFF_POINT_CORRECTED event and reaches the saved customer.
   dropoffPointCorrectedAt DateTime? @postgres.Timestamptz(6)
+  // Spec 0020: when the rider accepted, and until when they may hand it back for free (both null
+  // whenever no rider holds the delivery).
+  acceptedAt              DateTime? @postgres.Timestamptz(6)
+  handBackUntil           DateTime? @postgres.Timestamptz(6)
 
   deliverableAction        EnumDeliverableAction    @default(MEET_AT_DOOR)
   undeliverableAction      EnumUndeliverableAction?
@@ -594,6 +598,8 @@ enum EnumDeliveryEventType {
   FOOD_NOT_RETURNED
   // Spec 0016: a rider moved the drop off pin to where they stand. No status change, never in STATE_MACHINE.
   DROPOFF_POINT_CORRECTED
+  // Spec 0020: a rider gave an accepted order back within the free window; it went back to matching.
+  HANDED_BACK
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its

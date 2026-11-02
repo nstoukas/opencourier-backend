@@ -140,8 +140,8 @@ export class DeliveryRestApiCourierService {
     return deliveries
   }
 
-  async acceptDelivery(deliveryId: string, courierId: string) {
-    const delivery = await this.deliveryDomainService.acceptDelivery(deliveryId, courierId)
+  async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {
+    const delivery = await this.deliveryDomainService.acceptDelivery(deliveryId, courierId, automatic)
 
     return delivery
   }

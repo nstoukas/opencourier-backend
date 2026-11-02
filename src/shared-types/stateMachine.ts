@@ -33,6 +33,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
       [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
+      [EnumDeliveryEventType.HANDED_BACK]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider's free hand back (spec 0020), recorded by handBack
     },
   },
   [EnumDeliveryStatus.DISPATCHED]: {
@@ -43,6 +44,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION]: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
       [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
+      [EnumDeliveryEventType.HANDED_BACK]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider's free hand back (spec 0020), recorded by handBack
     },
   },
   [EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION]: {

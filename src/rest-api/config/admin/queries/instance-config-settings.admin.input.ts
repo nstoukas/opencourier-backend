@@ -130,6 +130,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   restaurantHistoryDays?: number
 
+  // The free hand back (spec 0020). Whole seconds; the 0 to 300 range lives in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  handBackSeconds?: number
+
   // The co-op's dispatch line (row 72). Text, not a number: a leading + or 0 must survive.
   // An empty text clears it; the phone number check lives in the domain service.
   // @RefuseIfNotSentAsString(): without it a JSON number is turned into text and loses its +.

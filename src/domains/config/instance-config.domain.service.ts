@@ -29,6 +29,9 @@ import {
   DEFAULT_RESTAURANT_HISTORY_DAYS,
   RESTAURANT_HISTORY_DAYS_MIN,
   RESTAURANT_HISTORY_DAYS_MAX,
+  DEFAULT_HAND_BACK_SECONDS,
+  HAND_BACK_SECONDS_MIN,
+  HAND_BACK_SECONDS_MAX,
 } from 'src/constants'
 import {
   EnumCourierCompensationCalculationType,
@@ -121,6 +124,14 @@ export const NUMERIC_SETTING_RULES: {
     min: RESTAURANT_HISTORY_DAYS_MIN,
     max: RESTAURANT_HISTORY_DAYS_MAX,
   },
+  // The free hand back (spec 0020): seconds after accepting. 0 is valid: it switches the hand back off.
+  {
+    key: 'handBackSeconds',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: HAND_BACK_SECONDS_MIN,
+    max: HAND_BACK_SECONDS_MAX,
+  },
 ]
 
 @Injectable()
@@ -161,6 +172,7 @@ export class InstanceConfigDomainService {
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
+    const handBackSeconds = await this.getHandBackSeconds()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
 
@@ -196,6 +208,7 @@ export class InstanceConfigDomainService {
       noCourierRetrySeconds,
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
+      handBackSeconds,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
     }
@@ -450,6 +463,9 @@ export class InstanceConfigDomainService {
         ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
         data.savedCustomerRetentionMonths
       )
+    }
+    if (data.handBackSeconds !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.HAND_BACK_SECONDS, data.handBackSeconds)
     }
     if (data.restaurantHistoryDays !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
@@ -771,6 +787,33 @@ export class InstanceConfigDomainService {
       SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
       SAVED_CUSTOMER_RETENTION_MONTHS_MAX
     )
+  }
+
+  // Spec 0020: how long after accepting a rider may hand an order back for free (0 = off). Read at
+  // every accept, so a missing row (an instance seeded before row 71) is read quietly as the default;
+  // a bad stored value still warns.
+  async getHandBackSeconds(): Promise<number> {
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.HAND_BACK_SECONDS)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_HAND_BACK_SECONDS
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= HAND_BACK_SECONDS_MIN &&
+      value <= HAND_BACK_SECONDS_MAX
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.HAND_BACK_SECONDS} in config (${String(value)}), using the default ${DEFAULT_HAND_BACK_SECONDS}`
+    )
+    return DEFAULT_HAND_BACK_SECONDS
   }
 
   // Spec 0017: how many days back a restaurant sees its ended orders (open ones always show). Read on

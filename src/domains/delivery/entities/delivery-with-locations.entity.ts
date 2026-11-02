@@ -28,6 +28,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
   dropoffFloor: string | null
   dropoffDoorbell: string | null
   dropoffPointCorrectedAt: Date | null
+  // Spec 0020: when the rider accepted, and the end of the free hand back.
+  acceptedAt: Date | null
+  handBackUntil: Date | null
   dropoffVerification: Prisma.JsonValue | null
   dropoffReadyAt: Date | null
   dropoffEta: Date | null
@@ -106,6 +109,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.dropoffFloor = data.dropoffFloor
     this.dropoffDoorbell = data.dropoffDoorbell
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
+    this.acceptedAt = data.acceptedAt
+    this.handBackUntil = data.handBackUntil
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

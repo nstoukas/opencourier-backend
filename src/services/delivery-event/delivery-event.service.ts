@@ -19,6 +19,7 @@ import {
   DeliveryOfferedEvent,
   DeliveryOfferExpiredEvent,
   DeliveryReturnedToWaitingEvent,
+  DeliveryHandedBackEvent,
   DeliveryCourierPaidForCancellationEvent,
   DeliveryFoodReturnedEvent,
   DeliveryDropoffPointCorrectedEvent,
@@ -35,7 +36,7 @@ import {
   DeliveryOfferAlreadyMatchedException,
   InconsistentDataError,
 } from '../../errors'
-import { OFFER_EXPIRY_GRACE_SECONDS, PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES } from '../../constants'
+import { DEFAULT_HAND_BACK_SECONDS, OFFER_EXPIRY_GRACE_SECONDS, PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES } from '../../constants'
 import { isRecordNotFoundError } from '../../prisma.util'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
 import { TaskBusScheduler } from '../taskBus/models/TaskBusScheduler'
@@ -208,6 +209,11 @@ export class DeliveryEventService {
         return
       }
 
+      if (deliveryEvent.type === EnumDeliveryEventType.HANDED_BACK) {
+        // Spec 0020: written only by handBack, in one conditional write with its status.
+        throw new CantUpdateDeliveryStatusError('HANDED_BACK is recorded by a rider hand back only')
+      }
+
       if (deliveryEvent.type === EnumDeliveryEventType.RETURNED_TO_WAITING) {
         // Spec 0014: written only by returnToWaitingForDispatchStop, in one conditional write with
         // its status (row 29 review). Never processed as an ordinary event.
@@ -241,6 +247,9 @@ export class DeliveryEventService {
             matchedCourierId: newCourierId,
             offeredAt: new Date(),
             offerExpiresAt: null,
+            // No rider holds it now (spec 0020): no accept time, no hand back.
+            acceptedAt: null,
+            handBackUntil: null,
             totalCost,
             totalCompensation,
             fee,
@@ -312,9 +321,22 @@ export class DeliveryEventService {
           // The accepted offer no longer has a deadline. offeredAt stays as the record of when it went out.
           // Written with the status in one conditional write (decision 32.17), so an accept that lost
           // the race to a cancel leaves no rider on the cancelled delivery.
+          // Spec 0020: the accept time and the end of the free hand back, stored now so a later change
+          // of the setting never moves a running minute (0 seconds: no hand back).
+          const acceptedAt = new Date()
+          // A setting that cannot be read must never cost a rider their accept (value 4): the
+          // default window is used and the failure logged.
+          let handBackSeconds = DEFAULT_HAND_BACK_SECONDS
+          try {
+            handBackSeconds = await this.configDomainService.instanceConfig.getHandBackSeconds()
+          } catch (error) {
+            this.logger.warn(`Could not read handBackSeconds while accepting ${deliveryEvent.deliveryId}: ${error}`)
+          }
           await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
             courierId,
             offerExpiresAt: null,
+            acceptedAt,
+            handBackUntil: handBackSeconds > 0 ? new Date(acceptedAt.getTime() + handBackSeconds * 1000) : null,
           })
 
           const courier = await this.courierRepository.findByIdOrThrow(courierId)
@@ -887,6 +909,8 @@ export class DeliveryEventService {
         matchedCourierId: null,
         offeredAt: null,
         offerExpiresAt: null,
+        acceptedAt: null,
+        handBackUntil: null,
       }
     )
     if (!written) return { returned: false }
@@ -922,6 +946,84 @@ export class DeliveryEventService {
       this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} went back to waiting: ${error}`)
     }
     return { returned: true, totalCompensation: delivery.totalCompensation, currencyCode: delivery.currencyCode }
+  }
+
+  // Spec 0020 (AC-6): a rider gives back an order they accepted, inside the free window the caller
+  // has checked. The shape of returnToWaitingForDispatchStop: the rider goes on the delivery's skip
+  // list FIRST (so a matcher running in between cannot offer it straight back; undone if the write
+  // misses), one conditional write on status and rider back to waiting, the event saved outside the
+  // state machine's switch, the restaurant and the rider told, then a new offer round (or the no
+  // courier spell and its retry). No pay and no charge either way (AC-7). A missed write (a cancel,
+  // reassign, dispatch stop or second hand back got there first) is saved as a failed row (value 1).
+  async handBack(deliveryId: string, courierId: string, oldStatus: EnumDeliveryStatus): Promise<boolean> {
+    let addedToSkipList = false
+    try {
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+    }
+
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { status: oldStatus, courierId },
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+        offerExpiresAt: null,
+        acceptedAt: null,
+        handBackUntil: null,
+      }
+    )
+
+    const event: DeliveryHandedBackEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.HANDED_BACK,
+      actor: EnumEventActor.COURIER,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId,
+      message: written ? 'Handed back within the first minute' : 'Hand back refused: the order changed first',
+    }
+
+    if (!written) {
+      if (addedToSkipList) {
+        try {
+          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+        } catch (error) {
+          this.logger.error(`Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${error}`)
+        }
+      }
+      try {
+        await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
+      } catch (error) {
+        this.logger.error(`Could not record the refused HANDED_BACK for delivery ${deliveryId}: ${error}`)
+      }
+      return false
+    }
+
+    try {
+      await this.saveDeliveryEvent(event, {
+        transitionSuccessful: true,
+        oldStatus,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
+    } catch (error) {
+      this.logger.error(`Could not record HANDED_BACK for delivery ${deliveryId}: ${error}`)
+    }
+    try {
+      const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      if (updated.partnerId) {
+        await this.notifyPartner(updated.partnerId, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+      }
+      // The delivery no longer carries the rider's id, so tell them explicitly.
+      await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+    } catch (error) {
+      this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} was handed back: ${error}`)
+    }
+    // Straight back to matching; nobody free means the usual no courier spell and retry.
+    await this.offerOrWait(deliveryId)
+    return true
   }
 
   // End of a dispatch stop (spec 0014, AC-4): every waiting delivery, oldest first, gets an offer or
@@ -1145,6 +1247,9 @@ export class DeliveryEventService {
         cancelledAt: new Date(),
         cancellationPayoutPolicy,
         ...clearOffer,
+        // Spec 0020 (AC-2): a cancelled order can no longer be handed back.
+        acceptedAt: null,
+        handBackUntil: null,
       }
     )
     if (!written) {
@@ -1545,7 +1650,8 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION ||
       deliveryEvent.type === EnumDeliveryEventType.FOOD_RETURNED ||
       deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED ||
-      deliveryEvent.type === EnumDeliveryEventType.DROPOFF_POINT_CORRECTED
+      deliveryEvent.type === EnumDeliveryEventType.DROPOFF_POINT_CORRECTED ||
+      deliveryEvent.type === EnumDeliveryEventType.HANDED_BACK
         ? deliveryEvent.courierId
         : undefined
 

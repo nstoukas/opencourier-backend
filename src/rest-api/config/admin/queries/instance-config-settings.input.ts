@@ -36,6 +36,7 @@ export class InstanceConfigSettingsInput {
   noCourierRetrySeconds?: number
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
+  handBackSeconds?: number
   dispatchPhoneNumber?: string
   cancellationPayoutPolicy?: string
 }

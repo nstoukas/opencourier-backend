@@ -78,6 +78,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, nullable: true, required: false })
   dropoffFloor?: string | null
 
+  // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
+  @ApiProperty({ type: Date, nullable: true })
+  handBackUntil: Date | null
+
   @ApiProperty({ type: String, nullable: true, required: false })
   dropoffDoorbell?: string | null
 
@@ -222,8 +226,18 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffName = data.dropoffName
-    // Row 33 and spec 0016: the customer's details only while the rider holds the delivery.
-    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
+    // Spec 0020 (AC-3): the end of the free hand back, while it is still ahead and the rider has not
+    // reached the restaurant; null otherwise.
+    const handBackUntil = data.handBackUntil ?? null
+    const inHandBackWindow =
+      handBackUntil !== null &&
+      handBackUntil.getTime() > Date.now() &&
+      (data.status === EnumDeliveryStatus.ACCEPTED || data.status === EnumDeliveryStatus.DISPATCHED)
+    this.handBackUntil = inHandBackWindow ? handBackUntil : null
+    // Row 33 and spec 0016: the customer's details only while the rider holds the delivery. Spec 0020
+    // (AC-4, decision 71.10): not during the free hand back either, so a rider who gives the order back
+    // has not been given the customer's phone, floor or doorbell.
+    const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) && !inHandBackWindow
     this.dropoffPhoneNumber = holdsDelivery ? data.dropoffPhoneNumber : undefined
     this.dropoffBusinessName = data.dropoffBusinessName
     this.dropoffNotes = data.dropoffNotes

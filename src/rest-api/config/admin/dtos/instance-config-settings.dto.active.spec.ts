@@ -41,6 +41,7 @@ describe('InstanceConfigSettingsDto', () => {
     noCourierRetrySeconds: 30,
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
+    handBackSeconds: 60,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }

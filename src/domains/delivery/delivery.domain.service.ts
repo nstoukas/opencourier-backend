@@ -132,7 +132,9 @@ export class DeliveryDomainService {
 
   // Spec 0002, AC-5: an accept that reaches the server before the offer ends wins; one that arrives
   // after (expired, moved on, cancelled) gets 409 "This offer has ended" and changes nothing.
-  async acceptDelivery(deliveryId: string, courierId: string) {
+  // `automatic`: the rider's phone accepted on its own (auto accept, spec 0020). It only marks the
+  // event's message; it is not stored anywhere a rider could be counted by (value 5).
+  async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {
     // No rider takes work during a heat or storm stop (spec 0014; row 29 review): an offer that
     // slipped past the stop's start cannot be accepted.
     await this.deliveryEventService.refuseIfDispatchStopped()
@@ -181,7 +183,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
-      message: `Courier ${courierId} accepted delivery ${delivery.id}`,
+      message: `Courier ${courierId} accepted delivery ${delivery.id}${automatic ? ' (accepted automatically)' : ''}`,
     })
 
     // processDeliveryEvent never throws; it records a failure instead. If the accept did not take,
@@ -191,7 +193,7 @@ export class DeliveryDomainService {
       const givenBack = await this.deliveryRepository.updateIfMatches(
         deliveryId,
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        { courierId: null, offerExpiresAt: delivery.offerExpiresAt }
+        { courierId: null, offerExpiresAt: delivery.offerExpiresAt, acceptedAt: null, handBackUntil: null }
       )
       // A deadline given back needs a timer behind it: the original expiry job may have run while
       // the offer was taken and done nothing (it only ends an offer nobody has taken).

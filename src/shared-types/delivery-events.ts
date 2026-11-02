@@ -72,6 +72,13 @@ export interface DeliveryReturnedToWaitingEvent extends BaseDeliveryEvent {
   courierId: string
 }
 
+// Spec 0020. A rider gave an accepted order back inside the free window; it went back to matching.
+// Recorded by DeliveryEventService.handBack only, never through processDeliveryEvent's switch.
+export interface DeliveryHandedBackEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.HANDED_BACK
+  courierId: string
+}
+
 
 // Spec 0002. An offer went out to `courierId` (actor SYSTEM for matching, ADMIN for an admin offer).
 // Recorded by DeliveryEventService itself, never emitted through processDeliveryEvent.
@@ -139,6 +146,7 @@ export type DeliveryEvent =
   | DeliveryFailedEvent
   | DeliveryReassignedEvent
   | DeliveryReturnedToWaitingEvent
+  | DeliveryHandedBackEvent
   | DeliveryOfferedEvent
   | DeliveryOfferExpiredEvent
   | DeliveryNoCourierAvailableEvent
