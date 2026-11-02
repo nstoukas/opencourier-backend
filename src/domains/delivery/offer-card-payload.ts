@@ -2,8 +2,8 @@ import { Delivery, DeliveryQuote, Location } from '@prisma/types'
 import { convertToKM } from 'src/shared-types/distance-unit'
 
 // The facts an offer shows a rider, and nothing else (spec 0003, AC-10). The push message is built
-// from this, and row 70 will build the in app offer card from the same function, so the two can
-// never drift apart. A push is visible on a lock screen that other people see, so the customer's
+// from this. The in app offer card (row 70, spec 0019) reuses its drop off area (dropoffAreaOf),
+// so the two name the same place. A push is visible on a lock screen that other people see, so the customer's
 // name, phone, house number, notes and items must never get in here.
 //
 // This list IS the allow list: the builder returns exactly these keys, and the push sender copies
@@ -67,7 +67,7 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     restaurantName: delivery.pickupBusinessName,
     dropoffArea: dropoffAreaOf(source.dropoffLocation),
     distanceKm: distanceKmOf(source.quote),
-    // Row 70 sends the minutes; until then the phone shows none.
+    // Not sent yet: row 70 put the minutes in the offer list only (decision 70.4).
     minutes: '',
     insistent: options.insistent ? '1' : '',
   }
@@ -90,7 +90,8 @@ export function dropoffAreaOf(location: OfferCardSource['dropoffLocation']): str
   return city
 }
 
-// Restaurant to customer, in km with one decimal ('3.4'). Row 70 replaces it with the two leg split.
+// Restaurant to customer, in km with one decimal ('3.4'). The two leg split is in the offer list
+// (spec 0019); the push keeps this single figure (decision 70.4).
 function distanceKmOf(quote: OfferCardSource['quote']): string {
   if (!quote || !Number.isFinite(quote.distance)) return ''
   const km = convertToKM(quote.distance, quote.distanceUnit)

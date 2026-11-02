@@ -39,16 +39,21 @@ export async function offerTripFor(input: OfferTripInput, osrm: RouteSource): Pr
     from && to ? osrm.getRoute({ fromLocation: from, toLocation: to }) : Promise.resolve(null)
 
   const [toPickup, toDropoff] = await Promise.allSettled([leg(rider, pickup), leg(pickup, dropoff)])
+  const unknown: string[] = []
   const valueOf = (result: PromiseSettledResult<IOsrmRouteResult | null>, name: string) => {
     if (result.status === 'fulfilled') {
       return result.value
     }
-    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
-    logger.warn(`Offer trip for delivery ${deliveryId}: the ${name} leg is unknown (${reason})`)
+    unknown.push(name)
     return null
   }
   const pickupLeg = valueOf(toPickup, 'rider to restaurant')
   const dropoffLeg = valueOf(toDropoff, 'restaurant to customer')
+  // One line per offer at most. OsrmRoutingService already logs the cause (with
+  // its address); this only says which offer showed less (Fable's review).
+  if (unknown.length > 0) {
+    logger.warn(`Offer trip for delivery ${deliveryId}: unknown ${unknown.join(' and ')}`)
+  }
 
   return {
     toPickupMetres: pickupLeg ? Math.round(pickupLeg.distanceMetres) : null,
