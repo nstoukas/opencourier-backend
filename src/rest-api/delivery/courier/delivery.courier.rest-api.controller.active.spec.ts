@@ -12,6 +12,7 @@ import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
 import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
 import { NewDeliveryCourier } from './types/new-delivery.courier.type'
+import { ArrivedCourierInput } from './queries/arrived.courier.input'
 
 describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
   let controller: DeliveryCourierRestApiController
@@ -143,6 +144,23 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
         mockCourier.id,
         input
       )
+    })
+
+    // NestJS uses TypeScript's design:paramtypes metadata to bind and validate request bodies with ValidationPipe
+    test('courierArrivedAtPickup and courierArrivedAtDropoff bind ArrivedCourierInput as their body type (Spec 0021 AC-4)', () => {
+      const pickupParamTypes = Reflect.getMetadata(
+        'design:paramtypes',
+        DeliveryCourierRestApiController.prototype,
+        'courierArrivedAtPickup'
+      )
+      expect(pickupParamTypes[1]).toBe(ArrivedCourierInput)
+
+      const dropoffParamTypes = Reflect.getMetadata(
+        'design:paramtypes',
+        DeliveryCourierRestApiController.prototype,
+        'courierArrivedAtDropoff'
+      )
+      expect(dropoffParamTypes[1]).toBe(ArrivedCourierInput)
     })
 
     test('markAsPickedUp forwards note and tapAgeMs to service', async () => {
