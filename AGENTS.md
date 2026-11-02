@@ -80,6 +80,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   between deliveries. Floor and doorbell are the delivery's own columns and follow the phone's visibility rule.
 - Never log a whole delivery or message: the partner webhook and `SocketIOService.publishMessage` log ids and statuses only
   (decision 31.18), because a delivery carries the customer's name, phone, floor and doorbell.
+- A restaurant sees its deliveries from the last `restaurantHistoryDays` (spec 0017) plus any still open
+  (`partner-history.ts`). Every partner route that takes a delivery id goes through `assertVisibleToPartner`: ownership
+  first (another restaurant's order is the plain 404), then the period (an own old ended order is 404 with the period
+  sentence). A new partner route by id must call it too. Admin routes have no period.
 
 ## Agent skills
 
