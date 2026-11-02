@@ -4,9 +4,18 @@ services:
     container_name: opencourier-osrm
     image: ghcr.io/project-osrm/osrm-backend:latest
     # --algorithm mld matches the extract/partition/customize pipeline in docs/osrm-routing.md.
-    command: osrm-routed --algorithm mld /data/greece-latest.osrm
+    # --verbosity WARNING: at the default INFO, osrm-routed logs every request line, and a request
+    # path holds coordinates (a rider's position for a drawn route, a customer's for a quote).
+    # Value 5: a rider's whereabouts must not pile up in a log (spec 0018 review).
+    command: osrm-routed --algorithm mld --verbosity WARNING /data/greece-latest.osrm
     volumes:
       - ./osrm/data:/data
     ports:
       - ${OSRM_PORT}:5000
     restart: unless-stopped
+    # Warnings only now, but keep the container's log small all the same.
+    logging:
+      driver: json-file
+      options:
+        max-size: '1m'
+        max-file: '2'

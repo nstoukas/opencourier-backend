@@ -6,7 +6,7 @@ import { COURIER_API_V1_PREFIX } from '../../../constants'
 import { Roles } from 'src/decorators/roles.decorator'
 import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
-import { DeliveryRouteCourierService } from './route.courier.service'
+import { DeliveryRouteCourierService, ROUTE_UNAVAILABLE_MESSAGE } from './route.courier.service'
 import { DeliveryRouteCourierDto } from './dtos/delivery-route.courier.dto'
 
 // Spec 0018 (AC-1). Its own small controller on the deliveries path, as row 31's dropoff point,
@@ -20,7 +20,7 @@ export class DeliveryRouteCourierRestApiController {
   @common.Get(':deliveryId/route')
   @swagger.ApiOkResponse({ type: DeliveryRouteCourierDto })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
-  @swagger.ApiServiceUnavailableResponse({ description: "The route can't be drawn right now." })
+  @swagger.ApiServiceUnavailableResponse({ description: ROUTE_UNAVAILABLE_MESSAGE })
   @swagger.ApiOperation({ summary: 'The road route of an offer made to me or a job I hold, by leg' })
   @Roles(EnumUserRole.COURIER)
   async getRoute(

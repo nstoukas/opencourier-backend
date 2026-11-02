@@ -45,6 +45,10 @@ curl "http://localhost:5000/route/v1/driving/22.9427,39.3621;22.9530,39.3680?ove
 
 Expected response code is `"Ok"` with route distance (metres) and duration (seconds).
 
+## Logs carry no coordinates
+
+`osrm-routed` runs with `--verbosity WARNING` (`docker-compose.osrm.yml`). At its default `INFO` it logs every request line, and every request path holds coordinates: a rider's position for a drawn route (spec 0018), a customer's for a quote. Keep it at `WARNING` or quieter (value 5).
+
 ## 3. Modifying the Moped Profile
 
 The profile is located at `osrm/profiles/moped.lua`. Whenever you edit constants such as `MOPED_MAX_SPEED_KMH` or motorway exclusion rules in `moped.lua`, you **must re-run the extract, partition, and customize commands above**. The routing speeds are compiled into the binary dataset, not read dynamically at runtime.

@@ -37,4 +37,6 @@ export interface IPartnerRepository {
   createWithLogin(data: IPartnerCreateWithLogin): Promise<PartnerEntity>
   update(partnerId: string, data: IPartnerUpdate): Promise<PartnerEntity>
   findManyPaginated(page?: number, perPage?: number): Promise<PaginatedResult<PartnerEntity>>
+  // Spec 0018 (AC-4): every restaurant's name and pickup point, for the courier map.
+  findPickupPoints(): Promise<{ id: string; name: string; latitude: number; longitude: number }[]>
 }
