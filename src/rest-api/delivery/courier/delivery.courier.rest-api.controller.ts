@@ -18,6 +18,7 @@ import { MarkDeliveryAsDeliveredCourierInput } from './queries/mark-delivery-as-
 import { DeliveryIssueCreateCourierInput } from './queries/delivery-issue-create.courier.input'
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
 import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
+import { ArrivedCourierInput } from './queries/arrived.courier.input'
 import { MarkDeliveryAsPickedUpCourierInput } from './queries/mark-delivery-as-picked-up.courier.input'
 import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
 import { InProgressDeliveriesCourierPaginatedDto } from './dtos/in-progress-deliveries.courier.paginated.dto'
@@ -262,7 +263,7 @@ export class DeliveryCourierRestApiController {
 
   @common.Post(':deliveryId/arrived-at-pickup')
   @swagger.ApiBody({
-    type: CourierJobStepCourierInput,
+    type: ArrivedCourierInput,
   })
   @swagger.ApiCreatedResponse({
     type: DeliveryCourierDto,
@@ -274,7 +275,7 @@ export class DeliveryCourierRestApiController {
   @Roles(EnumUserRole.COURIER)
   async courierArrivedAtPickup(
     @common.Param('deliveryId') deliveryId: string,
-    @common.Body() input: CourierJobStepCourierInput,
+    @common.Body() input: ArrivedCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
     const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtPickup(deliveryId, courier.id, input)
@@ -285,7 +286,7 @@ export class DeliveryCourierRestApiController {
 
   @common.Post(':deliveryId/arrived-at-dropoff')
   @swagger.ApiBody({
-    type: CourierJobStepCourierInput,
+    type: ArrivedCourierInput,
   })
   @swagger.ApiCreatedResponse({
     type: DeliveryCourierDto,
@@ -297,7 +298,7 @@ export class DeliveryCourierRestApiController {
   @Roles(EnumUserRole.COURIER)
   async courierArrivedAtDropoff(
     @common.Param('deliveryId') deliveryId: string,
-    @common.Body() input: CourierJobStepCourierInput,
+    @common.Body() input: ArrivedCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
     const deliveries = await this.deliveryRestApiCourierService.courierArrivedAtDropOff(deliveryId, courier.id, input)

@@ -24,11 +24,14 @@ export class ConfigCourierRestApiController {
     return new AppVersionCustomerDto(result)
   }
 
-  // Signed in riders only (no @Public): the numbers a rider calls from the job screen (row 72).
+  // Signed in riders only (no @Public): the number a rider calls from the job screen (row 72) and the
+  // arrival radius the app detects arrivals with (spec 0021). The app already fetches this every ten
+  // minutes, so the radius rides along instead of needing a route of its own.
   @common.Get('contact')
   @swagger.ApiOkResponse({ type: ContactCourierDto })
   async getContact(): Promise<ContactCourierDto> {
     const dispatchPhoneNumber = await this.configDomainService.instanceConfig.getDispatchPhoneNumber()
-    return new ContactCourierDto({ dispatchPhoneNumber })
+    const arrivalRadiusMetres = await this.configDomainService.instanceConfig.getArrivalRadiusMetres()
+    return new ContactCourierDto({ dispatchPhoneNumber, arrivalRadiusMetres })
   }
 }

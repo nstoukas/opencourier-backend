@@ -37,6 +37,7 @@ export class InstanceConfigSettingsInput {
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number
+  arrivalRadiusMetres?: number
   dispatchPhoneNumber?: string
   cancellationPayoutPolicy?: string
 }

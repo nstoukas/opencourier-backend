@@ -34,6 +34,13 @@ import {
 } from './utils/reassignment-payout.util'
 import { ICourierTap } from './interfaces/ICourierTap'
 
+// Spec 0021 (AC-4): how a rider's arrival was made, as the end of its event message. Row 23's waiting
+// pay starts from the arrival, so members must be able to read which kind each one was (value 1).
+// A message, not a column: there is then no field to count one rider's taps by (value 5).
+export function arrivalHow(detected?: boolean): string {
+  return detected === true ? ' (detected by the app)' : ' (tapped by the rider)'
+}
+
 @Injectable()
 export class DeliveryDomainService {
   private readonly logger = new Logger(DeliveryDomainService.name)
@@ -294,7 +301,9 @@ export class DeliveryDomainService {
     return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async courierArrivedAtDropOff(deliveryId: string, tap?: ICourierTap) {
+  // `detected` (spec 0021): true when the rider's app noticed the arrival by itself; anything else
+  // (false or not sent) is a tap. It only marks the message, which is how members tell them apart.
+  async courierArrivedAtDropOff(deliveryId: string, tap?: ICourierTap, detected?: boolean) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
@@ -309,7 +318,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was status changed: courier arrived at dropoff location: ${delivery.courierId}`,
+      message: `Delivery ${delivery.id} was status changed: courier arrived at dropoff location: ${delivery.courierId}${arrivalHow(detected)}`,
     })
 
     // Read again after the event, so the rider's app can see whether the step moved the delivery
@@ -369,7 +378,8 @@ export class DeliveryDomainService {
     return this.deliveryRepository.findByIdOrThrow(deliveryId)
   }
 
-  async courierArrivedAtPickup(deliveryId: string, tap?: ICourierTap) {
+  // `detected`: see courierArrivedAtDropOff.
+  async courierArrivedAtPickup(deliveryId: string, tap?: ICourierTap, detected?: boolean) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     const occurredAt = tap ? await this.deliveryEventService.occurredAtForCourierTap(delivery, tap) : undefined
 
@@ -384,7 +394,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was status changed: courier arrived at pickup location: ${delivery.courierId}`,
+      message: `Delivery ${delivery.id} was status changed: courier arrived at pickup location: ${delivery.courierId}${arrivalHow(detected)}`,
     })
 
     // Read again after the event, so the rider's app can see whether the step moved the delivery

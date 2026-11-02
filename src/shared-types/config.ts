@@ -47,6 +47,8 @@ export type InstanceConfigSettings = {
   restaurantHistoryDays: number
   // The free hand back (spec 0020): seconds after accepting; 0 switches it off.
   handBackSeconds: number
+  // Arrival detection (spec 0021): metres from a stop that count as arrived; 0 switches it off.
+  arrivalRadiusMetres: number
   // The co-op's dispatch line riders call from the job screen (row 72); null when none is set.
   dispatchPhoneNumber: string | null
   // Spec 0015: the payout policy (a key of reassignmentPayoutPolicies) that pays a rider whose
@@ -118,6 +120,7 @@ export enum ConfigKey {
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',
+  ARRIVAL_RADIUS_METRES = 'arrivalRadiusMetres',
   DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
   CANCELLATION_PAYOUT_POLICY = 'cancellationPayoutPolicy',
 }

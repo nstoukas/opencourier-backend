@@ -21,6 +21,7 @@ import { NewDeliveryCourier } from './types/new-delivery.courier.type'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
 import { ICourierTap } from 'src/domains/delivery/interfaces/ICourierTap'
 import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
+import { ArrivedCourierInput } from './queries/arrived.courier.input'
 
 // The tap of a job step the app sent with `tapAgeMs` (spec 0009), stamped with the moment this
 // server received it; undefined for a step sent without one, whose event then happened on arrival.
@@ -208,7 +209,7 @@ export class DeliveryRestApiCourierService {
     return updatedDelivery
   }
 
-  async courierArrivedAtPickup(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {
+  async courierArrivedAtPickup(deliveryId: string, courierId: string, step: ArrivedCourierInput = {}) {
     const tap = courierTap(step)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
@@ -216,7 +217,7 @@ export class DeliveryRestApiCourierService {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtPickup(deliveryId, tap)
+    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtPickup(deliveryId, tap, step.detected)
 
     return updatedDelivery
   }
@@ -251,7 +252,7 @@ export class DeliveryRestApiCourierService {
     return updatedDelivery
   }
 
-  async courierArrivedAtDropOff(deliveryId: string, courierId: string, step: CourierJobStepCourierInput = {}) {
+  async courierArrivedAtDropOff(deliveryId: string, courierId: string, step: ArrivedCourierInput = {}) {
     const tap = courierTap(step)
     const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId })
 
@@ -259,7 +260,7 @@ export class DeliveryRestApiCourierService {
       throw new DeliveryNotFoundException('Delivery not found')
     }
 
-    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtDropOff(deliveryId, tap)
+    const updatedDelivery = await this.deliveryDomainService.courierArrivedAtDropOff(deliveryId, tap, step.detected)
 
     return updatedDelivery
   }

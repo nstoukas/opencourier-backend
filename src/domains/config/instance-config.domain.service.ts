@@ -32,6 +32,9 @@ import {
   DEFAULT_HAND_BACK_SECONDS,
   HAND_BACK_SECONDS_MIN,
   HAND_BACK_SECONDS_MAX,
+  DEFAULT_ARRIVAL_RADIUS_METRES,
+  ARRIVAL_RADIUS_METRES_MIN,
+  ARRIVAL_RADIUS_METRES_MAX,
 } from 'src/constants'
 import {
   EnumCourierCompensationCalculationType,
@@ -72,6 +75,9 @@ export const NUMERIC_SETTING_RULES: {
   // Inclusive limits. Each one's message names the setting and the allowed range.
   min?: number
   max?: number
+  // What 0 switches off (spec 0021). When set, 0 is valid and skips min and max, and the refusal
+  // for a value under min says "or 0 to switch <this> off".
+  zeroSwitchesOff?: string
 }[] = [
   { key: 'feePercentageAmount', whyZeroIsRefused: null },
   { key: 'quoteRatePerDistanceUnit', whyZeroIsRefused: null },
@@ -132,6 +138,15 @@ export const NUMERIC_SETTING_RULES: {
     min: HAND_BACK_SECONDS_MIN,
     max: HAND_BACK_SECONDS_MAX,
   },
+  // Arrival detection (spec 0021): 0 switches it off; otherwise 20 to 300 metres.
+  {
+    key: 'arrivalRadiusMetres',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: ARRIVAL_RADIUS_METRES_MIN,
+    max: ARRIVAL_RADIUS_METRES_MAX,
+    zeroSwitchesOff: 'detection',
+  },
 ]
 
 @Injectable()
@@ -173,6 +188,7 @@ export class InstanceConfigDomainService {
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
+    const arrivalRadiusMetres = await this.getArrivalRadiusMetres()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
 
@@ -209,6 +225,7 @@ export class InstanceConfigDomainService {
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
+      arrivalRadiusMetres,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
     }
@@ -345,8 +362,13 @@ export class InstanceConfigDomainService {
       if (value === 0 && rule.whyZeroIsRefused !== null) {
         throw new BadRequestException(`${rule.key} cannot be 0: ${rule.whyZeroIsRefused}`)
       }
+      // 0 is the off switch for this setting: the range below is for the "on" values only.
+      if (value === 0 && rule.zeroSwitchesOff !== undefined) {
+        continue
+      }
       if (rule.min !== undefined && value < rule.min) {
-        throw new BadRequestException(`${rule.key} must be ${rule.min} or more`)
+        const orOff = rule.zeroSwitchesOff !== undefined ? `, or 0 to switch ${rule.zeroSwitchesOff} off` : ''
+        throw new BadRequestException(`${rule.key} must be ${rule.min} or more${orOff}`)
       }
       if (rule.max !== undefined && value > rule.max) {
         throw new BadRequestException(`${rule.key} must be ${rule.max} or less`)
@@ -466,6 +488,9 @@ export class InstanceConfigDomainService {
     }
     if (data.handBackSeconds !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.HAND_BACK_SECONDS, data.handBackSeconds)
+    }
+    if (data.arrivalRadiusMetres !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
     }
     if (data.restaurantHistoryDays !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
@@ -814,6 +839,32 @@ export class InstanceConfigDomainService {
       `Invalid ${ConfigKey.HAND_BACK_SECONDS} in config (${String(value)}), using the default ${DEFAULT_HAND_BACK_SECONDS}`
     )
     return DEFAULT_HAND_BACK_SECONDS
+  }
+
+  // Spec 0021: metres from a stop that the rider's app counts as arrived (0 = detection off). Read by
+  // every rider's app with the dispatch number, so a missing row (an instance seeded before row 19, until
+  // a representative saves it) is read quietly as the default; a bad stored value still warns.
+  async getArrivalRadiusMetres(): Promise<number> {
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.ARRIVAL_RADIUS_METRES)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_ARRIVAL_RADIUS_METRES
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      (value === 0 || (value >= ARRIVAL_RADIUS_METRES_MIN && value <= ARRIVAL_RADIUS_METRES_MAX))
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.ARRIVAL_RADIUS_METRES} in config (${String(value)}), using the default ${DEFAULT_ARRIVAL_RADIUS_METRES}`
+    )
+    return DEFAULT_ARRIVAL_RADIUS_METRES
   }
 
   // Spec 0017: how many days back a restaurant sees its ended orders (open ones always show). Read on

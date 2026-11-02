@@ -126,6 +126,13 @@ export const RESTAURANT_HISTORY_DAYS_MAX = 365
 export const DEFAULT_HAND_BACK_SECONDS = 60
 export const HAND_BACK_SECONDS_MIN = 0
 export const HAND_BACK_SECONDS_MAX = 300
+// Arrival detection (spec 0021): the app records an arrival when the rider is within this many metres
+// of the restaurant or the customer. The operative value is the co-op setting arrivalRadiusMetres; 0
+// switches detection off. 20 m is about the floor of a phone's GPS; 300 m is the most that still means
+// "at the door".
+export const DEFAULT_ARRIVAL_RADIUS_METRES = 50
+export const ARRIVAL_RADIUS_METRES_MIN = 20
+export const ARRIVAL_RADIUS_METRES_MAX = 300
 // Phones are read as Greek numbers unless they start with a country code: this instance serves Volos.
 export const DEFAULT_PHONE_REGION = 'GR'
 
