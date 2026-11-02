@@ -145,6 +145,12 @@ export class DeliveryDomainService {
     // No rider takes work during a heat or storm stop (spec 0014; row 29 review): an offer that
     // slipped past the stop's start cannot be accepted.
     await this.deliveryEventService.refuseIfDispatchStopped()
+    // A rider in an active SOS takes no job, not even an offer that was already on their screen at
+    // the hold: a mis-tap or the phone's auto accept would give a rider in danger work (decision
+    // 73.10). The offer is left to expire as usual (spec 0022, AC-7). This is a check before the
+    // write: an SOS that starts in the same few milliseconds is not caught, and the rider can still
+    // hand the job back.
+    await this.deliveryEventService.refuseIfCourierInSos(courierId)
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     if (delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER || delivery.matchedCourierId !== courierId) {

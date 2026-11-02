@@ -16,11 +16,17 @@ const RETENTION_JOB_NAME = 'sos-location-retention'
 // Every day at 04:00 Volos time, like the saved customer retention job (spec 0022, AC-11).
 const RETENTION_JOB_PATTERN = '0 4 * * *'
 const DAY_MS = 24 * 60 * 60 * 1000
+// The largest accuracy kept as sent; anything larger (or negative) is stored as unknown.
+const MAX_ACCURACY_METRES = 100000
+
+// A phone's accuracy estimate, or null when it is missing or makes no sense (row 73 review).
+const usableAccuracy = (value: number | null | undefined): number | null =>
+  typeof value === 'number' && value >= 0 && value <= MAX_ACCURACY_METRES ? value : null
 
 export type SosPointInput = {
   latitude: number
   longitude: number
-  accuracyMetres?: number
+  accuracyMetres?: number | null
   // How long before sending the phone took this fix, in milliseconds.
   ageMs: number
 }
@@ -108,7 +114,7 @@ export class SosService implements OnModuleInit {
     const rows = points.map((point) => ({
       latitude: point.latitude,
       longitude: point.longitude,
-      accuracyMetres: point.accuracyMetres ?? null,
+      accuracyMetres: usableAccuracy(point.accuracyMetres),
       recordedAt: sosPointRecordedAt({ receivedAt, ageMs: point.ageMs, startedAt: incident.startedAt }),
     }))
     const accepted = await this.sosIncidentRepository.addPointsIfActive(incident.id, rows)

@@ -854,6 +854,8 @@ export class DeliveryEventService {
 
   // Spec 0022, AC-7: an admin's hand offer or a reassignment to a rider whose SOS is active answers
   // 409 with a sentence. The rider is offerable again once the SOS is not active.
+  // A check before the write, not part of it (row 73 review): an SOS that starts in the same few
+  // milliseconds slips past, and the worst case is an offer the rider lets expire. Accepted as is.
   async refuseIfCourierInSos(courierId: string): Promise<void> {
     if (await this.courierRepository.hasActiveSos(courierId)) {
       throw new CantUpdateDeliveryStatusError(SOS_SENTENCES.courierInSos)
@@ -1112,6 +1114,15 @@ export class DeliveryEventService {
       return 'NO_COURIER'
     }
     const { courier } = match
+
+    // No matcher offers work to a rider in an active SOS (spec 0022, AC-7; decision 73.11). The two
+    // automatic matchers already leave such riders out in their SQL; this one check also covers the
+    // STATIC matcher, which returns its configured rider without asking whether they are free. The
+    // delivery then waits as if no rider were free, and the backstop retry tries again.
+    if (await this.courierRepository.hasActiveSos(courier.id)) {
+      this.logger.log(`Courier ${courier.id} has an active SOS; delivery ${deliveryId} is not offered to them`)
+      return 'NO_COURIER'
+    }
 
     const { totalCost, totalCompensation, fee, feePercentage } =
       await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({

@@ -34,14 +34,14 @@ export class SosPointCourierInput {
   @IsLongitude()
   longitude: number
 
-  // The phone's own estimate of how far off the fix may be, in metres.
-  @ApiProperty({ type: Number, required: false, minimum: 0 })
+  // The phone's own estimate of how far off the fix may be, in metres. Advisory only, so it never
+  // refuses the batch (row 73 review): null means unknown, and a value outside 0 to 100 000 m is
+  // stored as unknown (SosService.addPoints). Only the coordinates are held strictly.
+  @ApiProperty({ type: Number, required: false, nullable: true })
   @RefuseIfNotSentAsNumber()
-  @ValidateIf((_input, value) => value !== undefined)
+  @ValidateIf((_input, value) => value !== undefined && value !== null)
   @IsNumber()
-  @Min(0)
-  @Max(100000)
-  accuracyMetres?: number
+  accuracyMetres?: number | null
 
   // How long before sending the phone took this fix, in milliseconds (0 to 7 days).
   @ApiProperty({ type: Number, required: true })
