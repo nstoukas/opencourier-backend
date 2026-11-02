@@ -85,6 +85,14 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   first (another restaurant's order is the plain 404), then the period (an own old ended order is 404 with the period
   sentence). A new partner route by id must call it too. Admin routes have no period.
 
+- A rider's map route (spec 0018) is `GET courier deliveries/:id/route`: the legs of an offer made to the rider or a job they
+  hold (404 otherwise, unknown ids included), asked of the co-op's OSRM whatever the Geo calculation setting, 503 "The route
+  can't be drawn right now." when OSRM cannot answer, never another routing server. The rider leg starts at the stored
+  `currentLocation` the auth middleware's courier already carries. `OsrmRoutingService.getRoute` returns the points too
+  (one URL and cache for quotes and routes), and its failure sentence names no address.
+- OSRM runs at `--verbosity WARNING` (`docker-compose.osrm.yml`): at INFO it logs every request path, and a path holds a
+  rider's or a customer's coordinates (value 5). Never raise it.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
