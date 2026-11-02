@@ -8,6 +8,7 @@ import {
 import {
   ALREADY_MOVED_MESSAGE,
   ALREADY_THERE_MESSAGE,
+  DROPOFF_POINT_CORRECTABLE_STATUSES,
   DropoffPointCourierService,
   WRONG_STATUS_MESSAGE,
 } from './dropoff-point.courier.service'
@@ -245,23 +246,56 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
   })
 
   describe('AC-9: Claim conditional write and rollback', () => {
-    it('claims move with conditional updateIfMatches matching { courierId, dropoffPointCorrectedAt: null }', async () => {
+    it('claims move with conditional updateIfMatches matching { courierId, dropoffPointCorrectedAt: null, status: { in: DROPOFF_POINT_CORRECTABLE_STATUSES } }', async () => {
       await service.correct(deliveryId, courierId, validNewPointInput)
 
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
-        { courierId, dropoffPointCorrectedAt: null },
+        {
+          courierId,
+          dropoffPointCorrectedAt: null,
+          status: { in: DROPOFF_POINT_CORRECTABLE_STATUSES },
+        },
         { dropoffPointCorrectedAt: expect.any(Date) }
       )
     })
 
-    it('throws 409 ConflictException when conditional claim fails (lost race with another call)', async () => {
+    it('throws 409 ConflictException ALREADY_MOVED_MESSAGE when lost claim re-read shows dropoffPointCorrectedAt is set', async () => {
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+      // Initial read at start of correct has dropoffPointCorrectedAt: null;
+      // second read after lost claim shows another move set dropoffPointCorrectedAt
+      mockDeliveryRepository.findById
+        .mockResolvedValueOnce({ ...baseDelivery, dropoffPointCorrectedAt: null })
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          dropoffPointCorrectedAt: new Date('2026-11-02T01:05:00Z'),
+        })
 
       await expect(service.correct(deliveryId, courierId, validNewPointInput)).rejects.toThrow(
         new ConflictException(ALREADY_MOVED_MESSAGE)
       )
 
+      expect(mockDeliveryRepository.findById).toHaveBeenCalledTimes(2)
+      expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+    })
+
+    it('throws 409 ConflictException WRONG_STATUS_MESSAGE when lost claim re-read shows dropoffPointCorrectedAt is null (status moved on)', async () => {
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+      // Initial read at start of correct is a valid correctable status;
+      // second read after lost claim shows status moved on (e.g. DROPPED_OFF) and dropoffPointCorrectedAt is still null
+      mockDeliveryRepository.findById
+        .mockResolvedValueOnce({ ...baseDelivery, dropoffPointCorrectedAt: null })
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          dropoffPointCorrectedAt: null,
+          status: EnumDeliveryStatus.DROPPED_OFF,
+        })
+
+      await expect(service.correct(deliveryId, courierId, validNewPointInput)).rejects.toThrow(
+        new ConflictException(WRONG_STATUS_MESSAGE)
+      )
+
+      expect(mockDeliveryRepository.findById).toHaveBeenCalledTimes(2)
       expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
     })
 
@@ -277,6 +311,33 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
         { courierId },
         { dropoffPointCorrectedAt: null }
       )
+    })
+
+    it('throws the original event recording error and logs the release error when both throw', async () => {
+      const eventError = new Error('Database event insert failed')
+      const releaseError = new Error('Database claim release failed')
+
+      mockDeliveryEventService.recordDropoffPointCorrectedEvent.mockRejectedValue(eventError)
+      // 1st updateIfMatches is the claim (succeeds), 2nd is the release (fails)
+      mockDeliveryRepository.updateIfMatches
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(releaseError)
+
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
+      await expect(service.correct(deliveryId, courierId, validNewPointInput)).rejects.toThrow(eventError)
+
+      // The release failure must be logged with the release error
+      expect(errorSpy).toHaveBeenCalledWith(
+        `DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${releaseError}`
+      )
+      // The correction failure is also logged with the original event error
+      expect(errorSpy).toHaveBeenCalledWith(
+        `DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${eventError}`,
+        eventError.stack
+      )
+
+      errorSpy.mockRestore()
     })
 
     it('never modifies the delivery Location row', async () => {
@@ -311,6 +372,50 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
         EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION
       )
 
+      expect(result).toEqual({
+        savedCustomerUpdated: true,
+        distanceMetres: 141,
+      })
+    })
+
+    it('Outcome 1: passes customer exact coordinates as from to movePointIfUnchanged when customer is 3 m away from delivery point', async () => {
+      // Customer at 39.364027 is ~3.0 m from delivery drop off (39.364, 22.948), within 5 m limit
+      const customerPoint3mAway = { latitude: 39.364027, longitude: 22.948 }
+      mockSavedCustomerRepository.findByPhone.mockResolvedValue({
+        ...baseSavedCustomer,
+        latitude: customerPoint3mAway.latitude,
+        longitude: customerPoint3mAway.longitude,
+      })
+
+      const result = await service.correct(deliveryId, courierId, validNewPointInput)
+
+      expect(mockSavedCustomerRepository.movePointIfUnchanged).toHaveBeenCalledWith(
+        partnerId,
+        customerId,
+        { latitude: customerPoint3mAway.latitude, longitude: customerPoint3mAway.longitude },
+        { latitude: validNewPointInput.latitude, longitude: validNewPointInput.longitude }
+      )
+      expect(result.savedCustomerUpdated).toBe(true)
+    })
+
+    it('Outcome 1 (retry): customer already within 5 m of new point counts as updated and movePointIfUnchanged is not called', async () => {
+      // Customer is ~2.2 m from validNewPointInput (39.365, 22.949), but ~142 m from oldLocation (39.364, 22.948)
+      mockSavedCustomerRepository.findByPhone.mockResolvedValue({
+        ...baseSavedCustomer,
+        latitude: 39.36502,
+        longitude: 22.949,
+      })
+
+      const result = await service.correct(deliveryId, courierId, validNewPointInput)
+
+      expect(mockSavedCustomerRepository.movePointIfUnchanged).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
+        }),
+        expect.any(String)
+      )
       expect(result).toEqual({
         savedCustomerUpdated: true,
         distanceMetres: 141,

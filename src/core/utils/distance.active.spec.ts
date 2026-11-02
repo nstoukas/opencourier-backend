@@ -12,6 +12,16 @@ describe('haversineDistanceInMetres (Spec 0016)', () => {
     expect(Math.round(dist)).toBe(111)
   })
 
+  it('gives about 111 m for 0.001 degree of latitude and about 86 m for 0.001 degree of longitude at latitude 39.36 (Volos)', () => {
+    // 0.001 deg latitude in Volos is approx 111 m
+    const latDist = haversineDistanceInMetres(39.36, 22.94, 39.361, 22.94)
+    expect(Math.round(latDist)).toBe(111)
+
+    // 0.001 deg longitude at latitude 39.36 (Volos) is approx 86 m
+    const lonDist = haversineDistanceInMetres(39.36, 22.94, 39.36, 22.941)
+    expect(Math.round(lonDist)).toBe(86)
+  })
+
   it('matches haversineDistanceInMiles converted to metres', () => {
     const lat1 = 39.3622
     const lon1 = 22.9425
