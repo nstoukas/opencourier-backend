@@ -24,6 +24,7 @@ import { ICourierUpdateLocation } from 'src/domains/courier/interfaces/ICourierU
 import { ICourierFindNearestArgs } from 'src/domains/courier/interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from 'src/domains/courier/interfaces/ICourierFindBySeniorityArgs'
 import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
+import { ACTIVE_SOS_WHERE } from 'src/domains/sos/sos-incident-state'
 
 // A rider is busy, and gets no new offer, while any delivery of theirs is in one of
 // DELIVERY_ONGOING_STATUSES (accepted, dispatched, arrived at pickup, picked up, on the way,
@@ -45,6 +46,21 @@ export function busyCourierDeliverySubQuery(): Prisma.Sql {
         AND "Delivery"."courierId" IS NULL
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
       )
+    `
+}
+
+// A rider with an active SOS (spec 0022, AC-7) is busy too: no matcher offers them anything until
+// they say they are safe, say it was a false alarm, or an admin closes it. Kept beside the delivery
+// rule rather than inside it, so each reads on its own. "Active" here must match ACTIVE_SOS_WHERE
+// (src/domains/sos/sos-incident-state.ts). Correlated with the outer "Courier" row, like the one above.
+export function activeSosCourierSubQuery(): Prisma.Sql {
+  return Prisma.sql`
+      SELECT 1
+      FROM "SosIncident"
+      WHERE "SosIncident"."courierId" = "Courier"."id"
+        AND "SosIncident"."closedAt" IS NULL
+        AND "SosIncident"."safeAt" IS NULL
+        AND "SosIncident"."falseAlarmAt" IS NULL
     `
 }
 
@@ -230,6 +246,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       -- Add the condition to check if the courier is available
       AND "status"::text in (${Prisma.join(courierActiveStatuses, ',')})
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
+      -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
+      AND NOT EXISTS (${activeSosCourierSubQuery()})
 
       -- Exclude courier ids
       ${
@@ -313,6 +331,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       -- Add the condition to check if the courier is available
       AND "status"::text in (${Prisma.join(courierActiveStatuses, ',')})
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
+      -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
+      AND NOT EXISTS (${activeSosCourierSubQuery()})
 
       -- Exclude courier ids
       ${
@@ -399,6 +419,16 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     })
 
     return result ? this.toDomain(result) : null
+  }
+
+  // Whether this rider has an active SOS (spec 0022, AC-7), for the admin paths that pick a rider by
+  // hand. Same rule as activeSosCourierSubQuery above.
+  async hasActiveSos(courierId: string): Promise<boolean> {
+    const incident = await this.prisma.sosIncident.findFirst({
+      where: { courierId, ...ACTIVE_SOS_WHERE },
+      select: { id: true },
+    })
+    return incident !== null
   }
 
   async findByIdOrThrow(courierId: string) {

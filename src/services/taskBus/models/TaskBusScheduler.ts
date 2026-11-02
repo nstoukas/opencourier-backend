@@ -14,6 +14,8 @@ export type TaskName =
   | 'dispatch-stop-tick'
   // Every minute: completes a cancelled job's pay or a restaurant's charge that failed (spec 0015).
   | 'cancellation-award-sweep'
+  // Spec 0022: every day, deletes the SOS position points older than sosLocationRetentionDays.
+  | 'sos-location-retention'
 
 export abstract class TaskBusScheduler {
   abstract scheduleTask<T>(taskName: TaskName, scheduleAt: Date, payload: T): Promise<void>

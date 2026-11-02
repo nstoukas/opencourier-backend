@@ -29,6 +29,9 @@ export enum ErrorCode {
   DELIVERY_CANT_BE_ACCEPTED = 'DELIVERY_CANT_BE_ACCEPTED',
   DELIVERY_CANT_BE_REJECTED = 'DELIVERY_CANT_BE_REJECTED',
   OFFER_HAS_ENDED = 'OFFER_HAS_ENDED',
+  // Spec 0022: the SOS is no longer active (the phone stops sharing), or is already closed.
+  SOS_NOT_ACTIVE = 'SOS_NOT_ACTIVE',
+  SOS_CLOSED = 'SOS_CLOSED',
 
   ENV_VAR_MISSING = 'ENV_VAR_MISSING',
 
@@ -197,6 +200,20 @@ export const OFFER_HAS_ENDED_MESSAGE = 'This offer has ended'
 export class OfferHasEndedException extends ApiException {
   constructor(options?: HttpExceptionOptions) {
     super(ErrorCode.OFFER_HAS_ENDED, OFFER_HAS_ENDED_MESSAGE, 409, options)
+  }
+}
+
+// 409 Conflict for an SOS (spec 0022). Not active: points sent after the rider or an admin ended it;
+// the phone reads this as "ended by the co-op", drops its waiting points and stops sharing (AC-6).
+// Closed: an admin already closed it. Fixed sentences: nothing the phone sent is repeated (AC-13).
+export class SosNotActiveException extends ApiException {
+  constructor() {
+    super(ErrorCode.SOS_NOT_ACTIVE, 'This SOS has ended.', 409)
+  }
+}
+export class SosClosedException extends ApiException {
+  constructor() {
+    super(ErrorCode.SOS_CLOSED, 'This SOS has already been closed.', 409)
   }
 }
 

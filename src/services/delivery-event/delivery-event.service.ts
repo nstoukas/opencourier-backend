@@ -42,6 +42,7 @@ import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
 import { TaskBusScheduler } from '../taskBus/models/TaskBusScheduler'
 import { TaskBusService } from '../taskBus/taskBus.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
+import { SOS_SENTENCES } from 'src/domains/sos/sos-incident-state'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.service'
@@ -849,6 +850,14 @@ export class DeliveryEventService {
     const now = new Date()
     const stop = await this.dispatchStopRepository.findOn(now)
     if (stop) throw new CantUpdateDeliveryStatusError(adminRefusedMessage(stop, now))
+  }
+
+  // Spec 0022, AC-7: an admin's hand offer or a reassignment to a rider whose SOS is active answers
+  // 409 with a sentence. The rider is offerable again once the SOS is not active.
+  async refuseIfCourierInSos(courierId: string): Promise<void> {
+    if (await this.courierRepository.hasActiveSos(courierId)) {
+      throw new CantUpdateDeliveryStatusError(SOS_SENTENCES.courierInSos)
+    }
   }
 
   // Start of a dispatch stop (spec 0014, AC-5, step 1): every open offer ends, its rider told, with

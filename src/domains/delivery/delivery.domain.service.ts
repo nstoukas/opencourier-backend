@@ -479,6 +479,9 @@ export class DeliveryDomainService {
   ) {
     // A heat or storm stop binds admins too (spec 0014, AC-4): restart dispatch first.
     await this.deliveryEventService.refuseIfDispatchStopped()
+    // Never reassign to a rider in an active SOS (spec 0022, AC-7). The rider it is taken from may be
+    // in one: that is an admin's call, and nothing about their job changes on its own.
+    await this.deliveryEventService.refuseIfCourierInSos(newCourierId)
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
     if (!DELIVERY_ONGOING_STATUSES.includes(delivery.status)) {
@@ -671,6 +674,9 @@ export class DeliveryDomainService {
         if (!event.courierId) {
           throw new BadRequestException('courierId is required when submitting ACCEPTED to assign a courier')
         }
+        // An admin gives nothing to a rider in an active SOS (spec 0022, AC-7), whether it is a new
+        // hand offer or accepting the offer already out to them on their behalf.
+        await this.deliveryEventService.refuseIfCourierInSos(event.courierId)
         const delivery = await this.getByIdOrThrow(event.deliveryId)
         if (
           delivery.status === EnumDeliveryStatus.ASSIGNING_COURIER &&

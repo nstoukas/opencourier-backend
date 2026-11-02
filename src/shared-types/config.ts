@@ -45,6 +45,7 @@ export type InstanceConfigSettings = {
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
   restaurantHistoryDays: number
+  sosLocationRetentionDays: number
   // The free hand back (spec 0020): seconds after accepting; 0 switches it off.
   handBackSeconds: number
   // Arrival detection (spec 0021): metres from a stop that count as arrived; 0 switches it off.
@@ -120,6 +121,7 @@ export enum ConfigKey {
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',
+  SOS_LOCATION_RETENTION_DAYS = 'sosLocationRetentionDays',
   ARRIVAL_RADIUS_METRES = 'arrivalRadiusMetres',
   DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
   CANCELLATION_PAYOUT_POLICY = 'cancellationPayoutPolicy',

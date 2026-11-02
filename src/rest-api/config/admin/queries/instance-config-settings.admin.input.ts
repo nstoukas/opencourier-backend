@@ -130,6 +130,14 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   restaurantHistoryDays?: number
 
+  // SOS (spec 0022). Whole days the SOS position points are kept; the 1 to 365 range lives in
+  // NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  sosLocationRetentionDays?: number
+
   // The free hand back (spec 0020). Whole seconds; the 0 to 300 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

@@ -18,6 +18,7 @@ import {
   DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
   DEFAULT_RESTAURANT_HISTORY_DAYS,
   DEFAULT_HAND_BACK_SECONDS,
+  DEFAULT_SOS_LOCATION_RETENTION_DAYS,
   DEFAULT_ARRIVAL_RADIUS_METRES,
 } from 'src/constants'
 import { SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT, SEEDED_QUOTE_BASE_FEE } from './instance-pay-defaults'
@@ -69,6 +70,7 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     savedCustomerRetentionMonths: DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
     restaurantHistoryDays: DEFAULT_RESTAURANT_HISTORY_DAYS,
     handBackSeconds: DEFAULT_HAND_BACK_SECONDS,
+    sosLocationRetentionDays: DEFAULT_SOS_LOCATION_RETENTION_DAYS,
     arrivalRadiusMetres: DEFAULT_ARRIVAL_RADIUS_METRES,
     // No dispatch line until a representative types one on Instance configuration (row 72).
     dispatchPhoneNumber: '',

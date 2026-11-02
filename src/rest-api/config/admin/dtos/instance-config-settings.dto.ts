@@ -95,6 +95,9 @@ export class InstanceConfigSettingsDto {
   handBackSeconds: number
 
   @ApiProperty({ type: Number })
+  sosLocationRetentionDays: number
+
+  @ApiProperty({ type: Number })
   arrivalRadiusMetres: number
 
   @ApiProperty({ type: String, nullable: true })
@@ -135,6 +138,7 @@ export class InstanceConfigSettingsDto {
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds
+    this.sosLocationRetentionDays = data.sosLocationRetentionDays
     this.arrivalRadiusMetres = data.arrivalRadiusMetres
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.cancellationPayoutPolicy = data.cancellationPayoutPolicy

@@ -29,6 +29,9 @@ import {
   DEFAULT_RESTAURANT_HISTORY_DAYS,
   RESTAURANT_HISTORY_DAYS_MIN,
   RESTAURANT_HISTORY_DAYS_MAX,
+  DEFAULT_SOS_LOCATION_RETENTION_DAYS,
+  SOS_LOCATION_RETENTION_DAYS_MIN,
+  SOS_LOCATION_RETENTION_DAYS_MAX,
   DEFAULT_HAND_BACK_SECONDS,
   HAND_BACK_SECONDS_MIN,
   HAND_BACK_SECONDS_MAX,
@@ -130,6 +133,16 @@ export const NUMERIC_SETTING_RULES: {
     min: RESTAURANT_HISTORY_DAYS_MIN,
     max: RESTAURANT_HISTORY_DAYS_MAX,
   },
+  // SOS (spec 0022): days the position points shared during an SOS are kept, 1 to 365. The spec's
+  // sketch had `whyZeroIsRefused: null`, which in this table means 0 is valid; 0 is refused with a
+  // reason instead, like restaurantHistoryDays (decision 73.8).
+  {
+    key: 'sosLocationRetentionDays',
+    whyZeroIsRefused: 'the positions shared during an SOS would be deleted the day they were recorded',
+    mustBeInteger: true,
+    min: SOS_LOCATION_RETENTION_DAYS_MIN,
+    max: SOS_LOCATION_RETENTION_DAYS_MAX,
+  },
   // The free hand back (spec 0020): seconds after accepting. 0 is valid: it switches the hand back off.
   {
     key: 'handBackSeconds',
@@ -188,6 +201,7 @@ export class InstanceConfigDomainService {
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
+    const sosLocationRetentionDays = await this.getSosLocationRetentionDays()
     const arrivalRadiusMetres = await this.getArrivalRadiusMetres()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
@@ -225,6 +239,7 @@ export class InstanceConfigDomainService {
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
+      sosLocationRetentionDays,
       arrivalRadiusMetres,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
@@ -494,6 +509,9 @@ export class InstanceConfigDomainService {
     }
     if (data.restaurantHistoryDays !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
+    }
+    if (data.sosLocationRetentionDays !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.SOS_LOCATION_RETENTION_DAYS, data.sosLocationRetentionDays)
     }
 
     if (data.cancellationPayoutPolicy !== undefined) {
@@ -892,6 +910,32 @@ export class InstanceConfigDomainService {
       `Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config (${String(value)}), using the default ${DEFAULT_RESTAURANT_HISTORY_DAYS}`
     )
     return DEFAULT_RESTAURANT_HISTORY_DAYS
+  }
+
+  // SOS (spec 0022): how many days the points shared during an SOS are kept. Read quietly: the row is
+  // missing until a representative saves it, and the daily retention job must not warn every day.
+  async getSosLocationRetentionDays(): Promise<number> {
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.SOS_LOCATION_RETENTION_DAYS)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_SOS_LOCATION_RETENTION_DAYS
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= SOS_LOCATION_RETENTION_DAYS_MIN &&
+      value <= SOS_LOCATION_RETENTION_DAYS_MAX
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config (${String(value)}), using the default ${DEFAULT_SOS_LOCATION_RETENTION_DAYS}`
+    )
+    return DEFAULT_SOS_LOCATION_RETENTION_DAYS
   }
 
   // The co-op's dispatch line (row 72), or null when none is set. Saving already refuses

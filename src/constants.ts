@@ -126,6 +126,12 @@ export const RESTAURANT_HISTORY_DAYS_MAX = 365
 export const DEFAULT_HAND_BACK_SECONDS = 60
 export const HAND_BACK_SECONDS_MIN = 0
 export const HAND_BACK_SECONDS_MAX = 300
+// SOS (spec 0022): the position points shared during an SOS are deleted this many days after the
+// incident's newest point. The operative value is the co-op setting sosLocationRetentionDays; row 46
+// sets the real period. 1 to 365 whole days.
+export const DEFAULT_SOS_LOCATION_RETENTION_DAYS = 30
+export const SOS_LOCATION_RETENTION_DAYS_MIN = 1
+export const SOS_LOCATION_RETENTION_DAYS_MAX = 365
 // Arrival detection (spec 0021): the app records an arrival when the rider is within this many metres
 // of the restaurant or the customer. The operative value is the co-op setting arrivalRadiusMetres; 0
 // switches detection off. 20 m is about the floor of a phone's GPS; 300 m is the most that still means

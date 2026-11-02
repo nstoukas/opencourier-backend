@@ -30,6 +30,9 @@ model User {
 
   courier Courier?
   partner Partner?
+
+  // SOS incidents this admin closed (spec 0022).
+  sosIncidentsClosed SosIncident[]
 }
 
 model Comment {
@@ -82,6 +85,8 @@ model Courier {
   deliveryEvents        DeliveryEvent[]
   // The phones this rider is logged in on, for offer push (spec 0003). One row per app install.
   devices               CourierDevice[]
+  // This rider's SOS incidents (spec 0022). Never counted per rider anywhere (binding value 5).
+  sosIncidents          SosIncident[]
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
@@ -356,6 +361,7 @@ model Delivery {
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
   partnerCharge        PartnerCharge?
+  sosIncidents         SosIncident[]
 
   @@unique([idempotencyKey, partnerId])
   // A rider's cancelled jobs of the last 24 hours (spec 0015).
@@ -835,4 +841,60 @@ model DispatchStop {
   endWorkDoneAt     DateTime?
 
   @@index([startsAt])
+}
+
+enum EnumSosOutcome {
+  RIDER_SAFE
+  HELP_ARRIVED
+  FALSE_ALARM
+  OTHER
+}
+
+// A rider's SOS (spec 0022). Active while closedAt, safeAt and falseAlarmAt are all null: only then
+// does the phone share its position (SosLocationPoint) and the rider count as busy. Awaiting close
+// once the rider said safe or false alarm; closed once an admin closed it. Rows are never deleted,
+// only their points (binding values 1 and 5).
+model SosIncident {
+  id              String          @id @default(cuid())
+  // Restrict: deleting a rider never deletes the record of their SOS.
+  courierId       String
+  courier         Courier         @relation(fields: [courierId], references: [id], onDelete: Restrict)
+  // The phone's own id for this SOS, so a start retried after no signal never makes a second one.
+  clientId        String          @postgres.VarChar(64)
+  // The job the rider held at the hold, if any.
+  deliveryId      String?
+  delivery        Delivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  // When the rider completed the hold (tapAgeMs), not when it arrived (createdAt).
+  startedAt       DateTime        @postgres.Timestamptz(6)
+  createdAt       DateTime        @default(now())
+  safeAt          DateTime?       @postgres.Timestamptz(6)
+  falseAlarmAt    DateTime?       @postgres.Timestamptz(6)
+  closedAt        DateTime?       @postgres.Timestamptz(6)
+  closedByUserId  String?
+  closedBy        User?           @relation(fields: [closedByUserId], references: [id], onDelete: SetNull)
+  outcome         EnumSosOutcome?
+  note            String?         @postgres.VarChar(500)
+  // When the retention job deleted this incident's points.
+  pointsDeletedAt DateTime?       @postgres.Timestamptz(6)
+
+  points SosLocationPoint[]
+
+  @@unique([courierId, clientId])
+  @@index([courierId, closedAt])
+}
+
+// One position the phone sent during an active SOS (spec 0022). Read only by the SOS module, for
+// the admin incident page; deleted by the daily retention job after sosLocationRetentionDays.
+model SosLocationPoint {
+  id             String      @id @default(cuid())
+  incidentId     String
+  incident       SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  latitude       Float
+  longitude      Float
+  accuracyMetres Float?
+  // Server receipt time minus the point's age on the phone, never before the incident's start.
+  recordedAt     DateTime    @postgres.Timestamptz(6)
+  createdAt      DateTime    @default(now())
+
+  @@index([incidentId, recordedAt])
 }
