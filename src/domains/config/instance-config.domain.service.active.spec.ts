@@ -991,46 +991,175 @@ describe('InstanceConfigDomainService', () => {
       })
     })
 
-    it('getRestaurantHistoryDays: returns default 30 on missing row, stored value if valid, and default 30 if out of range, fractional, or non-numeric (Spec 0017 AC-1)', async () => {
-      // 1. Missing row -> default 30
-      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+    describe('getRestaurantHistoryDays (Spec 0017 AC-1, review fix)', () => {
+      // Pin: missing Config row returns 30 and logs NO warning (both NotFoundError and Prisma P2025)
+      it('returns default 30 and logs no warning when config row is missing with NotFoundError', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockRejectedValueOnce(notFoundError)
 
-      // 2. Stored valid (60) -> 60
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '60', type: 'number' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(60)
+        const result = await service.getRestaurantHistoryDays()
 
-      // 3. Stored below min (0) -> fallback to default 30
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '0', type: 'number' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+        expect(result).toBe(30)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
 
-      // 4. Stored below min (-1) -> fallback to default 30
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '-1', type: 'number' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+      it('returns default 30 and logs no warning when config row is missing with PrismaClientKnownRequestError P2025', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        const p2025Error = new PrismaClientKnownRequestError('Record not found in config table', {
+          code: PRISMA_RECORD_NOT_FOUND_ERROR,
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(p2025Error)
 
-      // 5. Stored above max (366) -> fallback to default 30
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '366', type: 'number' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+        const result = await service.getRestaurantHistoryDays()
 
-      // 6. Stored fractional (30.5) -> fallback to default 30
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '30.5', type: 'number' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+        expect(result).toBe(30)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
 
-      // 7. Stored non-numeric ("invalid") -> fallback to default 30
-      configRepository.getByKey.mockResolvedValueOnce(
-        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: 'invalid', type: 'string' })
-      )
-      expect(await service.getRestaurantHistoryDays()).toBe(30)
+      // Pin: stored valid value (e.g. 7) is returned with no warning
+      it('returns stored valid value (e.g. 7) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '7', type: 'number' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(7)
+        expect(warnSpy).not.toHaveBeenCalled()
+        warnSpy.mockRestore()
+      })
+
+      it('returns stored boundary values (1 and 365) with no warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '1', type: 'number' })
+        )
+        expect(await service.getRestaurantHistoryDays()).toBe(1)
+        expect(warnSpy).not.toHaveBeenCalled()
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '365', type: 'number' })
+        )
+        expect(await service.getRestaurantHistoryDays()).toBe(365)
+        expect(warnSpy).not.toHaveBeenCalled()
+
+        warnSpy.mockRestore()
+      })
+
+      // Pin: stored invalid value (0, 366, 2.5, a string, null) returns 30 and logs a warning naming restaurantHistoryDays
+      it('returns default 30 and logs a warning naming restaurantHistoryDays when stored value is 0', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '0', type: 'number' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(30)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming restaurantHistoryDays when stored value is 366', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '366', type: 'number' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(30)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming restaurantHistoryDays when stored value is 2.5', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '2.5', type: 'number' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(30)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming restaurantHistoryDays when stored value is a string ("invalid")', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: 'invalid', type: 'string' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(30)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      it('returns default 30 and logs a warning naming restaurantHistoryDays when stored value is null', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: null as any, type: 'string' })
+        )
+
+        const result = await service.getRestaurantHistoryDays()
+
+        expect(result).toBe(30)
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Invalid ${ConfigKey.RESTAURANT_HISTORY_DAYS} in config`)
+        )
+        warnSpy.mockRestore()
+      })
+
+      // Pin: any other error from getByKey is rethrown
+      it('throws any other error from getByKey rather than swallowing it', async () => {
+        const dbError = new Error('Database connection failed')
+        configRepository.getByKey.mockRejectedValueOnce(dbError)
+
+        await expect(service.getRestaurantHistoryDays()).rejects.toThrow('Database connection failed')
+      })
+
+      it('throws non-P2025 Prisma errors from getByKey rather than swallowing them', async () => {
+        const otherPrismaError = new PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+        })
+        configRepository.getByKey.mockRejectedValueOnce(otherPrismaError)
+
+        await expect(service.getRestaurantHistoryDays()).rejects.toThrow(otherPrismaError)
+      })
+
+      // Verify getInstanceConfigSettings output with missing row
+      it('returns restaurantHistoryDays: 30 in getInstanceConfigSettings with no row and logs no "Missing variable \'restaurantHistoryDays\'" warning', async () => {
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        configRepository.getByKey.mockImplementation(async () => {
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+
+        expect(settings.restaurantHistoryDays).toBe(30)
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining(`Missing variable '${ConfigKey.RESTAURANT_HISTORY_DAYS}'`)
+        )
+        warnSpy.mockRestore()
+      })
     })
 
     describe('setInstanceConfigSettings - restaurantHistoryDays (Spec 0017 AC-1)', () => {
