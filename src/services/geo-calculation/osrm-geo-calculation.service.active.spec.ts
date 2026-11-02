@@ -29,7 +29,7 @@ describe('OsrmGeoCalculationService', () => {
   // Test Plan Case 13: Unit-parity with KILOMETERS
   test('converts route distanceMetres to kilometres when distanceUnit is KILOMETERS', async () => {
     ;(mockConfigDomainService.instanceConfig.getDistanceUnit as jest.Mock).mockResolvedValue(EnumDistanceUnit.KILOMETERS)
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420, points: [] })
 
     const result = await service.calculateDistance({
       fromLocation: { latitude: 39.3621, longitude: 22.9427 },
@@ -43,7 +43,7 @@ describe('OsrmGeoCalculationService', () => {
   // Test Plan Case 14: Unit-parity with MILES
   test('converts route distanceMetres to miles when distanceUnit is MILES', async () => {
     ;(mockConfigDomainService.instanceConfig.getDistanceUnit as jest.Mock).mockResolvedValue(EnumDistanceUnit.MILES)
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420, points: [] })
 
     const result = await service.calculateDistance({
       fromLocation: { latitude: 39.3621, longitude: 22.9427 },
@@ -65,7 +65,7 @@ describe('OsrmGeoCalculationService', () => {
 
     // Feed raw metres derived from haversine km to OSRM mock
     const haversineMetres = 1.1020176527581977 * 1000
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: haversineMetres, durationSeconds: 300 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: haversineMetres, durationSeconds: 300, points: [] })
 
     const osrmKm = await service.calculateDistance({ fromLocation, toLocation })
     expect(osrmKm).toBe(haversineKm)
@@ -74,7 +74,7 @@ describe('OsrmGeoCalculationService', () => {
     ;(mockConfigDomainService.instanceConfig.getDistanceUnit as jest.Mock).mockResolvedValue(EnumDistanceUnit.MILES)
     const haversineMiles = await haversineService.calculateDistance({ fromLocation, toLocation })
 
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: haversineMetres, durationSeconds: 300 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: haversineMetres, durationSeconds: 300, points: [] })
     const osrmMiles = await service.calculateDistance({ fromLocation, toLocation })
     expect(osrmMiles).toBeCloseTo(haversineMiles, 8)
   })

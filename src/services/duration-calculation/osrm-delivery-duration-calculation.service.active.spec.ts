@@ -16,7 +16,7 @@ describe('OsrmDeliveryDurationCalculationService', () => {
 
   // Test Plan Case 17: Converts duration from seconds to minutes
   test('converts route durationSeconds to minutes (420s -> 7 minutes)', async () => {
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 420, points: [] })
 
     const result = await service.calculateDeliveryDuration({
       pickupLocation: { latitude: 39.3621, longitude: 22.9427 },
@@ -29,7 +29,7 @@ describe('OsrmDeliveryDurationCalculationService', () => {
 
   // Test Plan Case 18: Rounds duration in minutes to 2 decimal places
   test('rounds duration in minutes to 2 decimal places (455s -> 7.58 minutes)', async () => {
-    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 455 })
+    mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ distanceMetres: 2500, durationSeconds: 455, points: [] })
 
     const result = await service.calculateDeliveryDuration({
       pickupLocation: { latitude: 39.3621, longitude: 22.9427 },

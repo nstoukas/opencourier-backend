@@ -10,9 +10,12 @@ import { CancelledJobsCourierRestApiController } from './cancelled-jobs.courier.
 import { DropoffPointCourierService } from './dropoff-point.courier.service'
 import { DropoffPointCourierRestApiController } from './dropoff-point.courier.rest-api.controller'
 import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
+import { OsrmRoutingModule } from 'src/services/osrm/osrm-routing.module'
+import { DeliveryRouteCourierService } from './route.courier.service'
+import { DeliveryRouteCourierRestApiController } from './route.courier.rest-api.controller'
 
 @Module({
-  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService],
+  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService],
   exports: [DeliveryRestApiCourierService],
   imports: [
     DeliveryDomainModule,
@@ -20,8 +23,14 @@ import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
     LocationNoteReactionDomainModule,
     DeliveryIssueDomainModule,
     ConfigDomainModule,
+    OsrmRoutingModule,
   ],
   // CancelledJobsCourierRestApiController first: its `cancelled-jobs` must match before `GET :deliveryId`.
-  controllers: [CancelledJobsCourierRestApiController, DropoffPointCourierRestApiController, DeliveryCourierRestApiController],
+  controllers: [
+    CancelledJobsCourierRestApiController,
+    DropoffPointCourierRestApiController,
+    DeliveryRouteCourierRestApiController,
+    DeliveryCourierRestApiController,
+  ],
 })
 export class DeliveryCourierRestApiModule {}

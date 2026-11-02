@@ -59,6 +59,28 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
     return result ? this.toDomain(result) : null
   }
 
+  // Every restaurant's pickup point, by name, for the courier app's restaurant layer (spec 0018,
+  // AC-4). Only the name and the point: nothing else about a restaurant reaches a rider here.
+  async findPickupPoints() {
+    const partners = await this.prisma.partner.findMany({
+      where: { pickupLocationId: { not: null } },
+      select: { id: true, name: true, pickupLocation: { select: { latitude: true, longitude: true } } },
+      orderBy: { name: 'asc' },
+    })
+    return partners.flatMap((partner) =>
+      partner.pickupLocation
+        ? [
+            {
+              id: partner.id,
+              name: partner.name,
+              latitude: partner.pickupLocation.latitude,
+              longitude: partner.pickupLocation.longitude,
+            },
+          ]
+        : []
+    )
+  }
+
   async findManyPaginated(page?: number, perPage?: number) {
     const paginator = createPaginator<Partner, Prisma.PartnerFindManyArgs, Prisma.PartnerDelegate>()
     const result = await paginator(

@@ -27,6 +27,10 @@ export class PartnerDomainService {
     return this.partnerRepository.findFirst()
   }
 
+  async getPickupPoints() {
+    return this.partnerRepository.findPickupPoints()
+  }
+
   async getMany(page?: number, perPage?: number) {
     return this.partnerRepository.findManyPaginated(page, perPage)
   }

@@ -4,7 +4,27 @@ import { ConfigService } from '@nestjs/config'
 import { OSRM_CACHE_TTL_SECONDS, OSRM_REQUEST_TIMEOUT_MS, OSRM_URL } from 'src/constants'
 import { EnvVarMissingException } from 'src/errors'
 import { IOsrmRouteInput } from './interfaces/IOsrmRouteInput'
-import { IOsrmRouteResult } from './interfaces/IOsrmRouteResult'
+import { IOsrmRoutePoint, IOsrmRouteResult } from './interfaces/IOsrmRouteResult'
+
+// What a restaurant reads when a quote cannot be priced because OSRM did not answer.
+export const OSRM_UNAVAILABLE_MESSAGE =
+  'Road distances are not available right now, so this cannot be priced. Try again in a minute.'
+
+// OSRM's GeoJSON line lists [longitude, latitude] pairs; the rest of this codebase speaks
+// { latitude, longitude }. A missing or malformed shape gives no points rather than a failure,
+// because the distance and duration (what quotes need) are still good.
+function toRoutePoints(geometry: unknown): IOsrmRoutePoint[] {
+  const coordinates = (geometry as { coordinates?: unknown } | undefined)?.coordinates
+  if (!Array.isArray(coordinates)) {
+    return []
+  }
+  return coordinates
+    .filter(
+      (pair): pair is [number, number] =>
+        Array.isArray(pair) && pair.length >= 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1])
+    )
+    .map(([longitude, latitude]) => ({ latitude, longitude }))
+}
 
 // NestJS service providing OSRM road routing HTTP client and in-flight request caching
 @Injectable()
@@ -74,7 +94,9 @@ export class OsrmRoutingService {
     // whichever profile the data was prepared with (our moped profile).
     const from = `${input.fromLocation.longitude},${input.fromLocation.latitude}`
     const to = `${input.toLocation.longitude},${input.toLocation.latitude}`
-    const url = `${this.baseUrl}/route/v1/driving/${from};${to}?overview=false&alternatives=false&steps=false`
+    // overview=simplified with geojson also returns the road's shape (spec 0018); quotes ignore it,
+    // and one request shape keeps one cache for quotes and drawn routes.
+    const url = `${this.baseUrl}/route/v1/driving/${from};${to}?overview=simplified&geometries=geojson&alternatives=false&steps=false`
 
     try {
       const response = await this.httpService.axiosRef.get(url, { timeout: this.timeoutMs })
@@ -98,19 +120,20 @@ export class OsrmRoutingService {
       return {
         distanceMetres: route.distance,
         durationSeconds: route.duration,
+        points: toRoutePoints(route.geometry),
       }
     } catch (error: unknown) {
       // `unknown` is TypeScript's safe type for a caught value — anything can be thrown, not
       // just an Error. It forces the check below instead of letting a bad property access through.
       const reason = error instanceof Error ? error.message : String(error)
-      this.logger.error(`OSRM routing request failed: ${reason}`)
+      // The address and the cause are for the co-op's log only. Restaurants read the refusal
+      // below, and it must not tell them where the co-op's servers are (decision 69.4).
+      // There is deliberately no fallback to straight line distance: it would silently change
+      // quotes and courier pay. Start OSRM (./devup.sh docker) or switch Geo calculation back to
+      // HAVERSINE in admin.
+      this.logger.error(`OSRM routing request to ${this.baseUrl} failed: ${reason}`)
 
-      throw new ServiceUnavailableException(
-        `OSRM routing engine is unavailable at ${this.baseUrl} (${reason}). ` +
-          `Distance and duration cannot be calculated. Falling back to straight-line distance is ` +
-          `deliberately not done because it would silently change quotes and courier pay. ` +
-          `Start OSRM (yarn docker:osrm) or switch Config.geoCalculationType back to HAVERSINE from the admin panel.`
-      )
+      throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
   }
 }
