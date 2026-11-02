@@ -46,6 +46,36 @@ describe('delivery-list-filter', () => {
       expect('courierId' in where).toBe(false)
     })
 
+    describe('partnerId filter (spec 0017, AC-7)', () => {
+      test('partnerId is kept in where', () => {
+        const where = adminDeliveryListWhere({ partnerId: 'partner-volos-1' })
+        expect(where).toEqual({ partnerId: 'partner-volos-1' })
+      })
+
+      test('partnerId with surrounding whitespace is trimmed', () => {
+        const where = adminDeliveryListWhere({ partnerId: '  partner-volos-1  ' })
+        expect(where).toEqual({ partnerId: 'partner-volos-1' })
+      })
+
+      test('empty string partnerId means no filter', () => {
+        const where = adminDeliveryListWhere({ partnerId: '' })
+        expect(where).toEqual({})
+        expect('partnerId' in where).toBe(false)
+      })
+
+      test('whitespace-only partnerId means no filter', () => {
+        const where = adminDeliveryListWhere({ partnerId: '   ' })
+        expect(where).toEqual({})
+        expect('partnerId' in where).toBe(false)
+      })
+
+      test('undefined partnerId means no filter', () => {
+        const where = adminDeliveryListWhere({ partnerId: undefined })
+        expect(where).toEqual({})
+        expect('partnerId' in where).toBe(false)
+      })
+    })
+
     describe('state filter (decision 96.1)', () => {
       test('state active = status notIn [DROPPED_OFF, CANCELED, FAILED]', () => {
         const where = adminDeliveryListWhere({ state: 'active' })
@@ -287,6 +317,63 @@ describe('delivery-list-filter', () => {
           ],
         })
         expect(where.OR).toBeDefined()
+      })
+
+      test('combines partnerId with courierId, state active, and search', () => {
+        const where = adminDeliveryListWhere({
+          partnerId: 'partner-1',
+          courierId: 'courier-42',
+          state: 'active',
+          search: 'souvlaki',
+        })
+
+        expect(where).toEqual({
+          partnerId: 'partner-1',
+          courierId: 'courier-42',
+          status: {
+            notIn: [
+              EnumDeliveryStatus.DROPPED_OFF,
+              EnumDeliveryStatus.CANCELED,
+              EnumDeliveryStatus.FAILED,
+            ],
+          },
+          OR: [
+            { orderReference: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
+            { dropoffName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
+            { pickupBusinessName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
+            { id: { endsWith: 'souvlaki' } },
+          ],
+        })
+      })
+
+      test('combines partnerId with state dropped_off without courier or search', () => {
+        const where = adminDeliveryListWhere({
+          partnerId: 'partner-1',
+          state: 'dropped_off',
+        })
+        expect(where).toEqual({
+          partnerId: 'partner-1',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+        })
+      })
+
+      test('empty/whitespace partnerId does not interfere when combined with other filters', () => {
+        const where = adminDeliveryListWhere({
+          partnerId: '   ',
+          courierId: 'courier-42',
+          state: 'active',
+        })
+        expect(where).toEqual({
+          courierId: 'courier-42',
+          status: {
+            notIn: [
+              EnumDeliveryStatus.DROPPED_OFF,
+              EnumDeliveryStatus.CANCELED,
+              EnumDeliveryStatus.FAILED,
+            ],
+          },
+        })
+        expect('partnerId' in where).toBe(false)
       })
     })
   })

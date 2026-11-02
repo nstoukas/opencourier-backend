@@ -118,6 +118,12 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.savedCustomerRetentionMonths).toBe(12)
   })
 
+  // Spec 0017, AC-1: InstanceConfigSettingsDto exposes restaurantHistoryDays
+  it('exposes restaurantHistoryDays (Spec 0017 AC-1)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.restaurantHistoryDays).toBe(30)
+  })
+
   // Row 72, decision 72.1: InstanceConfigSettingsDto carries dispatchPhoneNumber through
   it('carries dispatchPhoneNumber through (row 72, decision 72.1)', () => {
     const dtoWithPhone = new InstanceConfigSettingsDto({

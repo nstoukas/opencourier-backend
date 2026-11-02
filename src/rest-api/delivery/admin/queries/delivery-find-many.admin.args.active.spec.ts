@@ -55,14 +55,33 @@ describe('DeliveryFindManyAdminArgs', () => {
       expect(searchError?.constraints?.maxLength).toBeDefined()
     })
 
-    test('accepts courierId, page, and perPage', async () => {
+    test('accepts courierId, partnerId, page, and perPage', async () => {
       const input = plainToInstance(DeliveryFindManyAdminArgs, {
         courierId: 'courier-1',
+        partnerId: 'partner-1',
         page: 1,
         perPage: 25,
       })
       const errors = await validate(input)
       expect(errors).toHaveLength(0)
+    })
+
+    test('accepts partnerId string with up to 64 characters (spec 0017 AC-7)', async () => {
+      const input64 = plainToInstance(DeliveryFindManyAdminArgs, {
+        partnerId: 'p'.repeat(64),
+      })
+      const errors64 = await validate(input64)
+      expect(errors64.filter((e) => e.property === 'partnerId')).toHaveLength(0)
+    })
+
+    test('refuses partnerId string of 65 characters', async () => {
+      const input65 = plainToInstance(DeliveryFindManyAdminArgs, {
+        partnerId: 'p'.repeat(65),
+      })
+      const errors = await validate(input65)
+      const partnerError = errors.find((e) => e.property === 'partnerId')
+      expect(partnerError).toBeDefined()
+      expect(partnerError?.constraints?.maxLength).toBeDefined()
     })
   })
 
@@ -109,11 +128,19 @@ describe('DeliveryFindManyAdminArgs', () => {
       )
     })
 
-    test('transforms query with page, perPage, courierId, state, and search', async () => {
+    test('refuses partnerId string of 65 characters with 400 BadRequestException', async () => {
+      const partner65 = 'p'.repeat(65)
+      await expect(transform({ partnerId: partner65 })).rejects.toBeInstanceOf(
+        BadRequestException
+      )
+    })
+
+    test('transforms query with page, perPage, courierId, partnerId, state, and search', async () => {
       const transformed = await transform({
         page: '2',
         perPage: '15',
         courierId: 'courier-1',
+        partnerId: 'partner-1',
         state: 'active',
         search: 'Souvlaki',
       })
@@ -121,6 +148,7 @@ describe('DeliveryFindManyAdminArgs', () => {
       expect(transformed.page).toBe(2)
       expect(transformed.perPage).toBe(15)
       expect(transformed.courierId).toBe('courier-1')
+      expect(transformed.partnerId).toBe('partner-1')
       expect(transformed.state).toBe('active')
       expect(transformed.search).toBe('Souvlaki')
     })

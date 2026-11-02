@@ -991,6 +991,110 @@ describe('InstanceConfigDomainService', () => {
       })
     })
 
+    it('getRestaurantHistoryDays: returns default 30 on missing row, stored value if valid, and default 30 if out of range, fractional, or non-numeric (Spec 0017 AC-1)', async () => {
+      // 1. Missing row -> default 30
+      configRepository.getByKey.mockRejectedValueOnce(notFoundError)
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+
+      // 2. Stored valid (60) -> 60
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '60', type: 'number' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(60)
+
+      // 3. Stored below min (0) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '0', type: 'number' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+
+      // 4. Stored below min (-1) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '-1', type: 'number' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+
+      // 5. Stored above max (366) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '366', type: 'number' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+
+      // 6. Stored fractional (30.5) -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: '30.5', type: 'number' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+
+      // 7. Stored non-numeric ("invalid") -> fallback to default 30
+      configRepository.getByKey.mockResolvedValueOnce(
+        new ConfigEntity({ key: ConfigKey.RESTAURANT_HISTORY_DAYS, value: 'invalid', type: 'string' })
+      )
+      expect(await service.getRestaurantHistoryDays()).toBe(30)
+    })
+
+    describe('setInstanceConfigSettings - restaurantHistoryDays (Spec 0017 AC-1)', () => {
+      it('refuses 0 with sentence, "", 366, 2.5, "30", -1 naming the setting', async () => {
+        // 0 refused with whyZeroIsRefused sentence
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: 0 } as any)
+        ).rejects.toThrow('restaurantHistoryDays cannot be 0: a restaurant would not see the orders it sent today once they ended')
+
+        // "" refused
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: '' } as any)
+        ).rejects.toThrow('restaurantHistoryDays')
+
+        // 366 refused (> max 365)
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: 366 } as any)
+        ).rejects.toThrow('restaurantHistoryDays must be 365 or less')
+
+        // 2.5 refused (must be whole)
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: 2.5 } as any)
+        ).rejects.toThrow('restaurantHistoryDays must be a whole number')
+
+        // "30" string refused
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: '30' } as any)
+        ).rejects.toThrow('restaurantHistoryDays')
+
+        // -1 refused (< 0)
+        await expect(
+          service.setInstanceConfigSettings({ restaurantHistoryDays: -1 } as any)
+        ).rejects.toThrow('restaurantHistoryDays cannot be negative')
+      })
+
+      it('saves valid whole values 1, 30 and 365 under ConfigKey.RESTAURANT_HISTORY_DAYS', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+
+        for (const validVal of [1, 30, 365]) {
+          await service.setInstanceConfigSettings({ restaurantHistoryDays: validVal })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(
+            ConfigKey.RESTAURANT_HISTORY_DAYS,
+            validVal
+          )
+        }
+      })
+
+      it('includes restaurantHistoryDays in getInstanceConfigSettings output', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.RESTAURANT_HISTORY_DAYS) {
+            return new ConfigEntity({
+              key: ConfigKey.RESTAURANT_HISTORY_DAYS,
+              value: '45',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.restaurantHistoryDays).toBe(45)
+      })
+    })
+
     describe('setInstanceConfigSettings - dispatchPhoneNumber (row 72, decisions 72.1 to 72.3)', () => {
       it('refuses invalid phone numbers and throws BadRequestException with DISPATCH_PHONE_NUMBER_REFUSAL', async () => {
         const invalidNumbers = [

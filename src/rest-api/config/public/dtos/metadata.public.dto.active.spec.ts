@@ -88,4 +88,11 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     expect((dtoWithPhone as any).dispatchPhoneNumber).toBeUndefined()
     expect((dtoWithPhone.config as any).dispatchPhoneNumber).toBeUndefined()
   })
+
+  // Spec 0017, decision 28.7: restaurantHistoryDays is not added to public metadata
+  it('does NOT include restaurantHistoryDays on public metadata (decision 28.7)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect((dto as any).restaurantHistoryDays).toBeUndefined()
+    expect((dto.config as any).restaurantHistoryDays).toBeUndefined()
+  })
 })

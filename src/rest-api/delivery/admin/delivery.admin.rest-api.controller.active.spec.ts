@@ -343,9 +343,10 @@ describe('DeliveryAdminRestApiController', () => {
       mockDeliveryDomainService.getOfferViews.mockResolvedValue(new Map())
     })
 
-    test('passes courierId, state, and search converted to where to deliveryDomainService.getMany with page and perPage', async () => {
+    test('passes courierId, partnerId, state, and search converted to where to deliveryDomainService.getMany with page and perPage', async () => {
       const args: DeliveryFindManyAdminArgs = {
         courierId: 'courier-1',
+        partnerId: 'partner-volos-1',
         state: 'active',
         search: 'Nikou',
         page: 2,
@@ -358,6 +359,7 @@ describe('DeliveryAdminRestApiController', () => {
       expect(mockDeliveryDomainService.getMany).toHaveBeenCalledWith(
         adminDeliveryListWhere({
           courierId: 'courier-1',
+          partnerId: 'partner-volos-1',
           state: 'active',
           search: 'Nikou',
         }),
@@ -366,6 +368,16 @@ describe('DeliveryAdminRestApiController', () => {
       )
       expect(mockDeliveryDomainService.getOfferViews).toHaveBeenCalledWith(mockDeliveriesData.data)
       expect(result.data).toHaveLength(1)
+    })
+
+    test('fails if partnerId is dropped on the way to getMany (spec 0017 AC-7)', async () => {
+      await controller.getDeliveries({ partnerId: 'partner-1' })
+
+      expect(mockDeliveryDomainService.getMany).toHaveBeenCalledTimes(1)
+      const call = mockDeliveryDomainService.getMany.mock.calls[0]
+      expect(call).toBeDefined()
+      const calledWhere = call![0]
+      expect(calledWhere).toHaveProperty('partnerId', 'partner-1')
     })
 
     test('fails if state is dropped on the way to getMany', async () => {
