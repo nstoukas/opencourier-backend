@@ -158,7 +158,9 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
 
     const results = await this.prisma.$queryRaw<Array<{ currentLocation: string }>>(queryRaw)
 
-    if (results.length === 0 || !results[0]) {
+    // A rider who never sent a location has none stored: that is "unknown", not an error (row 100
+    // review: the offer push asks for it on every offer).
+    if (results.length === 0 || !results[0] || !results[0].currentLocation) {
       return null
     }
 

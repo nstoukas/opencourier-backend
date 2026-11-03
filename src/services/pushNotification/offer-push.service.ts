@@ -20,12 +20,12 @@ interface OfferInsistJobPayload {
   offeredAt: string // ISO time; jobs are stored as JSON, which has no Date
 }
 
-// Job ids use '-', never ':' (BullMQ refuses ':' in custom ids).
 // The longest an offer alert waits for the co-op's routing before it goes with unknown trip figures
 // (decision 100.1). Routing answers in milliseconds from its cache; this only bounds a hung server, so
 // a locked phone hears of an offer at most this much later, never the full OSRM timeout.
 export const OFFER_PUSH_TRIP_BUDGET_MS = 1500
 
+// Job ids use '-', never ':' (BullMQ refuses ':' in custom ids).
 const offerInsistJobId = (deliveryId: string, offeredAt: Date) => `offer-insist-${deliveryId}-${offeredAt.getTime()}`
 
 // The push half of telling a rider about an offer (spec 0003). DeliveryEventService sends the socket
@@ -109,7 +109,11 @@ export class OfferPushService {
       if (tokens.length === 0) return
 
       const source = await this.deliveryRepository.findOfferCardSourceOrThrow(deliveryId)
+      // An offer already past its deadline gets no push, so it pays no routing wait either (row 100
+      // review). Checked again below, after the wait, with the clock the message carries.
+      if (source.delivery.offerExpiresAt && source.delivery.offerExpiresAt.getTime() <= Date.now()) return
       const trip = await this.tripFor(courierId, deliveryId, source.pickupLocation, source.dropoffLocation)
+      // Read after the wait, so serverNow and the TTL count from when the message really goes.
       const now = new Date()
       const card = buildOfferCardPayload({ ...source, trip }, { serverNow: now, insistent })
 
