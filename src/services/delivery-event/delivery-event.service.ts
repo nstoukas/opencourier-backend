@@ -61,6 +61,7 @@ import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-tim
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
+import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -171,7 +172,8 @@ export class DeliveryEventService {
   }
 
   async processDeliveryEvent(originalEvent: DeliveryEvent): Promise<void> {
-    this.logger.log(`Processing order event: ${JSON.stringify(originalEvent)}`)
+    // Ids and type only (row 95): the event's message is free text and stays on its DeliveryEvent row.
+    this.logger.log(`Processing order event: ${eventLogLine(originalEvent)}`)
     const deliveryEvent = { ...originalEvent }
     const deliveryId = deliveryEvent.deliveryId
 
@@ -421,7 +423,7 @@ export class DeliveryEventService {
           break
         }
         default:
-          this.logger.warn(`Received an unsupported order status event ${deliveryEvent}`)
+          this.logger.warn(`Received an unsupported order status event: ${eventLogLine(deliveryEvent)}`)
       }
     } catch (error) {
       this.logger.error(

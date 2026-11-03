@@ -26,8 +26,8 @@ export class NgrokMiddleware implements NestMiddleware {
     //make sure host is the development server or else this will endlessly loop
     if (req.method === 'POST' && req.headers.host == 'api.dev.palettelabs.io') {
       this.logger.log(`Destination ${req.headers.host}${req.path}`)
-      this.logger.log(`Headers ${JSON.stringify(req.headers)}`)
-      this.logger.log(`Body ${JSON.stringify(req.body)}`)
+      // Row 95: never the headers (they carry the bearer token) or the body (a delivery carries the
+      // customer's name, phone and address); the path is enough to follow a forward.
       this.logger.log(`Forwarding to ${this.url}${req.path}`)
       try {
         const headers = {
