@@ -411,7 +411,8 @@ export class DeliveryEventService {
           await this.matchWaitingDeliveries()
           break
         case EnumDeliveryStatus.FAILED: {
-          this.logger.log(`Delivery ${deliveryEvent.deliveryId} has failed with reason: ${deliveryEvent.message}`)
+          // The reason is free text and stays on the event row (row 95): the log names the delivery only.
+          this.logger.log(`Delivery ${deliveryEvent.deliveryId} has failed`)
 
           await this.endDelivery(dbDelivery, deliveryEvent, newStatus, currentStatus)
           break
@@ -427,7 +428,7 @@ export class DeliveryEventService {
       }
     } catch (error) {
       this.logger.error(
-        `Delivery status transition failed for event ${JSON.stringify(deliveryEvent)}:  ${error}`,
+        `Delivery status transition failed for event ${eventLogLine(deliveryEvent)}: ${error}`,
         (error as Error).stack
       )
       await this.saveDeliveryEvent(deliveryEvent, {

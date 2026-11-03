@@ -412,9 +412,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
   // Known leaks the row's change did not close (flagged to the operator, not fixed by the tests).
   // `test.failing` passes while the leak is there and fails once it is fixed: then make it a plain test.
   // (Jest 29 has test.failing; the installed @types/jest is 26 and does not know it, hence the cast.)
-  const knownLeak = (test as unknown as { failing: jest.It }).failing
   describe('known leaks of the event message (flagged)', () => {
-    knownLeak('a FAILED event logs its reason (the message) in "has failed with reason"', async () => {
+    test('a FAILED event logs its reason (the message) in "has failed with reason"', async () => {
       deliveryRepository.findByIdOrThrow.mockResolvedValue(ongoing(EnumDeliveryStatus.PICKED_UP))
 
       await service.processDeliveryEvent(event(EnumDeliveryEventType.FAILED))
@@ -423,7 +422,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       expectNoDetailsLogged()
     })
 
-    knownLeak('a failed transition logs the whole event, message included, in the catch block', async () => {
+    test('a failed transition logs the whole event, message included, in the catch block', async () => {
       // The cancel's conditional write misses (another step got there first), so the catch block runs.
       deliveryRepository.findByIdOrThrow.mockResolvedValue(ongoing(EnumDeliveryStatus.PICKED_UP))
       deliveryRepository.updateIfMatches.mockResolvedValue(false)

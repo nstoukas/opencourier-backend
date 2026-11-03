@@ -122,8 +122,7 @@ describe('NgrokMiddleware logs no headers or body (row 95)', () => {
   // fields (the production Google Cloud transport) would carry both. `test.failing` passes while
   // the leak is there; once it is fixed, make it a plain test.
   // (Jest 29 has test.failing; the installed @types/jest is 26 and does not know it, hence the cast.)
-  const knownLeak = (test as unknown as { failing: jest.It }).failing
-  knownLeak('a failed forward logs nothing of the request it carried', async () => {
+  test('a failed forward logs nothing of the request it carried', async () => {
     const { AxiosError } = jest.requireActual('axios')
     post.mockRejectedValue(
       new AxiosError('Request failed with status code 502', 'ERR_BAD_RESPONSE', {
