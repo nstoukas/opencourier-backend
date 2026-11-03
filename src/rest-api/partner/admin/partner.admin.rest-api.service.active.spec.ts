@@ -26,6 +26,7 @@ describe('PartnerAdminRestApiService', () => {
     logo: null,
     phoneNumber: '+302421000000',
     webhookUrl: null,
+    usualPrepMinutes: 15,
     userId: 'user-200',
     pickupLocationId: 'loc-300',
     createdAt: new Date('2026-07-01T10:00:00Z'),
@@ -382,6 +383,57 @@ describe('PartnerAdminRestApiService', () => {
       expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
         phoneNumber: null,
       })
+    })
+  })
+
+  // Spec 0023, AC-9: the usual prep time a representative sets.
+  describe('usualPrepMinutes (spec 0023, AC-9)', () => {
+    const createInput = { name: 'Taverna Volos', email: 'taverna@volos.gr', password: 'securepassword123' }
+
+    test('create passes the usual prep time it was given', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
+      mockPartnerDomainService.createWithLogin.mockResolvedValue(mockPartnerEntity)
+
+      await service.createRestaurant({ ...createInput, usualPrepMinutes: 20 })
+
+      expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith(expect.objectContaining({ usualPrepMinutes: 20 }))
+    })
+
+    test('create passes 0 as 0 (Now is a real usual time)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
+      mockPartnerDomainService.createWithLogin.mockResolvedValue(mockPartnerEntity)
+
+      await service.createRestaurant({ ...createInput, usualPrepMinutes: 0 })
+
+      expect(mockPartnerDomainService.createWithLogin.mock.calls[0]?.[0].usualPrepMinutes).toBe(0)
+    })
+
+    test('create without it passes no value, so the column default applies', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
+      mockPartnerDomainService.createWithLogin.mockResolvedValue(mockPartnerEntity)
+
+      await service.createRestaurant(createInput)
+
+      expect(mockPartnerDomainService.createWithLogin.mock.calls[0]?.[0].usualPrepMinutes).toBeUndefined()
+    })
+
+    test('update writes the usual prep time it was given, 0 included', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      await service.updateRestaurant('partner-100', { usualPrepMinutes: 0 })
+
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', { usualPrepMinutes: 0 })
+    })
+
+    test('update without it leaves it alone', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      await service.updateRestaurant('partner-100', { name: 'Renamed' })
+
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', { name: 'Renamed' })
+      expect(mockPartnerDomainService.update.mock.calls[0]?.[1]).not.toHaveProperty('usualPrepMinutes')
     })
   })
 

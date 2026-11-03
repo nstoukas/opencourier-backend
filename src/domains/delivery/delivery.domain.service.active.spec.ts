@@ -87,7 +87,9 @@ describe('DeliveryDomainService', () => {
       mockDeliveryEventService,
       mockCourierRepository,
       mockCourierCompensationRepository,
-      mockConfigDomainService
+      mockConfigDomainService,
+      // PartnerRepository (spec 0023): only create() reads it; its tests are in ready-signals.domain.active.spec.ts.
+      { findById: jest.fn().mockResolvedValue(null) } as any
     )
   })
 

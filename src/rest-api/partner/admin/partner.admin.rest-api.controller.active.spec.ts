@@ -16,6 +16,7 @@ describe('PartnerAdminRestApiController', () => {
     logo: null,
     phoneNumber: '+302421000000',
     webhookUrl: null,
+    usualPrepMinutes: 15,
     userId: 'user-200',
     pickupLocationId: 'loc-300',
     createdAt: new Date('2026-07-01T10:00:00Z'),

@@ -72,7 +72,9 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       mockDeliveryEventService,
       mockCourierRepository,
       mockCourierCompensationRepository,
-      mockConfigDomainService
+      mockConfigDomainService,
+      // PartnerRepository (spec 0023): only create() reads it, which these tests do not call.
+      {} as any
     )
   })
 

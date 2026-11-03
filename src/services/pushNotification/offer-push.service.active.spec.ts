@@ -484,6 +484,104 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
     })
   })
 
+  describe('jobReadyUpdated / sendJobReadyUpdated (Spec 0023 AC-6)', () => {
+    const delayMessage = {
+      deliveryId: 'del-push-1',
+      restaurantName: 'R73 Kitchen',
+      readyAt: '2026-11-03T12:18:00.000Z',
+      foodReadyAt: null,
+      delayMinutes: 10,
+    }
+
+    test('sends JOB_READY_UPDATED with the same fields as strings, null as empty, to every device with the default TTL', async () => {
+      await service.sendJobReadyUpdated('courier-1', delayMessage)
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).toHaveBeenCalledWith('courier-1')
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+        ['token-device-a', 'token-device-b'],
+        {
+          type: NotificationEventType.JOB_READY_UPDATED,
+          deliveryId: 'del-push-1',
+          restaurantName: 'R73 Kitchen',
+          readyAt: '2026-11-03T12:18:00.000Z',
+          foodReadyAt: '',
+          delayMinutes: '10',
+        },
+        PUSH_DEFAULT_TTL_SECONDS
+      )
+    })
+
+    test('food ready: foodReadyAt as its ISO string and delayMinutes empty', async () => {
+      await service.sendJobReadyUpdated('courier-1', {
+        ...delayMessage,
+        foodReadyAt: '2026-11-03T12:10:00.000Z',
+        delayMinutes: null,
+      })
+
+      const data = mockPushNotificationService.sendData.mock.calls[0]?.[1]
+      expect(data).toEqual(
+        expect.objectContaining({
+          foodReadyAt: '2026-11-03T12:10:00.000Z',
+          delayMinutes: '',
+        })
+      )
+      // Every value a data push carries is a string.
+      for (const value of Object.values(data ?? {})) expect(typeof value).toBe('string')
+    })
+
+    test('an order with no readyAt sends readyAt as empty', async () => {
+      await service.sendJobReadyUpdated('courier-1', { ...delayMessage, readyAt: null })
+
+      expect(mockPushNotificationService.sendData.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ readyAt: '' }))
+    })
+
+    test('push off: nothing read and nothing sent (both entry points)', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      service.jobReadyUpdated('courier-1', delayMessage)
+      await service.sendJobReadyUpdated('courier-1', delayMessage)
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('no registered device: nothing sent', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValueOnce([])
+
+      await service.sendJobReadyUpdated('courier-1', delayMessage)
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('jobReadyUpdated starts the send and swallows a failure without throwing', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Push crashed'))
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined)
+
+      expect(() => service.jobReadyUpdated('courier-1', delayMessage)).not.toThrow()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(mockCourierDeviceRepository.findTokensForCourier).toHaveBeenCalledWith('courier-1')
+    })
+
+    test('a failed send is logged by delivery id, never by the restaurant name', async () => {
+      mockPushNotificationService.sendData.mockRejectedValue(new Error('FCM down'))
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined)
+
+      await expect(service.sendJobReadyUpdated('courier-1', delayMessage)).resolves.toBeUndefined()
+
+      const logged = errorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(logged).toContain('del-push-1')
+      expect(logged).not.toContain('R73 Kitchen')
+    })
+
+    test('dead tokens reported by the send are pruned', async () => {
+      mockPushNotificationService.sendData.mockResolvedValue({ deadTokens: ['token-device-b'], failureCodes: [] })
+
+      await service.sendJobReadyUpdated('courier-1', delayMessage)
+
+      expect(mockCourierDeviceRepository.deleteByTokens).toHaveBeenCalledWith(['token-device-b'])
+    })
+  })
+
   describe('Row 100: the offer push carries the card trip (spec 0019 AC-1, decisions 100.1, 100.2)', () => {
     // Every Nest logger call made while a test runs (the service's own and offerTripFor's), so value 5
     // can be checked: no log line may carry a coordinate.

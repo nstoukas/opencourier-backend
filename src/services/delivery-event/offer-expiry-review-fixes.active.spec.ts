@@ -788,6 +788,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         service,
         mockCourierRepository,
         {} as any,
+        {} as any,
+        // PartnerRepository (spec 0023): only create() reads it, which these tests do not call.
         {} as any
       )
 
@@ -882,6 +884,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         service,
         mockCourierRepository,
         {} as any,
+        {} as any,
+        // PartnerRepository (spec 0023): only create() reads it, which these tests do not call.
         {} as any
       )
 

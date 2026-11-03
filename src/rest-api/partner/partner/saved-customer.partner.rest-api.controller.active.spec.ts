@@ -15,6 +15,7 @@ describe('SavedCustomerPartnerRestApiController (AC-1, AC-3, AC-4, AC-5)', () =>
     logo: 'https://example.com/logo.png',
     phoneNumber: '+302421012345',
     webhookUrl: 'https://example.com/webhook',
+    usualPrepMinutes: 15,
     userId: 'user-789',
     pickupLocationId: 'loc-456',
     createdAt: new Date('2026-07-01T10:00:00Z'),

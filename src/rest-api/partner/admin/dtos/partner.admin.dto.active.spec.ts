@@ -13,6 +13,7 @@ describe('PartnerAdminDto', () => {
       logo: 'https://example.com/logo.png',
       phoneNumber: '+302421000000',
       webhookUrl: 'https://example.com/webhook',
+      usualPrepMinutes: 15,
       userId: 'user-200',
       pickupLocationId: 'loc-300',
       createdAt,
@@ -76,6 +77,7 @@ describe('PartnerAdminDto', () => {
       logo: null,
       phoneNumber: null,
       webhookUrl: null,
+      usualPrepMinutes: 15,
       userId: null,
       pickupLocationId: null,
       createdAt,
@@ -91,5 +93,12 @@ describe('PartnerAdminDto', () => {
     // email and pickupAddress must default to null rather than undefined
     expect(dto.email).toBeNull()
     expect(dto.pickupAddress).toBeNull()
+  })
+
+  // Spec 0023, AC-9: the admin restaurant DTO carries the usual prep time.
+  test('carries usualPrepMinutes, 0 included', () => {
+    const base = { id: 'p', name: 'n', logo: null, phoneNumber: null, webhookUrl: null, userId: null, pickupLocationId: null, createdAt, updatedAt }
+    expect(new PartnerAdminDto(new PartnerEntity({ ...base, usualPrepMinutes: 25 })).usualPrepMinutes).toBe(25)
+    expect(new PartnerAdminDto(new PartnerEntity({ ...base, usualPrepMinutes: 0 })).usualPrepMinutes).toBe(0)
   })
 })
