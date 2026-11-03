@@ -161,4 +161,15 @@ describe('InstanceConfigSettingsDto', () => {
     const dto = new InstanceConfigSettingsDto(baseConfigData)
     expect(dto.sosLocationRetentionDays).toBe(30)
   })
+
+  // Spec 0026 (AC-5): the admin settings DTO carries both shift settings, false and 0 included.
+  it('carries shiftsEnabled and shiftDropNoticeHours (spec 0026 AC-5)', () => {
+    const on = new InstanceConfigSettingsDto({ ...baseConfigData, shiftsEnabled: true, shiftDropNoticeHours: 24 })
+    expect(on.shiftsEnabled).toBe(true)
+    expect(on.shiftDropNoticeHours).toBe(24)
+
+    const off = new InstanceConfigSettingsDto({ ...baseConfigData, shiftsEnabled: false, shiftDropNoticeHours: 0 })
+    expect(off.shiftsEnabled).toBe(false)
+    expect(off.shiftDropNoticeHours).toBe(0)
+  })
 })

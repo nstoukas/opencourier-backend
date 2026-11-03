@@ -2208,4 +2208,132 @@ describe('InstanceConfigDomainService', () => {
       expect(maxDrift).toBe(0)
     })
   })
+
+  describe('shift settings (spec 0026, AC-5, decision 77.3)', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    beforeEach(() => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+    })
+
+    describe('setInstanceConfigSettings - shiftsEnabled', () => {
+      it('saves false (Shifts off), not dropped by a truthy check', async () => {
+        await service.setInstanceConfigSettings({ shiftsEnabled: false })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false)
+      })
+
+      it('saves true', async () => {
+        await service.setInstanceConfigSettings({ shiftsEnabled: true })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, true)
+      })
+
+      it('saves nothing for it when left out', async () => {
+        await service.setInstanceConfigSettings({ handBackSeconds: 60 })
+        expect(configRepository.saveByKey).not.toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, expect.anything())
+      })
+
+      it.each(['false', 'true', 0, 1, null])('refuses %p sent past the pipe, saving nothing', async (value) => {
+        const promise = service.setInstanceConfigSettings({ shiftsEnabled: value as any })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('shiftsEnabled must be true or false')
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('setInstanceConfigSettings - shiftDropNoticeHours', () => {
+      it.each([0, 1, 12, 168])('saves %p hours', async (value) => {
+        await service.setInstanceConfigSettings({ shiftDropNoticeHours: value })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, value)
+      })
+
+      it.each([
+        [169, 'shiftDropNoticeHours must be 168 or less'],
+        [-1, 'shiftDropNoticeHours cannot be negative'],
+        [1.5, 'shiftDropNoticeHours must be a whole number'],
+        ['12', 'shiftDropNoticeHours must be a number'],
+        [null, 'shiftDropNoticeHours must be a number'],
+      ])('refuses %p with "%s", saving nothing', async (value, sentence) => {
+        const promise = service.setInstanceConfigSettings({ shiftDropNoticeHours: value as any })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow(sentence)
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+
+      it('a refused notice also stops a valid shiftsEnabled in the same save (validate first)', async () => {
+        await expect(
+          service.setInstanceConfigSettings({ shiftsEnabled: true, shiftDropNoticeHours: 169 })
+        ).rejects.toThrow(BadRequestException)
+        expect(configRepository.saveByKey).not.toHaveBeenCalled()
+      })
+
+      it('saves both together, false and 0 included', async () => {
+        await service.setInstanceConfigSettings({ shiftsEnabled: false, shiftDropNoticeHours: 0 })
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, 0)
+      })
+    })
+
+    describe('getters', () => {
+      it('getShiftsEnabled: false with no row, true only for a stored boolean true', async () => {
+        expect(await service.getShiftsEnabled()).toBe(false)
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SHIFTS_ENABLED, value: 'true', type: 'boolean' })
+        )
+        expect(await service.getShiftsEnabled()).toBe(true)
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SHIFTS_ENABLED, value: 'false', type: 'boolean' })
+        )
+        expect(await service.getShiftsEnabled()).toBe(false)
+
+        configRepository.getByKey.mockResolvedValueOnce(
+          new ConfigEntity({ key: ConfigKey.SHIFTS_ENABLED, value: 'yes', type: 'string' })
+        )
+        expect(await service.getShiftsEnabled()).toBe(false)
+      })
+
+      it('getShiftDropNoticeHours: 12 with no row, the stored value when valid, 12 when out of range', async () => {
+        expect(await service.getShiftDropNoticeHours()).toBe(12)
+
+        for (const valid of [0, 24, 168]) {
+          configRepository.getByKey.mockResolvedValueOnce(
+            new ConfigEntity({ key: ConfigKey.SHIFT_DROP_NOTICE_HOURS, value: String(valid), type: 'number' })
+          )
+          expect(await service.getShiftDropNoticeHours()).toBe(valid)
+        }
+
+        const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation()
+        for (const bad of ['169', '-1', '1.5']) {
+          configRepository.getByKey.mockResolvedValueOnce(
+            new ConfigEntity({ key: ConfigKey.SHIFT_DROP_NOTICE_HOURS, value: bad, type: 'number' })
+          )
+          expect(await service.getShiftDropNoticeHours()).toBe(12)
+        }
+        warnSpy.mockRestore()
+      })
+
+      it('getInstanceConfigSettings carries the defaults false and 12 with no rows', async () => {
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.shiftsEnabled).toBe(false)
+        expect(settings.shiftDropNoticeHours).toBe(12)
+      })
+
+      it('getInstanceConfigSettings carries stored values', async () => {
+        configRepository.getByKey.mockImplementation((key: string) => {
+          if (key === ConfigKey.SHIFTS_ENABLED) {
+            return Promise.resolve(new ConfigEntity({ key, value: 'true', type: 'boolean' }))
+          }
+          if (key === ConfigKey.SHIFT_DROP_NOTICE_HOURS) {
+            return Promise.resolve(new ConfigEntity({ key, value: '48', type: 'number' }))
+          }
+          return Promise.reject(notFoundError)
+        })
+        const settings = await service.getInstanceConfigSettings()
+        expect(settings.shiftsEnabled).toBe(true)
+        expect(settings.shiftDropNoticeHours).toBe(48)
+      })
+    })
+  })
 })
