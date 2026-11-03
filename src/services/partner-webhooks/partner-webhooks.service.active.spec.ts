@@ -8,6 +8,7 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { DeliveryStatusUpdateEvent } from 'src/shared-types/index'
+import { PrismaService } from 'src/services/prisma/prisma.service'
 
 describe('PartnerWebhookService (Spec 0016 AC-12, Decision 31.18: webhook logs ids only)', () => {
   let service: PartnerWebhookService
@@ -226,6 +227,52 @@ describe('PartnerWebhookService (Spec 0016 AC-12, Decision 31.18: webhook logs i
       const allLogs = getAllLogs()
       expect(allLogs).not.toContain(sampleDelivery.dropoffName)
       expect(allLogs).not.toContain(sampleDelivery.dropoffPhoneNumber)
+    })
+  })
+
+  describe('Spec 0025 AC-7 (decision 98.3): the posted body carries no searchFold', () => {
+    // The real repositories turn database rows into entities; only Prisma is faked. The rows carry
+    // searchFold, as the trigger fills it, and the webhook posts the whole entities.
+    test('a delivery and a courier whose rows have searchFold are posted without the key', async () => {
+      const deliveryRow = {
+        ...sampleDelivery,
+        orderReference: 'ORD-77',
+        pickupBusinessName: 'Ψητοπωλείο',
+        searchFold: 'ord-77\neleni papadopoulou\nψητοπωλειο',
+      }
+      const courierRow = {
+        id: 'courier-300',
+        firstName: 'Γιώργος',
+        lastName: 'Παπαδόπουλος',
+        phoneNumber: '+302421010009',
+        searchFold: 'γιωργοσ\nπαπαδοπουλοσ\n+302421010009\n302421010009',
+      }
+      const prisma = {
+        delivery: { findUniqueOrThrow: jest.fn().mockResolvedValue(deliveryRow) },
+        courier: { findUniqueOrThrow: jest.fn().mockResolvedValue(courierRow) },
+      } as unknown as PrismaService
+
+      const realService = new PartnerWebhookService(
+        partnerRepository,
+        new DeliveryRepository(prisma),
+        new CourierRepository(prisma),
+        httpService as unknown as HttpService
+      )
+
+      await realService.sendDeliveryUpdatePartnerWebhook(sampleEvent)
+
+      expect(httpService.axiosRef.post).toHaveBeenCalledTimes(1)
+      const body = httpService.axiosRef.post.mock.calls[0]![1]
+      // The delivery and courier really went through (so the check below is not vacuous).
+      expect(body.delivery.dropoffName).toBe('Eleni Papadopoulou')
+      expect(body.courier.firstName).toBe('Γιώργος')
+      // What axios sends is the JSON of the body.
+      const json = JSON.stringify(body)
+      expect(json).not.toContain('searchFold')
+      expect('searchFold' in body.delivery).toBe(false)
+      expect('searchFold' in body.courier).toBe(false)
+      expect(json).not.toContain('ψητοπωλειο')
+      expect(json).not.toContain('γιωργοσ')
     })
   })
 })
