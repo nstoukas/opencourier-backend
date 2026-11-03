@@ -247,12 +247,32 @@ export class DeliveryPartnerRestApiService {
       throw new DeliveryLocationDoesntMatchQuoteException("Delivery dropoff location doesn't match quote location")
     }
 
-    await this.locationDomainService.update(delivery.dropoffLocationId, {
-      latitude: input.dropoffLatitude,
-      longitude: input.dropoffLongitude,
-    })
+    // Row 102: a Location row is shared (`findOrCreate` reuses one for the same address and point),
+    // so moving it in place would move every other delivery and quote on it too. A moved point gets a
+    // row of its own: the old address with the new coordinates. An unmoved point changes nothing.
+    const pointMoved =
+      dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
+    const dropoffLocationId = pointMoved
+      ? (
+          await this.locationDomainService.create({
+            addressLine1: dropoffLocation.addressLine1,
+            addressLine2: dropoffLocation.addressLine2,
+            city: dropoffLocation.city,
+            state: dropoffLocation.state,
+            street: dropoffLocation.street,
+            zipCode: dropoffLocation.zipCode,
+            countryCode: dropoffLocation.countryCode,
+            stateCode: dropoffLocation.stateCode,
+            houseNumber: dropoffLocation.houseNumber,
+            formattedAddress: dropoffLocation.formattedAddress,
+            latitude: input.dropoffLatitude,
+            longitude: input.dropoffLongitude,
+          })
+        ).id
+      : delivery.dropoffLocationId
 
     const updatedDelivery = await this.deliveryDomainService.update(delivery.id, {
+      dropoffLocationId,
       pickupNotes: input.pickupNotes,
       pickupVerification: input.pickupVerification as any as JsonValue,
       pickupReadyAt: input.pickupReadyAt,
