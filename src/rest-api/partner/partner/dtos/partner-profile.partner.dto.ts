@@ -13,9 +13,15 @@ export class PartnerProfileDto {
   @ApiProperty({ type: PickupAddressPartnerDto, nullable: true })
   pickupAddress: PickupAddressPartnerDto | null
 
+  // Spec 0023 (decision 21.13): the minutes this restaurant usually needs; the order form's Ready in
+  // starts on it.
+  @ApiProperty({ type: Number })
+  usualPrepMinutes: number
+
   constructor(data: { partner: PartnerEntity; pickupLocation: LocationEntity | null }) {
     this.name = data.partner.name
     this.phoneNumber = data.partner.phoneNumber
     this.pickupAddress = data.pickupLocation ? new PickupAddressPartnerDto(data.pickupLocation) : null
+    this.usualPrepMinutes = data.partner.usualPrepMinutes
   }
 }
