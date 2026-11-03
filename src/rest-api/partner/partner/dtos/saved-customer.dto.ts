@@ -19,6 +19,8 @@ export class SavedCustomerDto {
   @ApiProperty() longitude: number
   @ApiProperty({ type: String, nullable: true }) formattedAddress: string | null
   @ApiProperty() lastUsedAt: Date
+  // Row 99: when a rider last moved this customer's pin, or null.
+  @ApiProperty({ type: Date, nullable: true }) pinMovedByRiderAt: Date | null
   @ApiProperty() createdAt: Date
   @ApiProperty() updatedAt: Date
 
@@ -37,6 +39,7 @@ export class SavedCustomerDto {
     this.longitude = customer.longitude
     this.formattedAddress = customer.formattedAddress
     this.lastUsedAt = customer.lastUsedAt
+    this.pinMovedByRiderAt = customer.pinMovedByRiderAt ?? null
     this.createdAt = customer.createdAt
     this.updatedAt = customer.updatedAt
   }

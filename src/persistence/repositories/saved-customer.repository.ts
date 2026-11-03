@@ -93,7 +93,8 @@ export class SavedCustomerRepository extends EntityRepository {
   ): Promise<boolean> {
     const result = await this.prisma.savedCustomer.updateMany({
       where: { id, partnerId, latitude: from.latitude, longitude: from.longitude },
-      data: { latitude: to.latitude, longitude: to.longitude },
+      // Row 99: the restaurant sees that a rider moved it, and when.
+      data: { latitude: to.latitude, longitude: to.longitude, pinMovedByRiderAt: new Date() },
     })
     return result.count === 1
   }
@@ -119,10 +120,11 @@ export class SavedCustomerRepository extends EntityRepository {
         where: { partnerId_phone: { partnerId, phone: fields.phone } },
         select: { id: true },
       })
+      const before = await pointBefore(tx, { partnerId_phone: { partnerId, phone: fields.phone } })
       const saved = await tx.savedCustomer.upsert({
         where: { partnerId_phone: { partnerId, phone: fields.phone } },
         create: { ...fields, partnerId },
-        update: fields,
+        update: { ...fields, ...clearRiderMoveIfPointChanged(before, fields) },
       })
       // A customer created just now already has lastUsedAt = now, so only an existing one is touched.
       const customer = markUsed && existing !== null ? await markUsedInTransaction(tx, partnerId, saved.id) : saved
@@ -140,8 +142,12 @@ export class SavedCustomerRepository extends EntityRepository {
   ): Promise<SavedCustomer | null> {
     return this.prisma.$transaction(async (tx) => {
       if (Object.keys(fields).length > 0) {
+        const before = await pointBefore(tx, { id })
         // updateMany, not update: it takes a non-unique WHERE, so ownership is part of the write.
-        const { count } = await tx.savedCustomer.updateMany({ where: { id, partnerId }, data: fields })
+        const { count } = await tx.savedCustomer.updateMany({
+          where: { id, partnerId },
+          data: { ...fields, ...clearRiderMoveIfPointChanged(before, fields) },
+        })
         if (count === 0) {
           return null
         }
@@ -204,4 +210,24 @@ async function markUsedInTransaction(
 // escape character). Exported for the tests.
 export function escapeLikePattern(text: string): string {
   return text.replace(/[\\%_]/g, (character) => `\\${character}`)
+}
+
+// Row 99: the point a saved customer had before a restaurant's write, or null when it is new.
+async function pointBefore(
+  tx: Prisma.TransactionClient,
+  where: Prisma.SavedCustomerWhereUniqueInput
+): Promise<{ latitude: number; longitude: number } | null> {
+  return tx.savedCustomer.findUnique({ where, select: { latitude: true, longitude: true } })
+}
+
+// Row 99: a restaurant that sets a different point has dealt with the rider's move, so its mark goes.
+// Writing the same point back (an order that used the corrected point) keeps it.
+function clearRiderMoveIfPointChanged(
+  before: { latitude: number; longitude: number } | null,
+  fields: Partial<{ latitude: number; longitude: number }>
+): { pinMovedByRiderAt?: null } {
+  if (!before) return {}
+  const latitude = fields.latitude ?? before.latitude
+  const longitude = fields.longitude ?? before.longitude
+  return latitude !== before.latitude || longitude !== before.longitude ? { pinMovedByRiderAt: null } : {}
 }

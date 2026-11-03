@@ -195,6 +195,9 @@ model SavedCustomer {
   doorbell         String?  @postgres.VarChar(60)
   // Moved only by an order using this customer, and never backwards. The retention job reads it.
   lastUsedAt       DateTime @default(now())
+  // Row 99: when a rider last moved this customer's pin (spec 0016), shown to the restaurant; cleared
+  // when the restaurant itself sets a different point.
+  pinMovedByRiderAt DateTime? @postgres.Timestamptz(6)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
