@@ -407,7 +407,7 @@ export class InstanceConfigDomainService {
       }
     }
 
-    // The one on/off setting. The DTO's @RefuseIfNotSentAsBoolean() already refuses "false" and
+    // The on/off settings. The DTO's @RefuseIfNotSentAsBoolean() already refuses "false" and
     // friends; this repeats it for any caller that does not come through the ValidationPipe.
     if (data.shiftsEnabled !== undefined && typeof data.shiftsEnabled !== 'boolean') {
       throw new BadRequestException('shiftsEnabled must be true or false')
@@ -824,9 +824,8 @@ export class InstanceConfigDomainService {
     return stored ?? FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
   }
 
-  // Offer expiry is on only when the stored value is the boolean true. Anything else, including a
-  // missing row or a bad value, reads as off: expiry off is the safe state (offers keep ringing).
-  // Shifts (spec 0026): off unless a representative switched them on.
+  // Shifts (spec 0026): on only when the stored value is the boolean true; a missing row or a bad value
+  // reads as off, which changes nothing for anyone.
   async getShiftsEnabled(): Promise<boolean> {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.SHIFTS_ENABLED, DEFAULT_SHIFTS_ENABLED)
     return enabled.value === true
@@ -841,6 +840,8 @@ export class InstanceConfigDomainService {
     )
   }
 
+  // Offer expiry is on only when the stored value is the boolean true. Anything else, including a
+  // missing row or a bad value, reads as off: expiry off is the safe state (offers keep ringing).
   async getOfferExpiryEnabled(): Promise<boolean> {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.OFFER_EXPIRY_ENABLED, DEFAULT_OFFER_EXPIRY_ENABLED)
 

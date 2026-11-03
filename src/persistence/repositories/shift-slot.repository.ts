@@ -44,7 +44,8 @@ export class ShiftSlotRepository extends EntityRepository {
           shiftSlotId: slot.id,
           action: EnumShiftSlotChangeAction.CREATED,
           changedByUserId,
-          before: Prisma.JsonNull,
+          // DbNull is SQL NULL, so `WHERE "before" IS NULL` finds a creation (row 77 review).
+          before: Prisma.DbNull,
           after: { ...fields },
         },
       })
@@ -89,7 +90,7 @@ export class ShiftSlotRepository extends EntityRepository {
           action: EnumShiftSlotChangeAction.REMOVED,
           changedByUserId,
           before: { ...read },
-          after: Prisma.JsonNull,
+          after: Prisma.DbNull,
         },
       })
       return tx.shiftSlot.findUnique({ where: { id } })
@@ -98,6 +99,10 @@ export class ShiftSlotRepository extends EntityRepository {
 
   // Newest first (AC-3).
   async changes(shiftSlotId: string): Promise<ShiftSlotChange[]> {
-    return this.prisma.shiftSlotChange.findMany({ where: { shiftSlotId }, orderBy: { createdAt: 'desc' } })
+    // `id` breaks a tie between two changes in the same millisecond, so the order is always the same.
+    return this.prisma.shiftSlotChange.findMany({
+      where: { shiftSlotId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
   }
 }

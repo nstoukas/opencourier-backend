@@ -23,8 +23,8 @@ export class ShiftSlotAdminRestApiController {
   @swagger.ApiOkResponse({ type: [ShiftSlotAdminDto] })
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @Roles(EnumUserRole.ADMIN)
-  // `unknown`, so the global ValidationPipe (implicit conversion on) leaves the query text as sent;
-  // a declared `string` or `boolean` is converted first and never equals 'true' here.
+  // Only the text 'true' lists the removed slots. `String(...)` reads it whatever type the pipe hands
+  // over (a declared string arrives as 'true', a declared boolean as true).
   async list(@common.Query('includeRemoved') includeRemoved?: unknown): Promise<ShiftSlotAdminDto[]> {
     const slots = await this.shiftSlotService.list(String(includeRemoved) === 'true')
     return slots.map((slot) => new ShiftSlotAdminDto(slot))

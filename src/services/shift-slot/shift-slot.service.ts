@@ -49,7 +49,7 @@ export class ShiftSlotService {
   // A removed slot's record is still there to read (its REMOVED row is the point); only an unknown id is 404.
   async changes(id: string): Promise<ShiftSlotChange[]> {
     const slot = await this.shiftSlotRepository.findById(id)
-    if (!slot) throw new NotFoundException(NOT_FOUND)
+    if (!slot) throw new NotFoundException('This shift slot does not exist.')
     return this.shiftSlotRepository.changes(id)
   }
 
