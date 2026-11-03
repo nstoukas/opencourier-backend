@@ -6,6 +6,7 @@ import {
   OfferCardSource,
   OfferCardOptions,
 } from './offer-card-payload'
+import { UNKNOWN_OFFER_TRIP } from './offer-trip'
 
 describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () => {
   // A complete source fixture with all allowed fields populated
@@ -27,6 +28,8 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
       distance: 2.34,
       distanceUnit: EnumDistanceUnit.KILOMETERS,
     },
+    // Row 100: the card's trip figures; unknown by default so older checks see the routing down case.
+    trip: { ...UNKNOWN_OFFER_TRIP },
   })
 
   const defaultOptions: OfferCardOptions = {
@@ -42,19 +45,110 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     const expectedKeys = [...OFFER_CARD_PAYLOAD_KEYS].sort()
 
     expect(payloadKeys).toEqual(expectedKeys)
-    expect(payloadKeys).toHaveLength(11)
+    expect(payloadKeys).toHaveLength(13)
   })
 
-  test('offer push is unchanged (Spec 0019 AC-2, Decision 70.4): allow list has no toPickupKm and no toDropoffKm', () => {
+  test('row 100: the allow list is exactly these thirteen keys (no customer field can be added silently)', () => {
+    expect([...OFFER_CARD_PAYLOAD_KEYS].sort()).toEqual(
+      [
+        'deliveryId',
+        'offeredAt',
+        'offerExpiresAt',
+        'serverNow',
+        'payTotal',
+        'currencyCode',
+        'restaurantName',
+        'dropoffArea',
+        'distanceKm',
+        'toPickupMetres',
+        'toDropoffMetres',
+        'minutes',
+        'insistent',
+      ].sort()
+    )
+  })
+
+  test('row 100 (decision 100.2): the split is sent in metres, never as km keys, and distanceKm stays for older apps', () => {
     const source = createValidSource()
     const payload = buildOfferCardPayload(source, defaultOptions)
 
-    // The offer card split figures remain in the offer list API only, not on push
     expect(OFFER_CARD_PAYLOAD_KEYS).not.toContain('toPickupKm')
     expect(OFFER_CARD_PAYLOAD_KEYS).not.toContain('toDropoffKm')
     expect((payload as any).toPickupKm).toBeUndefined()
     expect((payload as any).toDropoffKm).toBeUndefined()
+    // The quote's single figure is still there for an app older than row 100.
     expect(payload.distanceKm).toBe('2.3')
+  })
+
+  describe('row 100: the card trip in the payload (spec 0019 AC-1, decision 100.2)', () => {
+    test('known figures are sent as whole-number text: metres to the restaurant, metres on to the customer, minutes', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: 873, toDropoffMetres: 1014, minutes: 4 }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).toBe('873')
+      expect(payload.toDropoffMetres).toBe('1014')
+      expect(payload.minutes).toBe('4')
+      // The trip does not replace the quote's figure; both travel.
+      expect(payload.distanceKm).toBe('2.3')
+    })
+
+    test('the trip figures are not the quote distance (2.34 km quote, 873 m + 1014 m trip)', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: 873, toDropoffMetres: 1014, minutes: 4 }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).not.toBe(payload.distanceKm)
+      expect(payload.toDropoffMetres).not.toBe(payload.distanceKm)
+      expect(payload.toDropoffMetres).not.toBe('2340')
+    })
+
+    test('a fractional figure is rounded to a whole number, never sent with a decimal point', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: 872.6, toDropoffMetres: 1013.4, minutes: 4 }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).toBe('873')
+      expect(payload.toDropoffMetres).toBe('1013')
+      for (const key of ['toPickupMetres', 'toDropoffMetres', 'minutes'] as const) {
+        expect(payload[key]).toMatch(/^\d+$/)
+      }
+    })
+
+    test('every unknown figure is the empty string (routing down: what the card shows)', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: null, toDropoffMetres: null, minutes: null }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).toBe('')
+      expect(payload.toDropoffMetres).toBe('')
+      expect(payload.minutes).toBe('')
+    })
+
+    test('one unknown leg: that leg is empty, the known one still shows, and minutes follow the trip (empty)', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: null, toDropoffMetres: 1014, minutes: null }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).toBe('')
+      expect(payload.toDropoffMetres).toBe('1014')
+      expect(payload.minutes).toBe('')
+    })
+
+    test('a zero-metre leg is a known figure ("0"), not unknown', () => {
+      const source = createValidSource()
+      source.trip = { toPickupMetres: 0, toDropoffMetres: 1014, minutes: 3 }
+
+      const payload = buildOfferCardPayload(source, defaultOptions)
+
+      expect(payload.toPickupMetres).toBe('0')
+      expect(payload.minutes).toBe('3')
+    })
   })
 
   test('AC-10: buildOfferCardPayload with full delivery object containing every customer field never leaks markers', () => {
@@ -82,6 +176,9 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
       id: 'loc-dropoff-1',
       street: 'Dimitriadis',
       city: 'Volos',
+      // Row 100: production's source carries coordinates too; none may reach a value.
+      latitude: 39.361234,
+      longitude: 22.951234,
       // Customer location fields with distinctive marker values
       houseNumber: '7ZZ',
       formattedAddress: 'ZZADDR',
@@ -90,14 +187,18 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     }
 
     // Cast to the builder's input type as production passes the full Prisma delivery
-    const source: OfferCardSource = {
+    // Production spreads findOfferCardSourceOrThrow's result (which carries pickupLocation since row 100)
+    // and adds the trip, so the source here does too.
+    const source = {
       delivery: fullDelivery as unknown as OfferCardSource['delivery'],
+      pickupLocation: { id: 'loc-pickup-1', street: 'Ermou', latitude: 39.364321, longitude: 22.944321 },
       dropoffLocation: fullDropoffLocation as unknown as OfferCardSource['dropoffLocation'],
       quote: {
         distance: 1.8,
         distanceUnit: EnumDistanceUnit.KILOMETERS,
       },
-    }
+      trip: { toPickupMetres: 873, toDropoffMetres: 1014, minutes: 4 },
+    } as OfferCardSource
 
     const payload = buildOfferCardPayload(source, {
       serverNow: new Date('2026-10-26T14:30:02.000Z'),
@@ -108,7 +209,22 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     expect(Object.keys(payload).sort()).toEqual([...OFFER_CARD_PAYLOAD_KEYS].sort())
 
     // Assert no output value contains any customer marker
-    const sensitiveMarkers = ['ZZNAME', '+30699ZZ', '7ZZ', 'ZZNOTE', 'ZZITEM', 'ZZADDR']
+    const sensitiveMarkers = [
+      'ZZNAME',
+      '+30699ZZ',
+      '7ZZ',
+      'ZZNOTE',
+      'ZZITEM',
+      'ZZADDR',
+      // Value 5: no coordinate (pickup or drop off) in any value, whole or in part.
+      '39.36',
+      '22.95',
+      '22.94',
+      '361234',
+      '951234',
+      '364321',
+      '944321',
+    ]
     for (const marker of sensitiveMarkers) {
       for (const [key, value] of Object.entries(payload)) {
         expect(value).not.toContain(marker)
@@ -250,7 +366,7 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
       expect(payload.insistent).toBe('')
     })
 
-    test('minutes is empty string until row 70', () => {
+    test('minutes is empty string when the trip minutes are unknown', () => {
       const source = createValidSource()
       const payload = buildOfferCardPayload(source, defaultOptions)
       expect(payload.minutes).toBe('')
