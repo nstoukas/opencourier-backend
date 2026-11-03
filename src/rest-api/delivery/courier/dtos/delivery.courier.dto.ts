@@ -55,9 +55,9 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
 
-  // Row 101: the customer's name, items and notes follow the phone's rule (row 33): sent only while
-  // this rider holds the delivery, left out of the JSON in an offer, during the free hand back and
-  // after it ends. A rider who declines never held them; the offer card shows none of them (spec 0019).
+  // Row 101: the customer's name, items and notes are sent only once this rider has accepted (the
+  // phone's statuses, row 33), left out of the JSON in an offer and after the drop off. A rider who
+  // declines never held them; the offer card shows none of them (spec 0019).
   @ApiProperty({ type: String, required: false })
   dropoffName?: string
 
@@ -252,10 +252,15 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) && !inHandBackGrace
     this.dropoffPhoneNumber = holdsDelivery ? data.dropoffPhoneNumber : undefined
     this.dropoffBusinessName = data.dropoffBusinessName
-    // Row 101: the customer's name, items and notes too.
-    this.dropoffName = holdsDelivery ? data.dropoffName : undefined
-    this.dropoffNotes = holdsDelivery ? data.dropoffNotes : undefined
-    this.dropoffSellerNotes = holdsDelivery ? data.dropoffSellerNotes : undefined
+    // Row 101 (decisions 101.1, 101.2): the customer's name, items and notes once the rider has
+    // accepted, never in an offer or after the drop off. Unlike the phone, floor and doorbell they are
+    // sent during the free hand back too (decision 71.12 keeps the item list there): the app hides the
+    // name on that card, and nothing refetches when the window closes, so withholding them would leave
+    // the pickup card without the bag label and the items.
+    const accepted = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
+    this.dropoffName = accepted ? data.dropoffName : undefined
+    this.dropoffNotes = accepted ? data.dropoffNotes : undefined
+    this.dropoffSellerNotes = accepted ? data.dropoffSellerNotes : undefined
     this.dropoffFloor = holdsDelivery ? data.dropoffFloor : undefined
     this.dropoffDoorbell = holdsDelivery ? data.dropoffDoorbell : undefined
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
@@ -273,9 +278,9 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.requiresId = data.requiresId
     this.orderReference = data.orderReference
     this.orderTotalValue = data.orderTotalValue
-    this.orderItems = holdsDelivery ? data.orderItems : undefined
+    this.orderItems = accepted ? data.orderItems : undefined
     this.status = data.status
-    this.customerNotes = holdsDelivery ? data.customerNotes : undefined
+    this.customerNotes = accepted ? data.customerNotes : undefined
     this.currencyCode = data.currencyCode
     this.totalCost = data.totalCost
     this.fee = data.fee
