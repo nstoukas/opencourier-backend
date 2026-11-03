@@ -259,7 +259,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     // the pickup card without the bag label and the items.
     const accepted = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
     this.dropoffName = accepted ? data.dropoffName : undefined
-    this.dropoffNotes = accepted ? data.dropoffNotes : undefined
+    // `dropoffNotes` holds the composed "Floor: · Doorbell:" line, so it follows the floor and the
+    // doorbell, hand back window included (decision 101.3); the app shows it at the drop off, which a
+    // job step's round trip has fetched by then.
+    this.dropoffNotes = holdsDelivery ? data.dropoffNotes : undefined
     this.dropoffSellerNotes = accepted ? data.dropoffSellerNotes : undefined
     this.dropoffFloor = holdsDelivery ? data.dropoffFloor : undefined
     this.dropoffDoorbell = holdsDelivery ? data.dropoffDoorbell : undefined
