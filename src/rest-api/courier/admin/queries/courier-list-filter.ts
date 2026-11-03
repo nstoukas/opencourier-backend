@@ -1,5 +1,5 @@
 import { EnumCourierStatus, Prisma } from '@prisma/types'
-import { escapeLikeText, foldSearchText, searchDigits } from 'src/rest-api/common/search-fold'
+import { escapeLikeText, searchDigits, searchWords } from 'src/rest-api/common/search-fold'
 
 // The admin couriers list's tabs and search (row 97). The route took only the page before, so the
 // board's tabs and search box had nothing to ask.
@@ -34,7 +34,7 @@ export function adminCourierListWhere(filter: { status?: AdminCourierStatus; sea
   // "Giorgos Pap" finds Giorgos Papadopoulos although the two names are stored apart (decision 97.1).
   // `searchFold` is the database's folded copy of the names, the phone and the phone's digits; a
   // word that is a phone typed with separators ("24210-10009") also matches by its digits.
-  const words = foldSearchText(filter.search ?? '').trim().split(' ').filter(Boolean)
+  const words = searchWords(filter.search)
   if (words.length > 0) {
     where.AND = words.map((word) => {
       const asText = { searchFold: { contains: escapeLikeText(word) } }

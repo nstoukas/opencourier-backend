@@ -23,6 +23,12 @@ export function foldSearchText(text: string): string {
   return Array.from(lower, (character) => FOLD.get(character) ?? character).join('')
 }
 
+// The typed search as folded words, empty when there is none: the rule every admin search shares,
+// where each word must match on its own (rows 97 and 106).
+export function searchWords(text: string | undefined): string[] {
+  return foldSearchText(text ?? '').trim().split(' ').filter(Boolean)
+}
+
 // A word that is only a phone number typed with separators ("24210-10009", "(24210) 10009"):
 // its digits, to match the stored phone's digits. Null for any other word.
 export function searchDigits(word: string): string | null {

@@ -13,7 +13,7 @@ import {
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { createPaginator } from '../../rest-api/Paginator'
 import { Exact } from 'src/types'
-import { escapeLikeText, foldSearchText } from 'src/rest-api/common/search-fold'
+import { escapeLikeText, searchWords } from 'src/rest-api/common/search-fold'
 
 @Injectable()
 export class PartnerRepository extends EntityRepository implements IPartnerRepository {
@@ -85,7 +85,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
   // The restaurants list (row 106): a search keeps only the restaurants whose ids `matchingIds`
   // finds; no search lists them all, as before.
   async findManyPaginated(page?: number, perPage?: number, search?: string) {
-    const words = foldSearchText(search ?? '').trim().split(' ').filter(Boolean)
+    const words = searchWords(search)
     const where: Prisma.PartnerWhereInput = words.length > 0 ? { id: { in: await this.matchingIds(words) } } : {}
     const paginator = createPaginator<Partner, Prisma.PartnerFindManyArgs, Prisma.PartnerDelegate>()
     const result = await paginator(
