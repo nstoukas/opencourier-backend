@@ -92,6 +92,18 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Added
 
+### No recipient details in the delivery logs (scope row 95): `0eb3cf7` to `0196f07`
+Built on the branch `fix/delivery-log-privacy` and merged on 3 November.
+- Delivery events are logged by ids, type, actor and source only (`eventLogLine`), never their free text
+  message, including when a transition fails and when a delivery fails; the full event stays on its
+  `DeliveryEvent` row. Matching logs the rider's id, not their name. Upstream's ngrok forwarder no longer
+  logs request headers (the bearer token), bodies or the Axios error that carries them.
+- Checked live: an order with marked contact details through creation, offer, accept, every job step, an
+  out of order step, a FAILED event with a marked reason and a cancel left none of them in the log, while
+  the rider still received the full offer.
+- Tests by a fresh Claude subagent while agy was out of quota: 2458 pass, including an end to end privacy
+  spec over every status and event type; put back by hand. Reviewed by Fable (changes requested; fixed).
+
 ### Restaurants list search (scope row 106): `745e04a` to `c5ccda1`
 Built on the branch `feat/partner-list-search` and merged on 3 November, with the adminweb half.
 - `GET admin/v1/partner` takes `search` (up to 100 characters): every typed word must appear in the
