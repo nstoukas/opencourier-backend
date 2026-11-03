@@ -78,6 +78,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       findById: jest.fn().mockImplementation((id: string) => Promise.resolve({ id, userId: `user-${id}` })),
       findByIdOrThrow: jest.fn().mockImplementation((id: string) => Promise.resolve({ id, userId: `user-${id}` })),
       findUnique: jest.fn(),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
     }
     mockDeliveryRepository = {
       findById: jest.fn().mockImplementation((id: string) =>

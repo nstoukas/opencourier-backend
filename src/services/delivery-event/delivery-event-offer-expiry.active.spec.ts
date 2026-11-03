@@ -68,6 +68,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       findById: jest.fn().mockResolvedValue({ id: 'courier-1', userId: 'user-courier-1' } as any),
       updateById: jest.fn().mockResolvedValue({} as any),
       findNamesByIds: jest.fn().mockResolvedValue(new Map()),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<CourierRepository>
 
     mockDeliveryRepository = {
@@ -341,6 +342,68 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       // No offer-expiry job should be scheduled
       expect(mockBullMQService.addJob).not.toHaveBeenCalledWith('offer-expiry', expect.anything(), expect.anything())
+    })
+
+    it('when matched courier has active SOS: returns NO_COURIER without calculating amounts, claiming delivery, saving OFFERED, scheduling expiry, or notifying rider (decision 73.11)', async () => {
+      const deliveryId = 'del-sos-matched'
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CREATED,
+        matchedCourierId: null,
+        courierId: null,
+        partnerId: 'partner-1',
+      } as any)
+
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier: { id: 'courier-sos-active', userId: 'user-sos-1' } as any,
+        delivery: {} as any,
+      })
+      mockCourierRepository.hasActiveSos.mockResolvedValueOnce(true)
+
+      const result = await (service as any).offerToNextCourier(deliveryId)
+
+      expect(result).toBe('NO_COURIER')
+      expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('courier-sos-active')
+      // No amounts calculated
+      expect(mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier).not.toHaveBeenCalled()
+      // No updateIfMatches claim
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      // No OFFERED event
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.OFFERED })
+      )
+      // No expiry job
+      expect(mockBullMQService.addJob).not.toHaveBeenCalledWith('offer-expiry', expect.anything(), expect.anything())
+      // Nothing sent to the rider
+      expect(mockWebsocketDispatcher.sendOfferToCourier).not.toHaveBeenCalled()
+    })
+
+    it('when STATIC matcher matches a configured courier with active SOS: returns NO_COURIER and makes no offer (decision 73.11)', async () => {
+      const deliveryId = 'del-sos-static'
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CREATED,
+        matchedCourierId: null,
+        courierId: null,
+        partnerId: 'partner-1',
+      } as any)
+
+      // STATIC matcher returns static courier without checking availability
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier: { id: 'testing-courier', userId: 'user-testing-courier' } as any,
+        delivery: {} as any,
+      })
+      mockCourierRepository.hasActiveSos.mockResolvedValueOnce(true)
+
+      const result = await (service as any).offerToNextCourier(deliveryId)
+
+      expect(result).toBe('NO_COURIER')
+      expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('testing-courier')
+      expect(mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+      expect(mockBullMQService.addJob).not.toHaveBeenCalled()
+      expect(mockWebsocketDispatcher.sendOfferToCourier).not.toHaveBeenCalled()
     })
 
     it('does not write offer or schedule expiry job if amounts calculation fails', async () => {

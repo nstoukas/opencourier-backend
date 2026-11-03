@@ -48,6 +48,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
       // No dispatch stop is on in these tests (spec 0014).
       refuseIfDispatchStopped: jest.fn().mockResolvedValue(undefined),
+      // No SOS is on in these tests (spec 0022, decision 73.10).
+      refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
       rearmOfferExpiry: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
@@ -92,6 +94,43 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       )
 
       // Must NOT touch the delivery before checking the stop gate
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    it('refuses (409 CantUpdateDeliveryStatusError) when rider has an active SOS before reading or writing the delivery (decision 73.10)', async () => {
+      mockDeliveryEventService.refuseIfCourierInSos.mockRejectedValue(
+        new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
+      )
+
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
+        'This rider has an active SOS and cannot be given a delivery until it ends.'
+      )
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith(courierId)
+      // Must NOT touch the delivery before checking the SOS gate
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    it('refuses automatic accept (automatic=true) when rider has an active SOS (decision 73.10)', async () => {
+      mockDeliveryEventService.refuseIfCourierInSos.mockRejectedValue(
+        new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
+      )
+
+      await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+      await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
+        'This rider has an active SOS and cannot be given a delivery until it ends.'
+      )
+
+      expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith(courierId)
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()

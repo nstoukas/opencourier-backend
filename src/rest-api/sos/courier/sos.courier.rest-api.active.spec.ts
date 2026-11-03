@@ -204,20 +204,14 @@ describe('SosCourierRestApiController & Inputs (Pins 3, 4, 5, 6)', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    test('refuses invalid accuracyMetres (< 0 or > 100000)', async () => {
-      await expect(
-        pipe.transform(
-          { points: [{ ...validPoint, accuracyMetres: -1 }] },
+    test('accuracyMetres is advisory and never refuses the batch: any JSON number, null, or omitted passes validation (AC-6, AC-13, rule 3)', async () => {
+      for (const validValue of [-1, -500, 0, 5, 100000, 100001, 1e9, null]) {
+        const result = await pipe.transform(
+          { points: [{ ...validPoint, accuracyMetres: validValue }] },
           { type: 'body', metatype: SosPointsCourierInput }
         )
-      ).rejects.toThrow(BadRequestException)
-
-      await expect(
-        pipe.transform(
-          { points: [{ ...validPoint, accuracyMetres: 100001 }] },
-          { type: 'body', metatype: SosPointsCourierInput }
-        )
-      ).rejects.toThrow(BadRequestException)
+        expect(result.points[0].accuracyMetres).toBe(validValue)
+      }
     })
 
     test('accepts point when accuracyMetres is omitted', async () => {
@@ -229,14 +223,24 @@ describe('SosCourierRestApiController & Inputs (Pins 3, 4, 5, 6)', () => {
       expect(result.points[0].accuracyMetres).toBeUndefined()
     })
 
-    test('refuses accuracyMetres when not sent as a JSON number ("15", true, false, "")', async () => {
+    test('refuses accuracyMetres when not sent as a JSON number ("15", true, false, "") with message naming field, never value', async () => {
       for (const badValue of ['15', true, false, '']) {
-        await expect(
-          pipe.transform(
+        let caughtError: any
+        try {
+          await pipe.transform(
             { points: [{ ...validPoint, accuracyMetres: badValue }] },
             { type: 'body', metatype: SosPointsCourierInput }
           )
-        ).rejects.toThrow(BadRequestException)
+        } catch (err) {
+          caughtError = err
+        }
+        expect(caughtError).toBeInstanceOf(BadRequestException)
+        const response = caughtError.getResponse()
+        const message = typeof response === 'object' ? JSON.stringify(response) : String(response)
+        expect(message).toContain('accuracyMetres')
+        if (badValue !== '') {
+          expect(message).not.toContain(`"${badValue}"`)
+        }
 
         expect(() =>
           plainToInstance(

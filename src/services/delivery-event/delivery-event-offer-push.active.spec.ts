@@ -84,6 +84,7 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       findUniqueOrThrow: jest.fn().mockResolvedValue(sampleCourier),
       findByIdOrThrow: jest.fn().mockResolvedValue(sampleCourier),
       findMany: jest.fn().mockResolvedValue([sampleCourier]),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<CourierRepository>
 
     mockDeliveryRepository = {

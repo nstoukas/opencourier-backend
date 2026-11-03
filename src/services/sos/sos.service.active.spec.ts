@@ -262,6 +262,40 @@ describe('SosService', () => {
       )
     })
 
+    test('stores accuracyMetres in 0..100000 as sent and stores null for null, undefined, negative or above 100000 (AC-6, AC-13, rule 3)', async () => {
+      mockSosIncidentRepository.findById.mockResolvedValueOnce({
+        id: incidentId,
+        courierId,
+        startedAt,
+      } as any)
+      mockSosIncidentRepository.addPointsIfActive.mockResolvedValueOnce(8)
+
+      const pointsInput = [
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: 0, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: 5, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: 100000, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: null, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: undefined, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: -1, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: 100001, ageMs: 1000 },
+        { latitude: 39.36, longitude: 22.95, accuracyMetres: 1e9, ageMs: 1000 },
+      ]
+
+      await service.addPoints(courierId, incidentId, pointsInput, receivedAt)
+
+      const calledRows = mockSosIncidentRepository.addPointsIfActive.mock.calls[0]![1]
+      expect(calledRows.map((r) => r.accuracyMetres)).toEqual([
+        0,
+        5,
+        100000,
+        null,
+        null,
+        null,
+        null,
+        null,
+      ])
+    })
+
     test('Pin 9 (AC-13): logger never outputs coordinates sent during addPoints', async () => {
       mockSosIncidentRepository.findById.mockResolvedValueOnce({
         id: incidentId,

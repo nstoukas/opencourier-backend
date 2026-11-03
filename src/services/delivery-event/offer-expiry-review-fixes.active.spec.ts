@@ -63,6 +63,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       findByIdOrThrow: jest.fn(),
       updateById: jest.fn().mockResolvedValue({} as any),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<CourierRepository>
     mockDeliveryRepository = {
       findById: jest.fn().mockResolvedValue({
