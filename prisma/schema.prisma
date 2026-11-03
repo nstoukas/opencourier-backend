@@ -907,3 +907,46 @@ model SosLocationPoint {
 
   @@index([incidentId, recordedAt])
 }
+
+// Spec 0026 (row 77): a weekly shift slot the co-op plans cover with, in Athens wall time. Riders book
+// it from row 78; with the Shifts setting off it changes nothing for anyone.
+model ShiftSlot {
+  id          String            @id @default(cuid())
+  // ISO 8601: 1 Monday to 7 Sunday.
+  weekday     Int
+  // Minutes after midnight; the slot ends after it starts, on the same day (never across midnight).
+  startMinute Int
+  endMinute   Int
+  // The most riders the slot takes, 1 to 50.
+  riderCap    Int
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  // Removed by an admin: no longer listed, but kept for its record and row 78's bookings.
+  removedAt   DateTime?
+  changes     ShiftSlotChange[]
+
+  @@index([removedAt, weekday, startMinute])
+}
+
+enum EnumShiftSlotChangeAction {
+  CREATED
+  UPDATED
+  REMOVED
+}
+
+// Spec 0026 (AC-3): every slot change, written in the slot write's transaction, so members can follow
+// who changed the cover and when (binding value 1's spirit for the co-op's own records).
+model ShiftSlotChange {
+  id              String                    @id @default(cuid())
+  shiftSlotId     String
+  shiftSlot       ShiftSlot                 @relation(fields: [shiftSlotId], references: [id])
+  action          EnumShiftSlotChangeAction
+  // The admin's user id, as DispatchStop.createdByUserId.
+  changedByUserId String
+  // The four slot fields before (null on create) and after (null on remove).
+  before          Json?                     @postgres.Json
+  after           Json?                     @postgres.Json
+  createdAt       DateTime                  @default(now())
+
+  @@index([shiftSlotId, createdAt])
+}

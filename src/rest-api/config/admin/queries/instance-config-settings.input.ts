@@ -39,6 +39,8 @@ export class InstanceConfigSettingsInput {
   handBackSeconds?: number
   sosLocationRetentionDays?: number
   arrivalRadiusMetres?: number
+  shiftsEnabled?: boolean
+  shiftDropNoticeHours?: number
   dispatchPhoneNumber?: string
   cancellationPayoutPolicy?: string
 }

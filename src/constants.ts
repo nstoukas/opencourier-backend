@@ -126,6 +126,13 @@ export const RESTAURANT_HISTORY_DAYS_MAX = 365
 export const DEFAULT_HAND_BACK_SECONDS = 60
 export const HAND_BACK_SECONDS_MIN = 0
 export const HAND_BACK_SECONDS_MAX = 300
+
+// Shifts (spec 0026, row 77): a co-op switch, off until the assembly decides to run shifts, and how
+// many hours before its start a rider may still drop a booked shift (used from row 78).
+export const DEFAULT_SHIFTS_ENABLED = false
+export const DEFAULT_SHIFT_DROP_NOTICE_HOURS = 12
+export const SHIFT_DROP_NOTICE_HOURS_MIN = 0
+export const SHIFT_DROP_NOTICE_HOURS_MAX = 168
 // SOS (spec 0022): the position points shared during an SOS are deleted this many days after the
 // incident's newest point. The operative value is the co-op setting sosLocationRetentionDays; row 46
 // sets the real period. 1 to 365 whole days.

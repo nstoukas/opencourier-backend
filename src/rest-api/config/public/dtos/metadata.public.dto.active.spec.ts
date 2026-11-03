@@ -43,6 +43,8 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     handBackSeconds: 60,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
+    shiftsEnabled: false,
+    shiftDropNoticeHours: 12,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }

@@ -152,6 +152,20 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   arrivalRadiusMetres?: number
 
+  // Shifts (spec 0026): the co-op switch. @RefuseIfNotSentAsBoolean: the text "false" would save as true.
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  shiftsEnabled?: boolean
+
+  // Shifts (spec 0026): whole hours, 0 to 168, in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  shiftDropNoticeHours?: number
+
   // The co-op's dispatch line (row 72). Text, not a number: a leading + or 0 must survive.
   // An empty text clears it; the phone number check lives in the domain service.
   // @RefuseIfNotSentAsString(): without it a JSON number is turned into text and loses its +.
