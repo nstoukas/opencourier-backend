@@ -111,6 +111,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   (0 = off, else 20 to 300, default 50) rides on the courier `GET config/contact`. A numeric setting whose 0 means "off"
   sets `zeroSwitchesOff` in `NUMERIC_SETTING_RULES` instead of `min: 0`.
 
+- An active SOS (spec 0022) makes a rider busy: the matchers' `activeSosCourierSubQuery`, a check in `offerToNextCourier`
+  for every matcher (STATIC included), and `refuseIfCourierInSos` (409) in the admin hand offer, reassign and the rider's own
+  accept. A new way to give a rider work must call it too. `SosLocationPoint` is read only by the SOS repository and its
+  admin DTO; no log line or error may name a coordinate (value 5), and nothing in the SOS module touches a delivery or pay.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)

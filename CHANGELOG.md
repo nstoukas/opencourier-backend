@@ -84,10 +84,33 @@ are the exceptions, each kept additive or as narrow as possible:
 | Who cancelled, from which status and when, and the food outcome on `Delivery`; `PartnerCharge` table; `CourierCompensation.cancellationOf` and reason `CANCELLATION`; three event types recorded outside `STATE_MACHINE`; `Delivery.cancellationPayoutPolicy` (migrations `20261101120000_add_cancellation_pay`, `20261101130000_add_cancellation_policy_at_cancel`); the CANCELED write and every status write in `updateDeliveryAndSendNotifications` made conditional; the rider cancel route refuses (row 32) | A cancellation mid job paid the rider nothing and said nothing about the food. Additive except the conditional writes (a cancel that loses a race is now a failed transition) and the rider cancel route. | `1ce975f`, `e542d20`, `1399458` |
 | `Delivery.acceptedAt` and `handBackUntil` (migration `20261102150000_add_hand_back`); event type `HANDED_BACK`, recorded by `DeliveryEventService.handBack` outside the switch; setting `handBackSeconds`; optional `{ automatic }` body on the courier accept; courier `POST deliveries/:id/hand-back` (row 71) | A rider could not give back a job taken by a slip or an unwanted auto accept, and an automatic accept looked like a tap on the record. Additive; no pay or charge either way. | `ca392af` |
 | Setting `arrivalRadiusMetres` (0 switches detection off, else 20 to 300 m, default 50) on the admin settings and the courier `GET config/contact`; optional `{ detected }` body on the courier `arrived-at-pickup` and `arrived-at-dropoff` routes (row 19) | The rider's app now notices arrival by itself, and members must be able to tell a detected arrival from a tapped one, because waiting pay will start from it. Additive; no schema change; the mark is only the event's message. | `1a6969b` |
+| New `SosIncident` and `SosLocationPoint` tables and `EnumSosOutcome` (migration `20261102230000_add_sos_incident`), setting `sosLocationRetentionDays`, BullMQ repeatable job `sos-location-retention`; the matchers' busy rule gains `activeSosCourierSubQuery`; `refuseIfCourierInSos` (409) in the admin ACCEPTED branch, `reassignDelivery` and the rider's own `acceptDelivery`; `offerToNextCourier` skips a matched rider in an SOS, STATIC included (row 73) | A rider in danger had no way to call for help. Their position is shared only while their own SOS is active, in its own tables, read only by the SOS module, and deleted after the co-op's period (value 5's safety exception, decision 73.1). A rider in an SOS is offered and given nothing (73.6, 73.10, 73.11). | `107edc8`, `b5ab24f` |
 
 ---
 
 ## Added
+
+### SOS: a rider in danger alerts the co-op (scope row 73, spec 0022): `107edc8` to `a136e35`
+Built on the branch `feat/sos-button` and merged on 3 November, with the courier app and adminweb
+halves. This is a core change, listed in the table above.
+- **The rider's routes** (`courier/v1/sos`): start (with the phone's own `clientId`, so a retried
+  start never makes a second SOS, and `tapAgeMs`, so a start sent late keeps its true time), the
+  active one, positions in batches of up to 120, "I'm safe" and "False alarm". Another rider's SOS
+  answers the same 404 as none. An accuracy the phone sends is advisory: a missing or senseless one
+  is stored as unknown and never refuses the batch.
+- **The admin's routes** (`admin/v1/sos`): the open ones (not paged), the closed ones (paged), one
+  SOS with its trail, and the close with an outcome (Rider safe, Help arrived, False alarm, Other)
+  and an optional note. Who closed it and when are recorded.
+- **A rider in an SOS gets no work.** The matchers leave them out, every matcher's choice is checked
+  again (so the STATIC override too), and an admin's hand offer, a reassign and the rider's own
+  accept (auto accept included) answer 409. A job they already hold, and its pay, never change.
+- **Positions are kept only as long as the co-op decides.** `sosLocationRetentionDays` (1 to 365,
+  default 30; 0 is refused with a reason). A daily job at 04:00 Volos time deletes a trail whose
+  newest point is older, and stamps when. The record of each SOS stays. No log line or error names a
+  coordinate.
+- Tests by agy (`638f4e0`, `6ca259f`, `a136e35`): 1996 pass; every put back repeated by hand. Reviewed
+  by Fable (approve with nits; rulings in the review, decisions 73.10 and 73.11 taken with the
+  operator). Verified live with the courier app on an emulator and adminweb in headless Chrome.
 
 ### Auto accept on the record, and a free hand back in the first minute (scope row 71, spec 0020): `ca392af` to `640afb5`
 Built on the branch `feat/auto-accept-hand-back` and merged on 2 November, with its adminweb and
