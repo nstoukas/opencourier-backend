@@ -90,6 +90,18 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Added
 
+### The offer push carries the card's trip (scope row 100): `cec12f3` to `321b5ea`
+Built on the branch `feat/offer-alert-split` and merged on 3 November, with the courier app half.
+- **The same figures as the card.** The offer push now carries `toPickupMetres`, `toDropoffMetres` and
+  `minutes`, worked out exactly as the offer list's `offerTrip` (spec 0019), from the rider's stored
+  location and the co-op's OSRM. `distanceKm` (the quote's) stays for older apps.
+- **Never held back.** The push waits at most 1.5 s for routing, then goes with unknown figures (decision
+  100.1); an offer already past its deadline gets no push and pays no wait. The location is read only to
+  word the rider's own alert: never sent, stored or logged (value 5).
+- Tests by a fresh Claude subagent while agy was out of quota: 2021+ pass; put back by hand. Reviewed by
+  Fable (approve with nits, fixed in `321b5ea`). Verified on the emulator with the push fed through the
+  app's own handler (push is off on dev).
+
 ### SOS: a rider in danger alerts the co-op (scope row 73, spec 0022): `107edc8` to `a136e35`
 Built on the branch `feat/sos-button` and merged on 3 November, with the courier app and adminweb
 halves. This is a core change, listed in the table above.

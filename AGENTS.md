@@ -95,8 +95,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - Each offer in `GET courier deliveries/new` carries `offerTrip` (spec 0019): km to the restaurant from the rider's stored
   location and km to the customer, from OSRM, plus minutes when both are known. Display only: pay comes from the stored
-  quote. A leg OSRM cannot give is null (`Promise.allSettled`); an offer is never held back for it. The offer push does
-  not carry it yet (decision 70.4).
+  quote. A leg OSRM cannot give is null (`Promise.allSettled`); an offer is never held back for it. The offer push carries the same figures since row 100 (`toPickupMetres`, `toDropoffMetres`, `minutes`), worked
+  out in `OfferPushService` within `OFFER_PUSH_TRIP_BUDGET_MS` (1.5 s), else sent unknown (decision 100.1).
 
 - A rider's free hand back (spec 0020) is `POST courier deliveries/:id/hand-back`, inside `handBackUntil` (stored at the
   accept from the co-op setting `handBackSeconds`, plus the 3 s offer grace), only at ACCEPTED or DISPATCHED. It is
