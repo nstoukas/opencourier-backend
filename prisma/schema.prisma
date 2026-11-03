@@ -87,6 +87,9 @@ model Courier {
   devices               CourierDevice[]
   // This rider's SOS incidents (spec 0022). Never counted per rider anywhere (binding value 5).
   sosIncidents          SosIncident[]
+  // The admin search's folded names and phone (spec 0025). Written only by the database trigger
+  // `courier_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
+  searchFold            String?
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
@@ -365,6 +368,9 @@ model Delivery {
   issues               DeliveryIssue[]
   partnerCharge        PartnerCharge?
   sosIncidents         SosIncident[]
+  // The admin search's folded reference, customer and restaurant (spec 0025). Written only by the
+  // database trigger `delivery_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
+  searchFold           String?
 
   @@unique([idempotencyKey, partnerId])
   // A rider's cancelled jobs of the last 24 hours (spec 0015).

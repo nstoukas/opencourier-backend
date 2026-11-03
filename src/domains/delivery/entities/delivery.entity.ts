@@ -79,10 +79,15 @@ export class DeliveryEntity implements Delivery {
   foodOutcome: EnumFoodOutcome | null
   foodOutcomeAt: Date | null
 
+  // Spec 0025: the admin search's folded copy of the searched fields. Declared because the Prisma
+  // model has it, never copied from the row: folded personal data stops at the repository.
+  searchFold: string | null = null
+
   createdAt: Date
   updatedAt: Date
 
-  constructor(data: Delivery) {
+  // Omit: the entity never reads searchFold (spec 0025), so callers need not have it.
+  constructor(data: Omit<Delivery, 'searchFold'>) {
     this.id = data.id
     this.pickupName = data.pickupName
     this.pickupPhoneNumber = data.pickupPhoneNumber

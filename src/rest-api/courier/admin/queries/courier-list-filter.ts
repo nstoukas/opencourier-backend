@@ -1,4 +1,5 @@
 import { EnumCourierStatus, Prisma } from '@prisma/types'
+import { escapeLikeText, foldSearchText, searchDigits } from 'src/rest-api/common/search-fold'
 
 // The admin couriers list's tabs and search (row 97). The route took only the page before, so the
 // board's tabs and search box had nothing to ask.
@@ -28,17 +29,17 @@ export function adminCourierListWhere(filter: { status?: AdminCourierStatus; sea
       break
   }
 
-  // A search finds a rider by name or phone, ignoring case. The text is split into words and every
-  // word must match the first name, the last name or the phone, so "Giorgos Pap" finds Giorgos
-  // Papadopoulos although the two names are stored apart (decision 97.1).
-  const words = (filter.search ?? '').trim().split(/\s+/).filter(Boolean)
+  // A search finds a rider by name or phone, whatever the case and accents (spec 0025). The text is
+  // split into words and every word must match the first name, the last name or the phone, so
+  // "Giorgos Pap" finds Giorgos Papadopoulos although the two names are stored apart (decision 97.1).
+  // `searchFold` is the database's folded copy of the names, the phone and the phone's digits; a
+  // word that is a phone typed with separators ("24210-10009") also matches by its digits.
+  const words = foldSearchText(filter.search ?? '').trim().split(' ').filter(Boolean)
   if (words.length > 0) {
     where.AND = words.map((word) => {
-      // Prisma passes the text into SQL LIKE as it is, where % and _ are wildcards: escape them (and
-      // the escape character itself), as row 96 does for deliveries.
-      const literal = word.replace(/[\\%_]/g, (character) => `\\${character}`)
-      const contains = { contains: literal, mode: Prisma.QueryMode.insensitive }
-      return { OR: [{ firstName: contains }, { lastName: contains }, { phoneNumber: contains }] }
+      const asText = { searchFold: { contains: escapeLikeText(word) } }
+      const digits = searchDigits(word)
+      return digits ? { OR: [asText, { searchFold: { contains: digits } }] } : asText
     })
   }
   return where
