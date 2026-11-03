@@ -85,7 +85,7 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
   })
 
   describe('create', () => {
-    it('writes the slot and a CREATED change (before JsonNull, after the four fields) in one $transaction', async () => {
+    it('writes the slot and a CREATED change (before DbNull, after the four fields) in one $transaction', async () => {
       mockTx.shiftSlot.create.mockResolvedValue(slotRow)
 
       const result = await repository.create(fields, ADMIN)
@@ -99,11 +99,20 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
           shiftSlotId: 'slot-1',
           action: EnumShiftSlotChangeAction.CREATED,
           changedByUserId: ADMIN,
-          before: Prisma.JsonNull,
+          before: Prisma.DbNull,
           after: fields,
         },
       })
       expectNoRootWrites()
+    })
+
+    it('writes before as Prisma.DbNull exactly (SQL NULL, so "before IS NULL" finds a creation), never JsonNull', async () => {
+      mockTx.shiftSlot.create.mockResolvedValue(slotRow)
+      await repository.create(fields, ADMIN)
+      const data = mockTx.shiftSlotChange.create.mock.calls[0][0].data
+      // toHaveBeenCalledWith compares the two null markers as equal; toBe tells them apart.
+      expect(data.before).toBe(Prisma.DbNull)
+      expect(data.before).not.toBe(Prisma.JsonNull)
     })
 
     it('writes the change row after the slot (it needs the new id)', async () => {
@@ -164,7 +173,7 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
   })
 
   describe('removeIfUnchanged', () => {
-    it('sets removedAt conditional on { id, removedAt: null, ...read } and writes REMOVED (after JsonNull)', async () => {
+    it('sets removedAt conditional on { id, removedAt: null, ...read } and writes REMOVED (after DbNull)', async () => {
       mockTx.shiftSlot.updateMany.mockResolvedValue({ count: 1 })
       const removed = { ...slotRow, removedAt: new Date('2026-11-03T08:00:00.000Z') }
       mockTx.shiftSlot.findUnique.mockResolvedValue(removed)
@@ -184,10 +193,18 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
           action: EnumShiftSlotChangeAction.REMOVED,
           changedByUserId: ADMIN,
           before: fields,
-          after: Prisma.JsonNull,
+          after: Prisma.DbNull,
         },
       })
       expectNoRootWrites()
+    })
+
+    it('writes after as Prisma.DbNull exactly (SQL NULL), never JsonNull', async () => {
+      mockTx.shiftSlot.updateMany.mockResolvedValue({ count: 1 })
+      await repository.removeIfUnchanged('slot-1', fields, ADMIN)
+      const data = mockTx.shiftSlotChange.create.mock.calls[0][0].data
+      expect(data.after).toBe(Prisma.DbNull)
+      expect(data.after).not.toBe(Prisma.JsonNull)
     })
 
     it('never deletes the row (soft removal keeps the slot and its record)', async () => {
@@ -213,13 +230,13 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
   })
 
   describe('changes', () => {
-    it('lists one slot changes newest first', async () => {
+    it('lists one slot changes newest first, id breaking a tie in the same millisecond', async () => {
       const rows = [{ id: 'c2' }, { id: 'c1' }]
       mockPrisma.shiftSlotChange.findMany.mockResolvedValue(rows)
       expect(await repository.changes('slot-1')).toBe(rows)
       expect(mockPrisma.shiftSlotChange.findMany).toHaveBeenCalledWith({
         where: { shiftSlotId: 'slot-1' },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       })
     })
   })

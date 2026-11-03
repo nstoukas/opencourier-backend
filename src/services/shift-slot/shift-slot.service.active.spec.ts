@@ -223,6 +223,7 @@ describe('ShiftSlotService (spec 0026, AC-2 to AC-4)', () => {
     it('answers 404 for an unknown id', async () => {
       repository.findById.mockResolvedValue(null)
       await expect(service.changes('nope')).rejects.toBeInstanceOf(NotFoundException)
+      await expect(service.changes('nope')).rejects.toThrow(/^This shift slot does not exist\.$/)
       expect(repository.changes).not.toHaveBeenCalled()
     })
   })
