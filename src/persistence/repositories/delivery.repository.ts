@@ -274,10 +274,15 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     const delivery = await this.prisma.delivery.findUniqueOrThrow({
       where: { id: deliveryId },
       // `delivery` is the schema's name for the Delivery -> DeliveryQuote relation; it is the quote.
-      include: { dropoffLocation: true, delivery: true },
+      include: { pickupLocation: true, dropoffLocation: true, delivery: true },
     })
 
-    return { delivery, dropoffLocation: delivery.dropoffLocation, quote: delivery.delivery }
+    return {
+      delivery,
+      pickupLocation: delivery.pickupLocation,
+      dropoffLocation: delivery.dropoffLocation,
+      quote: delivery.delivery,
+    }
   }
 
   async findByIdOrThrowWithLocations(deliveryId: string, otherFilters?: DeliveryWhereArgs) {

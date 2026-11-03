@@ -6,6 +6,9 @@ import { CourierDeviceRepository } from 'src/persistence/repositories/courier-de
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { NotificationEventType, OfferEndedMessage } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
+import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
+import { CourierRepository } from 'src/persistence/repositories/courier.repository'
+import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { TaskBusService } from '../taskBus/taskBus.service'
 import { PushNotificationService, PushSendResult } from './pushNotification.service'
 
@@ -18,6 +21,11 @@ interface OfferInsistJobPayload {
 }
 
 // Job ids use '-', never ':' (BullMQ refuses ':' in custom ids).
+// The longest an offer alert waits for the co-op's routing before it goes with unknown trip figures
+// (decision 100.1). Routing answers in milliseconds from its cache; this only bounds a hung server, so
+// a locked phone hears of an offer at most this much later, never the full OSRM timeout.
+export const OFFER_PUSH_TRIP_BUDGET_MS = 1500
+
 const offerInsistJobId = (deliveryId: string, offeredAt: Date) => `offer-insist-${deliveryId}-${offeredAt.getTime()}`
 
 // The push half of telling a rider about an offer (spec 0003). DeliveryEventService sends the socket
@@ -40,7 +48,9 @@ export class OfferPushService {
     private readonly courierDeviceRepository: CourierDeviceRepository,
     private readonly deliveryRepository: DeliveryRepository,
     private readonly bullMQService: BullMQService,
-    private readonly taskBusService: TaskBusService
+    private readonly taskBusService: TaskBusService,
+    private readonly courierRepository: CourierRepository,
+    private readonly osrmRoutingService: OsrmRoutingService
   ) {
     // When the insist job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // this handler. The arrow function keeps `this` pointing at this service.
@@ -99,8 +109,9 @@ export class OfferPushService {
       if (tokens.length === 0) return
 
       const source = await this.deliveryRepository.findOfferCardSourceOrThrow(deliveryId)
+      const trip = await this.tripFor(courierId, deliveryId, source.pickupLocation, source.dropoffLocation)
       const now = new Date()
-      const card = buildOfferCardPayload(source, { serverNow: now, insistent })
+      const card = buildOfferCardPayload({ ...source, trip }, { serverNow: now, insistent })
 
       // Seconds left to the deadline, or the default with no deadline, so a stale offer never rings.
       const { offeredAt, offerExpiresAt } = source.delivery
@@ -179,6 +190,32 @@ export class OfferPushService {
     if (!stillThisOffer) return
 
     await this.sendNewOffer(payload.courierId, payload.deliveryId, true)
+  }
+
+  // The card's trip for this offer (row 100), from the rider's stored location (the one the app sends
+  // for dispatch; it is read here only to word this rider's own alert, never stored or logged, value
+  // 5) and the co-op's routing. Never throws and never waits longer than OFFER_PUSH_TRIP_BUDGET_MS:
+  // anything unknown is sent as unknown, and the alert then shows what the card shows without it.
+  private async tripFor(
+    courierId: string,
+    deliveryId: string,
+    pickup: { latitude: number; longitude: number } | null,
+    dropoff: { latitude: number; longitude: number } | null
+  ): Promise<OfferTrip> {
+    // `setTimeout` inside a Promise makes a timer we can race against; it is cleared either way.
+    let timer: NodeJS.Timeout | undefined
+    const budget = new Promise<OfferTrip>((resolve) => {
+      timer = setTimeout(() => resolve(UNKNOWN_OFFER_TRIP), OFFER_PUSH_TRIP_BUDGET_MS)
+    })
+    const work = (async () => {
+      const rider = await this.courierRepository.getCurrentLocation(courierId).catch(() => null)
+      return offerTripFor({ deliveryId, pickup, dropoff, rider }, this.osrmRoutingService)
+    })().catch(() => UNKNOWN_OFFER_TRIP)
+    try {
+      return await Promise.race([work, budget])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // Deletes dead tokens and logs other failures by delivery id and error code only.

@@ -1,9 +1,11 @@
 import { Delivery, DeliveryQuote, Location } from '@prisma/types'
 import { convertToKM } from 'src/shared-types/distance-unit'
+import { OfferTrip } from './offer-trip'
 
 // The facts an offer shows a rider, and nothing else (spec 0003, AC-10). The push message is built
 // from this. The in app offer card (row 70, spec 0019) reuses its drop off area (dropoffAreaOf),
-// so the two name the same place. A push is visible on a lock screen that other people see, so the customer's
+// so the two name the same place, and since row 100 the push carries the card's trip figures too, so
+// the lock screen alert shows what the card shows. A push is visible on a lock screen that other people see, so the customer's
 // name, phone, house number, notes and items must never get in here.
 //
 // This list IS the allow list: the builder returns exactly these keys, and the push sender copies
@@ -19,6 +21,8 @@ export const OFFER_CARD_PAYLOAD_KEYS = [
   'restaurantName',
   'dropoffArea',
   'distanceKm',
+  'toPickupMetres',
+  'toDropoffMetres',
   'minutes',
   'insistent',
 ] as const
@@ -42,6 +46,9 @@ export interface OfferCardSource {
   // The quote the delivery was priced from: its distance is restaurant to customer, in the unit the
   // quote was made in.
   quote: Pick<DeliveryQuote, 'distance' | 'distanceUnit'> | null
+  // The card's trip (spec 0019): road metres to the restaurant and on to the customer, and the
+  // minutes for both. Unknown figures are null, as on the card (row 100).
+  trip: OfferTrip
 }
 
 export interface OfferCardOptions {
@@ -66,9 +73,12 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     // The business name (what Earnings and History show); pickupName is a contact person.
     restaurantName: delivery.pickupBusinessName,
     dropoffArea: dropoffAreaOf(source.dropoffLocation),
+    // The quote's single figure, kept for an app older than row 100, which shows only this one.
     distanceKm: distanceKmOf(source.quote),
-    // Not sent yet: row 70 put the minutes in the offer list only (decision 70.4).
-    minutes: '',
+    // The card's figures (row 100): the app words them exactly as the card does.
+    toPickupMetres: numberOrEmpty(source.trip.toPickupMetres),
+    toDropoffMetres: numberOrEmpty(source.trip.toDropoffMetres),
+    minutes: numberOrEmpty(source.trip.minutes),
     insistent: options.insistent ? '1' : '',
   }
 
@@ -90,8 +100,13 @@ export function dropoffAreaOf(location: OfferCardSource['dropoffLocation']): str
   return city
 }
 
-// Restaurant to customer, in km with one decimal ('3.4'). The two leg split is in the offer list
-// (spec 0019); the push keeps this single figure (decision 70.4).
+// A known whole number as text, or '' for unknown (FCM data carries strings only).
+function numberOrEmpty(value: number | null): string {
+  return value !== null && Number.isFinite(value) ? String(Math.round(value)) : ''
+}
+
+// Restaurant to customer, in km with one decimal ('3.4'), from the quote. Only an app older than row
+// 100 shows it; the current app shows the two legs above.
 function distanceKmOf(quote: OfferCardSource['quote']): string {
   if (!quote || !Number.isFinite(quote.distance)) return ''
   const km = convertToKM(quote.distance, quote.distanceUnit)
