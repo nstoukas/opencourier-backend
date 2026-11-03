@@ -448,25 +448,43 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
     })
   })
 
-  // Row 99 (decision 99.1): a restaurant that sets a different point itself clears the rider's mark;
-  // writing the same point back, or not touching the point, keeps it.
+  // Row 99 (decision 99.1, amended after review): only a deliberate edit (update with markUsed false:
+  // the Customers dialog, or a representative in admin) that sets a different point clears the rider's
+  // mark. An order's save (upsertByPhone, or update with markUsed true) never clears it, because its
+  // form may hold the point from before the rider's move.
   describe('pinMovedByRiderAt on a restaurant\'s write (Row 99)', () => {
     const storedPoint = { latitude: 39.362, longitude: 22.945 }
+    const scopedPointRead = {
+      where: { id: customerId, partnerId },
+      select: { latitude: true, longitude: true },
+    }
 
-    // findUnique answers by what it is asked for: the id (to tell new from existing) or the point.
+    // findUnique answers by what it is asked for. The point is given only to a read scoped by both
+    // the id and this restaurant, so a read that drops partnerId sees no customer.
     function storedCustomer(point: { latitude: number; longitude: number } | null) {
       mockPrisma.savedCustomer.findUnique.mockImplementation(async (args: any) => {
         if (point === null) return null
-        if (args?.select?.latitude || args?.select?.longitude) return { ...point }
+        if (args?.select?.latitude || args?.select?.longitude) {
+          const where = args?.where ?? {}
+          const scoped = where.id === customerId && where.partnerId === partnerId
+          return scoped ? { ...point } : null
+        }
         if (args?.select?.id) return { id: customerId }
         return { id: customerId, partnerId, ...sampleFields, ...point }
       })
     }
 
-    describe('update (a restaurant\'s own edit)', () => {
+    function pointReads() {
+      return mockPrisma.savedCustomer.findUnique.mock.calls.filter(
+        ([args]: any[]) => args?.select?.latitude || args?.select?.longitude
+      )
+    }
+
+    describe('update with markUsed false (a deliberate edit)', () => {
       beforeEach(() => {
         mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
         mockPrisma.savedCustomer.findFirst.mockResolvedValue({ id: customerId, partnerId, ...sampleFields })
+        mockPrisma.$executeRaw.mockResolvedValue(1)
         storedCustomer(storedPoint)
       })
 
@@ -485,6 +503,19 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
         await repository.update(partnerId, customerId, { longitude: 22.95 }, false)
 
         expect(writtenData()).toEqual({ longitude: 22.95, pinMovedByRiderAt: null })
+      })
+
+      it('clears it to null, never to a time', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, false)
+
+        expect(writtenData().pinMovedByRiderAt).toBeNull()
+      })
+
+      it('reads the point before, scoped by both id and partnerId', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, false)
+
+        expect(pointReads()).toHaveLength(1)
+        expect(mockPrisma.savedCustomer.findUnique).toHaveBeenCalledWith(scopedPointRead)
       })
 
       it('keeps the write scoped to { id, partnerId } when it clears the mark', async () => {
@@ -513,11 +544,29 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
         expect(data).toEqual({ name: 'Nikos D.', floor: '2' })
         expect(data).not.toHaveProperty('pinMovedByRiderAt')
       })
+    })
 
-      it('never sets pinMovedByRiderAt to a time on a restaurant\'s edit', async () => {
+    describe('update with markUsed true (an order saving the customer)', () => {
+      beforeEach(() => {
+        mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
+        mockPrisma.savedCustomer.findFirst.mockResolvedValue({ id: customerId, partnerId, ...sampleFields })
+        mockPrisma.$executeRaw.mockResolvedValue(1)
+        storedCustomer(storedPoint)
+      })
+
+      it('never clears pinMovedByRiderAt, even when the order sets a different point', async () => {
         await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, true)
 
-        expect(writtenData().pinMovedByRiderAt).toBeNull()
+        expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledTimes(1)
+        const data = mockPrisma.savedCustomer.updateMany.mock.calls[0][0].data
+        expect(data).toEqual({ latitude: 39.37, longitude: 22.95 })
+        expect(data).not.toHaveProperty('pinMovedByRiderAt')
+      })
+
+      it('does not read the point before at all', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, true)
+
+        expect(pointReads()).toHaveLength(0)
       })
     })
 
@@ -537,7 +586,7 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
         return mockPrisma.savedCustomer.upsert.mock.calls[0][0]
       }
 
-      it('clears pinMovedByRiderAt when the order saves a different point', async () => {
+      it('keeps pinMovedByRiderAt when the order saves a different point', async () => {
         storedCustomer(storedPoint)
 
         const result = await repository.upsertByPhone(
@@ -547,17 +596,20 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
         )
 
         const args = upsertArgs()
-        expect(args.update).toEqual({ ...sampleFields, latitude: 39.37, longitude: 22.95, pinMovedByRiderAt: null })
+        expect(args.update).toEqual({ ...sampleFields, latitude: 39.37, longitude: 22.95 })
+        expect(args.update).not.toHaveProperty('pinMovedByRiderAt')
         expect(args.create).not.toHaveProperty('pinMovedByRiderAt')
         expect(result.created).toBe(false)
       })
 
-      it('clears pinMovedByRiderAt when only the longitude differs', async () => {
+      it('keeps pinMovedByRiderAt when only the longitude differs', async () => {
         storedCustomer(storedPoint)
 
         await repository.upsertByPhone(partnerId, { ...sampleFields, longitude: 22.95 }, false)
 
-        expect(upsertArgs().update.pinMovedByRiderAt).toBeNull()
+        const args = upsertArgs()
+        expect(args.update).not.toHaveProperty('pinMovedByRiderAt')
+        expect(args.create).not.toHaveProperty('pinMovedByRiderAt')
       })
 
       it('keeps pinMovedByRiderAt when the order saves the same (corrected) point', async () => {
