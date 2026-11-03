@@ -9,6 +9,8 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
   let mockInstanceConfig: {
     getDispatchPhoneNumber: jest.Mock
     getArrivalRadiusMetres: jest.Mock
+    getShiftsEnabled: jest.Mock
+    getShiftDropNoticeHours: jest.Mock
   }
   let mockConfigDomainService: ConfigDomainService
 
@@ -16,6 +18,9 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
     mockInstanceConfig = {
       getDispatchPhoneNumber: jest.fn(),
       getArrivalRadiusMetres: jest.fn(),
+      // Spec 0027: shifts on or off, and the drop notice; defaults so the older cases still build a DTO.
+      getShiftsEnabled: jest.fn().mockResolvedValue(false),
+      getShiftDropNoticeHours: jest.fn().mockResolvedValue(12),
     }
 
     mockConfigDomainService = {
@@ -52,6 +57,25 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
       expect(result.arrivalRadiusMetres).toBe(0)
     })
 
+    it('spec 0027 AC-1: carries shiftsEnabled and shiftDropNoticeHours from the instance config', async () => {
+      mockInstanceConfig.getDispatchPhoneNumber.mockResolvedValue(null)
+      mockInstanceConfig.getArrivalRadiusMetres.mockResolvedValue(50)
+      mockInstanceConfig.getShiftsEnabled.mockResolvedValue(true)
+      mockInstanceConfig.getShiftDropNoticeHours.mockResolvedValue(24)
+
+      const on = await controller.getContact()
+      expect(mockInstanceConfig.getShiftsEnabled).toHaveBeenCalledTimes(1)
+      expect(mockInstanceConfig.getShiftDropNoticeHours).toHaveBeenCalledTimes(1)
+      expect(on.shiftsEnabled).toBe(true)
+      expect(on.shiftDropNoticeHours).toBe(24)
+
+      mockInstanceConfig.getShiftsEnabled.mockResolvedValue(false)
+      mockInstanceConfig.getShiftDropNoticeHours.mockResolvedValue(12)
+      const off = await controller.getContact()
+      expect(off.shiftsEnabled).toBe(false)
+      expect(off.shiftDropNoticeHours).toBe(12)
+    })
+
     it('is not decorated with @Public (only signed-in couriers can read it)', () => {
       const reflector = new Reflector()
       const isPublic = reflector.get<boolean>(IS_PUBLIC_KEY, controller.getContact)
@@ -64,14 +88,22 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
       const dtoWithNumber = new ContactCourierDto({
         dispatchPhoneNumber: '+302421012345',
         arrivalRadiusMetres: 50,
+        shiftsEnabled: true,
+        shiftDropNoticeHours: 12,
       })
       expect(dtoWithNumber.dispatchPhoneNumber).toBe('+302421012345')
       expect(dtoWithNumber.arrivalRadiusMetres).toBe(50)
+      expect(dtoWithNumber.shiftsEnabled).toBe(true)
+      expect(dtoWithNumber.shiftDropNoticeHours).toBe(12)
 
       const dtoWithNull = new ContactCourierDto({
         dispatchPhoneNumber: null,
         arrivalRadiusMetres: 0,
+        shiftsEnabled: false,
+        shiftDropNoticeHours: 0,
       })
+      expect(dtoWithNull.shiftsEnabled).toBe(false)
+      expect(dtoWithNull.shiftDropNoticeHours).toBe(0)
       expect(dtoWithNull.dispatchPhoneNumber).toBeNull()
       expect(dtoWithNull.arrivalRadiusMetres).toBe(0)
     })
