@@ -510,7 +510,7 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect(nullColDto.handBackUntil).toBeNull()
     })
 
-    test('while in hand back window: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell are undefined and omitted from JSON; the name and notes (row 101, decision 101.2) are sent', () => {
+    test('while in hand back window: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell and (decision 101.3) dropoffNotes are undefined and omitted from JSON; the name (decision 101.2) is sent', () => {
       const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
         handBackUntil: futureDate,
         dropoffPhoneNumber: customerPhone,
@@ -532,12 +532,14 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect('dropoffFloor' in serialized).toBe(false)
       expect('dropoffDoorbell' in serialized).toBe(false)
 
-      // Decision 71.10, kept by row 101 (decision 101.2): the customer's name, the drop off notes and
-      // the address are NOT withheld during the free hand back; only the phone, floor and doorbell are.
+      // Decision 71.10, kept by row 101 (decision 101.2): the customer's name and the address are NOT
+      // withheld during the free hand back. Decision 101.3: dropoffNotes is, as it holds the composed
+      // "Floor: · Doorbell:" line, so it would name the doorbell that dropoffDoorbell withholds.
       expect(dto.dropoffName).toBe('Giannis Papadopoulos')
-      expect(dto.dropoffNotes).toBe('3rd floor, ring bell')
       expect(serialized.dropoffName).toBe('Giannis Papadopoulos')
-      expect(serialized.dropoffNotes).toBe('3rd floor, ring bell')
+      expect(dto.dropoffNotes).toBeUndefined()
+      expect('dropoffNotes' in serialized).toBe(false)
+      expect(jsonStr).not.toContain('3rd floor, ring bell')
       expect(dto.dropoffLocationFormattedAddress).toContain('Dimitriadis 120')
     })
 
@@ -647,6 +649,8 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
    * - including during the free hand back window and its OFFER_EXPIRY_GRACE_SECONDS grace
    *   (decision 101.2: the app does not refetch when the window closes, and decision 71.12 keeps
    *   the item list there), while the phone, floor and doorbell stay withheld then (71.10),
+   * - except dropoffNotes, which holds the composed "Floor: · Doorbell:" line and so follows the
+   *   floor and doorbell: withheld in the window and its grace too (decision 101.3),
    * - otherwise undefined, so the key is absent from the JSON.
    */
   describe("Row 101: the customer's name, items and notes only while the rider holds the delivery", () => {
@@ -688,9 +692,15 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       jest.restoreAllMocks()
     })
 
+    // dropoffNotes is the line composed from these two (decision 101.3), so the fixture matches it.
+    const DOORBELL = 'Offeridou-K'
+    const FLOOR = '4'
+
     function withDetails(status: EnumDeliveryStatus, overrides: Partial<DeliveryEntity> = {}): DeliveryEntity {
       return createMockDelivery(status, {
         ...(CUSTOMER_DETAILS as unknown as Partial<DeliveryEntity>),
+        dropoffFloor: FLOOR,
+        dropoffDoorbell: DOORBELL,
         handBackUntil: null,
         ...overrides,
       })
@@ -755,32 +765,45 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       const PHONE_FLOOR_DOORBELL = ['dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']
 
       function expectPhoneFloorDoorbellWithheld(dto: DeliveryCourierDto) {
-        const parsed = JSON.parse(JSON.stringify(dto))
+        const json = JSON.stringify(dto)
+        const parsed = JSON.parse(json)
         for (const key of PHONE_FLOOR_DOORBELL) {
           expect((dto as unknown as Record<string, unknown>)[key]).toBeUndefined()
           expect(key in parsed).toBe(false)
         }
+        // Decision 101.3: the doorbell name reaches the JSON through no field at all.
+        expect(json).not.toContain(DOORBELL)
       }
 
-      test.each(FIELDS)('%s is sent while handBackUntil is ahead (phone, floor, doorbell withheld)', (field) => {
+      // In the window and its grace: dropoffNotes withheld with the floor and doorbell (101.3), the
+      // other four sent (101.2).
+      function expectWindowRule(dto: DeliveryCourierDto, field: CustomerField) {
+        if (field === 'dropoffNotes') {
+          expectFieldAbsent(dto, field)
+        } else {
+          expectFieldPresent(dto, field)
+        }
+      }
+
+      test.each(FIELDS)('%s while handBackUntil is ahead: sent, except dropoffNotes (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow + 60_000) }))
         expect(dto.handBackUntil).toEqual(new Date(fixedNow + 60_000))
-        expectFieldPresent(dto, field)
+        expectWindowRule(dto, field)
         expectPhoneFloorDoorbellWithheld(dto)
       })
 
-      test.each(FIELDS)('%s is sent 1 s after handBackUntil, inside the grace (phone, floor, doorbell withheld)', (field) => {
+      test.each(FIELDS)('%s 1 s after handBackUntil, inside the grace: sent, except dropoffNotes (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow - 1_000) }))
         expect(dto.handBackUntil).toBeNull()
-        expectFieldPresent(dto, field)
+        expectWindowRule(dto, field)
         expectPhoneFloorDoorbellWithheld(dto)
       })
 
-      test.each(FIELDS)('%s is sent at the last millisecond of the grace (phone, floor, doorbell withheld)', (field) => {
+      test.each(FIELDS)('%s at the last millisecond of the grace: sent, except dropoffNotes (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(
           withDetails(status, { handBackUntil: new Date(fixedNow - OFFER_EXPIRY_GRACE_SECONDS * 1000 + 1) })
         )
-        expectFieldPresent(dto, field)
+        expectWindowRule(dto, field)
         expectPhoneFloorDoorbellWithheld(dto)
       })
 
@@ -795,13 +818,20 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         expectFieldPresent(new DeliveryCourierDto(withDetails(status, { handBackUntil: null })), field)
       })
 
-      test('the split in the window: dropoffName and orderItems present, dropoffPhoneNumber, dropoffFloor and dropoffDoorbell absent', () => {
+      test('the split in the window: dropoffName, orderItems, customerNotes and dropoffSellerNotes present; dropoffNotes, dropoffPhoneNumber, dropoffFloor and dropoffDoorbell absent', () => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow + 60_000) }))
         const json = JSON.stringify(dto)
         const parsed = JSON.parse(json)
 
         expect(parsed.dropoffName).toBe(CUSTOMER_DETAILS.dropoffName)
         expect(parsed.orderItems).toEqual(CUSTOMER_DETAILS.orderItems)
+        expect(parsed.customerNotes).toEqual(CUSTOMER_DETAILS.customerNotes)
+        expect(parsed.dropoffSellerNotes).toBe(CUSTOMER_DETAILS.dropoffSellerNotes)
+
+        // Decision 101.3: the composed floor and doorbell line goes with the floor and the doorbell.
+        expect(dto.dropoffNotes).toBeUndefined()
+        expect('dropoffNotes' in parsed).toBe(false)
+        expect(json).not.toContain(CUSTOMER_DETAILS.dropoffNotes)
 
         expect(dto.dropoffPhoneNumber).toBeUndefined()
         expect(dto.dropoffFloor).toBeUndefined()
@@ -809,9 +839,9 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         expect('dropoffPhoneNumber' in parsed).toBe(false)
         expect('dropoffFloor' in parsed).toBe(false)
         expect('dropoffDoorbell' in parsed).toBe(false)
-        // The fixture's phone, floor and doorbell values are not in the text either.
+        // The fixture's phone and doorbell values are not in the text either, through any field.
         expect(json).not.toContain(customerPhone)
-        expect(json).not.toContain('Papadopoulou')
+        expect(json).not.toContain(DOORBELL)
       })
     })
 

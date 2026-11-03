@@ -504,27 +504,34 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
     expectAll(accepted)
   })
 
-  test("GET deliveries/:id during the accepted delivery's free hand back: all five, but no phone, floor or doorbell (decision 101.2)", async () => {
+  test("GET deliveries/:id during the accepted delivery's free hand back: name, items and both other notes, but no drop off notes, phone, floor or doorbell (decisions 101.2, 101.3)", async () => {
     getByIdOrThrowWithLocation.mockResolvedValue(
       delivery('del-r101-a', EnumDeliveryStatus.ACCEPTED, {
         courierId: RIDER.id,
         handBackUntil: new Date(Date.now() + 60_000),
         dropoffPhoneNumber: '+306977101101',
-        dropoffFloor: 'Floor 4',
-        dropoffDoorbell: 'Bell Offeridou',
+        dropoffFloor: '4',
+        // The doorbell the composed dropoffNotes line names ("Floor: 4 · Doorbell: Offeridou-K").
+        dropoffDoorbell: 'Offeridou-K',
       })
     )
 
     const dto = await controller.getMyDeliveryById('del-r101-a', RIDER)
 
-    expectAll(dto)
     const json = JSON.stringify(dto)
-    for (const key of ['dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']) {
+    const parsed = JSON.parse(json)
+    for (const field of ['dropoffName', 'orderItems', 'customerNotes', 'dropoffSellerNotes'] as CustomerField[]) {
+      expect(field in parsed).toBe(true)
+      expect(parsed[field]).toEqual(CUSTOMER_DETAILS[field])
+    }
+    for (const key of ['dropoffNotes', 'dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']) {
       expect((dto as unknown as Record<string, unknown>)[key]).toBeUndefined()
       expect(json).not.toContain(`"${key}"`)
     }
+    expect(json).not.toContain(CUSTOMER_DETAILS.dropoffNotes)
     expect(json).not.toContain('+306977101101')
-    expect(json).not.toContain('Bell Offeridou')
+    // The doorbell name reaches the JSON through no field at all.
+    expect(json).not.toContain('Offeridou-K')
   })
 })
 
