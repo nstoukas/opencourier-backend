@@ -45,6 +45,42 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
     } as unknown as DeliveryEntity)
   }
 
+  // Row 101 (decision 101.1): an offer (not yet accepted) built through the real DTO, with every
+  // customer detail on the delivery row. The DTO must leave out the name, items and notes.
+  const ORDER_ITEM = 'Spetsofai Pilioritiko'
+  const CUSTOMER_NOTE = 'Knock twice, baby asleep'
+  const HELD_ONLY_FIELDS = ['dropoffName', 'orderItems', 'customerNotes', 'dropoffNotes', 'dropoffSellerNotes']
+  const HELD_ONLY_TEXT = [DETAILS.dropoffName, ORDER_ITEM, CUSTOMER_NOTE, DETAILS.dropoffNotes, DETAILS.dropoffSellerNotes]
+
+  function offerDeliveryDto(): DeliveryCourierDto {
+    return new DeliveryCourierDto({
+      id: 'del-r95-d',
+      status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      matchedCourierId: 'courier-r101',
+      courierId: null,
+      handBackUntil: null,
+      createdAt: new Date('2026-11-03T05:00:00.000Z'),
+      ...DETAILS,
+      orderItems: [{ name: ORDER_ITEM, quantity: 1 }],
+      customerNotes: [CUSTOMER_NOTE],
+      pickupLocation: { street: PICKUP_STREET, city: 'Volos', state: null },
+      dropoffLocation: { street: DROPOFF_STREET, city: 'Volos', state: null },
+    } as unknown as DeliveryEntity)
+  }
+
+  function expectNoHeldOnlyDetails(delivery: Record<string, unknown>) {
+    const json = JSON.stringify(delivery)
+    for (const field of HELD_ONLY_FIELDS) {
+      expect(delivery[field]).toBeUndefined()
+      expect(json).not.toContain(`"${field}"`)
+    }
+    for (const text of HELD_ONLY_TEXT) expect(json).not.toContain(text)
+    // Not vacuous: it is the offer, with the restaurant and the address.
+    expect(delivery.id).toBe('del-r95-d')
+    expect(delivery.pickupName).toBe(DETAILS.pickupName)
+    expect(delivery.dropoffLocationFormattedAddress).toContain(DROPOFF_STREET)
+  }
+
   const logSpies: jest.SpyInstance[] = []
 
   beforeEach(() => {
@@ -115,6 +151,16 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
       expectNoDetailsLogged()
     })
 
+    test("row 101: an offer not yet accepted reaches the rider's socket with no customer name, items or notes", async () => {
+      await dispatcher.sendOfferToCourier(USER_ID, offerDeliveryDto())
+
+      expect(riderSocket.emit).toHaveBeenCalledTimes(1)
+      const [name, data] = riderSocket.emit.mock.calls[0]!
+      expect(name).toBe(NotificationEventType.NEW_DELIVERY_OFFER)
+      expectNoHeldOnlyDetails(data.delivery)
+      expectNoDetailsLogged()
+    })
+
     test('a status update logs no contact details, and the rider receives the whole delivery', async () => {
       await dispatcher.dispatchDeliveryStatusUpdated(
         USER_ID,
@@ -155,6 +201,16 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
       expect(name).toBe(NotificationEventType.NEW_DELIVERY_OFFER)
       // Ably's offer is the DTO itself, not wrapped.
       expectFullDelivery(delivery)
+      expectNoDetailsLogged()
+    })
+
+    test('row 101: an offer not yet accepted is published with no customer name, items or notes', async () => {
+      await dispatcher.sendOfferToCourier(USER_ID, offerDeliveryDto())
+
+      expect(publish).toHaveBeenCalledTimes(1)
+      const [name, delivery] = publish.mock.calls[0]!
+      expect(name).toBe(NotificationEventType.NEW_DELIVERY_OFFER)
+      expectNoHeldOnlyDetails(delivery)
       expectNoDetailsLogged()
     })
 

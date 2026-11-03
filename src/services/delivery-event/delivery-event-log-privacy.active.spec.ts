@@ -29,8 +29,10 @@ import { DeliveryEvent, NotificationEventType, STATE_MACHINE } from 'src/shared-
 
 // Row 95: a delivery's creation, its events and its offer to a rider log only ids, type, status and
 // times, never the recipient's or the pickup contact's name, phone or address, and never an event's
-// free text message. The rider still receives the full offer. The service runs with the real socket
-// dispatcher and SocketIOService, so every log line on the way to the rider's socket is checked.
+// free text message. The rider's offer still carries the restaurant and both addresses; since row 101
+// (decision 101.1) it carries no customer name, order items or notes until the rider accepts. The service
+// runs with the real socket dispatcher and SocketIOService, so every log line on the way to the rider's
+// socket is checked, and what reaches the socket is what the rider gets.
 describe('DeliveryEventService logs no contact details (row 95)', () => {
   // The delivery's own contact details. Each is distinctive, so a hit can only be a leak.
   const DROPOFF_NAME = 'Euthymia Recipientopoulou'
@@ -42,6 +44,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
   const SELLER_NOTES = 'Leave by the blue door'
   const FLOOR = 'Floor 5 flat 5B'
   const DOORBELL = 'Bell Karamanlidou'
+  const ORDER_ITEM = 'Spetsofai Pilioritiko'
+  const CUSTOMER_NOTE = 'Knock twice, baby asleep'
   const DROPOFF_STREET = 'Iasonos 123'
   const PICKUP_STREET = 'Kartali 77'
 
@@ -61,6 +65,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
     SELLER_NOTES,
     FLOOR,
     DOORBELL,
+    ORDER_ITEM,
+    CUSTOMER_NOTE,
     DROPOFF_STREET,
     PICKUP_STREET,
   ]
@@ -92,6 +98,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       dropoffSellerNotes: SELLER_NOTES,
       dropoffFloor: FLOOR,
       dropoffDoorbell: DOORBELL,
+      orderItems: [{ name: ORDER_ITEM, quantity: 1 }],
+      customerNotes: [CUSTOMER_NOTE],
       pickupLocation: { street: PICKUP_STREET, city: 'Volos', state: null },
       dropoffLocation: { street: DROPOFF_STREET, city: 'Volos', state: null },
       ...extra,
@@ -241,7 +249,32 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
     return courierSocket.emit.mock.calls.filter(([messageName]) => messageName === name).map(([, data]) => data)
   }
 
-  test('creation and the offer to a rider log no contact details; the rider still receives the full offer', async () => {
+  // Row 101: the five fields that follow the phone's rule (holdsDelivery), and their fixture values.
+  const HELD_ONLY = {
+    dropoffName: DROPOFF_NAME,
+    orderItems: [{ name: ORDER_ITEM, quantity: 1 }],
+    customerNotes: [CUSTOMER_NOTE],
+    dropoffNotes: DROPOFF_NOTES,
+    dropoffSellerNotes: SELLER_NOTES,
+  }
+  const HELD_ONLY_TEXT = [DROPOFF_NAME, ORDER_ITEM, CUSTOMER_NOTE, DROPOFF_NOTES, SELLER_NOTES]
+
+  // What reached the rider's socket carries none of the five: not as a key, not as text.
+  function expectNoHeldOnlyDetails(delivery: Record<string, unknown>) {
+    const json = JSON.stringify(delivery)
+    for (const field of Object.keys(HELD_ONLY)) {
+      expect(delivery[field]).toBeUndefined()
+      expect(json).not.toContain(`"${field}"`)
+    }
+    for (const text of HELD_ONLY_TEXT) expect(json).not.toContain(text)
+  }
+
+  function expectAllHeldOnlyDetails(delivery: Record<string, unknown>) {
+    const parsed = JSON.parse(JSON.stringify(delivery))
+    expect(parsed).toMatchObject(HELD_ONLY)
+  }
+
+  test("creation and the offer to a rider log no contact details; the rider's offer carries the restaurant and addresses, not the customer's name, items or notes", async () => {
     deliveryRepository.findByIdOrThrow
       .mockResolvedValueOnce(deliveryAt(EnumDeliveryStatus.CREATED))
       .mockResolvedValueOnce(deliveryAt(EnumDeliveryStatus.ASSIGNING_COURIER))
@@ -252,19 +285,22 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
     await service.processDeliveryEvent(event(EnumDeliveryEventType.CREATED, { actor: EnumEventActor.PARTNER }))
 
     expectNoFailedTransition()
-    // The offer reached the rider's socket, with the restaurant's and the customer's details and address.
+    // The offer reached the rider's socket, with the restaurant's details and both addresses.
     const offers = emitted(NotificationEventType.NEW_DELIVERY_OFFER)
     expect(offers).toHaveLength(1)
     expect(offers[0].delivery).toMatchObject({
       id: DELIVERY_ID,
-      dropoffName: DROPOFF_NAME,
       pickupName: PICKUP_NAME,
       pickupPhoneNumber: PICKUP_PHONE,
-      dropoffNotes: DROPOFF_NOTES,
       pickupNotes: PICKUP_NOTES,
     })
     expect(offers[0].delivery.dropoffLocationFormattedAddress).toContain(DROPOFF_STREET)
     expect(offers[0].delivery.pickupLocationFormattedAddress).toContain(PICKUP_STREET)
+    // Row 101: but not the customer's name, items or notes (nor, row 33, the phone, floor or doorbell).
+    expectNoHeldOnlyDetails(offers[0].delivery)
+    for (const field of ['dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']) {
+      expect(field in JSON.parse(JSON.stringify(offers[0].delivery))).toBe(false)
+    }
 
     expectNoDetailsLogged()
   })
@@ -287,6 +323,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       dropoffFloor: FLOOR,
       dropoffDoorbell: DOORBELL,
     })
+    // Row 101: once accepted, the same rider gets the name, items and notes too.
+    expectAllHeldOnlyDetails(updates[0].delivery)
     expectNoDetailsLogged()
   })
 
@@ -305,7 +343,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
     ],
     [EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION, EnumDeliveryEventType.DROPPED_OFF, EnumDeliveryStatus.DROPPED_OFF],
-  ])('job step %s --%s--> %s logs no contact details; the rider is still sent the delivery', async (from, type, to) => {
+  ])('job step %s --%s--> %s logs no contact details; the rider is still sent the delivery, with the customer details while held', async (from, type, to) => {
     deliveryRepository.findByIdOrThrow.mockResolvedValueOnce(ongoing(from)).mockResolvedValue(ongoing(to))
 
     await service.processDeliveryEvent(event(type, { actor: EnumEventActor.COURIER, occurredAt: new Date() }))
@@ -314,7 +352,16 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
     const updates = emitted(NotificationEventType.DELIVERY_STATUS_UPDATED)
     expect(updates).toHaveLength(1)
     expect(updates[0].newStatus).toBe(to)
-    expect(updates[0].delivery.dropoffName).toBe(DROPOFF_NAME)
+    expect(updates[0].delivery.id).toBe(DELIVERY_ID)
+    if (to === EnumDeliveryStatus.DROPPED_OFF) {
+      // Row 101: once dropped off the rider no longer holds the delivery, so the name, items and
+      // notes go, as the phone (row 33) does.
+      expectNoHeldOnlyDetails(updates[0].delivery)
+      expect('dropoffPhoneNumber' in JSON.parse(JSON.stringify(updates[0].delivery))).toBe(false)
+    } else {
+      expectAllHeldOnlyDetails(updates[0].delivery)
+      expect(updates[0].delivery.dropoffPhoneNumber).toBe(DROPOFF_PHONE)
+    }
     expectNoDetailsLogged()
   })
 

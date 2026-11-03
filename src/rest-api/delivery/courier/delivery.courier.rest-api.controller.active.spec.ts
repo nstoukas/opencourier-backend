@@ -387,6 +387,137 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
   })
 })
 
+// Row 101 (decision 101.1): the offers a rider fetches at GET deliveries/new carry no customer name,
+// order items or notes; the same rider fetching the delivery once accepted (GET deliveries/:id) gets
+// them all. The controller runs with the real DTOs; only the data sources are stubbed.
+describe('DeliveryCourierRestApiController: customer details only once accepted (Row 101)', () => {
+  const RIDER: CourierEntity = {
+    id: 'courier-r101',
+    currentLocation: { latitude: 39.36, longitude: 22.94 },
+  } as CourierEntity
+
+  const CUSTOMER_DETAILS = {
+    dropoffName: 'Kalliopi Offeridou',
+    orderItems: [{ name: 'Bougatsa Thessalonikis', quantity: 2, price: 450 }],
+    customerNotes: ['Allergic to sesame, no tahini'],
+    dropoffNotes: 'Floor: 4 · Doorbell: Offeridou-K',
+    dropoffSellerNotes: 'Paid by card, give receipt to Kalliopi',
+  }
+  type CustomerField = keyof typeof CUSTOMER_DETAILS
+  const FIELDS = Object.keys(CUSTOMER_DETAILS) as CustomerField[]
+  const LEAK_TEXT = ['Kalliopi Offeridou', 'Bougatsa Thessalonikis', 'Allergic to sesame', 'Offeridou-K', 'give receipt to Kalliopi']
+
+  function delivery(id: string, status: EnumDeliveryStatus, extra: Record<string, unknown> = {}) {
+    return {
+      id,
+      status,
+      createdAt: new Date('2026-11-03T10:00:00.000Z'),
+      handBackUntil: null,
+      totalCompensation: 500,
+      currencyCode: 'EUR',
+      pickupName: 'Volos Test Kitchen',
+      pickupBusinessName: 'Volos Test Kitchen',
+      ...CUSTOMER_DETAILS,
+      pickupLocation: { id: `p-${id}`, latitude: 39.365, longitude: 22.945, street: 'Iasonos', city: 'Volos', state: 'Magnesia' },
+      dropoffLocation: { id: `d-${id}`, latitude: 39.375, longitude: 22.955, street: 'Dimitriadis', city: 'Volos', state: 'Magnesia' },
+      ...extra,
+    }
+  }
+
+  let controller: DeliveryCourierRestApiController
+  let getMyNewDeliveries: jest.Mock
+  let getByIdOrThrowWithLocation: jest.Mock
+
+  beforeEach(() => {
+    getMyNewDeliveries = jest.fn()
+    getByIdOrThrowWithLocation = jest.fn()
+    controller = new DeliveryCourierRestApiController(
+      { getMyNewDeliveries } as unknown as DeliveryRestApiCourierService,
+      { getByIdOrThrowWithLocation } as unknown as DeliveryDomainService,
+      { getRoute: jest.fn().mockResolvedValue({ distanceMetres: 1000, durationSeconds: 120, points: [] }) } as unknown as OsrmRoutingService
+    )
+  })
+
+  function expectNone(dto: object) {
+    const json = JSON.stringify(dto)
+    for (const field of FIELDS) {
+      expect((dto as Record<string, unknown>)[field]).toBeUndefined()
+      expect(json).not.toContain(`"${field}"`)
+    }
+    for (const text of LEAK_TEXT) expect(json).not.toContain(text)
+  }
+
+  function expectAll(dto: object) {
+    const parsed = JSON.parse(JSON.stringify(dto))
+    for (const field of FIELDS) {
+      expect(field in parsed).toBe(true)
+      expect(parsed[field]).toEqual(CUSTOMER_DETAILS[field])
+    }
+  }
+
+  test('GET deliveries/new: no offer in the list carries the name, items or notes, in the DTO or its JSON', async () => {
+    getMyNewDeliveries.mockResolvedValue({
+      data: [
+        delivery('del-r101-a', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id }),
+        delivery('del-r101-b', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id }),
+      ],
+      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+    })
+
+    const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, RIDER)
+
+    expect(result.data).toHaveLength(2)
+    for (const offer of result.data) expectNone(offer)
+    expectNone(result)
+    // The offer card still has what it shows: the restaurant, the area and the pay.
+    expect(result.data[0]?.pickupBusinessName).toBe('Volos Test Kitchen')
+    expect(result.data[0]?.dropoffArea).toBeTruthy()
+    expect(result.data[0]?.totalCompensation).toBe(500)
+  })
+
+  test('GET deliveries/:id while the rider is only offered the delivery: none of them', async () => {
+    getByIdOrThrowWithLocation.mockResolvedValue(
+      delivery('del-r101-a', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id, courierId: null })
+    )
+
+    const dto = await controller.getMyDeliveryById('del-r101-a', RIDER)
+
+    expectNone(dto)
+  })
+
+  test('the same rider: the offer carries none, the accepted delivery fetched by id carries them all', async () => {
+    getMyNewDeliveries.mockResolvedValue({
+      data: [delivery('del-r101-a', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id })],
+    })
+    const offers = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, RIDER)
+    expectNone(offers.data[0]!)
+
+    // The rider accepts (no free hand back configured, so handBackUntil is null).
+    getByIdOrThrowWithLocation.mockResolvedValue(
+      delivery('del-r101-a', EnumDeliveryStatus.ACCEPTED, { courierId: RIDER.id, matchedCourierId: null })
+    )
+    const accepted = await controller.getMyDeliveryById('del-r101-a', RIDER)
+
+    expect(getByIdOrThrowWithLocation).toHaveBeenCalledWith('del-r101-a', {
+      OR: [{ courierId: RIDER.id }, { matchedCourierId: RIDER.id }],
+    })
+    expectAll(accepted)
+  })
+
+  test('GET deliveries/:id during the accepted delivery\'s free hand back: none of them yet', async () => {
+    getByIdOrThrowWithLocation.mockResolvedValue(
+      delivery('del-r101-a', EnumDeliveryStatus.ACCEPTED, {
+        courierId: RIDER.id,
+        handBackUntil: new Date(Date.now() + 60_000),
+      })
+    )
+
+    const dto = await controller.getMyDeliveryById('del-r101-a', RIDER)
+
+    expectNone(dto)
+  })
+})
+
 describe('DeliveryCourierRestApiController.acceptDelivery (Spec 0020 AC-1)', () => {
   let controller: DeliveryCourierRestApiController
   let mockDeliveryRestApiCourierService: jest.Mocked<DeliveryRestApiCourierService>
