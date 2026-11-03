@@ -1,9 +1,17 @@
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
-import { initialReadyAt } from './ready-signals'
+import {
+  READY_ACTION_STATUSES,
+  READY_SENTENCES,
+  delayedReadyAt,
+  initialReadyAt,
+  pastReadyLimit,
+  readyActionRefusal,
+} from './ready-signals'
+import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 // A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
 const DEFAULT_USUAL_PREP_MINUTES = 15
-import { BadRequestException, Injectable, Logger } from '@nestjs/common'
+import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
 import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason, EnumCancelledBy } from '@prisma/types'
@@ -147,6 +155,84 @@ export class DeliveryDomainService {
     })
 
     return delivery
+  }
+
+  // Spec 0023 (AC-3, AC-5): the restaurant moves the ready time later by 5, 10 or 15 minutes. One
+  // conditional write on what was read, so a delay never lands after food ready or after pickup, and
+  // two taps on the same time add once (the second sees the time changed).
+  async delayReady(deliveryId: string, minutes: number, expectedReadyAt: Date | null): Promise<DeliveryEntity> {
+    const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    this.refuseReadyAction(delivery, true)
+    if ((delivery.readyAt?.getTime() ?? null) !== (expectedReadyAt?.getTime() ?? null)) {
+      throw new ConflictException(READY_SENTENCES.changed)
+    }
+    const now = new Date()
+    const next = delayedReadyAt(delivery.readyAt, now, minutes)
+    if (pastReadyLimit(next, delivery.createdAt)) {
+      throw new ConflictException(READY_SENTENCES.tooLate)
+    }
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { readyAt: delivery.readyAt, foodReadyAt: null, status: { in: READY_ACTION_STATUSES } },
+      { readyAt: next }
+    )
+    if (!written) {
+      // Something changed between the read and the write: say what, from a fresh read.
+      this.refuseReadyAction(await this.deliveryRepository.findByIdOrThrow(deliveryId), true)
+      throw new ConflictException(READY_SENTENCES.changed)
+    }
+    const delayed: DeliveryReadyDelayedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.READY_DELAYED,
+      actor: EnumEventActor.PARTNER,
+      source: EnumDeliveryEventSource.PARTNER_APP,
+      message: `+${minutes} min, ready at ${clock(next)}`,
+    }
+    await this.deliveryEventService.recordReadyEvent(delayed, delivery.status)
+    const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    await this.deliveryEventService.notifyReadyUpdated(updated, minutes)
+    return updated
+  }
+
+  // Spec 0023 (AC-4): the restaurant marks the food ready, once. A repeat (or a tap that lost a race to
+  // another) answers the delivery as it is, with no second event.
+  async markFoodReady(deliveryId: string): Promise<DeliveryEntity> {
+    const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    if (delivery.foodReadyAt) return delivery
+    this.refuseReadyAction(delivery, false)
+    const now = new Date()
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { foodReadyAt: null, status: { in: READY_ACTION_STATUSES } },
+      { foodReadyAt: now }
+    )
+    if (!written) {
+      const again = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      if (again.foodReadyAt) return again
+      this.refuseReadyAction(again, false)
+      throw new ConflictException(READY_SENTENCES.changed)
+    }
+    const ready: DeliveryFoodReadyEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.FOOD_READY,
+      actor: EnumEventActor.PARTNER,
+      source: EnumDeliveryEventSource.PARTNER_APP,
+      message: `Food ready at ${clock(now)}`,
+    }
+    await this.deliveryEventService.recordReadyEvent(ready, delivery.status)
+    const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    await this.deliveryEventService.notifyReadyUpdated(updated, null)
+    return updated
+  }
+
+  // Throws the fixed 409 sentence when a ready action may not run on this delivery (AC-3, AC-4).
+  // `foodReadyRefuses`: a delay is refused once the food is ready; food ready itself is not.
+  private refuseReadyAction(delivery: DeliveryEntity, foodReadyRefuses: boolean): void {
+    if (foodReadyRefuses && delivery.foodReadyAt) {
+      throw new ConflictException(READY_SENTENCES.alreadyReady)
+    }
+    const refusal = readyActionRefusal(delivery.status)
+    if (refusal) throw new ConflictException(refusal)
   }
 
   // Spec 0002, AC-5: an accept that reaches the server before the offer ends wins; one that arrives

@@ -58,6 +58,14 @@ export interface DeliveryDropoffPointCorrectedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.DROPOFF_POINT_CORRECTED
   courierId: string
 }
+// Spec 0023: the restaurant moved the ready time, or marked the food ready. Recorded by
+// DeliveryEventService without a status change, never through processDeliveryEvent.
+export interface DeliveryReadyDelayedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.READY_DELAYED
+}
+export interface DeliveryFoodReadyEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.FOOD_READY
+}
 export interface DeliveryFailedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FAILED
 }
@@ -154,6 +162,8 @@ export type DeliveryEvent =
   | DeliveryFoodReturnedEvent
   | DeliveryFoodNotReturnedEvent
   | DeliveryDropoffPointCorrectedEvent
+  | DeliveryReadyDelayedEvent
+  | DeliveryFoodReadyEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

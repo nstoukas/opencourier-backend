@@ -1,3 +1,4 @@
+import { DeliveryReadyDelayPartnerInput } from './queries/delivery-ready-delay.partner.input'
 import * as common from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
@@ -149,6 +150,38 @@ export class DeliveryPartnerRestApiController {
     const dto = new DeliveryPartnerDto(result)
 
     return dto
+  }
+
+  // Spec 0023 (AC-3): "+5 / +10 / +15 min". 409 with a fixed sentence when it may not run.
+  @common.Post(':deliveryId/ready-delay')
+  @swagger.ApiOkResponse({ type: DeliveryPartnerDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Move the food ready time later' })
+  @ApiKeyAuth()
+  @Roles(EnumUserRole.PARTNER)
+  async delayReady(
+    @common.Param('deliveryId') deliveryId: string,
+    @CurrentUserPartner() partner: PartnerEntity,
+    @common.Body() data: DeliveryReadyDelayPartnerInput
+  ): Promise<DeliveryPartnerDto> {
+    const expected = data.expectedReadyAt === null ? null : new Date(data.expectedReadyAt)
+    const result = await this.deliveryPartnerRestApiService.delayReady(deliveryId, partner.id, data.minutes, expected)
+    return new DeliveryPartnerDto(result)
+  }
+
+  // Spec 0023 (AC-4): "Food ready". A repeat answers the delivery as it is.
+  @common.Post(':deliveryId/food-ready')
+  @swagger.ApiOkResponse({ type: DeliveryPartnerDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Mark the food ready' })
+  @ApiKeyAuth()
+  @Roles(EnumUserRole.PARTNER)
+  async markFoodReady(
+    @common.Param('deliveryId') deliveryId: string,
+    @CurrentUserPartner() partner: PartnerEntity
+  ): Promise<DeliveryPartnerDto> {
+    const result = await this.deliveryPartnerRestApiService.markFoodReady(deliveryId, partner.id)
+    return new DeliveryPartnerDto(result)
   }
 
   @common.Post('test/:deliveryId/assign-courier')

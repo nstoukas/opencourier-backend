@@ -6,7 +6,7 @@ import { SocketIOService } from './socketio.service'
 import {
   EnumDeliveryStatus,
   NotificationEventType,
-  OfferEndedMessage,
+  JobReadyUpdatedMessage, OfferEndedMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
 
@@ -59,6 +59,12 @@ export class SocketIODispatcher extends WebsocketDispatcher {
     )
 
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.OFFER_ENDED, message)
+  }
+
+  // Spec 0023. Logged by delivery id only (the message carries a business name and times).
+  async sendJobReadyUpdated(userId: string, message: JobReadyUpdatedMessage) {
+    this.logger.log(`emitting ${NotificationEventType.JOB_READY_UPDATED} for delivery ${message.deliveryId}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.JOB_READY_UPDATED, message)
   }
 
   private async publishMessage(channelName: string, messageName: string, message: any) {

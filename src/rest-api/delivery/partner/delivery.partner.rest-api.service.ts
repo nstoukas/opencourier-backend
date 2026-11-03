@@ -283,4 +283,17 @@ export class DeliveryPartnerRestApiService {
 
     return updatedDelivery
   }
+
+  // Spec 0023 (AC-3, AC-5): only the delivery's own restaurant, within its history period.
+  async delayReady(deliveryId: string, partnerId: string, minutes: number, expectedReadyAt: Date | null) {
+    const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+    await this.assertVisibleToPartner(delivery, partnerId)
+    return this.deliveryDomainService.delayReady(deliveryId, minutes, expectedReadyAt)
+  }
+
+  async markFoodReady(deliveryId: string, partnerId: string) {
+    const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+    await this.assertVisibleToPartner(delivery, partnerId)
+    return this.deliveryDomainService.markFoodReady(deliveryId)
+  }
 }

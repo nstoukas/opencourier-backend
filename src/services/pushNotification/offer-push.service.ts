@@ -4,7 +4,7 @@ import { OFFER_INSIST_AFTER_SECONDS, PUSH_DEFAULT_TTL_SECONDS } from '../../cons
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
-import { NotificationEventType, OfferEndedMessage } from 'src/shared-types/notification'
+import { JobReadyUpdatedMessage, NotificationEventType, OfferEndedMessage } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
 import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
@@ -85,6 +85,36 @@ export class OfferPushService {
     void this.sendJobCancelled(courierId, deliveryId).catch((error) =>
       this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${error}`)
     )
+  }
+
+  // The ready time of a job this rider holds moved, or the food is ready (spec 0023, AC-6). The same
+  // fields as the live message, as strings ('' for unknown), so a locked phone can word its notice.
+  // Fire and forget, never throws.
+  jobReadyUpdated(courierId: string, message: JobReadyUpdatedMessage): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendJobReadyUpdated(courierId, message).catch((error) =>
+      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${error}`)
+    )
+  }
+
+  async sendJobReadyUpdated(courierId: string, message: JobReadyUpdatedMessage): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = {
+        type: NotificationEventType.JOB_READY_UPDATED,
+        deliveryId: message.deliveryId,
+        restaurantName: message.restaurantName,
+        readyAt: message.readyAt ?? '',
+        foodReadyAt: message.foodReadyAt ?? '',
+        delayMinutes: message.delayMinutes === null ? '' : String(message.delayMinutes),
+      }
+      const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
+      await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_READY_UPDATED, result)
+    } catch (error) {
+      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${error}`)
+    }
   }
 
   async sendJobCancelled(courierId: string, deliveryId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.courier.dto'
-import { OfferEndedMessage } from 'src/shared-types/notification'
+import { JobReadyUpdatedMessage, OfferEndedMessage } from 'src/shared-types/notification'
 
 export abstract class WebsocketDispatcher {
   abstract sendOfferToCourier(courierUserId: string, delivery: DeliveryCourierDto): Promise<void> | void
@@ -12,6 +12,8 @@ export abstract class WebsocketDispatcher {
   ): Promise<void> | void
   // Tells one rider an offer they held has ended (expired, or they went offline). Spec 0002.
   abstract sendOfferEnded(courierUserId: string, message: OfferEndedMessage): Promise<void> | void
+  // Tells the rider holding a job that its ready time moved or the food is ready (spec 0023).
+  abstract sendJobReadyUpdated(courierUserId: string, message: JobReadyUpdatedMessage): Promise<void> | void
   // Closes every live connection of one user, after an admin set a new password (spec 0013).
   abstract disconnectUser(userId: string): Promise<void> | void
 }

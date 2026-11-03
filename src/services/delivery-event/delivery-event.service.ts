@@ -1,3 +1,5 @@
+import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
+import type { JobReadyUpdatedMessage } from 'src/shared-types/notification'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OnEvent } from '@nestjs/event-emitter'
 import { ConfigService } from '@nestjs/config'
@@ -1471,6 +1473,37 @@ export class DeliveryEventService {
     status: EnumDeliveryStatus
   ): Promise<void> {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
+  // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
+  // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
+  async recordReadyEvent(
+    event: DeliveryReadyDelayedEvent | DeliveryFoodReadyEvent,
+    status: EnumDeliveryStatus
+  ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
+  // Spec 0023 (AC-6): tells the rider holding this job, if any, over the live connection and by push.
+  // Never throws: the restaurant's action already happened and is on the record.
+  async notifyReadyUpdated(delivery: DeliveryEntity, delayMinutes: number | null): Promise<void> {
+    if (!delivery.courierId) return
+    const message: JobReadyUpdatedMessage = {
+      deliveryId: delivery.id,
+      restaurantName: delivery.pickupBusinessName,
+      readyAt: delivery.readyAt ? delivery.readyAt.toISOString() : null,
+      foodReadyAt: delivery.foodReadyAt ? delivery.foodReadyAt.toISOString() : null,
+      delayMinutes,
+    }
+    try {
+      const courier = await this.courierRepository.findById(delivery.courierId)
+      if (courier?.userId) {
+        await this.websocketDispatcher.sendJobReadyUpdated(courier.userId, message)
+      }
+    } catch (error) {
+      this.logger.error(`Could not tell the rider of delivery ${delivery.id} its ready time changed: ${error}`)
+    }
+    this.offerPushService.jobReadyUpdated(delivery.courierId, message)
   }
 
   private async endDelivery(
