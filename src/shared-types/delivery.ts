@@ -53,7 +53,13 @@ export interface OrderItem {
   price?: number
   weight?: number
   vatPercentage?: number
+  // Spec 0028 (row 103): a drink or a side, the items riders most often leave behind; absent means
+  // neither. The rider's pickup checklist lists them first.
+  kind?: OrderItemKind
 }
+
+export const ORDER_ITEM_KINDS = ['DRINK', 'SIDE'] as const
+export type OrderItemKind = (typeof ORDER_ITEM_KINDS)[number]
 
 export interface Barcode {
   value: string
