@@ -32,6 +32,9 @@ export class ConfigCourierRestApiController {
   async getContact(): Promise<ContactCourierDto> {
     const dispatchPhoneNumber = await this.configDomainService.instanceConfig.getDispatchPhoneNumber()
     const arrivalRadiusMetres = await this.configDomainService.instanceConfig.getArrivalRadiusMetres()
-    return new ContactCourierDto({ dispatchPhoneNumber, arrivalRadiusMetres })
+    // Spec 0027: the app shows shifts only while the co-op runs them.
+    const shiftsEnabled = await this.configDomainService.instanceConfig.getShiftsEnabled()
+    const shiftDropNoticeHours = await this.configDomainService.instanceConfig.getShiftDropNoticeHours()
+    return new ContactCourierDto({ dispatchPhoneNumber, arrivalRadiusMetres, shiftsEnabled, shiftDropNoticeHours })
   }
 }
