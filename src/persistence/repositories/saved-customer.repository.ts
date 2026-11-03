@@ -120,11 +120,12 @@ export class SavedCustomerRepository extends EntityRepository {
         where: { partnerId_phone: { partnerId, phone: fields.phone } },
         select: { id: true },
       })
-      const before = await pointBefore(tx, { partnerId_phone: { partnerId, phone: fields.phone } })
+      // Row 99: an order's save never clears pinMovedByRiderAt (decision 99.1, amended): its form may
+      // hold the point from before the rider's move, so only a deliberate edit (`update`) clears it.
       const saved = await tx.savedCustomer.upsert({
         where: { partnerId_phone: { partnerId, phone: fields.phone } },
         create: { ...fields, partnerId },
-        update: { ...fields, ...clearRiderMoveIfPointChanged(before, fields) },
+        update: fields,
       })
       // A customer created just now already has lastUsedAt = now, so only an existing one is touched.
       const customer = markUsed && existing !== null ? await markUsedInTransaction(tx, partnerId, saved.id) : saved
@@ -142,11 +143,13 @@ export class SavedCustomerRepository extends EntityRepository {
   ): Promise<SavedCustomer | null> {
     return this.prisma.$transaction(async (tx) => {
       if (Object.keys(fields).length > 0) {
-        const before = await pointBefore(tx, { id })
+        // Row 99: markUsed means an order is saving this customer, and an order never clears the
+        // rider's mark (its form may be stale); a deliberate edit (markUsed false) that moves the point does.
+        const clearMark = markUsed ? {} : clearRiderMoveIfPointChanged(await pointBefore(tx, { id }), fields)
         // updateMany, not update: it takes a non-unique WHERE, so ownership is part of the write.
         const { count } = await tx.savedCustomer.updateMany({
           where: { id, partnerId },
-          data: { ...fields, ...clearRiderMoveIfPointChanged(before, fields) },
+          data: { ...fields, ...clearMark },
         })
         if (count === 0) {
           return null
@@ -220,8 +223,8 @@ async function pointBefore(
   return tx.savedCustomer.findUnique({ where, select: { latitude: true, longitude: true } })
 }
 
-// Row 99: a restaurant that sets a different point has dealt with the rider's move, so its mark goes.
-// Writing the same point back (an order that used the corrected point) keeps it.
+// Row 99: a restaurant (or a representative in admin) that deliberately sets a different point has
+// dealt with the rider's move, so its mark goes. Saving the same point again keeps it.
 function clearRiderMoveIfPointChanged(
   before: { latitude: number; longitude: number } | null,
   fields: Partial<{ latitude: number; longitude: number }>
