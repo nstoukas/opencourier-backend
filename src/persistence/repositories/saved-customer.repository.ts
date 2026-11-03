@@ -145,7 +145,7 @@ export class SavedCustomerRepository extends EntityRepository {
       if (Object.keys(fields).length > 0) {
         // Row 99: markUsed means an order is saving this customer, and an order never clears the
         // rider's mark (its form may be stale); a deliberate edit (markUsed false) that moves the point does.
-        const clearMark = markUsed ? {} : clearRiderMoveIfPointChanged(await pointBefore(tx, { id }), fields)
+        const clearMark = markUsed ? {} : clearRiderMoveIfPointChanged(await pointBefore(tx, { id, partnerId }), fields)
         // updateMany, not update: it takes a non-unique WHERE, so ownership is part of the write.
         const { count } = await tx.savedCustomer.updateMany({
           where: { id, partnerId },
@@ -225,6 +225,8 @@ async function pointBefore(
 
 // Row 99: a restaurant (or a representative in admin) that deliberately sets a different point has
 // dealt with the rider's move, so its mark goes. Saving the same point again keeps it.
+// Exact comparison on purpose: the Customers dialog sends the stored point back as JSON doubles,
+// which round trip byte for byte, so an edit of only the name or floor never reads as a move.
 function clearRiderMoveIfPointChanged(
   before: { latitude: number; longitude: number } | null,
   fields: Partial<{ latitude: number; longitude: number }>
