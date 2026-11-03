@@ -87,10 +87,22 @@ are the exceptions, each kept additive or as narrow as possible:
 | New `SosIncident` and `SosLocationPoint` tables and `EnumSosOutcome` (migration `20261102230000_add_sos_incident`), setting `sosLocationRetentionDays`, BullMQ repeatable job `sos-location-retention`; the matchers' busy rule gains `activeSosCourierSubQuery`; `refuseIfCourierInSos` (409) in the admin ACCEPTED branch, `reassignDelivery` and the rider's own `acceptDelivery`; `offerToNextCourier` skips a matched rider in an SOS, STATIC included (row 73) | A rider in danger had no way to call for help. Their position is shared only while their own SOS is active, in its own tables, read only by the SOS module, and deleted after the co-op's period (value 5's safety exception, decision 73.1). A rider in an SOS is offered and given nothing (73.6, 73.10, 73.11). | `107edc8`, `b5ab24f` |
 | `SavedCustomer.pinMovedByRiderAt` (migration `20261103043000_add_saved_customer_pin_moved`), stamped by the rider's pin move, cleared only by a deliberate edit to a different point; on the partner saved customer DTO (row 99) | A restaurant could not see that a rider had corrected a saved customer's pin. Additive, on the co-op's own table (spec 0005). | `fa4005a`, `baa2d00` |
 | `Delivery.searchFold` and `Courier.searchFold` (migration `20261103060000_add_search_fold`), written only by the triggers `delivery_search_fold` and `courier_search_fold` through `oc_search_fold` and `oc_search_digits`; the admin list filters match them (row 98) | The admin searches missed Greek names typed without accents, in capitals or with a final sigma. Additive columns; an upstream merge must keep the triggers and functions. | `57b361c`, `1b5c7f8` |
+| New `ShiftSlot` and `ShiftSlotChange` tables and `EnumShiftSlotChangeAction` (migration `20261103080000_add_shift_slots`), admin routes `admin/v1/shift-slots`, settings `shiftsEnabled` and `shiftDropNoticeHours` (row 77) | The co-op could not plan shift cover. Additive; nothing outside admin reads them until rows 78 and 79. | `ed57e16` |
 
 ---
 
 ## Added
+
+### Shift slots and caps in admin (scope row 77, spec 0026): `ed57e16` to `8096776`
+Built on the branch `feat/shift-slots` and merged on 3 November, with the adminweb half. This is a core change, listed in the table above.
+- **Weekly slots.** `ShiftSlot` (Athens wall time, a cap from 1 to 50, soft removal) and `ShiftSlotChange`
+  (the record: who, when, before and after, written in the same transaction). The admin routes are
+  `admin/v1/shift-slots`. Edits and removals apply only to the slot as it was read (409 otherwise), and a
+  no op writes nothing.
+- **Two settings.** `shiftsEnabled` (off) and `shiftDropNoticeHours` (12, from 0 to 168). Neither is public;
+  nothing outside admin reads them until shift booking (row 78).
+- Tests by a fresh Claude subagent while agy was out of quota: 2798 pass; put back by hand. Reviewed by Fable
+  (approve with nits; fixed in `a08989f`). Verified live.
 
 ### No customer details in an offer (scope row 101): `57e4ae4` to `1c22df8`
 Built on the branch `fix/offer-customer-details` and merged on 3 November.
