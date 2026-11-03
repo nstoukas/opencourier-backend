@@ -510,7 +510,7 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect(nullColDto.handBackUntil).toBeNull()
     })
 
-    test('while in hand back window: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell, and (row 101) the name and notes are undefined and omitted from JSON', () => {
+    test('while in hand back window: dropoffPhoneNumber, dropoffFloor, dropoffDoorbell are undefined and omitted from JSON; the name and notes (row 101, decision 101.2) are sent', () => {
       const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
         handBackUntil: futureDate,
         dropoffPhoneNumber: customerPhone,
@@ -532,15 +532,12 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect('dropoffFloor' in serialized).toBe(false)
       expect('dropoffDoorbell' in serialized).toBe(false)
 
-      // Row 101 (decision 101.1) replaces decision 71.10 here: the customer's name and the drop off
-      // notes are withheld during the free hand back too. The address still shows (the rider needs
-      // to know where the job goes before they decide to keep it).
-      expect(dto.dropoffName).toBeUndefined()
-      expect(dto.dropoffNotes).toBeUndefined()
-      expect('dropoffName' in serialized).toBe(false)
-      expect('dropoffNotes' in serialized).toBe(false)
-      expect(jsonStr).not.toContain('Giannis Papadopoulos')
-      expect(jsonStr).not.toContain('3rd floor, ring bell')
+      // Decision 71.10, kept by row 101 (decision 101.2): the customer's name, the drop off notes and
+      // the address are NOT withheld during the free hand back; only the phone, floor and doorbell are.
+      expect(dto.dropoffName).toBe('Giannis Papadopoulos')
+      expect(dto.dropoffNotes).toBe('3rd floor, ring bell')
+      expect(serialized.dropoffName).toBe('Giannis Papadopoulos')
+      expect(serialized.dropoffNotes).toBe('3rd floor, ring bell')
       expect(dto.dropoffLocationFormattedAddress).toContain('Dimitriadis 120')
     })
 
@@ -647,7 +644,9 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
    * The rule, written out here on its own rather than imported, so a change to the DTO's list
    * cannot quietly change what these tests expect:
    * - present only while the status is ACCEPTED to COURIER_ARRIVED_AT_DROPOFF_LOCATION,
-   * - and not during the free hand back window or its OFFER_EXPIRY_GRACE_SECONDS grace,
+   * - including during the free hand back window and its OFFER_EXPIRY_GRACE_SECONDS grace
+   *   (decision 101.2: the app does not refetch when the window closes, and decision 71.12 keeps
+   *   the item list there), while the phone, floor and doorbell stay withheld then (71.10),
    * - otherwise undefined, so the key is absent from the JSON.
    */
   describe("Row 101: the customer's name, items and notes only while the rider holds the delivery", () => {
@@ -751,22 +750,38 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
     })
 
     describe.each([EnumDeliveryStatus.ACCEPTED, EnumDeliveryStatus.DISPATCHED])('%s during the free hand back', (status) => {
-      test.each(FIELDS)('%s is withheld while handBackUntil is ahead', (field) => {
+      // Decision 101.2: the five arrive with the accept, through the hand back window and its grace,
+      // while the phone, floor and doorbell (holdsDelivery, decision 71.10) stay withheld.
+      const PHONE_FLOOR_DOORBELL = ['dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']
+
+      function expectPhoneFloorDoorbellWithheld(dto: DeliveryCourierDto) {
+        const parsed = JSON.parse(JSON.stringify(dto))
+        for (const key of PHONE_FLOOR_DOORBELL) {
+          expect((dto as unknown as Record<string, unknown>)[key]).toBeUndefined()
+          expect(key in parsed).toBe(false)
+        }
+      }
+
+      test.each(FIELDS)('%s is sent while handBackUntil is ahead (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow + 60_000) }))
-        expectFieldAbsent(dto, field)
+        expect(dto.handBackUntil).toEqual(new Date(fixedNow + 60_000))
+        expectFieldPresent(dto, field)
+        expectPhoneFloorDoorbellWithheld(dto)
       })
 
-      test.each(FIELDS)('%s is withheld 1 s after handBackUntil (inside the grace)', (field) => {
+      test.each(FIELDS)('%s is sent 1 s after handBackUntil, inside the grace (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow - 1_000) }))
         expect(dto.handBackUntil).toBeNull()
-        expectFieldAbsent(dto, field)
+        expectFieldPresent(dto, field)
+        expectPhoneFloorDoorbellWithheld(dto)
       })
 
-      test.each(FIELDS)('%s is withheld at the last millisecond of the grace', (field) => {
+      test.each(FIELDS)('%s is sent at the last millisecond of the grace (phone, floor, doorbell withheld)', (field) => {
         const dto = new DeliveryCourierDto(
           withDetails(status, { handBackUntil: new Date(fixedNow - OFFER_EXPIRY_GRACE_SECONDS * 1000 + 1) })
         )
-        expectFieldAbsent(dto, field)
+        expectFieldPresent(dto, field)
+        expectPhoneFloorDoorbellWithheld(dto)
       })
 
       test.each(FIELDS)('%s shows once the window and its grace have passed', (field) => {
@@ -778,6 +793,25 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
 
       test.each(FIELDS)('%s shows when there is no hand back window at all (handBackUntil null)', (field) => {
         expectFieldPresent(new DeliveryCourierDto(withDetails(status, { handBackUntil: null })), field)
+      })
+
+      test('the split in the window: dropoffName and orderItems present, dropoffPhoneNumber, dropoffFloor and dropoffDoorbell absent', () => {
+        const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow + 60_000) }))
+        const json = JSON.stringify(dto)
+        const parsed = JSON.parse(json)
+
+        expect(parsed.dropoffName).toBe(CUSTOMER_DETAILS.dropoffName)
+        expect(parsed.orderItems).toEqual(CUSTOMER_DETAILS.orderItems)
+
+        expect(dto.dropoffPhoneNumber).toBeUndefined()
+        expect(dto.dropoffFloor).toBeUndefined()
+        expect(dto.dropoffDoorbell).toBeUndefined()
+        expect('dropoffPhoneNumber' in parsed).toBe(false)
+        expect('dropoffFloor' in parsed).toBe(false)
+        expect('dropoffDoorbell' in parsed).toBe(false)
+        // The fixture's phone, floor and doorbell values are not in the text either.
+        expect(json).not.toContain(customerPhone)
+        expect(json).not.toContain('Papadopoulou')
       })
     })
 

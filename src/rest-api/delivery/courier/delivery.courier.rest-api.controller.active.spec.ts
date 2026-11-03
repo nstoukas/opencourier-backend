@@ -504,17 +504,27 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
     expectAll(accepted)
   })
 
-  test('GET deliveries/:id during the accepted delivery\'s free hand back: none of them yet', async () => {
+  test("GET deliveries/:id during the accepted delivery's free hand back: all five, but no phone, floor or doorbell (decision 101.2)", async () => {
     getByIdOrThrowWithLocation.mockResolvedValue(
       delivery('del-r101-a', EnumDeliveryStatus.ACCEPTED, {
         courierId: RIDER.id,
         handBackUntil: new Date(Date.now() + 60_000),
+        dropoffPhoneNumber: '+306977101101',
+        dropoffFloor: 'Floor 4',
+        dropoffDoorbell: 'Bell Offeridou',
       })
     )
 
     const dto = await controller.getMyDeliveryById('del-r101-a', RIDER)
 
-    expectNone(dto)
+    expectAll(dto)
+    const json = JSON.stringify(dto)
+    for (const key of ['dropoffPhoneNumber', 'dropoffFloor', 'dropoffDoorbell']) {
+      expect((dto as unknown as Record<string, unknown>)[key]).toBeUndefined()
+      expect(json).not.toContain(`"${key}"`)
+    }
+    expect(json).not.toContain('+306977101101')
+    expect(json).not.toContain('Bell Offeridou')
   })
 })
 
