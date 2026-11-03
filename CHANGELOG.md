@@ -86,10 +86,22 @@ are the exceptions, each kept additive or as narrow as possible:
 | Setting `arrivalRadiusMetres` (0 switches detection off, else 20 to 300 m, default 50) on the admin settings and the courier `GET config/contact`; optional `{ detected }` body on the courier `arrived-at-pickup` and `arrived-at-dropoff` routes (row 19) | The rider's app now notices arrival by itself, and members must be able to tell a detected arrival from a tapped one, because waiting pay will start from it. Additive; no schema change; the mark is only the event's message. | `1a6969b` |
 | New `SosIncident` and `SosLocationPoint` tables and `EnumSosOutcome` (migration `20261102230000_add_sos_incident`), setting `sosLocationRetentionDays`, BullMQ repeatable job `sos-location-retention`; the matchers' busy rule gains `activeSosCourierSubQuery`; `refuseIfCourierInSos` (409) in the admin ACCEPTED branch, `reassignDelivery` and the rider's own `acceptDelivery`; `offerToNextCourier` skips a matched rider in an SOS, STATIC included (row 73) | A rider in danger had no way to call for help. Their position is shared only while their own SOS is active, in its own tables, read only by the SOS module, and deleted after the co-op's period (value 5's safety exception, decision 73.1). A rider in an SOS is offered and given nothing (73.6, 73.10, 73.11). | `107edc8`, `b5ab24f` |
 | `SavedCustomer.pinMovedByRiderAt` (migration `20261103043000_add_saved_customer_pin_moved`), stamped by the rider's pin move, cleared only by a deliberate edit to a different point; on the partner saved customer DTO (row 99) | A restaurant could not see that a rider had corrected a saved customer's pin. Additive, on the co-op's own table (spec 0005). | `fa4005a`, `baa2d00` |
+| `Delivery.searchFold` and `Courier.searchFold` (migration `20261103060000_add_search_fold`), written only by the triggers `delivery_search_fold` and `courier_search_fold` through `oc_search_fold` and `oc_search_digits`; the admin list filters match them (row 98) | The admin searches missed Greek names typed without accents, in capitals or with a final sigma. Additive columns; an upstream merge must keep the triggers and functions. | `57b361c`, `1b5c7f8` |
 
 ---
 
 ## Added
+
+### Greek search: accents, capitals and final sigma (scope row 98, spec 0025): `57b361c` to `56f26a2`
+Built on the branch `feat/greek-search` and merged on 3 November. This is a core change, listed in the table above.
+- **Found however it is typed.** The admin deliveries and couriers searches now find "Νίκος" from "νικος",
+  "ΝΙΚΟΣ" or "νίκοσ", fold Latin accents, and find a rider by a phone typed "24210-10009".
+- **Folded by the database.** `Delivery.searchFold` and `Courier.searchFold` are written only by triggers
+  (`oc_search_fold`), so every write path, raw SQL included, keeps them right; the filters match them with a
+  plain `contains` on the same fold of the typed text. The entities never carry the column, so no response
+  or webhook gains a field.
+- Tests by a fresh Claude subagent while agy was out of quota: 2137 pass; put back by hand. Reviewed by Fable
+  (approve with nits; webhook key fixed in `1b5c7f8`). Verified live through the admin API.
 
 ### "Pin moved by a rider" on a saved customer (scope row 99, from spec 0016): `fa4005a` to `7cfb17f`
 Built on the branch `feat/pin-corrections-shown` and merged on 3 November, with the adminweb and request-web
