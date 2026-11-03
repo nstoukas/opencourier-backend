@@ -92,6 +92,14 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Added
 
+### Restaurants list search (scope row 106): `745e04a` to `c5ccda1`
+Built on the branch `feat/partner-list-search` and merged on 3 November, with the adminweb half.
+- `GET admin/v1/partner` takes `search` (up to 100 characters): every typed word must appear in the
+  restaurant's name, pickup address or sign in email, folded by row 98's `oc_search_fold` at read time
+  (decision 106.1; the address and the email live in other tables, so no folded column).
+- Tests by a fresh Claude subagent while agy was out of quota: 2178 pass; put back by hand. Reviewed by Fable
+  (changes requested on the adminweb half's red test; fixed). Verified live.
+
 ### Greek search: accents, capitals and final sigma (scope row 98, spec 0025): `57b361c` to `56f26a2`
 Built on the branch `feat/greek-search` and merged on 3 November. This is a core change, listed in the table above.
 - **Found however it is typed.** The admin deliveries and couriers searches now find "Νίκος" from "νικος",
