@@ -16,11 +16,13 @@ export interface IPartnerUpdate {
   logo?: string | null
   webhookUrl?: string | null
   pickupLocationId?: string | null
+  usualPrepMinutes?: number
 }
 
 export interface IPartnerCreateWithLogin {
   name: string
   phoneNumber?: string | null
+  usualPrepMinutes?: number
   pickupLocationId?: string | null
   login: {
     email: string

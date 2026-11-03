@@ -26,9 +26,15 @@ export class UserPartnerDto implements Partial<UserEntity> {
   @IsEmail()
   email: string | null
 
-  constructor(data: UserEntity) {
+  // Spec 0023: the restaurant's usual prep time, which the order form starts from; null when the
+  // user has no restaurant.
+  @ApiProperty({ required: true, nullable: true, type: Number })
+  usualPrepMinutes: number | null
+
+  constructor(data: UserEntity, usualPrepMinutes: number | null = null) {
     this.email = data.email
     this.role = data.role
     this.id = data.id
+    this.usualPrepMinutes = usualPrepMinutes
   }
 }

@@ -1,3 +1,8 @@
+import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
+import { initialReadyAt } from './ready-signals'
+import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
+// A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
+const DEFAULT_USUAL_PREP_MINUTES = 15
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
@@ -51,7 +56,8 @@ export class DeliveryDomainService {
     private deliveryEventService: DeliveryEventService,
     private courierRepository: CourierRepository,
     private courierCompensationRepository: CourierCompensationRepository,
-    private configDomainService: ConfigDomainService
+    private configDomainService: ConfigDomainService,
+    private partnerRepository: PartnerRepository
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -124,14 +130,20 @@ export class DeliveryDomainService {
   }
 
   async create(input: IDeliveryCreate) {
-    const delivery = await this.deliveryRepository.create(input)
+    // Every order gets a ready time (spec 0023, AC-1): the restaurant's pick, or its usual prep time.
+    // `pickupReadyAt` keeps its own meaning; `readyAt` is the promise the restaurant can move later.
+    const now = new Date()
+    const partner = input.partnerId ? await this.partnerRepository.findById(input.partnerId) : null
+    const pickupReadyAt = input.pickupReadyAt ? new Date(input.pickupReadyAt) : null
+    const readyAt = initialReadyAt(pickupReadyAt, partner?.usualPrepMinutes ?? DEFAULT_USUAL_PREP_MINUTES, now)
+    const delivery = await this.deliveryRepository.create({ ...input, readyAt })
 
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,
       type: EnumDeliveryEventType.CREATED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Delivery was created delivery ${delivery.id} from partner ${input.partnerId}`,
+      message: `Delivery was created delivery ${delivery.id} from partner ${input.partnerId}, ready at ${clock(readyAt)}`,
     })
 
     return delivery

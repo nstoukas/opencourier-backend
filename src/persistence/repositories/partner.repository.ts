@@ -44,6 +44,12 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
     return this.toDomain(result)
   }
 
+  // The restaurant a user signs in as, or null when the user has none.
+  async findByUserId(userId: string) {
+    const result = await this.prisma.partner.findUnique({ where: { userId } })
+    return result ? this.toDomain(result) : null
+  }
+
   async findByUserIdOrThrow(userId: string) {
     const result = await this.prisma.partner.findFirstOrThrow({
       where: {
@@ -114,6 +120,8 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
             name: data.name,
             phoneNumber: data.phoneNumber ?? null,
             pickupLocationId: data.pickupLocationId ?? null,
+            // Left out, the column's default (15) applies.
+            ...(data.usualPrepMinutes !== undefined && { usualPrepMinutes: data.usualPrepMinutes }),
           },
         },
       },
@@ -143,6 +151,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         ...(data.logo !== undefined && { logo: data.logo }),
         ...(data.webhookUrl !== undefined && { webhookUrl: data.webhookUrl }),
         ...(data.pickupLocationId !== undefined && { pickupLocationId: data.pickupLocationId }),
+        ...(data.usualPrepMinutes !== undefined && { usualPrepMinutes: data.usualPrepMinutes }),
       },
       include: {
         user: { select: { email: true } },

@@ -7,6 +7,8 @@ export class PartnerEntity implements Partner {
   logo: string | null
   phoneNumber: string | null
   webhookUrl: string | null
+  // Whole minutes this restaurant usually needs to prepare an order (spec 0023).
+  usualPrepMinutes: number
 
   userId: string | null
   pickupLocationId: string | null
@@ -30,6 +32,7 @@ export class PartnerEntity implements Partner {
     this.logo = data.logo
     this.phoneNumber = data.phoneNumber
     this.webhookUrl = data.webhookUrl
+    this.usualPrepMinutes = data.usualPrepMinutes
 
     this.userId = data.userId
     this.pickupLocationId = data.pickupLocationId

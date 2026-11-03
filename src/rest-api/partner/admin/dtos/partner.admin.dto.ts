@@ -18,6 +18,10 @@ export class PartnerAdminDto {
   @ApiProperty({ type: String, nullable: true })
   webhookUrl: string | null
 
+  // Spec 0023: whole minutes this restaurant usually takes to prepare an order.
+  @ApiProperty({ type: Number })
+  usualPrepMinutes: number
+
   @ApiProperty({ type: String, nullable: true })
   userId: string | null
 
@@ -39,6 +43,7 @@ export class PartnerAdminDto {
     this.phoneNumber = data.phoneNumber
     this.logo = data.logo
     this.webhookUrl = data.webhookUrl
+    this.usualPrepMinutes = data.usualPrepMinutes
     this.userId = data.userId
     this.email = data.userEmail ?? null
     this.pickupAddress = data.pickupLocation ? new LocationAdminDto(data.pickupLocation) : null

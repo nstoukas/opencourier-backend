@@ -33,6 +33,14 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date })
   pickupReadyAt?: Date | null
 
+  // Spec 0023: the restaurant's current ready promise, and when it marked the food ready (both null
+  // on orders made before this change).
+  @ApiProperty({ type: Date, nullable: true })
+  readyAt: Date | null
+
+  @ApiProperty({ type: Date, nullable: true })
+  foodReadyAt: Date | null
+
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
 
@@ -128,6 +136,8 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
     if (dropoffLocation) this.dropoff = new DeliveryDropoffPartnerDto(data, dropoffLocation)
 
     this.pickupReadyAt = data.pickupReadyAt
+    this.readyAt = data.readyAt ?? null
+    this.foodReadyAt = data.foodReadyAt ?? null
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffReadyAt = data.dropoffReadyAt

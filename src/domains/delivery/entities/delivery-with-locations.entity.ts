@@ -31,6 +31,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
   // Spec 0020: when the rider accepted, and the end of the free hand back.
   acceptedAt: Date | null
   handBackUntil: Date | null
+  // Spec 0023: the restaurant's ready promise, and when it marked the food ready.
+  readyAt: Date | null
+  foodReadyAt: Date | null
   dropoffVerification: Prisma.JsonValue | null
   dropoffReadyAt: Date | null
   dropoffEta: Date | null
@@ -111,6 +114,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
     this.acceptedAt = data.acceptedAt
     this.handBackUntil = data.handBackUntil
+    this.readyAt = data.readyAt
+    this.foodReadyAt = data.foodReadyAt
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

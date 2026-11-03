@@ -46,6 +46,7 @@ export class PartnerAdminRestApiService {
       name: input.name.trim(),
       phoneNumber: input.phoneNumber ?? null,
       pickupLocationId: locationId,
+      usualPrepMinutes: input.usualPrepMinutes,
       login: {
         email,
         hashedPassword,
@@ -72,6 +73,7 @@ export class PartnerAdminRestApiService {
     if (input.phoneNumber !== undefined) updateData.phoneNumber = input.phoneNumber
     if (input.logo !== undefined) updateData.logo = input.logo
     if (input.webhookUrl !== undefined) updateData.webhookUrl = input.webhookUrl
+    if (input.usualPrepMinutes !== undefined) updateData.usualPrepMinutes = input.usualPrepMinutes
     if (pickupLocationId !== partner.pickupLocationId) updateData.pickupLocationId = pickupLocationId
 
     if (Object.keys(updateData).length > 0) {

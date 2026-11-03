@@ -157,6 +157,9 @@ model Partner {
   logo        String? @postgres.VarChar(255)
   phoneNumber String? @postgres.VarChar(255)
   webhookUrl  String? @postgres.VarChar(255)
+  // How long this restaurant usually takes to prepare an order, in whole minutes (0 to 90). A new
+  // order's ready time starts from it when the restaurant gives none (spec 0023). Set in admin.
+  usualPrepMinutes Int @default(15)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -287,6 +290,11 @@ model Delivery {
   // whenever no rider holds the delivery).
   acceptedAt              DateTime? @postgres.Timestamptz(6)
   handBackUntil           DateTime? @postgres.Timestamptz(6)
+  // Spec 0023: the restaurant's current promise of when the food is ready (moves only later, by a
+  // READY_DELAYED event), and when it tapped "Food ready" (set once, FOOD_READY). Null only on orders
+  // made before this change. Never pickupReadyAt, which becomes the pickup moment at PICKED_UP.
+  readyAt                 DateTime? @postgres.Timestamptz(6)
+  foodReadyAt             DateTime? @postgres.Timestamptz(6)
 
   deliverableAction        EnumDeliverableAction    @default(MEET_AT_DOOR)
   undeliverableAction      EnumUndeliverableAction?
@@ -606,6 +614,10 @@ enum EnumDeliveryEventType {
   DROPOFF_POINT_CORRECTED
   // Spec 0020: a rider gave an accepted order back within the free window; it went back to matching.
   HANDED_BACK
+  // Spec 0023: the restaurant moved the ready time, or marked the food ready. Recorded outside
+  // STATE_MACHINE (the status does not change).
+  READY_DELAYED
+  FOOD_READY
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its

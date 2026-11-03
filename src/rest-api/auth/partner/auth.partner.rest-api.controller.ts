@@ -1,3 +1,4 @@
+import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import * as common from '@nestjs/common'
 import { Body, Get, Post } from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
@@ -18,7 +19,10 @@ import { Public } from 'src/decorators/public.decorator'
 @swagger.ApiTags('auth')
 @common.Controller(`${PARTNER_API_V1_PREFIX}/auth`)
 export class AuthPartnerRestApiController {
-  constructor(private readonly authDomainService: AuthDomainService) {}
+  constructor(
+    private readonly authDomainService: AuthDomainService,
+    private readonly partnerRepository: PartnerRepository
+  ) {}
 
   @Post('login')
   @Public()
@@ -47,6 +51,8 @@ export class AuthPartnerRestApiController {
   @Roles(EnumUserRole.PARTNER)
   async getMe(@CurrentUser() user: UserEntity): Promise<UserPartnerDto> {
     const me = await this.authDomainService.getMe(user.id)
-    return new UserPartnerDto(me)
+    // The restaurant is found by its user (Partner.userId is unique), for its usual prep time.
+    const partner = await this.partnerRepository.findByUserId(user.id)
+    return new UserPartnerDto(me, partner?.usualPrepMinutes ?? null)
   }
 }
