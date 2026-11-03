@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common'
 import { CourierRepository, activeSosCourierSubQuery, busyCourierDeliverySubQuery } from './courier.repository'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { DELIVERY_ONGOING_STATUSES } from '../../shared-types/stateMachine'
@@ -489,6 +490,57 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
         where: { courierId: 'courier-2', ...ACTIVE_SOS_WHERE },
         select: { id: true },
       })
+    })
+  })
+
+  // Row 100 review: the offer push reads the rider's location on every offer, and a rider whose app
+  // never sent one has a NULL column. That is "unknown" (null), not an error worth a log line.
+  describe('getCurrentLocation (row 100 review)', () => {
+    let loggerError: jest.SpyInstance
+    let loggerWarn: jest.SpyInstance
+    let consoleLog: jest.SpyInstance
+    let consoleError: jest.SpyInstance
+
+    beforeEach(() => {
+      loggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      loggerWarn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      consoleLog = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+      consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('a courier with no stored location (the row has currentLocation null): null, and nothing logged', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ currentLocation: null }])
+
+      const result = await repository.getCurrentLocation('courier-never-sent')
+
+      expect(result).toBeNull()
+      expect(loggerError).not.toHaveBeenCalled()
+      expect(loggerWarn).not.toHaveBeenCalled()
+      expect(consoleLog).not.toHaveBeenCalled()
+      expect(consoleError).not.toHaveBeenCalled()
+    })
+
+    test('no courier row at all: null, and nothing logged', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+
+      const result = await repository.getCurrentLocation('courier-unknown')
+
+      expect(result).toBeNull()
+      expect(loggerError).not.toHaveBeenCalled()
+      expect(consoleLog).not.toHaveBeenCalled()
+    })
+
+    test('a stored location: the GeoJSON point read as latitude and longitude', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ currentLocation: '{"type":"Point","coordinates":[22.9411,39.3622]}' }])
+
+      const result = await repository.getCurrentLocation('courier-volos-1')
+
+      expect(result).toEqual({ latitude: 39.3622, longitude: 22.9411 })
+      expect(loggerError).not.toHaveBeenCalled()
     })
   })
 })

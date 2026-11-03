@@ -766,5 +766,95 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
         expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
       })
     })
+
+    // Row 100 review fixes: an offer already past its deadline costs no routing wait, and the
+    // message's clock (serverNow, TTL) is read after the wait, when the push really leaves.
+    describe('review fixes: deadline before the wait, clock after it', () => {
+      const advanceTimersByTimeAsync = (ms: number) =>
+        (jest as unknown as { advanceTimersByTimeAsync(ms: number): Promise<void> }).advanceTimersByTimeAsync(ms)
+
+      test('an offer already past its deadline: nothing sent, no location read, no route asked', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({ delivery: { offerExpiresAt: new Date(Date.now() - 5000) } })
+        )
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+        expect(mockCourierRepository.getCurrentLocation).not.toHaveBeenCalled()
+        expect(mockOsrmRoutingService.getRoute).not.toHaveBeenCalled()
+        expect(mockBullMQService.addJob).not.toHaveBeenCalled()
+      })
+
+      test('an offer with a future deadline still reads the location, asks the route and sends', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({ delivery: { offerExpiresAt: new Date(Date.now() + 45 * 1000) } })
+        )
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockCourierRepository.getCurrentLocation).toHaveBeenCalledWith('courier-1')
+        expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledTimes(2)
+        expect(sentData().toPickupMetres).toBe('873')
+      })
+
+      test('an offer with no deadline still reads the location, asks the route and sends', async () => {
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockCourierRepository.getCurrentLocation).toHaveBeenCalledWith('courier-1')
+        expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledTimes(2)
+        expect(sentData().toDropoffMetres).toBe('1014')
+      })
+
+      test('routing taking 1 s: serverNow and the TTL count from after the wait (fake timers)', async () => {
+        jest.useFakeTimers()
+        const start = new Date('2026-11-03T08:00:00.000Z')
+        jest.setSystemTime(start)
+        // 45.5 s to the deadline at the start: 45 s of TTL if the clock were read before the wait,
+        // 44 s when it is read after the 1 s wait.
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({ delivery: { offerExpiresAt: new Date(start.getTime() + 45500) } })
+        )
+        const answerAfterOneSecond = (answer: { distanceMetres: number; durationSeconds: number; points: [] }) =>
+          new Promise<typeof answer>((resolve) => setTimeout(() => resolve(answer), 1000))
+        mockOsrmRoutingService.getRoute.mockImplementation((input: IOsrmRouteInput) =>
+          input.fromLocation.latitude === RIDER.latitude
+            ? answerAfterOneSecond({ distanceMetres: 872.6, durationSeconds: 120, points: [] })
+            : answerAfterOneSecond({ distanceMetres: 1014.2, durationSeconds: 150, points: [] })
+        )
+
+        const done = service.sendNewOffer('courier-1', 'del-push-1', false)
+        await advanceTimersByTimeAsync(999)
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+        await advanceTimersByTimeAsync(1)
+        await done
+
+        const data = sentData()
+        // Routing answered inside the budget, so the figures are known (the wait was routing's, not the timeout's).
+        expect(data.toPickupMetres).toBe('873')
+        expect(data.serverNow).toBe(new Date(start.getTime() + 1000).toISOString())
+        const [, , ttl] = mockPushNotificationService.sendData.mock.calls[0]!
+        expect(ttl).toBe(44)
+      })
+
+      test('a deadline that passes during the routing wait: nothing is sent', async () => {
+        jest.useFakeTimers()
+        const start = new Date('2026-11-03T08:00:00.000Z')
+        jest.setSystemTime(start)
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({ delivery: { offerExpiresAt: new Date(start.getTime() + 800) } })
+        )
+        mockOsrmRoutingService.getRoute.mockImplementation(
+          () => new Promise((resolve) => setTimeout(() => resolve({ distanceMetres: 500, durationSeconds: 60, points: [] }), 1000))
+        )
+
+        const done = service.sendNewOffer('courier-1', 'del-push-1', false)
+        await advanceTimersByTimeAsync(1000)
+        await done
+
+        expect(mockOsrmRoutingService.getRoute).toHaveBeenCalled()
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+      })
+    })
   })
 })
