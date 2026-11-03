@@ -88,10 +88,24 @@ are the exceptions, each kept additive or as narrow as possible:
 | `SavedCustomer.pinMovedByRiderAt` (migration `20261103043000_add_saved_customer_pin_moved`), stamped by the rider's pin move, cleared only by a deliberate edit to a different point; on the partner saved customer DTO (row 99) | A restaurant could not see that a rider had corrected a saved customer's pin. Additive, on the co-op's own table (spec 0005). | `fa4005a`, `baa2d00` |
 | `Delivery.searchFold` and `Courier.searchFold` (migration `20261103060000_add_search_fold`), written only by the triggers `delivery_search_fold` and `courier_search_fold` through `oc_search_fold` and `oc_search_digits`; the admin list filters match them (row 98) | The admin searches missed Greek names typed without accents, in capitals or with a final sigma. Additive columns; an upstream merge must keep the triggers and functions. | `57b361c`, `1b5c7f8` |
 | New `ShiftSlot` and `ShiftSlotChange` tables and `EnumShiftSlotChangeAction` (migration `20261103080000_add_shift_slots`), admin routes `admin/v1/shift-slots`, settings `shiftsEnabled` and `shiftDropNoticeHours` (row 77) | The co-op could not plan shift cover. Additive; nothing outside admin reads them until rows 78 and 79. | `ed57e16` |
+| New `ShiftBooking` and `ShiftBookingEvent` tables and two enums (migration `20261103110000_add_shift_bookings`), courier routes `courier/v1/shifts`, `config/contact` gains two fields (row 78) | Riders could not book shifts. Additive; inert while Shifts are off. | `bb897b0` |
 
 ---
 
 ## Added
+
+### Booking shifts (scope row 78, spec 0027): `bb897b0` to `997ef46`
+Built on the branch `feat/shift-booking` and merged on 3 November, with the courier app half. This is a core change, listed in the table above.
+- **Routes.** `courier/v1/shifts` serves the 14 day schedule (times as Athens text, places taken, open swaps
+  without the giver), with book, drop (until the co-op's notice), offer and withdraw a swap, and take a swap.
+- **Bookings.** `ShiftBooking` snapshots its occurrence, and `ShiftBookingEvent` records every change.
+- **Races.** Book and take lock the rider, then the occurrence. Other changes are conditional writes.
+  Checked live with riders racing in parallel: three for one place, then two for one swap; exactly one
+  wins each time.
+- **The switch.** `config/contact` carries `shiftsEnabled` and `shiftDropNoticeHours`. With Shifts off,
+  every route answers 409 "Shifts are off.".
+- Tests by a fresh Claude subagent while agy was out of quota: 2979 pass; put back by hand. Reviewed by Fable
+  (approve with nits; fixed in `a208e05`).
 
 ### Shift slots and caps in admin (scope row 77, spec 0026): `ed57e16` to `8096776`
 Built on the branch `feat/shift-slots` and merged on 3 November, with the adminweb half. This is a core change, listed in the table above.
