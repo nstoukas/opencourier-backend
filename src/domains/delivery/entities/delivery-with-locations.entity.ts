@@ -86,7 +86,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
 
   // Spec 0025: the admin search's folded copy of the searched fields. Declared because the Prisma
   // model has it, never copied from the row: folded personal data stops at the repository.
-  searchFold: string | null = null
+  // `declare` emits nothing at runtime, so a serialised entity (the partner webhook posts whole
+  // entities) never gains a "searchFold" key (row 98 review, decision 98.3).
+  declare searchFold: string | null
 
   createdAt: Date
   updatedAt: Date
