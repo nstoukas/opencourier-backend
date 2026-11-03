@@ -270,6 +270,78 @@ describe('ShiftBookingService (spec 0027)', () => {
       expect(mine.endTime).toBe('04:00')
     })
 
+    describe('the clock change days (row 78 review)', () => {
+      const sunday = (id: string, startMinute: number, endMinute: number) => ({
+        ...friSlot,
+        id,
+        weekday: 7,
+        startMinute,
+        endMinute,
+      })
+
+      it('spring forward: an occurrence that comes out empty or backwards is left off; times come from the instants', async () => {
+        // 20 Mar 2027: the window holds Sundays 21 and 28 Mar; summer time starts 28 Mar at 03:00 (to 04:00).
+        const before = new Date('2027-03-20T10:00:00.000Z')
+        slots.list.mockResolvedValue([
+          sunday('empty', 180, 240), // 03:00 to 04:00
+          sunday('backwards', 210, 240), // 03:30 to 04:00
+          sunday('across', 210, 300), // 03:30 to 05:00
+          sunday('evening', 1140, 1380), // 19:00 to 23:00
+        ])
+        const result = await service.schedule(RIDER, before)
+        const listed = result.occurrences.map((o) => `${o.shiftSlotId}@${o.date} ${o.startTime}-${o.endTime}`)
+        expect(listed).toEqual([
+          'empty@2027-03-21 03:00-04:00',
+          'backwards@2027-03-21 03:30-04:00',
+          'across@2027-03-21 03:30-05:00',
+          'evening@2027-03-21 19:00-23:00',
+          // 28 Mar: 03:30 does not exist, so the 03:30 slot starts at 04:30, as its instant does.
+          'across@2027-03-28 04:30-05:00',
+          'evening@2027-03-28 19:00-23:00',
+        ])
+        const across = result.occurrences.find((o) => o.shiftSlotId === 'across' && o.date === '2027-03-28')!
+        expect(across.startsAt.toISOString()).toBe('2027-03-28T01:30:00.000Z')
+        expect(across.endsAt.toISOString()).toBe('2027-03-28T02:00:00.000Z')
+        for (const occurrence of result.occurrences) {
+          expect(occurrence.endsAt.getTime()).toBeGreaterThan(occurrence.startsAt.getTime())
+        }
+      })
+
+      it('a 03:30 slot on 28 Mar 2027 that would end before it starts is not listed', async () => {
+        slots.list.mockResolvedValue([sunday('backwards', 210, 240)])
+        const result = await service.schedule(RIDER, new Date('2027-03-27T10:00:00.000Z'))
+        expect(result.occurrences.filter((o) => o.date === '2027-03-28')).toEqual([])
+      })
+
+      it("an occurrence's text and a booking's text of the same instants agree", async () => {
+        const before = new Date('2027-03-20T10:00:00.000Z')
+        slots.list.mockResolvedValue([sunday('across', 210, 300)])
+        bookings.currentBookingsOf.mockResolvedValue([
+          booking({
+            id: 'mine-across',
+            shiftSlotId: 'across',
+            date: '2027-03-28',
+            startsAt: new Date('2027-03-28T01:30:00.000Z'),
+            endsAt: new Date('2027-03-28T02:00:00.000Z'),
+          }),
+        ])
+        const result = await service.schedule(RIDER, before)
+        const occurrence = result.occurrences.find((o) => o.date === '2027-03-28')!
+        const mine = result.myBookings[0]!
+        expect([occurrence.startTime, occurrence.endTime]).toEqual([mine.startTime, mine.endTime])
+        expect(occurrence.myBookingId).toBe('mine-across')
+      })
+
+      it('fall back: the repeated 03:30 is listed once, at its winter time instant', async () => {
+        slots.list.mockResolvedValue([sunday('night', 120, 300)]) // 02:00 to 05:00
+        const result = await service.schedule(RIDER, new Date('2026-10-20T10:00:00.000Z'))
+        const night = result.occurrences.find((o) => o.date === '2026-10-25')!
+        expect([night.startTime, night.endTime]).toEqual(['02:00', '05:00'])
+        // Four hours long that night.
+        expect(night.endsAt.getTime() - night.startsAt.getTime()).toBe(4 * 3600_000)
+      })
+    })
+
     it("the drop deadline follows the co-op's notice hours", async () => {
       instanceConfig.getShiftDropNoticeHours.mockResolvedValue(24)
       bookings.currentBookingsOf.mockResolvedValue([booking()])
@@ -282,15 +354,49 @@ describe('ShiftBookingService (spec 0027)', () => {
   describe('AC-3, AC-6, AC-7: book', () => {
     const book = (date = '2026-11-06', slotId = 'slot-fri', at = now) => service.book(RIDER, slotId, date, at)
 
-    it('takes the rider lock, then the occurrence lock, inside the transaction, before any read or write', async () => {
+    it('reads the slot before the transaction, then inside it takes the rider lock, then the occurrence lock, before any read or write', async () => {
       await book()
       expect(bookings.lockRider).toHaveBeenCalledWith(tx, RIDER)
       expect(bookings.lockOccurrence).toHaveBeenCalledWith(tx, 'slot-fri', '2026-11-06')
-      expect(calls.slice(0, 3)).toEqual(['transaction', 'lockRider', 'lockOccurrence'])
-      expect(calls.indexOf('countBooked')).toBeGreaterThan(calls.indexOf('lockOccurrence'))
-      expect(calls.indexOf('overlapping')).toBeGreaterThan(calls.indexOf('lockOccurrence'))
-      expect(calls.indexOf('alreadyBooked')).toBeGreaterThan(calls.indexOf('lockOccurrence'))
-      expect(calls.indexOf('createBooking')).toBeGreaterThan(calls.indexOf('lockOccurrence'))
+      // Row 78 review: the slot is read before the transaction, so a queue at the locks holds only its connection.
+      expect(calls.indexOf('slots.findById')).toBeGreaterThanOrEqual(0)
+      expect(calls.indexOf('slots.findById')).toBeLessThan(calls.indexOf('transaction'))
+      const inTx = calls.slice(calls.indexOf('transaction'))
+      expect(inTx.slice(0, 3)).toEqual(['transaction', 'lockRider', 'lockOccurrence'])
+      for (const step of ['alreadyBooked', 'countBooked', 'overlapping', 'createBooking']) {
+        expect(inTx.indexOf(step)).toBeGreaterThan(inTx.indexOf('lockOccurrence'))
+      }
+    })
+
+    it('a refusal decided from the slot (not on the schedule, started) takes no lock and opens no transaction', async () => {
+      slots.findById.mockResolvedValue(null)
+      expect((await refusal(book())).type).toBe(NotFoundException)
+      slots.findById.mockResolvedValue({ ...friSlot, weekday: 2, startMinute: 600, endMinute: 720 })
+      expect((await refusal(book('2026-11-03'))).type).toBe(ConflictException)
+      expect(bookings.transaction).not.toHaveBeenCalled()
+      expect(bookings.lockRider).not.toHaveBeenCalled()
+      expect(bookings.lockOccurrence).not.toHaveBeenCalled()
+    })
+
+    it('refuses an occurrence that comes out empty or backwards on the spring forward night with the started sentence', async () => {
+      // A week before 28 Mar 2027 (summer time starts 03:00, which becomes 04:00).
+      const before = new Date('2027-03-20T10:00:00.000Z')
+      for (const [startMinute, endMinute] of [
+        [180, 240], // 03:00 to 04:00: both are 04:00, empty
+        [210, 240], // 03:30 to 04:00: 04:30 to 04:00, backwards
+      ]) {
+        slots.findById.mockResolvedValue({ ...friSlot, weekday: 7, startMinute, endMinute })
+        expect(await refusal(book('2027-03-28', 'slot-fri', before))).toEqual({
+          type: ConflictException,
+          message: 'This shift has already started.',
+        })
+      }
+      expect(bookings.transaction).not.toHaveBeenCalled()
+      expect(bookings.createBooking).not.toHaveBeenCalled()
+      // The same 03:00 to 04:00 slot a week earlier is an ordinary hour.
+      slots.findById.mockResolvedValue({ ...friSlot, weekday: 7, startMinute: 180, endMinute: 240 })
+      await book('2027-03-21', 'slot-fri', before)
+      expect(bookings.createBooking).toHaveBeenCalledTimes(1)
     })
 
     it('stores the snapshot (slot, date, instants, cap in force) and writes BOOKED in the same transaction', async () => {
@@ -688,8 +794,27 @@ describe('ShiftBookingService (spec 0027)', () => {
       expect(bookings.lockOccurrence).toHaveBeenCalledWith(tx, 'slot-fri', '2026-11-06')
       const inTx = calls.slice(calls.indexOf('transaction'))
       expect(inTx.slice(0, 3)).toEqual(['transaction', 'lockRider', 'lockOccurrence'])
-      expect(inTx.indexOf('overlapping')).toBeGreaterThan(inTx.indexOf('lockOccurrence'))
+      expect(inTx.indexOf('alreadyBooked')).toBeGreaterThan(inTx.indexOf('lockOccurrence'))
+      expect(inTx.indexOf('overlapping')).toBeGreaterThan(inTx.indexOf('alreadyBooked'))
       expect(inTx.indexOf('updateIf')).toBeGreaterThan(inTx.indexOf('lockOccurrence'))
+    })
+
+    it('409 "You already booked this shift." when the taker already holds this occurrence (checked under the locks)', async () => {
+      bookings.alreadyBooked.mockResolvedValue(true)
+      expect(await refusal(service.take(RIDER, 'swap-1', now))).toEqual({
+        type: ConflictException,
+        message: 'You already booked this shift.',
+      })
+      expect(bookings.alreadyBooked).toHaveBeenCalledWith(tx, RIDER, 'slot-fri', '2026-11-06')
+      expect(bookings.updateIf).not.toHaveBeenCalled()
+      expect(bookings.event).not.toHaveBeenCalled()
+      expect(bookings.createBooking).not.toHaveBeenCalled()
+    })
+
+    it("already booked wins even when the taker's own booking no longer overlaps (an admin moved the slot)", async () => {
+      bookings.alreadyBooked.mockResolvedValue(true)
+      bookings.overlapping.mockResolvedValue(null)
+      expect((await refusal(service.take(RIDER, 'swap-1', now))).message).toBe('You already booked this shift.')
     })
 
     it('409 "You already have a shift at that time." on an overlap with the swap\'s snapshot times', async () => {
