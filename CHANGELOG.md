@@ -92,6 +92,16 @@ are the exceptions, each kept additive or as narrow as possible:
 
 ## Added
 
+### No customer details in an offer (scope row 101): `57e4ae4` to `1c22df8`
+Built on the branch `fix/offer-customer-details` and merged on 3 November.
+- An offered rider's offer (the list, a single offer, the socket message) no longer carries the customer's
+  name, items, customer notes or the two drop off notes; they arrive with the accept and are gone after the
+  drop off. `dropoffNotes`, whose composed line names the floor and doorbell, follows the doorbell's rule,
+  free hand back included (decisions 101.1 to 101.3). No courier app change.
+- Tests by a fresh Claude subagent while agy was out of quota: 2612 pass; put back by hand. Reviewed by Fable
+  (changes requested: the pickup card would have lost the bag label after the hand back; fixed). The live
+  verify caught the doorbell inside `dropoffNotes` during the hand back; fixed.
+
 ### No recipient details in the delivery logs (scope row 95): `0eb3cf7` to `0196f07`
 Built on the branch `fix/delivery-log-privacy` and merged on 3 November.
 - Delivery events are logged by ids, type, actor and source only (`eventLogLine`), never their free text
