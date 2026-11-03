@@ -384,27 +384,54 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
   })
 
   describe('movePointIfUnchanged (Spec 0016 AC-10)', () => {
-    it('updates only latitude and longitude when point matches exact read point, never touching lastUsedAt', async () => {
-      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
+    // Row 99 (decision 99.1): the rider's move also stamps pinMovedByRiderAt with the time of the move.
+    it('moves only the point and stamps pinMovedByRiderAt with now, only when the point matches the read point, never touching lastUsedAt', async () => {
+      const now = new Date('2026-11-03T12:32:00.000Z')
+      jest.useFakeTimers()
+      jest.setSystemTime(now)
+      try {
+        mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
+
+        const fromPoint = { latitude: 39.362, longitude: 22.945 }
+        const toPoint = { latitude: 39.364, longitude: 22.948 }
+
+        const result = await repository.movePointIfUnchanged(partnerId, customerId, fromPoint, toPoint)
+
+        expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: customerId,
+            partnerId,
+            latitude: fromPoint.latitude,
+            longitude: fromPoint.longitude,
+          },
+          data: {
+            latitude: toPoint.latitude,
+            longitude: toPoint.longitude,
+            pinMovedByRiderAt: now,
+          },
+        })
+        expect(result).toBe(true)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('stamps pinMovedByRiderAt only through the conditional write: the mark is in data, the read point is in where (Row 99)', async () => {
+      mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 0 })
 
       const fromPoint = { latitude: 39.362, longitude: 22.945 }
       const toPoint = { latitude: 39.364, longitude: 22.948 }
 
       const result = await repository.movePointIfUnchanged(partnerId, customerId, fromPoint, toPoint)
 
-      expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledWith({
-        where: {
-          id: customerId,
-          partnerId,
-          latitude: fromPoint.latitude,
-          longitude: fromPoint.longitude,
-        },
-        data: {
-          latitude: toPoint.latitude,
-          longitude: toPoint.longitude,
-        },
-      })
-      expect(result).toBe(true)
+      // One write only: no separate unconditional write could stamp the mark on a customer whose
+      // point the restaurant changed in between.
+      expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledTimes(1)
+      const { where, data } = mockPrisma.savedCustomer.updateMany.mock.calls[0][0]
+      expect(where).toEqual({ id: customerId, partnerId, latitude: 39.362, longitude: 22.945 })
+      expect(data.pinMovedByRiderAt).toBeInstanceOf(Date)
+      expect(where).not.toHaveProperty('pinMovedByRiderAt')
+      expect(result).toBe(false)
     })
 
     it('returns false when updateMany matches 0 rows (point was changed in between or deleted)', async () => {
@@ -418,6 +445,148 @@ describe('SavedCustomerRepository (AC-3, AC-5, AC-7, Invariant lastUsedAt)', () 
       )
 
       expect(result).toBe(false)
+    })
+  })
+
+  // Row 99 (decision 99.1): a restaurant that sets a different point itself clears the rider's mark;
+  // writing the same point back, or not touching the point, keeps it.
+  describe('pinMovedByRiderAt on a restaurant\'s write (Row 99)', () => {
+    const storedPoint = { latitude: 39.362, longitude: 22.945 }
+
+    // findUnique answers by what it is asked for: the id (to tell new from existing) or the point.
+    function storedCustomer(point: { latitude: number; longitude: number } | null) {
+      mockPrisma.savedCustomer.findUnique.mockImplementation(async (args: any) => {
+        if (point === null) return null
+        if (args?.select?.latitude || args?.select?.longitude) return { ...point }
+        if (args?.select?.id) return { id: customerId }
+        return { id: customerId, partnerId, ...sampleFields, ...point }
+      })
+    }
+
+    describe('update (a restaurant\'s own edit)', () => {
+      beforeEach(() => {
+        mockPrisma.savedCustomer.updateMany.mockResolvedValue({ count: 1 })
+        mockPrisma.savedCustomer.findFirst.mockResolvedValue({ id: customerId, partnerId, ...sampleFields })
+        storedCustomer(storedPoint)
+      })
+
+      function writtenData() {
+        expect(mockPrisma.savedCustomer.updateMany).toHaveBeenCalledTimes(1)
+        return mockPrisma.savedCustomer.updateMany.mock.calls[0][0].data
+      }
+
+      it('clears pinMovedByRiderAt when the edit changes the latitude', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: storedPoint.longitude }, false)
+
+        expect(writtenData()).toEqual({ latitude: 39.37, longitude: storedPoint.longitude, pinMovedByRiderAt: null })
+      })
+
+      it('clears pinMovedByRiderAt when the edit changes only the longitude', async () => {
+        await repository.update(partnerId, customerId, { longitude: 22.95 }, false)
+
+        expect(writtenData()).toEqual({ longitude: 22.95, pinMovedByRiderAt: null })
+      })
+
+      it('keeps the write scoped to { id, partnerId } when it clears the mark', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, false)
+
+        expect(mockPrisma.savedCustomer.updateMany.mock.calls[0][0].where).toEqual({ id: customerId, partnerId })
+      })
+
+      it('keeps pinMovedByRiderAt when the edit sends the same point back', async () => {
+        await repository.update(
+          partnerId,
+          customerId,
+          { name: 'Nikos D.', latitude: storedPoint.latitude, longitude: storedPoint.longitude },
+          false
+        )
+
+        const data = writtenData()
+        expect(data).toEqual({ name: 'Nikos D.', latitude: storedPoint.latitude, longitude: storedPoint.longitude })
+        expect(data).not.toHaveProperty('pinMovedByRiderAt')
+      })
+
+      it('keeps pinMovedByRiderAt when the edit carries no point fields', async () => {
+        await repository.update(partnerId, customerId, { name: 'Nikos D.', floor: '2' }, false)
+
+        const data = writtenData()
+        expect(data).toEqual({ name: 'Nikos D.', floor: '2' })
+        expect(data).not.toHaveProperty('pinMovedByRiderAt')
+      })
+
+      it('never sets pinMovedByRiderAt to a time on a restaurant\'s edit', async () => {
+        await repository.update(partnerId, customerId, { latitude: 39.37, longitude: 22.95 }, true)
+
+        expect(writtenData().pinMovedByRiderAt).toBeNull()
+      })
+    })
+
+    describe('upsertByPhone (an order saving the customer)', () => {
+      beforeEach(() => {
+        mockPrisma.savedCustomer.upsert.mockImplementation(async (args: any) => ({
+          id: customerId,
+          partnerId,
+          ...args.create,
+        }))
+        mockPrisma.savedCustomer.findFirst.mockResolvedValue({ id: customerId, partnerId, ...sampleFields })
+        mockPrisma.$executeRaw.mockResolvedValue(1)
+      })
+
+      function upsertArgs() {
+        expect(mockPrisma.savedCustomer.upsert).toHaveBeenCalledTimes(1)
+        return mockPrisma.savedCustomer.upsert.mock.calls[0][0]
+      }
+
+      it('clears pinMovedByRiderAt when the order saves a different point', async () => {
+        storedCustomer(storedPoint)
+
+        const result = await repository.upsertByPhone(
+          partnerId,
+          { ...sampleFields, latitude: 39.37, longitude: 22.95 },
+          true
+        )
+
+        const args = upsertArgs()
+        expect(args.update).toEqual({ ...sampleFields, latitude: 39.37, longitude: 22.95, pinMovedByRiderAt: null })
+        expect(args.create).not.toHaveProperty('pinMovedByRiderAt')
+        expect(result.created).toBe(false)
+      })
+
+      it('clears pinMovedByRiderAt when only the longitude differs', async () => {
+        storedCustomer(storedPoint)
+
+        await repository.upsertByPhone(partnerId, { ...sampleFields, longitude: 22.95 }, false)
+
+        expect(upsertArgs().update.pinMovedByRiderAt).toBeNull()
+      })
+
+      it('keeps pinMovedByRiderAt when the order saves the same (corrected) point', async () => {
+        storedCustomer(storedPoint)
+
+        const result = await repository.upsertByPhone(
+          partnerId,
+          { ...sampleFields, latitude: storedPoint.latitude, longitude: storedPoint.longitude },
+          true
+        )
+
+        const args = upsertArgs()
+        expect(args.update).toEqual({ ...sampleFields, ...storedPoint })
+        expect(args.update).not.toHaveProperty('pinMovedByRiderAt')
+        expect(result.created).toBe(false)
+      })
+
+      it('gives a new customer no pinMovedByRiderAt', async () => {
+        storedCustomer(null)
+
+        const result = await repository.upsertByPhone(partnerId, sampleFields, true)
+
+        const args = upsertArgs()
+        expect(args.create).toEqual({ ...sampleFields, partnerId })
+        expect(args.create).not.toHaveProperty('pinMovedByRiderAt')
+        expect(args.update).not.toHaveProperty('pinMovedByRiderAt')
+        expect(result.created).toBe(true)
+        expect(result.customer).not.toHaveProperty('pinMovedByRiderAt')
+      })
     })
   })
 })

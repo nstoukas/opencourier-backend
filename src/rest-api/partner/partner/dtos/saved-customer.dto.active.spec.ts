@@ -18,6 +18,7 @@ describe('SavedCustomerDto (Spec 0016 AC-3)', () => {
     longitude: 22.945,
     formattedAddress: 'Iasonos 10, Volos',
     lastUsedAt: new Date('2026-11-01T10:00:00Z'),
+    pinMovedByRiderAt: null,
     createdAt: new Date('2026-11-01T10:00:00Z'),
     updatedAt: new Date('2026-11-01T10:00:00Z'),
   }
@@ -34,5 +35,29 @@ describe('SavedCustomerDto (Spec 0016 AC-3)', () => {
 
     expect(dto.floor).toBeNull()
     expect(dto.doorbell).toBeNull()
+  })
+
+  // Row 99 (decision 99.1): the restaurant sees on a saved customer that a rider moved its pin, and when.
+  it('carries pinMovedByRiderAt when a rider moved the pin', () => {
+    const movedAt = new Date('2026-11-03T12:32:00Z')
+    const dto = new SavedCustomerDto({ ...baseCustomer, pinMovedByRiderAt: movedAt })
+
+    expect(dto.pinMovedByRiderAt).toEqual(movedAt)
+    expect(JSON.parse(JSON.stringify(dto)).pinMovedByRiderAt).toBe('2026-11-03T12:32:00.000Z')
+  })
+
+  it('carries pinMovedByRiderAt as null when no rider moved the pin', () => {
+    const dto = new SavedCustomerDto(baseCustomer)
+
+    expect(dto).toHaveProperty('pinMovedByRiderAt')
+    expect(dto.pinMovedByRiderAt).toBeNull()
+    expect(JSON.parse(JSON.stringify(dto))).toHaveProperty('pinMovedByRiderAt', null)
+  })
+
+  it('carries pinMovedByRiderAt as null, never undefined, when the entity lacks it', () => {
+    const { pinMovedByRiderAt: _omitted, ...withoutMark } = baseCustomer
+    const dto = new SavedCustomerDto(withoutMark as SavedCustomer)
+
+    expect(dto.pinMovedByRiderAt).toBeNull()
   })
 })
