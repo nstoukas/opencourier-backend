@@ -85,10 +85,22 @@ are the exceptions, each kept additive or as narrow as possible:
 | `Delivery.acceptedAt` and `handBackUntil` (migration `20261102150000_add_hand_back`); event type `HANDED_BACK`, recorded by `DeliveryEventService.handBack` outside the switch; setting `handBackSeconds`; optional `{ automatic }` body on the courier accept; courier `POST deliveries/:id/hand-back` (row 71) | A rider could not give back a job taken by a slip or an unwanted auto accept, and an automatic accept looked like a tap on the record. Additive; no pay or charge either way. | `ca392af` |
 | Setting `arrivalRadiusMetres` (0 switches detection off, else 20 to 300 m, default 50) on the admin settings and the courier `GET config/contact`; optional `{ detected }` body on the courier `arrived-at-pickup` and `arrived-at-dropoff` routes (row 19) | The rider's app now notices arrival by itself, and members must be able to tell a detected arrival from a tapped one, because waiting pay will start from it. Additive; no schema change; the mark is only the event's message. | `1a6969b` |
 | New `SosIncident` and `SosLocationPoint` tables and `EnumSosOutcome` (migration `20261102230000_add_sos_incident`), setting `sosLocationRetentionDays`, BullMQ repeatable job `sos-location-retention`; the matchers' busy rule gains `activeSosCourierSubQuery`; `refuseIfCourierInSos` (409) in the admin ACCEPTED branch, `reassignDelivery` and the rider's own `acceptDelivery`; `offerToNextCourier` skips a matched rider in an SOS, STATIC included (row 73) | A rider in danger had no way to call for help. Their position is shared only while their own SOS is active, in its own tables, read only by the SOS module, and deleted after the co-op's period (value 5's safety exception, decision 73.1). A rider in an SOS is offered and given nothing (73.6, 73.10, 73.11). | `107edc8`, `b5ab24f` |
+| `SavedCustomer.pinMovedByRiderAt` (migration `20261103043000_add_saved_customer_pin_moved`), stamped by the rider's pin move, cleared only by a deliberate edit to a different point; on the partner saved customer DTO (row 99) | A restaurant could not see that a rider had corrected a saved customer's pin. Additive, on the co-op's own table (spec 0005). | `fa4005a`, `baa2d00` |
 
 ---
 
 ## Added
+
+### "Pin moved by a rider" on a saved customer (scope row 99, from spec 0016): `fa4005a` to `7cfb17f`
+Built on the branch `feat/pin-corrections-shown` and merged on 3 November, with the adminweb and request-web
+halves. This is a core change, listed in the table above.
+- **The mark.** `SavedCustomer.pinMovedByRiderAt` is stamped inside the rider's existing conditional pin
+  move, so a move and its mark never disagree, and carried on the partner saved customer DTO.
+- **Only a deliberate edit clears it.** A restaurant's Customers page edit or a representative's admin edit
+  that sets a different point clears it. An order's save never does, because its form may hold the point from
+  before the rider's move (review fix, decision 99.1 amended).
+- Tests by a fresh Claude subagent while agy was out of quota: 2046 pass; put back by hand. Reviewed by Fable
+  (changes requested; fixed in `baa2d00`, `7e1d945`).
 
 ### The offer push carries the card's trip (scope row 100): `cec12f3` to `321b5ea`
 Built on the branch `feat/offer-alert-split` and merged on 3 November, with the courier app half.
