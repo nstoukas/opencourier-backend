@@ -89,10 +89,17 @@ are the exceptions, each kept additive or as narrow as possible:
 | `Delivery.searchFold` and `Courier.searchFold` (migration `20261103060000_add_search_fold`), written only by the triggers `delivery_search_fold` and `courier_search_fold` through `oc_search_fold` and `oc_search_digits`; the admin list filters match them (row 98) | The admin searches missed Greek names typed without accents, in capitals or with a final sigma. Additive columns; an upstream merge must keep the triggers and functions. | `57b361c`, `1b5c7f8` |
 | New `ShiftSlot` and `ShiftSlotChange` tables and `EnumShiftSlotChangeAction` (migration `20261103080000_add_shift_slots`), admin routes `admin/v1/shift-slots`, settings `shiftsEnabled` and `shiftDropNoticeHours` (row 77) | The co-op could not plan shift cover. Additive; nothing outside admin reads them until rows 78 and 79. | `ed57e16` |
 | New `ShiftBooking` and `ShiftBookingEvent` tables and two enums (migration `20261103110000_add_shift_bookings`), courier routes `courier/v1/shifts`, `config/contact` gains two fields (row 78) | Riders could not book shifts. Additive; inert while Shifts are off. | `bb897b0` |
+| `OrderItem.kind` (`DRINK` or `SIDE`) and its validation on the partner create input (row 103) | Riders most often forget drinks and sides; the restaurant can now mark them. Additive, inside the existing `orderItems` JSON. | `633c56f` |
 
 ---
 
 ## Added
+
+### An order item may be marked a drink or a side (scope row 103, spec 0028): `633c56f`, `21639e2`
+Built on the branch `feat/item-kinds` and merged on 3 November, with the request-web and courier app halves.
+- `OrderItem.kind` (`DRINK` or `SIDE`, optional), validated on the partner create route (anything else, null
+  included, is a 400 with a sentence). No schema change: it lives in the delivery's `orderItems` JSON.
+- Tests by a fresh Claude subagent while agy was out of quota: 2993 pass; put back by hand. Reviewed by Fable.
 
 ### Booking shifts (scope row 78, spec 0027): `bb897b0` to `997ef46`
 Built on the branch `feat/shift-booking` and merged on 3 November, with the courier app half. This is a core change, listed in the table above.
