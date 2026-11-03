@@ -230,6 +230,55 @@ describe('PartnerWebhookService (Spec 0016 AC-12, Decision 31.18: webhook logs i
     })
   })
 
+  describe('Row 95: the pickup contact and the addresses stay out of the log too', () => {
+    test('logs none of the recipient or pickup contact details, while the posted body carries them all', async () => {
+      const fullDelivery = {
+        ...sampleDelivery,
+        pickupName: 'Pantelis Pickupakis',
+        pickupPhoneNumber: '+302421000952',
+        pickupNotes: 'Ask for Stamatis at the till',
+        pickupLocation: { street: 'Kartali 77', city: 'Volos' },
+        dropoffLocation: { street: 'Iasonos 123', city: 'Volos' },
+      }
+      deliveryRepository.findByIdOrThrow.mockResolvedValue(fullDelivery as any)
+      // console.warn and console.error too, in case a line moves there.
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+      try {
+        await service.sendDeliveryUpdatePartnerWebhook(sampleEvent)
+
+        // The restaurant still receives the whole delivery.
+        expect(httpService.axiosRef.post).toHaveBeenCalledTimes(1)
+        const body = httpService.axiosRef.post.mock.calls[0]![1]
+        expect(body.delivery).toEqual(fullDelivery)
+
+        const consoleWarnAndError = [...consoleWarnSpy.mock.calls, ...consoleErrorSpy.mock.calls]
+          .flat()
+          .map((arg) => (typeof arg === 'object' && arg !== null ? JSON.stringify(arg) : String(arg)))
+        const allLogs = [getAllLogs(), ...consoleWarnAndError].join('\n')
+        expect(allLogs).toContain('del-100')
+        for (const detail of [
+          fullDelivery.dropoffName,
+          fullDelivery.dropoffPhoneNumber,
+          fullDelivery.dropoffFloor,
+          fullDelivery.dropoffDoorbell,
+          'Ring twice',
+          fullDelivery.pickupName,
+          fullDelivery.pickupPhoneNumber,
+          fullDelivery.pickupNotes,
+          'Kartali 77',
+          'Iasonos 123',
+        ]) {
+          expect(allLogs).not.toContain(detail)
+        }
+      } finally {
+        consoleWarnSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
+      }
+    })
+  })
+
   describe('Spec 0025 AC-7 (decision 98.3): the posted body carries no searchFold', () => {
     // The real repositories turn database rows into entities; only Prisma is faked. The rows carry
     // searchFold, as the trigger fills it, and the webhook posts the whole entities.
