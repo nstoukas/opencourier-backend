@@ -106,3 +106,50 @@ describe('Delivery entities - cancellationPayoutPolicy (Decision 32.18)', () => 
     })
   })
 })
+
+describe('Delivery entities - searchFold is never copied from the row (spec 0025)', () => {
+  // The trigger stores the folded order reference, customer and restaurant; it is personal data,
+  // so it stops at the repository: the entity keeps null whatever the row holds.
+  const storedFold = 'ord-1\ncustomer\nfood place'
+
+  it('DeliveryEntity built from a row with searchFold set has searchFold null', () => {
+    const entity = new DeliveryEntity({ ...baseDeliveryRow(), searchFold: storedFold } as any)
+    expect(entity.searchFold).toBeNull()
+    expect(JSON.stringify(entity)).not.toContain('food place')
+  })
+
+  it('DeliveryWithLocationsEntity built from a row with searchFold set has searchFold null', () => {
+    const entity = new DeliveryWithLocationsEntity({
+      ...baseDeliveryRow(),
+      pickupLocation: null,
+      dropoffLocation: null,
+      searchFold: storedFold,
+    } as any)
+    expect(entity.searchFold).toBeNull()
+    expect(JSON.stringify(entity)).not.toContain('food place')
+  })
+
+  it('the entities still copy the fields the fold is made from', () => {
+    const entity = new DeliveryEntity({ ...baseDeliveryRow(), searchFold: storedFold } as any)
+    expect(entity.orderReference).toBe('ORD-1')
+    expect(entity.dropoffName).toBe('Customer')
+    expect(entity.pickupBusinessName).toBe('Food Place')
+  })
+
+  function baseDeliveryRow() {
+    return {
+      id: 'del-fold-test',
+      status: EnumDeliveryStatus.ACCEPTED,
+      pickupName: 'Restaurant',
+      pickupPhoneNumber: '+302101234567',
+      pickupBusinessName: 'Food Place',
+      dropoffName: 'Customer',
+      dropoffPhoneNumber: '+302109876543',
+      orderReference: 'ORD-1',
+      courierId: 'courier-1',
+      partnerId: 'partner-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  }
+})

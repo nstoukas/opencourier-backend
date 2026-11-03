@@ -5,6 +5,70 @@ import {
   MAX_DELIVERY_SEARCH_LENGTH,
 } from './delivery-list-filter'
 
+// The deliveries search (spec 0025, AC-1): the database keeps `searchFold`, the folded order
+// reference, customer name and restaurant name joined by newlines. The search must be one OR of
+// `searchFold contains <folded, escaped text>` and `id endsWith <folded, escaped text>`, with no
+// insensitive mode (the folded text is already lower case).
+function expectSearchRule(where: Prisma.DeliveryWhereInput, literal: string) {
+  expect(where.OR).toHaveLength(2)
+  expect(where.OR).toEqual(
+    expect.arrayContaining([{ searchFold: { contains: literal } }, { id: { endsWith: literal } }])
+  )
+  expect(JSON.stringify(where.OR)).not.toContain('"mode"')
+}
+
+// What PostgreSQL's LIKE does with a Prisma `contains` (pattern %text%) or `endsWith` (%text):
+// backslash escapes the next character, % is any run of characters, _ is any one character.
+function likeMatches(value: string, pattern: string): boolean {
+  let regex = ''
+  for (let i = 0; i < pattern.length; i++) {
+    const character = pattern[i]!
+    if (character === '\\') {
+      i++
+      if (i >= pattern.length) throw new Error('LIKE pattern ends with an escape character')
+      regex += pattern[i]!.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+    } else if (character === '%') regex += '[\\s\\S]*'
+    else if (character === '_') regex += '[\\s\\S]'
+    else regex += character.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+  }
+  return new RegExp(`^${regex}$`).test(value)
+}
+
+// A tiny stand in for the database: does a delivery row match the search part of a where? Only
+// the shapes the search may use are understood; anything else (a `mode`, another field) throws.
+type SearchRow = { id: string; searchFold: string }
+function rowMatches(where: any, row: SearchRow): boolean {
+  return Object.entries(where).every(([key, value]: [string, any]) => {
+    if (key === 'OR') return (value as any[]).some((clause) => rowMatches(clause, row))
+    if (key === 'AND') return (value as any[]).every((clause) => rowMatches(clause, row))
+    if (key !== 'searchFold' && key !== 'id') throw new Error(`unexpected field ${key}`)
+    const keys = Object.keys(value)
+    if (keys.length !== 1) throw new Error(`unexpected filter ${JSON.stringify(value)}`)
+    if (keys[0] === 'contains') return likeMatches(row[key], `%${value.contains}%`)
+    if (keys[0] === 'endsWith') return likeMatches(row[key], `%${value.endsWith}`)
+    throw new Error(`unexpected filter ${JSON.stringify(value)}`)
+  })
+}
+function finds(search: string, row: SearchRow): boolean {
+  return rowMatches(adminDeliveryListWhere({ search }), row)
+}
+
+// Rows as the database trigger stores them: oc_search_fold(orderReference) \n
+// oc_search_fold(dropoffName) \n oc_search_fold(pickupBusinessName). Written by hand from the
+// spec's rule (lower case, accents removed, every sigma as σ).
+const NIKOS: SearchRow = {
+  id: 'clx7k2m9p0001qz8rabc123def',
+  searchFold: 'ord-1042\nνικοσ παπαδοπουλοσ\nψητοπωλειο ο θανασησ',
+}
+const CAFE: SearchRow = {
+  id: 'clx7k2m9p0002qz8r999888777',
+  searchFold: 'ord%7\nmaria\ncafe du port',
+}
+const PLAIN: SearchRow = {
+  id: 'clx7k2m9p0003qz8r111222333',
+  searchFold: 'ord-7\nelena\nsouvlaki bar',
+}
+
 describe('delivery-list-filter', () => {
   describe('ADMIN_DELIVERY_STATES and MAX_DELIVERY_SEARCH_LENGTH', () => {
     test('ADMIN_DELIVERY_STATES contains exactly the four allowed states', () => {
@@ -117,34 +181,85 @@ describe('delivery-list-filter', () => {
       })
     })
 
-    describe('search filter (decision 96.1)', () => {
-      test('search ORs orderReference, dropoffName, pickupBusinessName (case-insensitive) and id endsWith', () => {
+    describe('search filter (decision 96.1, spec 0025 AC-1)', () => {
+      test('a search is one OR: searchFold contains the folded text, or the id ends with it; no mode', () => {
         const where = adminDeliveryListWhere({ search: 'Nikou' })
-        expect(where).toEqual({
-          OR: [
-            { orderReference: { contains: 'Nikou', mode: Prisma.QueryMode.insensitive } },
-            { dropoffName: { contains: 'Nikou', mode: Prisma.QueryMode.insensitive } },
-            { pickupBusinessName: { contains: 'Nikou', mode: Prisma.QueryMode.insensitive } },
-            { id: { endsWith: 'Nikou' } },
-          ],
-        })
-        // Assert case-insensitive mode is explicitly set on all contains clauses
-        const orClauses = where.OR as any[]
-        expect(orClauses[0].orderReference.mode).toBe('insensitive')
-        expect(orClauses[1].dropoffName.mode).toBe('insensitive')
-        expect(orClauses[2].pickupBusinessName.mode).toBe('insensitive')
+        expect(where).toEqual({ OR: expect.any(Array) })
+        expectSearchRule(where, 'nikou')
+      })
+
+      test('the old per column, insensitive rules are gone', () => {
+        const where = adminDeliveryListWhere({ search: 'Nikou' })
+        const text = JSON.stringify(where)
+        expect(text).not.toContain('orderReference')
+        expect(text).not.toContain('dropoffName')
+        expect(text).not.toContain('pickupBusinessName')
+        expect(text).not.toContain('insensitive')
+      })
+
+      test.each([['νικος'], ['ΝΙΚΟΣ'], ['Νίκος'], ['νίκοσ']])(
+        'Greek "%s" is searched as "νικοσ" (case, accents, final sigma)',
+        (search) => {
+          expectSearchRule(adminDeliveryListWhere({ search }), 'νικοσ')
+        }
+      )
+
+      test.each([['νικος'], ['ΝΙΚΟΣ'], ['Νίκος'], ['νίκοσ']])(
+        '"%s" finds the delivery for Νίκος Παπαδόπουλος and no other',
+        (search) => {
+          expect(finds(search, NIKOS)).toBe(true)
+          expect(finds(search, CAFE)).toBe(false)
+          expect(finds(search, PLAIN)).toBe(false)
+        }
+      )
+
+      test('a whole name in capitals and without accents finds the customer', () => {
+        expect(finds('ΝΙΚΟΣ ΠΑΠΑΔΟΠΟΥΛΟΣ', NIKOS)).toBe(true)
+        expect(finds('νικος παπαδοπουλος', NIKOS)).toBe(true)
+      })
+
+      test('the restaurant name and the order reference are found folded too', () => {
+        expect(finds('Θανάσης', NIKOS)).toBe(true)
+        expect(finds('ΨΗΤΟΠΩΛΕΙΟ', NIKOS)).toBe(true)
+        expect(finds('ORD-1042', NIKOS)).toBe(true)
+        expect(finds('ord-1042', NIKOS)).toBe(true)
+      })
+
+      test('Latin accents and case fold: "Café" and "CAFE" find "cafe" (AC-3)', () => {
+        expectSearchRule(adminDeliveryListWhere({ search: 'Café' }), 'cafe')
+        expect(finds('Café', CAFE)).toBe(true)
+        expect(finds('CAFE', CAFE)).toBe(true)
+        expect(finds('Café', PLAIN)).toBe(false)
+      })
+
+      test('a decomposed accent (ι + U+0301) is searched like the composed ί', () => {
+        expectSearchRule(adminDeliveryListWhere({ search: 'Νίκος' }), 'νικοσ')
+      })
+
+      test('the short id match uses the folded text: an id typed in capitals is found', () => {
+        expectSearchRule(adminDeliveryListWhere({ search: 'ABC123DEF' }), 'abc123def')
+        expect(finds('ABC123DEF', NIKOS)).toBe(true)
+        expect(finds('abc123def', NIKOS)).toBe(true)
+        expect(finds('ABC123DEF', PLAIN)).toBe(false)
+      })
+
+      test('the short id match is an endsWith, not a contains', () => {
+        expect(finds('clx7k2m9p0001', NIKOS)).toBe(false)
       })
 
       test('search trims leading and trailing whitespace', () => {
-        const where = adminDeliveryListWhere({ search: '   ORD-9988   ' })
-        expect(where).toEqual({
-          OR: [
-            { orderReference: { contains: 'ORD-9988', mode: Prisma.QueryMode.insensitive } },
-            { dropoffName: { contains: 'ORD-9988', mode: Prisma.QueryMode.insensitive } },
-            { pickupBusinessName: { contains: 'ORD-9988', mode: Prisma.QueryMode.insensitive } },
-            { id: { endsWith: 'ORD-9988' } },
-          ],
-        })
+        expectSearchRule(adminDeliveryListWhere({ search: '   ORD-9988   ' }), 'ord-9988')
+      })
+
+      test('a newline or tab inside the search becomes one space', () => {
+        expectSearchRule(adminDeliveryListWhere({ search: 'Νίκος\nΠαπαδόπουλος' }), 'νικοσ παπαδοπουλοσ')
+        expectSearchRule(adminDeliveryListWhere({ search: 'Νίκος\t\tΠαπαδόπουλος' }), 'νικοσ παπαδοπουλοσ')
+      })
+
+      test('a search cannot match across two stored fields, even if it holds a newline', () => {
+        // The stored fields are joined by "\n"; a search keeping its newline would bridge them.
+        expect(finds('Παπαδόπουλος\nΨητοπωλείο', NIKOS)).toBe(false)
+        expect(finds('1042\nνικος', NIKOS)).toBe(false)
       })
 
       test('ignores empty search string', () => {
@@ -159,85 +274,51 @@ describe('delivery-list-filter', () => {
         expect(where).toEqual({})
       })
 
+      test('ignores a whitespace-only search of tabs and newlines', () => {
+        const where = adminDeliveryListWhere({ search: ' \t\n\r\n ' })
+        expect(where).toEqual({})
+      })
+
       test('ignores undefined search', () => {
         const where = adminDeliveryListWhere({ search: undefined })
         expect(where.OR).toBeUndefined()
         expect(where).toEqual({})
       })
 
-      describe('LIKE wildcard escaping in search (row 96 review fix)', () => {
-        test('escapes % wildcard in all contains clauses and id endsWith', () => {
-          const where = adminDeliveryListWhere({ search: '%' })
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: '\\%' } },
-            ],
-          })
+      describe('LIKE wildcard escaping in search (row 96 review fix, spec 0025 AC-4)', () => {
+        test('escapes % in both the searchFold contains and the id endsWith', () => {
+          expectSearchRule(adminDeliveryListWhere({ search: '%' }), '\\%')
         })
 
-        test('escapes _ wildcard in all contains clauses and id endsWith', () => {
-          const where = adminDeliveryListWhere({ search: '_' })
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: '\\_' } },
-            ],
-          })
+        test('escapes _ in both rules', () => {
+          expectSearchRule(adminDeliveryListWhere({ search: '_' }), '\\_')
         })
 
-        test('escapes backslash in all contains clauses and id endsWith', () => {
-          const where = adminDeliveryListWhere({ search: '\\' })
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: '\\\\' } },
-            ],
-          })
+        test('escapes backslash in both rules', () => {
+          expectSearchRule(adminDeliveryListWhere({ search: '\\' }), '\\\\')
         })
 
         test('escapes repeated wildcards (such as eight underscores)', () => {
-          const where = adminDeliveryListWhere({ search: '________' })
-          const expected = '\\_\\_\\_\\_\\_\\_\\_\\_'
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: expected } },
-            ],
-          })
+          expectSearchRule(adminDeliveryListWhere({ search: '________' }), '\\_\\_\\_\\_\\_\\_\\_\\_')
         })
 
-        test('escapes mixed wildcards and backslashes embedded in text', () => {
-          const where = adminDeliveryListWhere({ search: 'ORD_1042%\\extra' })
-          const expected = 'ORD\\_1042\\%\\\\extra'
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: expected } },
-            ],
-          })
+        test('escapes mixed wildcards and backslashes embedded in text, after folding', () => {
+          expectSearchRule(adminDeliveryListWhere({ search: 'ORD_1042%\\extra' }), 'ord\\_1042\\%\\\\extra')
         })
 
-        test('leaves plain text unchanged without escaping', () => {
-          const where = adminDeliveryListWhere({ search: 'ORD-1042' })
-          expect(where).toEqual({
-            OR: [
-              { orderReference: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
-              { dropoffName: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
-              { pickupBusinessName: { contains: 'ORD-1042', mode: Prisma.QueryMode.insensitive } },
-              { id: { endsWith: 'ORD-1042' } },
-            ],
-          })
+        test('leaves plain text unescaped (only folded)', () => {
+          expectSearchRule(adminDeliveryListWhere({ search: 'ORD-1042' }), 'ord-1042')
+        })
+
+        test('"%" stays literal: it finds a delivery holding a %, not every delivery', () => {
+          expect(finds('%', CAFE)).toBe(true)
+          expect(finds('%', NIKOS)).toBe(false)
+          expect(finds('%', PLAIN)).toBe(false)
+        })
+
+        test('"_" stays literal: it does not match any one character', () => {
+          expect(finds('ord_7', PLAIN)).toBe(false)
+          expect(finds('_', NIKOS)).toBe(false)
         })
       })
     })
@@ -259,13 +340,9 @@ describe('delivery-list-filter', () => {
               EnumDeliveryStatus.FAILED,
             ],
           },
-          OR: [
-            { orderReference: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { dropoffName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { pickupBusinessName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { id: { endsWith: 'souvlaki' } },
-          ],
+          OR: expect.any(Array),
         })
+        expectSearchRule(where, 'souvlaki')
       })
 
       test('combines courierId and state dropped_off without search', () => {
@@ -288,7 +365,7 @@ describe('delivery-list-filter', () => {
         expect(where.status).toEqual({
           in: [EnumDeliveryStatus.CANCELED, EnumDeliveryStatus.FAILED],
         })
-        expect(where.OR).toBeDefined()
+        expectSearchRule(where, 'cancellation-ref')
       })
 
       test('combines courierId and search with state all (no status in where)', () => {
@@ -299,7 +376,7 @@ describe('delivery-list-filter', () => {
         })
         expect(where.courierId).toBe('courier-42')
         expect(where.status).toBeUndefined()
-        expect(where.OR).toBeDefined()
+        expectSearchRule(where, 'customer-name')
       })
 
       test('combines empty string courierId with state active and search', () => {
@@ -316,7 +393,7 @@ describe('delivery-list-filter', () => {
             EnumDeliveryStatus.FAILED,
           ],
         })
-        expect(where.OR).toBeDefined()
+        expectSearchRule(where, 'souvlaki')
       })
 
       test('combines partnerId with courierId, state active, and search', () => {
@@ -324,7 +401,7 @@ describe('delivery-list-filter', () => {
           partnerId: 'partner-1',
           courierId: 'courier-42',
           state: 'active',
-          search: 'souvlaki',
+          search: 'Σουβλάκι',
         })
 
         expect(where).toEqual({
@@ -337,13 +414,9 @@ describe('delivery-list-filter', () => {
               EnumDeliveryStatus.FAILED,
             ],
           },
-          OR: [
-            { orderReference: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { dropoffName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { pickupBusinessName: { contains: 'souvlaki', mode: Prisma.QueryMode.insensitive } },
-            { id: { endsWith: 'souvlaki' } },
-          ],
+          OR: expect.any(Array),
         })
+        expectSearchRule(where, 'σουβλακι')
       })
 
       test('combines partnerId with state dropped_off without courier or search', () => {
