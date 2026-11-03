@@ -4,7 +4,6 @@ import { INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import {
-  clockText,
   dropDeadline,
   dropUntilText,
   isoWeekday,
@@ -99,7 +98,9 @@ export class ShiftBookingService {
       for (const slot of slots) {
         if (slot.weekday !== weekday) continue
         const { startsAt, endsAt } = occurrenceTimes(date, slot)
-        if (startsAt <= now) continue
+        // Past or started; or empty or backwards, which only a slot inside the hour skipped on the night
+        // the clocks go forward can be (row 78 review).
+        if (startsAt <= now || endsAt <= startsAt) continue
         const key = `${slot.id}:${date}`
         const swapId = swapByOccurrence.get(key)
         occurrences.push({
@@ -107,8 +108,9 @@ export class ShiftBookingService {
           date,
           startsAt,
           endsAt,
-          startTime: clockText(slot.startMinute),
-          endTime: clockText(slot.endMinute),
+          // From the instants, as a booking's are, so the schedule and the rider's booking always agree.
+          startTime: athensClock(startsAt, date),
+          endTime: athensClock(endsAt, date),
           riderCap: slot.riderCap,
           placesTaken: taken.get(key) ?? 0,
           myBookingId: myByOccurrence.get(key) ?? null,
@@ -122,15 +124,17 @@ export class ShiftBookingService {
 
   async book(courierId: string, shiftSlotId: string, date: string, now: Date): Promise<MyShiftBooking> {
     await this.refuseIfShiftsOff()
+    // Read before the transaction, so a queue at the locks only ever holds the transaction's own
+    // connection (row 78 review). The cap read here is the one the count is checked against.
+    const slot = await this.slots.findById(shiftSlotId)
+    if (!slot || slot.removedAt || !scheduleDates(now).includes(date) || isoWeekday(date) !== slot.weekday) {
+      throw new NotFoundException(SHIFT_SENTENCES.notOnSchedule)
+    }
+    const { startsAt, endsAt } = occurrenceTimes(date, slot)
+    if (startsAt <= now || endsAt <= startsAt) throw new ConflictException(SHIFT_SENTENCES.started)
     const created = await this.bookings.transaction(async (tx) => {
       await this.bookings.lockRider(tx, courierId)
       await this.bookings.lockOccurrence(tx, shiftSlotId, date)
-      const slot = await this.slots.findById(shiftSlotId)
-      if (!slot || slot.removedAt || !scheduleDates(now).includes(date) || isoWeekday(date) !== slot.weekday) {
-        throw new NotFoundException(SHIFT_SENTENCES.notOnSchedule)
-      }
-      const { startsAt, endsAt } = occurrenceTimes(date, slot)
-      if (startsAt <= now) throw new ConflictException(SHIFT_SENTENCES.started)
       if (await this.bookings.alreadyBooked(tx, courierId, shiftSlotId, date)) {
         throw new ConflictException(SHIFT_SENTENCES.alreadyBooked)
       }
@@ -217,6 +221,11 @@ export class ShiftBookingService {
     const created = await this.bookings.transaction(async (tx) => {
       await this.bookings.lockRider(tx, courierId)
       await this.bookings.lockOccurrence(tx, offered.shiftSlotId, offered.date)
+      // As in book (decision 78.5 relies on it): never two BOOKED rows of one rider on one occurrence,
+      // even after an admin edit moved the slot's times.
+      if (await this.bookings.alreadyBooked(tx, courierId, offered.shiftSlotId, offered.date)) {
+        throw new ConflictException(SHIFT_SENTENCES.alreadyBooked)
+      }
       if (await this.bookings.overlapping(tx, courierId, offered.startsAt, offered.endsAt)) {
         throw new ConflictException(SHIFT_SENTENCES.overlap)
       }
