@@ -25,3 +25,33 @@ describe('PartnerDomainService.getPickupPoints (Spec 0018 AC-4)', () => {
     expect(result).toBe(points)
   })
 })
+
+// Row 106: getMany hands the restaurants list search to the repository unchanged.
+describe('PartnerDomainService.getMany search (scope row 106)', () => {
+  let service: PartnerDomainService
+  let mockRepository: { findManyPaginated: jest.Mock }
+
+  beforeEach(() => {
+    mockRepository = { findManyPaginated: jest.fn() }
+    service = new PartnerDomainService(mockRepository as unknown as PartnerRepository)
+  })
+
+  test('passes page, perPage and search to findManyPaginated and returns its page', async () => {
+    const page = { data: [], pagination: undefined }
+    mockRepository.findManyPaginated.mockResolvedValueOnce(page)
+
+    const result = await service.getMany(3, 10, 'nosh volos')
+
+    expect(mockRepository.findManyPaginated).toHaveBeenCalledTimes(1)
+    expect(mockRepository.findManyPaginated).toHaveBeenCalledWith(3, 10, 'nosh volos')
+    expect(result).toBe(page)
+  })
+
+  test('passes undefined when there is no search', async () => {
+    mockRepository.findManyPaginated.mockResolvedValueOnce({ data: [] })
+
+    await service.getMany(1, 10)
+
+    expect(mockRepository.findManyPaginated.mock.calls[0]?.[2]).toBeUndefined()
+  })
+})

@@ -75,10 +75,36 @@ describe('PartnerAdminRestApiController', () => {
 
       const result = await controller.listPartners({ page: 1, perPage: 10 })
 
-      expect(mockPartnerDomainService.getMany).toHaveBeenCalledWith(1, 10)
+      expect(mockPartnerDomainService.getMany).toHaveBeenCalledWith(1, 10, undefined)
       expect(result.data).toHaveLength(1)
       expect(result.data[0]?.id).toBe('partner-100')
       expect(result.pagination?.totalItems).toBe(1)
+    })
+  })
+
+  // Row 106: the restaurants list search reaches the domain service unchanged; dropping it in the
+  // controller would make every search list every restaurant.
+  describe('listPartners search (scope row 106)', () => {
+    const emptyPage = {
+      data: [],
+      pagination: { perPage: 10, totalItems: 0, totalPages: 0, currentItems: 0, currentPage: 1, prevPage: null, nextPage: null },
+    }
+
+    test('hands the search text to getMany as its third argument', async () => {
+      mockPartnerDomainService.getMany.mockResolvedValue(emptyPage)
+
+      await controller.listPartners({ page: 2, perPage: 10, search: 'Νόσης Ιάσονος' })
+
+      expect(mockPartnerDomainService.getMany).toHaveBeenCalledTimes(1)
+      expect(mockPartnerDomainService.getMany).toHaveBeenCalledWith(2, 10, 'Νόσης Ιάσονος')
+    })
+
+    test('hands undefined when no search was sent', async () => {
+      mockPartnerDomainService.getMany.mockResolvedValue(emptyPage)
+
+      await controller.listPartners({ page: 1, perPage: 10 })
+
+      expect(mockPartnerDomainService.getMany.mock.calls[0]?.[2]).toBeUndefined()
     })
   })
 
