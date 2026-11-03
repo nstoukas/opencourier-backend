@@ -173,7 +173,6 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         longitude: coordinates[0],
       }
     } catch (e) {
-      console.log(e)
       this.logger.error(`Error parsing courier location: ${e}`)
       return null
     }
