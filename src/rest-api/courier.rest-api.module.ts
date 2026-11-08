@@ -9,6 +9,7 @@ import { CourierSettingCourierRestApiModule } from './courier-setting/courier/co
 import { CourierDeviceCourierRestApiModule } from './courier-device/courier/courier-device.courier.rest-api.module'
 import { DispatchStopCourierRestApiModule } from './dispatch-stop/courier/dispatch-stop.courier.rest-api.module'
 import { SosCourierRestApiModule } from './sos/courier/sos.courier.rest-api.module'
+import { ShiftBookingCourierRestApiModule } from './shift-booking/courier/shift-booking.courier.rest-api.module'
 import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.rest-api.module'
 
 @Module({
@@ -24,6 +25,7 @@ import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.r
     // Whether dispatch is stopped, for the Home banner (spec 0014).
     DispatchStopCourierRestApiModule,
     SosCourierRestApiModule,
+    ShiftBookingCourierRestApiModule,
     // Restaurant pickup points for the map's restaurant layer (spec 0018).
     PartnerCourierRestApiModule,
   ],

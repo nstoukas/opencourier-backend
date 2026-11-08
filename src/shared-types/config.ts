@@ -50,6 +50,9 @@ export type InstanceConfigSettings = {
   handBackSeconds: number
   // Arrival detection (spec 0021): metres from a stop that count as arrived; 0 switches it off.
   arrivalRadiusMetres: number
+  // Shifts (spec 0026): the co-op switch, and the hours before a shift's start it may still be dropped.
+  shiftsEnabled: boolean
+  shiftDropNoticeHours: number
   // The co-op's dispatch line riders call from the job screen (row 72); null when none is set.
   dispatchPhoneNumber: string | null
   // Spec 0015: the payout policy (a key of reassignmentPayoutPolicies) that pays a rider whose
@@ -123,6 +126,8 @@ export enum ConfigKey {
   HAND_BACK_SECONDS = 'handBackSeconds',
   SOS_LOCATION_RETENTION_DAYS = 'sosLocationRetentionDays',
   ARRIVAL_RADIUS_METRES = 'arrivalRadiusMetres',
+  SHIFTS_ENABLED = 'shiftsEnabled',
+  SHIFT_DROP_NOTICE_HOURS = 'shiftDropNoticeHours',
   DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
   CANCELLATION_PAYOUT_POLICY = 'cancellationPayoutPolicy',
 }

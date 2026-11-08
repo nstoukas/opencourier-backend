@@ -257,4 +257,55 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
       expect(result.cancellationPayoutPolicy).toBeUndefined()
     })
   })
+
+  describe('Clause 7: Shift settings (spec 0026, AC-5)', () => {
+    const transform = (body: Record<string, unknown>) =>
+      pipe.transform(body, { type: 'body', metatype: InstanceConfigSettingsAdminInput })
+
+    it('shiftDropNoticeHours is in NUMERIC_SETTING_RULES as a whole number from 0 to 168, 0 allowed', () => {
+      const rule = NUMERIC_SETTING_RULES.find((r) => r.key === 'shiftDropNoticeHours')
+      expect(rule).toBeDefined()
+      expect(rule).toMatchObject({ whyZeroIsRefused: null, mustBeInteger: true, min: 0, max: 168 })
+      expect(rule!.zeroSwitchesOff).toBeUndefined()
+    })
+
+    it('shiftDropNoticeHours is a DTO number field guarded by @RefuseIfNotSentAsNumber', () => {
+      expect(dtoNumberFields).toContain('shiftDropNoticeHours')
+    })
+
+    it.each([0, 12, 168])('passes shiftDropNoticeHours %p untouched', async (value) => {
+      const result = (await transform({ shiftDropNoticeHours: value })) as InstanceConfigSettingsAdminInput
+      expect(result.shiftDropNoticeHours).toBe(value)
+    })
+
+    it.each(['12', '0', true, false, []])('refuses shiftDropNoticeHours sent as %p (not a JSON number)', async (value) => {
+      const promise = transform({ shiftDropNoticeHours: value })
+      await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+      await expect(promise).rejects.toThrow('shiftDropNoticeHours must be sent as a number')
+    })
+
+    it('refuses shiftDropNoticeHours sent as an empty text instead of saving 0', async () => {
+      await expect(transform({ shiftDropNoticeHours: '' })).rejects.toThrow('shiftDropNoticeHours cannot be empty')
+    })
+
+    it.each(['false', 'true', '', null, 0, 1, [], {}])(
+      'refuses shiftsEnabled sent as %p (the text "false" would save as true)',
+      async (value) => {
+        const promise = transform({ shiftsEnabled: value })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('shiftsEnabled must be sent as true or false')
+      }
+    )
+
+    it.each([true, false])('passes shiftsEnabled %p untouched', async (value) => {
+      const result = (await transform({ shiftsEnabled: value })) as InstanceConfigSettingsAdminInput
+      expect(result.shiftsEnabled).toBe(value)
+    })
+
+    it('leaves both undefined when left out', async () => {
+      const result = (await transform({})) as InstanceConfigSettingsAdminInput
+      expect(result.shiftsEnabled).toBeUndefined()
+      expect(result.shiftDropNoticeHours).toBeUndefined()
+    })
+  })
 })

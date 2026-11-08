@@ -35,6 +35,10 @@ import {
   DEFAULT_HAND_BACK_SECONDS,
   HAND_BACK_SECONDS_MIN,
   HAND_BACK_SECONDS_MAX,
+  DEFAULT_SHIFTS_ENABLED,
+  DEFAULT_SHIFT_DROP_NOTICE_HOURS,
+  SHIFT_DROP_NOTICE_HOURS_MIN,
+  SHIFT_DROP_NOTICE_HOURS_MAX,
   DEFAULT_ARRIVAL_RADIUS_METRES,
   ARRIVAL_RADIUS_METRES_MIN,
   ARRIVAL_RADIUS_METRES_MAX,
@@ -160,6 +164,15 @@ export const NUMERIC_SETTING_RULES: {
     max: ARRIVAL_RADIUS_METRES_MAX,
     zeroSwitchesOff: 'detection',
   },
+  // Shifts (spec 0026): hours before a booked shift's start it may still be dropped; 0 means up to
+  // the start, so 0 is a real value, not "off".
+  {
+    key: 'shiftDropNoticeHours',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: SHIFT_DROP_NOTICE_HOURS_MIN,
+    max: SHIFT_DROP_NOTICE_HOURS_MAX,
+  },
 ]
 
 @Injectable()
@@ -203,6 +216,8 @@ export class InstanceConfigDomainService {
     const handBackSeconds = await this.getHandBackSeconds()
     const sosLocationRetentionDays = await this.getSosLocationRetentionDays()
     const arrivalRadiusMetres = await this.getArrivalRadiusMetres()
+    const shiftsEnabled = await this.getShiftsEnabled()
+    const shiftDropNoticeHours = await this.getShiftDropNoticeHours()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
 
@@ -241,6 +256,8 @@ export class InstanceConfigDomainService {
       handBackSeconds,
       sosLocationRetentionDays,
       arrivalRadiusMetres,
+      shiftsEnabled,
+      shiftDropNoticeHours,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
     }
@@ -390,8 +407,11 @@ export class InstanceConfigDomainService {
       }
     }
 
-    // The one on/off setting. The DTO's @RefuseIfNotSentAsBoolean() already refuses "false" and
+    // The on/off settings. The DTO's @RefuseIfNotSentAsBoolean() already refuses "false" and
     // friends; this repeats it for any caller that does not come through the ValidationPipe.
+    if (data.shiftsEnabled !== undefined && typeof data.shiftsEnabled !== 'boolean') {
+      throw new BadRequestException('shiftsEnabled must be true or false')
+    }
     if (data.offerExpiryEnabled !== undefined && typeof data.offerExpiryEnabled !== 'boolean') {
       throw new BadRequestException('offerExpiryEnabled must be true or false')
     }
@@ -506,6 +526,13 @@ export class InstanceConfigDomainService {
     }
     if (data.arrivalRadiusMetres !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
+    }
+    // !== undefined, so a `false` (Shifts off) is saved, not dropped (as for offerExpiryEnabled).
+    if (data.shiftsEnabled !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.SHIFTS_ENABLED, data.shiftsEnabled)
+    }
+    if (data.shiftDropNoticeHours !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.SHIFT_DROP_NOTICE_HOURS, data.shiftDropNoticeHours)
     }
     if (data.restaurantHistoryDays !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
@@ -795,6 +822,22 @@ export class InstanceConfigDomainService {
     // `??` returns the right-hand side only for null/undefined — an empty stored string is
     // still returned as-is, exactly as before.
     return stored ?? FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY
+  }
+
+  // Shifts (spec 0026): on only when the stored value is the boolean true; a missing row or a bad value
+  // reads as off, which changes nothing for anyone.
+  async getShiftsEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.SHIFTS_ENABLED, DEFAULT_SHIFTS_ENABLED)
+    return enabled.value === true
+  }
+
+  async getShiftDropNoticeHours(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.SHIFT_DROP_NOTICE_HOURS,
+      DEFAULT_SHIFT_DROP_NOTICE_HOURS,
+      SHIFT_DROP_NOTICE_HOURS_MIN,
+      SHIFT_DROP_NOTICE_HOURS_MAX
+    )
   }
 
   // Offer expiry is on only when the stored value is the boolean true. Anything else, including a

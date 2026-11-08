@@ -8,6 +8,7 @@ import { ConfigAdminRestApiModule } from './config/admin/config.admin.rest-api.m
 import { UserAdminRestApiModule } from './user/admin/user.admin.rest-api.module'
 import { PartnerAdminRestApiModule } from './partner/admin/partner.admin.rest-api.module'
 import { DispatchStopAdminRestApiModule } from './dispatch-stop/admin/dispatch-stop.admin.rest-api.module'
+import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin.rest-api.module'
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 
 @Module({
@@ -22,6 +23,7 @@ import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
     PartnerAdminRestApiModule,
     // Stopping dispatch for heat or a storm (spec 0014).
     DispatchStopAdminRestApiModule,
+    ShiftSlotAdminRestApiModule,
     SosAdminRestApiModule,
   ],
 })

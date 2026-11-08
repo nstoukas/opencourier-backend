@@ -100,6 +100,13 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   arrivalRadiusMetres: number
 
+  // Shifts (spec 0026).
+  @ApiProperty({ type: Boolean })
+  shiftsEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  shiftDropNoticeHours: number
+
   @ApiProperty({ type: String, nullable: true })
   dispatchPhoneNumber: string | null
 
@@ -140,6 +147,8 @@ export class InstanceConfigSettingsDto {
     this.handBackSeconds = data.handBackSeconds
     this.sosLocationRetentionDays = data.sosLocationRetentionDays
     this.arrivalRadiusMetres = data.arrivalRadiusMetres
+    this.shiftsEnabled = data.shiftsEnabled
+    this.shiftDropNoticeHours = data.shiftDropNoticeHours
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.cancellationPayoutPolicy = data.cancellationPayoutPolicy
   }

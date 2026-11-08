@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { OrderItem, OrderItemDimensions } from 'src/shared-types/index'
+import { ORDER_ITEM_KINDS, OrderItem, OrderItemDimensions, OrderItemKind } from 'src/shared-types/index'
 import { Type } from 'class-transformer'
-import { IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator'
+import { IsIn, IsNumber, IsOptional, IsString, ValidateIf, ValidateNested } from 'class-validator'
+import { RefuseIfNotSentAsString } from 'src/decorators/refuseIfNotSentAsString.decorator'
 
 export class OrderItemDimensionsInput implements OrderItemDimensions {
   @ApiProperty({
@@ -81,4 +82,12 @@ export class DeliveryOrderItemInput implements OrderItem {
   @IsNumber()
   @IsOptional()
   vatPercentage?: number
+
+  // Spec 0028 (row 103): DRINK or SIDE, or left out. Null, a number or any other text is a 400
+  // (@RefuseIfNotSentAsString refuses null, which @IsOptional alone would let through).
+  @ApiProperty({ required: false, enum: ORDER_ITEM_KINDS })
+  @RefuseIfNotSentAsString()
+  @ValidateIf((_input, value) => value !== undefined)
+  @IsIn(ORDER_ITEM_KINDS)
+  kind?: OrderItemKind
 }

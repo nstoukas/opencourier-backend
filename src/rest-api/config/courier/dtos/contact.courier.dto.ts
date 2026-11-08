@@ -11,8 +11,22 @@ export class ContactCourierDto {
   @ApiProperty({ type: Number })
   arrivalRadiusMetres: number
 
-  constructor(data: { dispatchPhoneNumber: string | null; arrivalRadiusMetres: number }) {
+  // Spec 0027: whether the co-op runs shifts, and the hours before a shift's start it may still be dropped.
+  @ApiProperty({ type: Boolean })
+  shiftsEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  shiftDropNoticeHours: number
+
+  constructor(data: {
+    dispatchPhoneNumber: string | null
+    arrivalRadiusMetres: number
+    shiftsEnabled: boolean
+    shiftDropNoticeHours: number
+  }) {
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.arrivalRadiusMetres = data.arrivalRadiusMetres
+    this.shiftsEnabled = data.shiftsEnabled
+    this.shiftDropNoticeHours = data.shiftDropNoticeHours
   }
 }
