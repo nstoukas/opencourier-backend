@@ -65,7 +65,8 @@ export class DeliveryMatchingService {
     }
 
     const courier = await this.courierDomainService.getByIdOrThrow(result.courierId)
-    this.logger.log(`Matched courier: ${courier.firstName} ${courier.lastName}`)
+    // The rider's id, never their name (row 95 review): a log line names records, not people.
+    this.logger.log(`Matched courier: ${courier.id}`)
 
     return {
       courier,

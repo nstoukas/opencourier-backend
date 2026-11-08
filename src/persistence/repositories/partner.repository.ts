@@ -13,6 +13,7 @@ import {
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { createPaginator } from '../../rest-api/Paginator'
 import { Exact } from 'src/types'
+import { escapeLikeText, searchWords } from 'src/rest-api/common/search-fold'
 
 @Injectable()
 export class PartnerRepository extends EntityRepository implements IPartnerRepository {
@@ -87,11 +88,16 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
     )
   }
 
-  async findManyPaginated(page?: number, perPage?: number) {
+  // The restaurants list (row 106): a search keeps only the restaurants whose ids `matchingIds`
+  // finds; no search lists them all, as before.
+  async findManyPaginated(page?: number, perPage?: number, search?: string) {
+    const words = searchWords(search)
+    const where: Prisma.PartnerWhereInput = words.length > 0 ? { id: { in: await this.matchingIds(words) } } : {}
     const paginator = createPaginator<Partner, Prisma.PartnerFindManyArgs, Prisma.PartnerDelegate>()
     const result = await paginator(
       this.prisma.partner,
       {
+        where,
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { email: true } },
@@ -105,6 +111,26 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
       ...result,
       data: this.toDomainMany(result.data),
     }
+  }
+
+  // The ids of the restaurants whose name, pickup address or sign in email holds every folded word
+  // (decision 106.1). The fold is spec 0025's `oc_search_fold`, applied here at read time because the
+  // address and the email live in other tables. The co-op has dozens of restaurants, so the list of
+  // ids stays small. Each word is folded and LIKE escaped before it reaches the query, and Prisma's
+  // tagged template sends it as a parameter, never as SQL text.
+  private async matchingIds(foldedWords: string[]): Promise<string[]> {
+    const conditions = foldedWords.map(
+      // chr(10), a newline, between the fields, so a word cannot match across two of them. LIKE's
+      // escape character is the backslash by default, which is what escapeLikeText writes.
+      (word) => Prisma.sql`oc_search_fold(concat_ws(chr(10), p."name", l."formattedAddress", l."addressLine1", l."street",
+        l."houseNumber", l."city", u."email")) LIKE ${'%' + escapeLikeText(word) + '%'}`,
+    )
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT p."id" FROM "Partner" p
+      LEFT JOIN "Location" l ON l."id" = p."pickupLocationId"
+      LEFT JOIN "User" u ON u."id" = p."userId"
+      WHERE ${Prisma.join(conditions, ' AND ')}`
+    return rows.map((row) => row.id)
   }
 
   // Nested write: Prisma wraps User and Partner creation in a single implicit transaction — either both are created or neither is.

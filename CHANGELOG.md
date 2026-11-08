@@ -85,10 +85,97 @@ are the exceptions, each kept additive or as narrow as possible:
 | `Delivery.acceptedAt` and `handBackUntil` (migration `20261102150000_add_hand_back`); event type `HANDED_BACK`, recorded by `DeliveryEventService.handBack` outside the switch; setting `handBackSeconds`; optional `{ automatic }` body on the courier accept; courier `POST deliveries/:id/hand-back` (row 71) | A rider could not give back a job taken by a slip or an unwanted auto accept, and an automatic accept looked like a tap on the record. Additive; no pay or charge either way. | `ca392af` |
 | Setting `arrivalRadiusMetres` (0 switches detection off, else 20 to 300 m, default 50) on the admin settings and the courier `GET config/contact`; optional `{ detected }` body on the courier `arrived-at-pickup` and `arrived-at-dropoff` routes (row 19) | The rider's app now notices arrival by itself, and members must be able to tell a detected arrival from a tapped one, because waiting pay will start from it. Additive; no schema change; the mark is only the event's message. | `1a6969b` |
 | New `SosIncident` and `SosLocationPoint` tables and `EnumSosOutcome` (migration `20261102230000_add_sos_incident`), setting `sosLocationRetentionDays`, BullMQ repeatable job `sos-location-retention`; the matchers' busy rule gains `activeSosCourierSubQuery`; `refuseIfCourierInSos` (409) in the admin ACCEPTED branch, `reassignDelivery` and the rider's own `acceptDelivery`; `offerToNextCourier` skips a matched rider in an SOS, STATIC included (row 73) | A rider in danger had no way to call for help. Their position is shared only while their own SOS is active, in its own tables, read only by the SOS module, and deleted after the co-op's period (value 5's safety exception, decision 73.1). A rider in an SOS is offered and given nothing (73.6, 73.10, 73.11). | `107edc8`, `b5ab24f` |
+| `SavedCustomer.pinMovedByRiderAt` (migration `20261103043000_add_saved_customer_pin_moved`), stamped by the rider's pin move, cleared only by a deliberate edit to a different point; on the partner saved customer DTO (row 99) | A restaurant could not see that a rider had corrected a saved customer's pin. Additive, on the co-op's own table (spec 0005). | `fa4005a`, `baa2d00` |
+| `Delivery.searchFold` and `Courier.searchFold` (migration `20261103060000_add_search_fold`), written only by the triggers `delivery_search_fold` and `courier_search_fold` through `oc_search_fold` and `oc_search_digits`; the admin list filters match them (row 98) | The admin searches missed Greek names typed without accents, in capitals or with a final sigma. Additive columns; an upstream merge must keep the triggers and functions. | `57b361c`, `1b5c7f8` |
+| New `ShiftSlot` and `ShiftSlotChange` tables and `EnumShiftSlotChangeAction` (migration `20261103080000_add_shift_slots`), admin routes `admin/v1/shift-slots`, settings `shiftsEnabled` and `shiftDropNoticeHours` (row 77) | The co-op could not plan shift cover. Additive; nothing outside admin reads them until rows 78 and 79. | `ed57e16` |
+| New `ShiftBooking` and `ShiftBookingEvent` tables and two enums (migration `20261103110000_add_shift_bookings`), courier routes `courier/v1/shifts`, `config/contact` gains two fields (row 78) | Riders could not book shifts. Additive; inert while Shifts are off. | `bb897b0` |
+| `OrderItem.kind` (`DRINK` or `SIDE`) and its validation on the partner create input (row 103) | Riders most often forget drinks and sides; the restaurant can now mark them. Additive, inside the existing `orderItems` JSON. | `633c56f` |
 
 ---
 
 ## Added
+
+### An order item may be marked a drink or a side (scope row 103, spec 0028): `633c56f`, `21639e2`
+Built on the branch `feat/item-kinds` and merged on 3 November, with the request-web and courier app halves.
+- `OrderItem.kind` (`DRINK` or `SIDE`, optional), validated on the partner create route (anything else, null
+  included, is a 400 with a sentence). No schema change: it lives in the delivery's `orderItems` JSON.
+- Tests by a fresh Claude subagent while agy was out of quota: 2993 pass; put back by hand. Reviewed by Fable.
+
+### Booking shifts (scope row 78, spec 0027): `bb897b0` to `997ef46`
+Built on the branch `feat/shift-booking` and merged on 3 November, with the courier app half. This is a core change, listed in the table above.
+- **Routes.** `courier/v1/shifts` serves the 14 day schedule (times as Athens text, places taken, open swaps
+  without the giver), with book, drop (until the co-op's notice), offer and withdraw a swap, and take a swap.
+- **Bookings.** `ShiftBooking` snapshots its occurrence, and `ShiftBookingEvent` records every change.
+- **Races.** Book and take lock the rider, then the occurrence. Other changes are conditional writes.
+  Checked live with riders racing in parallel: three for one place, then two for one swap; exactly one
+  wins each time.
+- **The switch.** `config/contact` carries `shiftsEnabled` and `shiftDropNoticeHours`. With Shifts off,
+  every route answers 409 "Shifts are off.".
+- Tests by a fresh Claude subagent while agy was out of quota: 2979 pass; put back by hand. Reviewed by Fable
+  (approve with nits; fixed in `a208e05`).
+
+### Shift slots and caps in admin (scope row 77, spec 0026): `ed57e16` to `8096776`
+Built on the branch `feat/shift-slots` and merged on 3 November, with the adminweb half. This is a core change, listed in the table above.
+- **Weekly slots.** `ShiftSlot` (Athens wall time, a cap from 1 to 50, soft removal) and `ShiftSlotChange`
+  (the record: who, when, before and after, written in the same transaction). The admin routes are
+  `admin/v1/shift-slots`. Edits and removals apply only to the slot as it was read (409 otherwise), and a
+  no op writes nothing.
+- **Two settings.** `shiftsEnabled` (off) and `shiftDropNoticeHours` (12, from 0 to 168). Neither is public;
+  nothing outside admin reads them until shift booking (row 78).
+- Tests by a fresh Claude subagent while agy was out of quota: 2798 pass; put back by hand. Reviewed by Fable
+  (approve with nits; fixed in `a08989f`). Verified live.
+
+### No customer details in an offer (scope row 101): `57e4ae4` to `1c22df8`
+Built on the branch `fix/offer-customer-details` and merged on 3 November.
+- An offered rider's offer (the list, a single offer, the socket message) no longer carries the customer's
+  name, items, customer notes or the two drop off notes; they arrive with the accept and are gone after the
+  drop off. `dropoffNotes`, whose composed line names the floor and doorbell, follows the doorbell's rule,
+  free hand back included (decisions 101.1 to 101.3). No courier app change.
+- Tests by a fresh Claude subagent while agy was out of quota: 2612 pass; put back by hand. Reviewed by Fable
+  (changes requested: the pickup card would have lost the bag label after the hand back; fixed). The live
+  verify caught the doorbell inside `dropoffNotes` during the hand back; fixed.
+
+### No recipient details in the delivery logs (scope row 95): `0eb3cf7` to `0196f07`
+Built on the branch `fix/delivery-log-privacy` and merged on 3 November.
+- Delivery events are logged by ids, type, actor and source only (`eventLogLine`), never their free text
+  message, including when a transition fails and when a delivery fails; the full event stays on its
+  `DeliveryEvent` row. Matching logs the rider's id, not their name. Upstream's ngrok forwarder no longer
+  logs request headers (the bearer token), bodies or the Axios error that carries them.
+- Checked live: an order with marked contact details through creation, offer, accept, every job step, an
+  out of order step, a FAILED event with a marked reason and a cancel left none of them in the log, while
+  the rider still received the full offer.
+- Tests by a fresh Claude subagent while agy was out of quota: 2458 pass, including an end to end privacy
+  spec over every status and event type; put back by hand. Reviewed by Fable (changes requested; fixed).
+
+### Restaurants list search (scope row 106): `745e04a` to `c5ccda1`
+Built on the branch `feat/partner-list-search` and merged on 3 November, with the adminweb half.
+- `GET admin/v1/partner` takes `search` (up to 100 characters): every typed word must appear in the
+  restaurant's name, pickup address or sign in email, folded by row 98's `oc_search_fold` at read time
+  (decision 106.1; the address and the email live in other tables, so no folded column).
+- Tests by a fresh Claude subagent while agy was out of quota: 2178 pass; put back by hand. Reviewed by Fable
+  (changes requested on the adminweb half's red test; fixed). Verified live.
+
+### Greek search: accents, capitals and final sigma (scope row 98, spec 0025): `57b361c` to `56f26a2`
+Built on the branch `feat/greek-search` and merged on 3 November. This is a core change, listed in the table above.
+- **Found however it is typed.** The admin deliveries and couriers searches now find "Νίκος" from "νικος",
+  "ΝΙΚΟΣ" or "νίκοσ", fold Latin accents, and find a rider by a phone typed "24210-10009".
+- **Folded by the database.** `Delivery.searchFold` and `Courier.searchFold` are written only by triggers
+  (`oc_search_fold`), so every write path, raw SQL included, keeps them right; the filters match them with a
+  plain `contains` on the same fold of the typed text. The entities never carry the column, so no response
+  or webhook gains a field.
+- Tests by a fresh Claude subagent while agy was out of quota: 2137 pass; put back by hand. Reviewed by Fable
+  (approve with nits; webhook key fixed in `1b5c7f8`). Verified live through the admin API.
+
+### "Pin moved by a rider" on a saved customer (scope row 99, from spec 0016): `fa4005a` to `7cfb17f`
+Built on the branch `feat/pin-corrections-shown` and merged on 3 November, with the adminweb and request-web
+halves. This is a core change, listed in the table above.
+- **The mark.** `SavedCustomer.pinMovedByRiderAt` is stamped inside the rider's existing conditional pin
+  move, so a move and its mark never disagree, and carried on the partner saved customer DTO.
+- **Only a deliberate edit clears it.** A restaurant's Customers page edit or a representative's admin edit
+  that sets a different point clears it. An order's save never does, because its form may hold the point from
+  before the rider's move (review fix, decision 99.1 amended).
+- Tests by a fresh Claude subagent while agy was out of quota: 2046 pass; put back by hand. Reviewed by Fable
+  (changes requested; fixed in `baa2d00`, `7e1d945`).
 
 ### The offer push carries the card's trip (scope row 100): `cec12f3` to `321b5ea`
 Built on the branch `feat/offer-alert-split` and merged on 3 November, with the courier app half.

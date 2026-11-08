@@ -407,12 +407,9 @@ describe('DeliveryAdminRestApiController', () => {
       expect(call).toBeDefined()
       const calledWhere = call![0]
       expect(calledWhere).toHaveProperty('OR')
+      // Spec 0025 (AC-1): the folded text, matched against the database's folded column.
       expect(calledWhere.OR).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            orderReference: { contains: 'ORD-101', mode: 'insensitive' },
-          }),
-        ])
+        expect.arrayContaining([{ searchFold: { contains: 'ord-101' } }, { id: { endsWith: 'ord-101' } }])
       )
     })
 

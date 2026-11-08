@@ -148,4 +148,19 @@ describe('seedInitialInstanceConfig', () => {
     expect(arrivalRadiusCall[0].data.value).toBe('50')
     expect(arrivalRadiusCall[0].data.type).toBe('number')
   })
+
+  // Spec 0026 (row 77, decision 77.3): Shifts ship off, the drop notice at 12 hours.
+  it('seeds shiftsEnabled as false (boolean) and shiftDropNoticeHours as 12 (number) (spec 0026)', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const enabledCall = mockCreate.mock.calls.find(([arg]: any) => arg?.data?.key === 'shiftsEnabled')
+    expect(enabledCall).toBeDefined()
+    expect(enabledCall[0].data.value).toBe('false')
+    expect(enabledCall[0].data.type).toBe('boolean')
+
+    const noticeCall = mockCreate.mock.calls.find(([arg]: any) => arg?.data?.key === 'shiftDropNoticeHours')
+    expect(noticeCall).toBeDefined()
+    expect(noticeCall[0].data.value).toBe('12')
+    expect(noticeCall[0].data.type).toBe('number')
+  })
 })

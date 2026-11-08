@@ -87,6 +87,11 @@ model Courier {
   devices               CourierDevice[]
   // This rider's SOS incidents (spec 0022). Never counted per rider anywhere (binding value 5).
   sosIncidents          SosIncident[]
+  // This rider's shift bookings (spec 0027). Never counted per rider anywhere (binding value 5).
+  shiftBookings         ShiftBooking[]
+  // The admin search's folded names and phone (spec 0025). Written only by the database trigger
+  // `courier_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
+  searchFold            String?
 
   // the index for that column
   @@index([currentLocation], name: "courier_location_idx", type: Gist)
@@ -198,6 +203,9 @@ model SavedCustomer {
   doorbell         String?  @postgres.VarChar(60)
   // Moved only by an order using this customer, and never backwards. The retention job reads it.
   lastUsedAt       DateTime @default(now())
+  // Row 99: when a rider last moved this customer's pin (spec 0016), shown to the restaurant; cleared
+  // when the restaurant itself sets a different point.
+  pinMovedByRiderAt DateTime? @postgres.Timestamptz(6)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -370,6 +378,9 @@ model Delivery {
   issues               DeliveryIssue[]
   partnerCharge        PartnerCharge?
   sosIncidents         SosIncident[]
+  // The admin search's folded reference, customer and restaurant (spec 0025). Written only by the
+  // database trigger `delivery_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
+  searchFold           String?
 
   @@unique([idempotencyKey, partnerId])
   // A rider's cancelled jobs of the last 24 hours (spec 0015).
@@ -909,4 +920,104 @@ model SosLocationPoint {
   createdAt      DateTime    @default(now())
 
   @@index([incidentId, recordedAt])
+}
+
+// Spec 0026 (row 77): a weekly shift slot the co-op plans cover with, in Athens wall time. Riders book
+// it from row 78; with the Shifts setting off it changes nothing for anyone.
+model ShiftSlot {
+  id          String            @id @default(cuid())
+  // ISO 8601: 1 Monday to 7 Sunday.
+  weekday     Int
+  // Minutes after midnight; the slot ends after it starts, on the same day (never across midnight).
+  startMinute Int
+  endMinute   Int
+  // The most riders the slot takes, 1 to 50.
+  riderCap    Int
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  // Removed by an admin: no longer listed, but kept for its record and row 78's bookings.
+  removedAt   DateTime?
+  changes     ShiftSlotChange[]
+  bookings    ShiftBooking[]
+
+  @@index([removedAt, weekday, startMinute])
+}
+
+enum EnumShiftSlotChangeAction {
+  CREATED
+  UPDATED
+  REMOVED
+}
+
+// Spec 0026 (AC-3): every slot change, written in the slot write's transaction, so members can follow
+// who changed the cover and when (binding value 1's spirit for the co-op's own records).
+model ShiftSlotChange {
+  id              String                    @id @default(cuid())
+  shiftSlotId     String
+  shiftSlot       ShiftSlot                 @relation(fields: [shiftSlotId], references: [id])
+  action          EnumShiftSlotChangeAction
+  // The admin's user id, as DispatchStop.createdByUserId.
+  changedByUserId String
+  // The four slot fields before (null on create) and after (null on remove).
+  before          Json?                     @postgres.Json
+  after           Json?                     @postgres.Json
+  createdAt       DateTime                  @default(now())
+
+  @@index([shiftSlotId, createdAt])
+}
+
+enum EnumShiftBookingStatus {
+  BOOKED
+  DROPPED
+  SWAPPED_AWAY
+}
+
+enum EnumShiftBookingEventType {
+  BOOKED
+  DROPPED
+  SWAP_OFFERED
+  SWAP_WITHDRAWN
+  SWAP_TAKEN
+}
+
+// Spec 0027 (row 78): a rider's booking of one occurrence of a weekly slot. Its date, times and the cap
+// in force are a snapshot taken when booked (row 77's contract), so a later slot edit or removal never
+// changes a booked shift.
+model ShiftBooking {
+  id            String                 @id @default(cuid())
+  shiftSlotId   String
+  shiftSlot     ShiftSlot              @relation(fields: [shiftSlotId], references: [id])
+  courierId     String
+  courier       Courier                @relation(fields: [courierId], references: [id])
+  // The occurrence's Athens date, YYYY-MM-DD.
+  date          String
+  startsAt      DateTime
+  endsAt        DateTime
+  // Record only (value 1): the cap check uses the slot's current cap.
+  capAtBooking  Int
+  status        EnumShiftBookingStatus @default(BOOKED)
+  // Set while the rider offers it as a swap any other rider may take.
+  swapOfferedAt DateTime?
+  createdAt     DateTime               @default(now())
+  // When it was dropped or swapped away.
+  endedAt       DateTime?
+  events        ShiftBookingEvent[]
+
+  @@index([shiftSlotId, date, status])
+  @@index([courierId, status, startsAt])
+}
+
+// Spec 0027 (AC-7): every booking change, written in the change's transaction. No rider route reads it.
+model ShiftBookingEvent {
+  id             String                    @id @default(cuid())
+  shiftBookingId String
+  shiftBooking   ShiftBooking              @relation(fields: [shiftBookingId], references: [id])
+  type           EnumShiftBookingEventType
+  // Who acted.
+  courierId      String
+  // The other rider in a swap: the taker on the giver's SWAP_TAKEN, the giver on the taker's BOOKED.
+  otherCourierId String?
+  createdAt      DateTime                  @default(now())
+
+  @@index([shiftBookingId, createdAt])
 }

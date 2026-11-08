@@ -31,7 +31,7 @@ export class PartnerAdminRestApiController {
   @swagger.ApiOperation({ summary: 'List partners (restaurants)' })
   @Roles(EnumUserRole.ADMIN)
   async listPartners(@common.Query() args: PartnerFindManyAdminArgs): Promise<PartnerPaginatedAdminDto> {
-    const result = await this.partnerDomainService.getMany(args.page, args.perPage)
+    const result = await this.partnerDomainService.getMany(args.page, args.perPage, args.search)
     return new PartnerPaginatedAdminDto(result)
   }
 

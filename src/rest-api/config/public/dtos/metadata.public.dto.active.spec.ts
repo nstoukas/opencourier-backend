@@ -43,6 +43,8 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     handBackSeconds: 60,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
+    shiftsEnabled: false,
+    shiftDropNoticeHours: 12,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
   }
@@ -111,5 +113,16 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     const dto = new MetadataPublicDto(baseData)
     expect((dto as any).sosLocationRetentionDays).toBeUndefined()
     expect((dto.config as any).sosLocationRetentionDays).toBeUndefined()
+  })
+
+  // Spec 0026 (precisions): neither shift setting is public; row 78 adds the rider's read through
+  // courier GET config/contact.
+  it('does NOT include shiftsEnabled or shiftDropNoticeHours on public metadata (spec 0026)', () => {
+    const dto = new MetadataPublicDto({ ...baseData, shiftsEnabled: true, shiftDropNoticeHours: 48 })
+    for (const key of ['shiftsEnabled', 'shiftDropNoticeHours']) {
+      expect((dto as any)[key]).toBeUndefined()
+      expect((dto.config as any)[key]).toBeUndefined()
+    }
+    expect(JSON.stringify(dto)).not.toMatch(/shift/i)
   })
 })

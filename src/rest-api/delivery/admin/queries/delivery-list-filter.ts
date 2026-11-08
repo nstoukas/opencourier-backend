@@ -1,4 +1,5 @@
 import { EnumDeliveryStatus, Prisma } from '@prisma/types'
+import { escapeLikeText, foldSearchText } from 'src/rest-api/common/search-fold'
 
 // The admin deliveries list's filter (row 96). The list's status filter and search box never
 // reached the backend before: the route took only the page and a courier.
@@ -43,21 +44,15 @@ export function adminDeliveryListWhere(filter: {
   }
 
   // A search finds a delivery by its order reference, its customer (the drop off name), its
-  // restaurant, or the end of its id (the short id the admin shows), ignoring case (decision 96.1).
-  // At co-op scale a plain ILIKE is fine; at many thousands of deliveries these columns would want
-  // a pg_trgm index (row 96 review).
+  // restaurant, or the end of its id (the short id the admin shows), whatever the case and accents
+  // (decision 96.1, spec 0025): `searchFold` is the database's folded copy of the three fields, and
+  // the typed text is folded the same way. At co-op scale a plain scan is fine; at many thousands
+  // of deliveries `searchFold` would want a pg_trgm index (row 96 review).
   const text = filter.search?.trim()
   if (text) {
-    // Prisma passes the text into SQL LIKE as it is, where % and _ are wildcards: escape them (and
-    // the escape character itself), so a search for "%" finds a "%" and not every delivery.
-    const literal = text.replace(/[\\%_]/g, (character) => `\\${character}`)
-    const contains = { contains: literal, mode: Prisma.QueryMode.insensitive }
-    where.OR = [
-      { orderReference: contains },
-      { dropoffName: contains },
-      { pickupBusinessName: contains },
-      { id: { endsWith: literal } },
-    ]
+    // Folded, then escaped: ids are lower case, so the folded text serves the id match too.
+    const literal = escapeLikeText(foldSearchText(text))
+    where.OR = [{ searchFold: { contains: literal } }, { id: { endsWith: literal } }]
   }
   return where
 }

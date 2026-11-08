@@ -1,9 +1,68 @@
-import { EnumCourierStatus, Prisma } from '@prisma/types'
+import { EnumCourierStatus } from '@prisma/types'
 import {
   adminCourierListWhere,
   ADMIN_COURIER_STATUSES,
   MAX_COURIER_SEARCH_LENGTH,
 } from './courier-list-filter'
+
+// The couriers search (spec 0025, AC-2): the database keeps `searchFold`, the folded first name,
+// last name and phone, plus the phone's digits, joined by newlines. Every typed word must match
+// it (one AND item per word). A word that is a phone typed with separators also matches by its
+// digits, as an OR beside the plain word.
+
+// The rule for an ordinary word: searchFold contains the folded, escaped word, with no mode.
+function textRule(literal: string) {
+  return { searchFold: { contains: literal } }
+}
+
+// The rule for a phone word: the plain word OR its digits (the order inside the OR is free).
+function expectPhoneRule(clause: any, literal: string, digits: string) {
+  expect(Object.keys(clause)).toEqual(['OR'])
+  expect(clause.OR).toHaveLength(2)
+  expect(clause.OR).toEqual(
+    expect.arrayContaining([textRule(literal), { searchFold: { contains: digits } }])
+  )
+}
+
+// What PostgreSQL's LIKE does with a Prisma `contains` (pattern %text%): backslash escapes the
+// next character, % is any run of characters, _ is any one character.
+function likeMatches(value: string, pattern: string): boolean {
+  let regex = ''
+  for (let i = 0; i < pattern.length; i++) {
+    const character = pattern[i]!
+    if (character === '\\') {
+      i++
+      if (i >= pattern.length) throw new Error('LIKE pattern ends with an escape character')
+      regex += pattern[i]!.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+    } else if (character === '%') regex += '[\\s\\S]*'
+    else if (character === '_') regex += '[\\s\\S]'
+    else regex += character.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+  }
+  return new RegExp(`^${regex}$`).test(value)
+}
+
+// A tiny stand in for the database: does a rider's stored searchFold match the search part of a
+// where? Only the shapes the search may use are understood; anything else (a `mode`, the old
+// firstName/lastName/phoneNumber columns) throws.
+function rowMatches(where: any, searchFold: string): boolean {
+  return Object.entries(where).every(([key, value]: [string, any]) => {
+    if (key === 'OR') return (value as any[]).some((clause) => rowMatches(clause, searchFold))
+    if (key === 'AND') return (value as any[]).every((clause) => rowMatches(clause, searchFold))
+    if (key !== 'searchFold') throw new Error(`unexpected field ${key}`)
+    if (Object.keys(value).join() !== 'contains') throw new Error(`unexpected filter ${JSON.stringify(value)}`)
+    return likeMatches(searchFold, `%${value.contains}%`)
+  })
+}
+function finds(search: string, searchFold: string): boolean {
+  return rowMatches(adminCourierListWhere({ search }), searchFold)
+}
+
+// Riders as the database trigger stores them: oc_search_fold(firstName) \n oc_search_fold(lastName)
+// \n oc_search_fold(phoneNumber) \n oc_search_digits(phoneNumber). Written by hand from the spec's
+// rule. The phone is stored in E.164 form.
+const GIORGOS = 'γιωργοσ\nπαπαδοπουλοσ\n+302421010009\n302421010009'
+const NIKOS = 'νικοσ\nσωτηριου\n+306900000001\n306900000001'
+const CHRISTINA = 'christina\nalexiou\n+302421010003\n302421010003'
 
 describe('courier-list-filter (scope row 97, decision 97.1)', () => {
   describe('ADMIN_COURIER_STATUSES and MAX_COURIER_SEARCH_LENGTH', () => {
@@ -67,91 +126,130 @@ describe('courier-list-filter (scope row 97, decision 97.1)', () => {
       })
     })
 
-    describe('Clause 2: search filter ("finds a rider by name or phone")', () => {
-      test('single word search matches firstName, lastName, or phoneNumber (case-insensitive contains)', () => {
+    describe('Clause 2: search filter ("finds a rider by name or phone", spec 0025 AC-2)', () => {
+      test('a single name word is one AND item: searchFold contains the folded word, no mode', () => {
         const where = adminCourierListWhere({ search: 'Giorgos' })
-        expect(where).toEqual({
-          AND: [
-            {
-              OR: [
-                { firstName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-          ],
-        })
-
-        // Assert mode: 'insensitive' explicitly
-        const andClauses = where.AND as any[]
-        expect(andClauses).toHaveLength(1)
-        const orList = andClauses[0].OR
-        expect(orList).toHaveLength(3)
-        expect(orList[0].firstName.mode).toBe('insensitive')
-        expect(orList[1].lastName.mode).toBe('insensitive')
-        expect(orList[2].phoneNumber.mode).toBe('insensitive')
+        expect(where).toEqual({ AND: [textRule('giorgos')] })
+        expect(JSON.stringify(where)).not.toContain('"mode"')
       })
 
-      test('multi-word search splits on whitespace and requires EVERY word to match via AND of ORs', () => {
+      test('the old per column, insensitive rules are gone', () => {
+        const text = JSON.stringify(adminCourierListWhere({ search: 'Giorgos 6900' }))
+        expect(text).not.toContain('firstName')
+        expect(text).not.toContain('lastName')
+        expect(text).not.toContain('phoneNumber')
+        expect(text).not.toContain('insensitive')
+      })
+
+      test('multi-word search requires EVERY word to match: one AND item per word', () => {
         const where = adminCourierListWhere({ search: 'Giorgos Pap' })
-
-        // Must produce AND array with an entry for each word
-        expect(where.AND).toBeDefined()
-        const andClauses = where.AND as any[]
-        expect(andClauses).toHaveLength(2)
-
-        // Word 1: 'Giorgos'
-        expect(andClauses[0]).toEqual({
-          OR: [
-            { firstName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-            { lastName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-            { phoneNumber: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-          ],
-        })
-
-        // Word 2: 'Pap'
-        expect(andClauses[1]).toEqual({
-          OR: [
-            { firstName: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-            { lastName: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-            { phoneNumber: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-          ],
-        })
-
-        // Confirms it uses AND at top level so first Giorgos + last Papadopoulos matches
+        expect(where).toEqual({ AND: [textRule('giorgos'), textRule('pap')] })
+        // AND at the top level, so first Giorgos + last Papadopoulos matches
         expect(where).not.toHaveProperty('OR')
-        expect(where).toHaveProperty('AND')
       })
 
-      test('phone number search matches firstName, lastName, or phoneNumber', () => {
-        const where = adminCourierListWhere({ search: '010003' })
-        expect(where).toEqual({
-          AND: [
-            {
-              OR: [
-                { firstName: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-          ],
+      test.each([['γιωργος'], ['ΓΙΩΡΓΟΣ'], ['Γιώργος'], ['γιώργοσ']])(
+        'Greek "%s" is searched as "γιωργοσ" (case, accents, final sigma)',
+        (search) => {
+          expect(adminCourierListWhere({ search })).toEqual({ AND: [textRule('γιωργοσ')] })
+        }
+      )
+
+      test.each([['γιωργος'], ['ΓΙΩΡΓΟΣ'], ['Γιώργος'], ['γιώργοσ']])(
+        '"%s" finds rider Γιώργος and no other',
+        (search) => {
+          expect(finds(search, GIORGOS)).toBe(true)
+          expect(finds(search, NIKOS)).toBe(false)
+          expect(finds(search, CHRISTINA)).toBe(false)
+        }
+      )
+
+      test('a first name and part of the last name, folded, find the rider (decision 97.1)', () => {
+        expect(finds('Γιώργος Παπ', GIORGOS)).toBe(true)
+        expect(finds('ΓΙΩΡΓΟΣ ΠΑΠΑΔΟΠΟΥΛΟΣ', GIORGOS)).toBe(true)
+        expect(finds('Γιώργος Σωτηρίου', GIORGOS)).toBe(false)
+        expect(finds('Νίκος Σωτηρίου', NIKOS)).toBe(true)
+      })
+
+      test('Latin accents and case fold (AC-3)', () => {
+        expect(adminCourierListWhere({ search: 'Christína' })).toEqual({ AND: [textRule('christina')] })
+        expect(finds('CHRISTÍNA', CHRISTINA)).toBe(true)
+      })
+
+      describe('phone words (AC-2)', () => {
+        test('"24210-10009" is the word OR its digits', () => {
+          const where = adminCourierListWhere({ search: '24210-10009' })
+          expect(Object.keys(where)).toEqual(['AND'])
+          const andClauses = where.AND as any[]
+          expect(andClauses).toHaveLength(1)
+          expectPhoneRule(andClauses[0], '24210-10009', '2421010009')
+        })
+
+        test('"24210-10009" and "2421010009" find a rider stored as +302421010009', () => {
+          expect(finds('24210-10009', GIORGOS)).toBe(true)
+          expect(finds('2421010009', GIORGOS)).toBe(true)
+          expect(finds('24210-10009', CHRISTINA)).toBe(false)
+          expect(finds('24210-10009', NIKOS)).toBe(false)
+        })
+
+        test('dots, slashes, parentheses and the plus are separators too', () => {
+          expect(finds('24210.10009', GIORGOS)).toBe(true)
+          expect(finds('24210/10009', GIORGOS)).toBe(true)
+          expect(finds('(24210)10009', GIORGOS)).toBe(true)
+          expect(finds('+30-24210-10009', GIORGOS)).toBe(true)
+          expect(finds('24210.10009', CHRISTINA)).toBe(false)
+        })
+
+        test('"24210 10009" and "(24210) 10009" are two phone words, both found in the phone', () => {
+          expect(finds('24210 10009', GIORGOS)).toBe(true)
+          expect(finds('(24210) 10009', GIORGOS)).toBe(true)
+          const where = adminCourierListWhere({ search: '(24210) 10009' })
+          const andClauses = where.AND as any[]
+          expect(andClauses).toHaveLength(2)
+          expectPhoneRule(andClauses[0], '(24210)', '24210')
+        })
+
+        test('a run of digits still finds the rider by phone', () => {
+          expect(finds('010003', CHRISTINA)).toBe(true)
+          expect(finds('010003', GIORGOS)).toBe(false)
+        })
+
+        test('a phone word with separators combined with a name word', () => {
+          const where = adminCourierListWhere({ search: 'Γιώργος 24210-10009' })
+          const andClauses = where.AND as any[]
+          expect(andClauses).toHaveLength(2)
+          expect(andClauses[0]).toEqual(textRule('γιωργοσ'))
+          expectPhoneRule(andClauses[1], '24210-10009', '2421010009')
+          expect(finds('Γιώργος 24210-10009', GIORGOS)).toBe(true)
+          expect(finds('Νίκος 24210-10009', GIORGOS)).toBe(false)
+        })
+
+        test('a word mixing letters and digits gets no digits rule', () => {
+          expect(adminCourierListWhere({ search: 'pap1' })).toEqual({ AND: [textRule('pap1')] })
+          expect(adminCourierListWhere({ search: 'A-1' })).toEqual({ AND: [textRule('a-1')] })
+        })
+
+        test('separators with no digit get no digits rule', () => {
+          expect(adminCourierListWhere({ search: '--' })).toEqual({ AND: [textRule('--')] })
         })
       })
 
       test('trims leading, trailing, and multiple consecutive whitespace characters', () => {
         const where = adminCourierListWhere({ search: '   Nikos    Papastamou   ' })
-        const andClauses = where.AND as any[]
-        expect(andClauses).toHaveLength(2)
-        expect(andClauses[0].OR[0].firstName.contains).toBe('Nikos')
-        expect(andClauses[1].OR[0].firstName.contains).toBe('Papastamou')
+        expect(where).toEqual({ AND: [textRule('nikos'), textRule('papastamou')] })
       })
 
       test('splits correctly on tabs and newlines', () => {
-        const where = adminCourierListWhere({ search: '\tGiorgos\n  6900\r\n' })
+        const where = adminCourierListWhere({ search: '\tGiorgos\n  Pap\r\n' })
+        expect(where).toEqual({ AND: [textRule('giorgos'), textRule('pap')] })
+      })
+
+      test('a tab or newline between a name and a phone splits them into two words', () => {
+        const where = adminCourierListWhere({ search: 'Giorgos\t6900' })
         const andClauses = where.AND as any[]
         expect(andClauses).toHaveLength(2)
-        expect(andClauses[0].OR[0].firstName.contains).toBe('Giorgos')
-        expect(andClauses[1].OR[2].phoneNumber.contains).toBe('6900')
+        expect(andClauses[0]).toEqual(textRule('giorgos'))
+        expectPhoneRule(andClauses[1], '6900', '6900')
       })
 
       test('ignores empty search string', () => {
@@ -166,96 +264,49 @@ describe('courier-list-filter (scope row 97, decision 97.1)', () => {
         expect(where).toEqual({})
       })
 
+      test('ignores a whitespace-only search of tabs and newlines', () => {
+        expect(adminCourierListWhere({ search: ' \t\n\r\n ' })).toEqual({})
+      })
+
       test('ignores undefined search', () => {
         const where = adminCourierListWhere({ search: undefined })
         expect(where.AND).toBeUndefined()
         expect(where).toEqual({})
       })
 
-      describe('LIKE wildcard escaping in search (decision 97.1)', () => {
-        test('escapes % wildcard in all contains clauses', () => {
-          const where = adminCourierListWhere({ search: '%' })
-          expect(where).toEqual({
-            AND: [
-              {
-                OR: [
-                  { firstName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-                  { lastName: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-                  { phoneNumber: { contains: '\\%', mode: Prisma.QueryMode.insensitive } },
-                ],
-              },
-            ],
-          })
+      describe('LIKE wildcard escaping in search (decision 97.1, spec 0025 AC-4)', () => {
+        test('escapes % wildcard', () => {
+          expect(adminCourierListWhere({ search: '%' })).toEqual({ AND: [textRule('\\%')] })
         })
 
-        test('escapes _ wildcard in all contains clauses', () => {
-          const where = adminCourierListWhere({ search: '_' })
-          expect(where).toEqual({
-            AND: [
-              {
-                OR: [
-                  { firstName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-                  { lastName: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-                  { phoneNumber: { contains: '\\_', mode: Prisma.QueryMode.insensitive } },
-                ],
-              },
-            ],
-          })
+        test('escapes _ wildcard', () => {
+          expect(adminCourierListWhere({ search: '_' })).toEqual({ AND: [textRule('\\_')] })
         })
 
-        test('escapes backslash in all contains clauses', () => {
-          const where = adminCourierListWhere({ search: '\\' })
-          expect(where).toEqual({
-            AND: [
-              {
-                OR: [
-                  { firstName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-                  { lastName: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-                  { phoneNumber: { contains: '\\\\', mode: Prisma.QueryMode.insensitive } },
-                ],
-              },
-            ],
-          })
+        test('escapes backslash', () => {
+          expect(adminCourierListWhere({ search: '\\' })).toEqual({ AND: [textRule('\\\\')] })
         })
 
-        test('escapes repeated wildcards and backslashes', () => {
-          const where = adminCourierListWhere({ search: '____' })
-          const expected = '\\_\\_\\_\\_'
-          expect(where).toEqual({
-            AND: [
-              {
-                OR: [
-                  { firstName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-                  { lastName: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-                  { phoneNumber: { contains: expected, mode: Prisma.QueryMode.insensitive } },
-                ],
-              },
-            ],
-          })
+        test('escapes repeated wildcards', () => {
+          expect(adminCourierListWhere({ search: '____' })).toEqual({ AND: [textRule('\\_\\_\\_\\_')] })
         })
 
-        test('escapes mixed wildcards and text across multiple words', () => {
+        test('escapes mixed wildcards and text across multiple words, after folding', () => {
           const where = adminCourierListWhere({ search: 'Giorgos% Pap_1\\extra' })
-          const andClauses = where.AND as any[]
-          expect(andClauses).toHaveLength(2)
-
-          const word1Expected = 'Giorgos\\%'
-          expect(andClauses[0].OR[0].firstName.contains).toBe(word1Expected)
-          expect(andClauses[0].OR[1].lastName.contains).toBe(word1Expected)
-          expect(andClauses[0].OR[2].phoneNumber.contains).toBe(word1Expected)
-
-          const word2Expected = 'Pap\\_1\\\\extra'
-          expect(andClauses[1].OR[0].firstName.contains).toBe(word2Expected)
-          expect(andClauses[1].OR[1].lastName.contains).toBe(word2Expected)
-          expect(andClauses[1].OR[2].phoneNumber.contains).toBe(word2Expected)
+          expect(where).toEqual({ AND: [textRule('giorgos\\%'), textRule('pap\\_1\\\\extra')] })
         })
 
-        test('leaves plain text unchanged without escaping', () => {
-          const where = adminCourierListWhere({ search: 'Giorgos' })
-          const andClauses = where.AND as any[]
-          expect(andClauses[0].OR[0].firstName.contains).toBe('Giorgos')
-          expect(andClauses[0].OR[1].lastName.contains).toBe('Giorgos')
-          expect(andClauses[0].OR[2].phoneNumber.contains).toBe('Giorgos')
+        test('leaves plain text unescaped (only folded)', () => {
+          expect(adminCourierListWhere({ search: 'Giorgos' })).toEqual({ AND: [textRule('giorgos')] })
+        })
+
+        test('"%" stays literal: it finds no rider without a % (not every rider)', () => {
+          expect(finds('%', GIORGOS)).toBe(false)
+          expect(finds('%', 'per%cent\nx\n\n')).toBe(true)
+        })
+
+        test('"_" stays literal: it does not match any one character', () => {
+          expect(finds('γιωργο_', GIORGOS)).toBe(false)
         })
       })
     })
@@ -271,64 +322,30 @@ describe('courier-list-filter (scope row 97, decision 97.1)', () => {
           status: {
             in: [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL],
           },
-          AND: [
-            {
-              OR: [
-                { firstName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: 'Giorgos', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-            {
-              OR: [
-                { firstName: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: 'Pap', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-          ],
+          AND: [textRule('giorgos'), textRule('pap')],
         })
       })
 
-      test('combines status offline and search', () => {
+      test('combines status offline and a phone search', () => {
         const where = adminCourierListWhere({
           status: 'offline',
-          search: '010003',
+          search: '24210-10003',
         })
 
-        expect(where).toEqual({
-          status: EnumCourierStatus.OFFLINE,
-          AND: [
-            {
-              OR: [
-                { firstName: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: '010003', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-          ],
-        })
+        expect(where.status).toBe(EnumCourierStatus.OFFLINE)
+        const andClauses = where.AND as any[]
+        expect(andClauses).toHaveLength(1)
+        expectPhoneRule(andClauses[0], '24210-10003', '2421010003')
       })
 
       test('status all with search has search rules and no status rule', () => {
         const where = adminCourierListWhere({
           status: 'all',
-          search: 'Nikos',
+          search: 'Νίκος',
         })
 
         expect(where.status).toBeUndefined()
-        expect(where.AND).toBeDefined()
-        expect(where).toEqual({
-          AND: [
-            {
-              OR: [
-                { firstName: { contains: 'Nikos', mode: Prisma.QueryMode.insensitive } },
-                { lastName: { contains: 'Nikos', mode: Prisma.QueryMode.insensitive } },
-                { phoneNumber: { contains: 'Nikos', mode: Prisma.QueryMode.insensitive } },
-              ],
-            },
-          ],
-        })
+        expect(where).toEqual({ AND: [textRule('νικοσ')] })
       })
     })
   })

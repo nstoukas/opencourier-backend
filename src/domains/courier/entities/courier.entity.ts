@@ -16,11 +16,18 @@ export class CourierEntity implements Courier {
 
   currentLocation?: GeoPosition | null
 
+  // Spec 0025: the admin search's folded copy of the searched fields. Declared because the Prisma
+  // model has it, never copied from the row: folded personal data stops at the repository.
+  // `declare` emits nothing at runtime, so a serialised entity (the partner webhook posts whole
+  // entities) never gains a "searchFold" key (row 98 review, decision 98.3).
+  declare searchFold: string | null
+
   userId: string
   createdAt: Date
   updatedAt: Date
 
-  constructor(data: Courier & { currentLocation?: GeoPosition | null }) {
+  // Omit: the entity never reads searchFold (spec 0025), so callers need not have it.
+  constructor(data: Omit<Courier, 'searchFold'> & { currentLocation?: GeoPosition | null }) {
     this.id = data.id
     this.node_uri = data.node_uri
     this.firstName = data.firstName

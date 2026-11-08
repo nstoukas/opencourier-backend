@@ -20,6 +20,8 @@ import {
   DEFAULT_HAND_BACK_SECONDS,
   DEFAULT_SOS_LOCATION_RETENTION_DAYS,
   DEFAULT_ARRIVAL_RADIUS_METRES,
+  DEFAULT_SHIFTS_ENABLED,
+  DEFAULT_SHIFT_DROP_NOTICE_HOURS,
 } from 'src/constants'
 import { SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT, SEEDED_QUOTE_BASE_FEE } from './instance-pay-defaults'
 
@@ -72,6 +74,9 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     handBackSeconds: DEFAULT_HAND_BACK_SECONDS,
     sosLocationRetentionDays: DEFAULT_SOS_LOCATION_RETENTION_DAYS,
     arrivalRadiusMetres: DEFAULT_ARRIVAL_RADIUS_METRES,
+    // Shifts ship off (spec 0026); the assembly decides whether to run them.
+    shiftsEnabled: DEFAULT_SHIFTS_ENABLED,
+    shiftDropNoticeHours: DEFAULT_SHIFT_DROP_NOTICE_HOURS,
     // No dispatch line until a representative types one on Instance configuration (row 72).
     dispatchPhoneNumber: '',
   }

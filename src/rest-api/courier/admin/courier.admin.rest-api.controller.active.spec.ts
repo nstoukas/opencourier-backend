@@ -234,13 +234,8 @@ describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () =
       expect(calledWhere).toHaveProperty('AND')
       const andClauses = calledWhere.AND as any[]
       expect(andClauses).toHaveLength(1)
-      expect(andClauses[0].OR).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            firstName: { contains: 'Giorgos', mode: 'insensitive' },
-          }),
-        ])
-      )
+      // Spec 0025 (AC-2): the folded word, matched against the database's folded column.
+      expect(andClauses[0]).toEqual({ searchFold: { contains: 'giorgos' } })
     })
 
     test('passes empty where when no filter args are provided', async () => {
