@@ -53,10 +53,11 @@ export interface DeliveryFoodNotReturnedEvent extends BaseDeliveryEvent {
   courierId: string
 }
 // Spec 0016: a rider moved the drop off pin to where they stand. Recorded by DeliveryEventService
-// without a status change, never through processDeliveryEvent.
+// without a status change, never through processDeliveryEvent. Row 102: a restaurant's own move is
+// the same event with the actor PARTNER and no courierId (it was not a rider).
 export interface DeliveryDropoffPointCorrectedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.DROPOFF_POINT_CORRECTED
-  courierId: string
+  courierId?: string
 }
 export interface DeliveryFailedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.FAILED

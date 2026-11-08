@@ -1,5 +1,13 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
-import { EnumCancelledBy, EnumDeliveryStatus } from '@prisma/types'
+import {
+  EnumCancelledBy,
+  EnumDeliveryEventSource,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
+  EnumEventActor,
+} from '@prisma/types'
+import { haversineDistanceInMetres } from 'src/core/utils/distance'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { isInPartnerHistory, olderThanHistoryMessage, partnerHistoryWhere } from './partner-history'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
@@ -39,7 +47,8 @@ export class DeliveryPartnerRestApiService {
     private courierDomainService: CourierDomainService,
     private quoteToDeliveryConversionService: QuoteToDeliveryConversionService,
     private dispatchStopRepository: DispatchStopRepository,
-    private configDomainService: ConfigDomainService
+    private configDomainService: ConfigDomainService,
+    private deliveryEventService: DeliveryEventService
   ) {}
 
   // Spec 0017: the restaurant's deliveries within the co-op's period, or still open, and the period
@@ -233,25 +242,35 @@ export class DeliveryPartnerRestApiService {
       throw new NotFoundException('Delivery locations not found')
     }
 
-    const isValidDropoffLocationDrift = await this.quoteToDeliveryConversionService.isValidDeliveryLocationDrift({
-      fromLocation: {
-        latitude: dropoffLocation.latitude,
-        longitude: dropoffLocation.longitude,
-      },
-      toLocation: {
-        latitude: input.dropoffLatitude,
-        longitude: input.dropoffLongitude,
-      },
-    })
-    if (!isValidDropoffLocationDrift) {
-      throw new DeliveryLocationDoesntMatchQuoteException("Delivery dropoff location doesn't match quote location")
+    // Row 102 (agy review): how far a restaurant may move the point is measured from the point the fee
+    // was worked out on, the quote's, and only when the point really moves. Measured from the last
+    // edit instead, many small moves would walk the door far from what the rider is paid for.
+    const pointMoved =
+      dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
+    if (pointMoved) {
+      const quote = await this.deliveryQuoteDomainService.getByIdOrThrow(delivery.deliveryQuoteId)
+      const quotedDropoff = await this.locationDomainService.getById(quote.dropoffLocationId)
+      if (!quotedDropoff) {
+        throw new NotFoundException('Delivery locations not found')
+      }
+      const isValidDropoffLocationDrift = await this.quoteToDeliveryConversionService.isValidDeliveryLocationDrift({
+        fromLocation: {
+          latitude: quotedDropoff.latitude,
+          longitude: quotedDropoff.longitude,
+        },
+        toLocation: {
+          latitude: input.dropoffLatitude,
+          longitude: input.dropoffLongitude,
+        },
+      })
+      if (!isValidDropoffLocationDrift) {
+        throw new DeliveryLocationDoesntMatchQuoteException("Delivery dropoff location doesn't match quote location")
+      }
     }
 
     // Row 102: a Location row is shared (`findOrCreate` reuses one for the same address and point),
     // so moving it in place would move every other delivery and quote on it too. A moved point gets a
     // row of its own: the old address with the new coordinates. An unmoved point changes nothing.
-    const pointMoved =
-      dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
     const dropoffLocationId = pointMoved
       ? (
           await this.locationDomainService.create({
@@ -287,6 +306,32 @@ export class DeliveryPartnerRestApiService {
 
       tips: input.tipByCustomer,
     })
+
+    // Row 102 (agy review, value 1): the point feeds the matcher and the rider's route, so a move is
+    // on the record, like a rider's own. No status changes, so it never goes through
+    // processDeliveryEvent. The fee stays on the quote and does not move with it.
+    if (pointMoved) {
+      const oldPoint = `${dropoffLocation.latitude.toFixed(5)}, ${dropoffLocation.longitude.toFixed(5)}`
+      const newPoint = `${input.dropoffLatitude.toFixed(5)}, ${input.dropoffLongitude.toFixed(5)}`
+      const metres = Math.round(
+        haversineDistanceInMetres(
+          dropoffLocation.latitude,
+          dropoffLocation.longitude,
+          input.dropoffLatitude,
+          input.dropoffLongitude
+        )
+      )
+      await this.deliveryEventService.recordDropoffPointCorrectedEvent(
+        {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+          actor: EnumEventActor.PARTNER,
+          source: EnumDeliveryEventSource.PARTNER_APP,
+          message: `Drop off pin moved ${metres} m by the restaurant, from ${oldPoint} to ${newPoint}`,
+        },
+        delivery.status
+      )
+    }
 
     return updatedDelivery
   }
