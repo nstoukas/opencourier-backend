@@ -116,6 +116,31 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   noCourierRetrySeconds?: number
 
+  // Spec 0033: restaurant delay pay. The ranges live in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  waitPayEnabled?: boolean
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  waitPayFreeMinutes?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  waitPayCentsPerMinute?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  waitLimitMinutes?: number
+
   // Spec 0031: offers timed to food readiness. The ranges live in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

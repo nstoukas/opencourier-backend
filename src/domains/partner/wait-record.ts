@@ -13,6 +13,7 @@ export const HAND_OVER_EVENTS: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.REASSIGNED,
   EnumDeliveryEventType.RETURNED_TO_WAITING,
   EnumDeliveryEventType.HANDED_BACK,
+  EnumDeliveryEventType.WAIT_UNDISPATCHED,
 ]
 
 export type WaitRecordDelivery = {

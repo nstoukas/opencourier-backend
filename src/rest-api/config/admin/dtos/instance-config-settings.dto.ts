@@ -94,6 +94,18 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   offerTimingCandidates: number
 
+  @ApiProperty({ type: Boolean })
+  waitPayEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  waitPayFreeMinutes: number
+
+  @ApiProperty({ type: Number })
+  waitPayCentsPerMinute: number
+
+  @ApiProperty({ type: Number })
+  waitLimitMinutes: number
+
   @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
@@ -154,6 +166,10 @@ export class InstanceConfigSettingsDto {
     this.offerTimingEnabled = data.offerTimingEnabled
     this.offerLeadMinutes = data.offerLeadMinutes
     this.offerTimingCandidates = data.offerTimingCandidates
+    this.waitPayEnabled = data.waitPayEnabled
+    this.waitPayFreeMinutes = data.waitPayFreeMinutes
+    this.waitPayCentsPerMinute = data.waitPayCentsPerMinute
+    this.waitLimitMinutes = data.waitLimitMinutes
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds

@@ -135,6 +135,16 @@ export interface DeliveryProductReportedEvent extends BaseDeliveryEvent {
 export interface DeliveryProductReportResolvedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.PRODUCT_REPORT_RESOLVED
 }
+// Spec 0033: a rider left a restaurant that kept them past the limit, and the pay for a wait. Both
+// written by DeliveryEventService itself, never processed as ordinary events.
+export interface DeliveryWaitUndispatchedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.WAIT_UNDISPATCHED
+  courierId: string
+}
+export interface DeliveryCourierPaidForWaitEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_WAIT
+  courierId: string
+}
 export interface DeliveryOnTheWayEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ON_THE_WAY
 }
@@ -174,6 +184,8 @@ export type DeliveryEvent =
   | DeliveryDropoffPointCorrectedEvent
   | DeliveryReadyDelayedEvent
   | DeliveryProductReportedEvent
+  | DeliveryWaitUndispatchedEvent
+  | DeliveryCourierPaidForWaitEvent
   | DeliveryProductReportResolvedEvent
   | DeliveryFoodReadyEvent
 

@@ -406,12 +406,19 @@ model Delivery {
   delivery        DeliveryQuote @relation(fields: [deliveryQuoteId], references: [id], onDelete: Cascade)
 
   payment              Payment[]
+  // Spec 0033. The restaurant's first promise, never moved by a delay; when the rider arrived at the
+  // restaurant (cleared when the delivery changes hands); when a rider left after waiting too long;
+  // and when a wait became owed, which the sweep uses to finish a half written payment.
+  promisedReadyAt      DateTime?
+  arrivedAtPickupAt    DateTime?
+  undispatchedAt       DateTime?
+  waitPayOwedAt        DateTime?
   deliveryEvent        DeliveryEvent[]
   productReports       ProductReport[]
   locationNote         LocationNote[]
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
-  partnerCharge        PartnerCharge?
+  partnerCharges       PartnerCharge[]
   sosIncidents         SosIncident[]
   // The admin search's folded reference, customer and restaurant (spec 0025). Written only by the
   // database trigger `delivery_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
@@ -667,6 +674,9 @@ enum EnumDeliveryEventType {
   // A wrong or missing product reported, and resolved (spec 0032). No status change.
   PRODUCT_REPORTED
   PRODUCT_REPORT_RESOLVED
+  // Spec 0033: a rider left a restaurant that kept them waiting, and the pay for that wait.
+  WAIT_UNDISPATCHED
+  COURIER_PAID_FOR_WAIT
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -729,6 +739,8 @@ enum EnumCourierCompensationReason {
   REASSIGNMENT
   // Paid to the rider who held a delivery cancelled after they accepted it (spec 0015).
   CANCELLATION
+  // Paid for waiting at a restaurant past its promised time (spec 0033).
+  WAITING
 }
 
 // Who cancelled a delivery (spec 0015). The partner says RESTAURANT or CUSTOMER; an admin may say COOP.
@@ -746,6 +758,7 @@ enum EnumFoodOutcome {
 
 enum EnumPartnerChargeReason {
   CANCELLATION
+  WAITING
 }
 
 // What a restaurant owes the co-op, recorded now and invoiced by the payments rows later
@@ -754,8 +767,11 @@ model PartnerCharge {
   id           String                  @id @default(cuid())
   partnerId    String
   partner      Partner                 @relation(fields: [partnerId], references: [id])
-  // One charge per delivery: the unique key makes a retry harmless.
-  deliveryId   String                  @unique
+  // Spec 0015's cancellation and spec 0033's waits can both charge a delivery, so each has its own
+  // once only key: the delivery id on a CANCELLATION row, the wait on a WAITING row.
+  deliveryId   String
+  cancellationOf String?                 @unique
+  waitOf       String?                 @unique
   delivery     Delivery                @relation(fields: [deliveryId], references: [id])
   amount       Int // cents
   currencyCode String                  @postgres.VarChar(255)
@@ -783,6 +799,9 @@ model CourierCompensation {
   // The delivery id on a CANCELLATION row, null on every REASSIGNMENT row (spec 0015). Unique,
   // so one cancellation can never pay twice; Postgres allows any number of nulls under it.
   cancellationOf String?                       @unique
+  // `<deliveryId>:<the event that ended the wait>` on a WAITING row, null otherwise (spec 0033):
+  // one wait is paid once.
+  waitOf         String?                       @unique
   createdAt      DateTime                      @default(now())
 
   // Earnings queries filter by courier + date range; DeliveryEvent's missing

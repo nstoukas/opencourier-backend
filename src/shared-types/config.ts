@@ -45,6 +45,11 @@ export type InstanceConfigSettings = {
   offerTimingEnabled: boolean
   offerLeadMinutes: number
   offerTimingCandidates: number
+  // Restaurant delay pay (spec 0033), set by co-op representatives.
+  waitPayEnabled: boolean
+  waitPayFreeMinutes: number
+  waitPayCentsPerMinute: number
+  waitLimitMinutes: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
@@ -128,6 +133,10 @@ export enum ConfigKey {
   OFFER_TIMING_ENABLED = 'offerTimingEnabled',
   OFFER_LEAD_MINUTES = 'offerLeadMinutes',
   OFFER_TIMING_CANDIDATES = 'offerTimingCandidates',
+  WAIT_PAY_ENABLED = 'waitPayEnabled',
+  WAIT_PAY_FREE_MINUTES = 'waitPayFreeMinutes',
+  WAIT_PAY_CENTS_PER_MINUTE = 'waitPayCentsPerMinute',
+  WAIT_LIMIT_MINUTES = 'waitLimitMinutes',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',

@@ -17,6 +17,16 @@ import {
   DEFAULT_QUOTE_TO_DELIVERY_MAX_DISTANCE_DRIFT,
   DELIVERY_QUOTE_EXPIRATION_MINUTES,
   DEFAULT_OFFER_EXPIRY_ENABLED,
+  DEFAULT_WAIT_LIMIT_MINUTES,
+  DEFAULT_WAIT_PAY_CENTS_PER_MINUTE,
+  DEFAULT_WAIT_PAY_ENABLED,
+  DEFAULT_WAIT_PAY_FREE_MINUTES,
+  WAIT_LIMIT_MINUTES_MAX,
+  WAIT_LIMIT_MINUTES_MIN,
+  WAIT_PAY_CENTS_PER_MINUTE_MAX,
+  WAIT_PAY_CENTS_PER_MINUTE_MIN,
+  WAIT_PAY_FREE_MINUTES_MAX,
+  WAIT_PAY_FREE_MINUTES_MIN,
   DEFAULT_OFFER_LEAD_MINUTES,
   DEFAULT_OFFER_TIMING_CANDIDATES,
   DEFAULT_OFFER_TIMING_ENABLED,
@@ -120,6 +130,27 @@ export const NUMERIC_SETTING_RULES: {
     mustBeInteger: true,
     min: OFFER_EXPIRY_SECONDS_MIN,
     max: OFFER_EXPIRY_SECONDS_MAX,
+  },
+  {
+    key: 'waitPayFreeMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: WAIT_PAY_FREE_MINUTES_MIN,
+    max: WAIT_PAY_FREE_MINUTES_MAX,
+  },
+  {
+    key: 'waitPayCentsPerMinute',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: WAIT_PAY_CENTS_PER_MINUTE_MIN,
+    max: WAIT_PAY_CENTS_PER_MINUTE_MAX,
+  },
+  {
+    key: 'waitLimitMinutes',
+    whyZeroIsRefused: 'a rider could leave the moment they arrive',
+    mustBeInteger: true,
+    min: WAIT_LIMIT_MINUTES_MIN,
+    max: WAIT_LIMIT_MINUTES_MAX,
   },
   {
     key: 'offerLeadMinutes',
@@ -232,6 +263,10 @@ export class InstanceConfigDomainService {
     const offerExpiryEnabled = await this.getOfferExpiryEnabled()
     const offerExpirySeconds = await this.getOfferExpirySeconds()
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
+    const waitPayEnabled = await this.getWaitPayEnabled()
+    const waitPayFreeMinutes = await this.getWaitPayFreeMinutes()
+    const waitPayCentsPerMinute = await this.getWaitPayCentsPerMinute()
+    const waitLimitMinutes = await this.getWaitLimitMinutes()
     const offerTimingEnabled = await this.getOfferTimingEnabled()
     const offerLeadMinutes = await this.getOfferLeadMinutes()
     const offerTimingCandidates = await this.getOfferTimingCandidates()
@@ -275,6 +310,10 @@ export class InstanceConfigDomainService {
       offerExpiryEnabled,
       offerExpirySeconds,
       noCourierRetrySeconds,
+      waitPayEnabled,
+      waitPayFreeMinutes,
+      waitPayCentsPerMinute,
+      waitLimitMinutes,
       offerTimingEnabled,
       offerLeadMinutes,
       offerTimingCandidates,
@@ -439,6 +478,9 @@ export class InstanceConfigDomainService {
     if (data.shiftsEnabled !== undefined && typeof data.shiftsEnabled !== 'boolean') {
       throw new BadRequestException('shiftsEnabled must be true or false')
     }
+    if (data.waitPayEnabled !== undefined && typeof data.waitPayEnabled !== 'boolean') {
+      throw new BadRequestException('waitPayEnabled must be a boolean')
+    }
     if (data.offerTimingEnabled !== undefined && typeof data.offerTimingEnabled !== 'boolean') {
       throw new BadRequestException('offerTimingEnabled must be a boolean')
     }
@@ -544,6 +586,19 @@ export class InstanceConfigDomainService {
     }
     if (data.noCourierRetrySeconds !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
+    }
+    // !== undefined, so a `false` (delay pay off) is saved, not dropped.
+    if (data.waitPayEnabled !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_ENABLED, data.waitPayEnabled)
+    }
+    if (data.waitPayFreeMinutes !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_FREE_MINUTES, data.waitPayFreeMinutes)
+    }
+    if (data.waitPayCentsPerMinute !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_CENTS_PER_MINUTE, data.waitPayCentsPerMinute)
+    }
+    if (data.waitLimitMinutes !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.WAIT_LIMIT_MINUTES, data.waitLimitMinutes)
     }
     if (data.offerTimingEnabled !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
@@ -885,6 +940,40 @@ export class InstanceConfigDomainService {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.OFFER_EXPIRY_ENABLED, DEFAULT_OFFER_EXPIRY_ENABLED)
 
     return enabled.value === true
+  }
+
+  // Spec 0033: restaurant delay pay, off until a representative switches it on.
+  async getWaitPayEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.WAIT_PAY_ENABLED, DEFAULT_WAIT_PAY_ENABLED)
+
+    return enabled.value === true
+  }
+
+  async getWaitPayFreeMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.WAIT_PAY_FREE_MINUTES,
+      DEFAULT_WAIT_PAY_FREE_MINUTES,
+      WAIT_PAY_FREE_MINUTES_MIN,
+      WAIT_PAY_FREE_MINUTES_MAX
+    )
+  }
+
+  async getWaitPayCentsPerMinute(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.WAIT_PAY_CENTS_PER_MINUTE,
+      DEFAULT_WAIT_PAY_CENTS_PER_MINUTE,
+      WAIT_PAY_CENTS_PER_MINUTE_MIN,
+      WAIT_PAY_CENTS_PER_MINUTE_MAX
+    )
+  }
+
+  async getWaitLimitMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.WAIT_LIMIT_MINUTES,
+      DEFAULT_WAIT_LIMIT_MINUTES,
+      WAIT_LIMIT_MINUTES_MIN,
+      WAIT_LIMIT_MINUTES_MAX
+    )
   }
 
   // Spec 0031: three co-op settings, off and quiet until a representative switches it on.

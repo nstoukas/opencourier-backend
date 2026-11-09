@@ -38,6 +38,30 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
   // When the latest successful job step of this delivery happened (its occurredAt), or null if it has
   // none yet. The floor of the next step's tap time (spec 0009, AC-7). Ordered by occurredAt, not
   // createdAt: a step that waited on the phone arrives after events that happened later.
+  // Spec 0033: the steps that start, end or pass on a wait, in time order.
+  async findWaitEvents(deliveryId: string) {
+    return this.prisma.deliveryEvent.findMany({
+      where: {
+        deliveryId,
+        transitionSuccessful: true,
+        type: {
+          in: [EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, ...WAIT_END_EVENTS, ...HAND_OVER_EVENTS],
+        },
+      },
+      select: { id: true, type: true, occurredAt: true, courierId: true },
+      orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }],
+    })
+  }
+
+  // Spec 0033: the messages of the wait pay already on record, which name the wait they paid.
+  async findWaitPaidMessages(deliveryId: string): Promise<string[]> {
+    const rows = await this.prisma.deliveryEvent.findMany({
+      where: { deliveryId, type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT },
+      select: { message: true },
+    })
+    return rows.map((row) => row.message ?? '')
+  }
+
   async findLatestJobStepOccurredAt(deliveryId: string): Promise<Date | null> {
     const row = await this.prisma.deliveryEvent.findFirst({
       where: { deliveryId, transitionSuccessful: true, type: { in: TAP_FLOOR_EVENT_TYPES } },

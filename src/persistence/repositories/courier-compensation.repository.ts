@@ -46,6 +46,19 @@ export class CourierCompensationRepository
     }
   }
 
+  // Writes one wait's pay once (spec 0033). A second writer gets the row that is already there.
+  async createWaitPayOnce(input: ICourierCompensationCreateInput & { waitOf: string }): Promise<CourierCompensation> {
+    try {
+      return await this.create(input)
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.prisma.courierCompensation.findUnique({ where: { waitOf: input.waitOf } })
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
+
   // Used only to undo an award that was written moments earlier for a reassignment that
   // then did not take effect. Prisma throws P2025 if the row is already gone; the caller
   // catches that and logs it rather than failing the request.

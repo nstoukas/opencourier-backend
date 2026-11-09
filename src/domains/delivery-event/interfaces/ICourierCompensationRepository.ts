@@ -11,6 +11,8 @@ export interface ICourierCompensationCreateInput {
   deliveryId: string
   // Set only on a CANCELLATION row, to the delivery id (spec 0015): the unique idempotency key.
   cancellationOf?: string
+  // Set only on a WAITING row (spec 0033): one wait is paid once.
+  waitOf?: string
 }
 
 export interface ICourierCompensationRepository {

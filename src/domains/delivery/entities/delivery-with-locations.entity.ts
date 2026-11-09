@@ -30,6 +30,11 @@ export class DeliveryWithLocationsEntity implements Delivery {
   dropoffPointCorrectedAt: Date | null
   // Spec 0020: when the rider accepted, and the end of the free hand back.
   acceptedAt: Date | null
+  // Spec 0033: the first promise, the rider's arrival, leaving after a wait, and an owed wait.
+  promisedReadyAt: Date | null
+  arrivedAtPickupAt: Date | null
+  undispatchedAt: Date | null
+  waitPayOwedAt: Date | null
   handBackUntil: Date | null
   // Spec 0023: the restaurant's ready promise, and when it marked the food ready.
   readyAt: Date | null
@@ -120,6 +125,10 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.dropoffDoorbell = data.dropoffDoorbell
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
     this.acceptedAt = data.acceptedAt
+    this.promisedReadyAt = data.promisedReadyAt
+    this.arrivedAtPickupAt = data.arrivedAtPickupAt
+    this.undispatchedAt = data.undispatchedAt
+    this.waitPayOwedAt = data.waitPayOwedAt
     this.handBackUntil = data.handBackUntil
     this.readyAt = data.readyAt
     this.foodReadyAt = data.foodReadyAt

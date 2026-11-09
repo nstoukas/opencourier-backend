@@ -86,7 +86,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
             courierId: { not: null },
             deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION } },
           },
-          { cancelledBy: EnumCancelledBy.RESTAURANT, partnerId: { not: null }, partnerCharge: { is: null } },
+          { cancelledBy: EnumCancelledBy.RESTAURANT, partnerId: { not: null }, partnerCharges: { none: { reason: EnumPartnerChargeReason.CANCELLATION } } },
         ],
       },
       select: { id: true },
@@ -123,10 +123,28 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
   }
 
+  // Spec 0033: deliveries with a wait owed and a piece of its payment still missing, for the sweep.
+  async findWaitPayToSettle(from: Date, to: Date): Promise<string[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        waitPayOwedAt: { gte: from, lte: to },
+        OR: [
+          { courierCompensations: { none: { reason: EnumCourierCompensationReason.WAITING } } },
+          { deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT } } },
+          { partnerId: { not: null }, partnerCharges: { none: { reason: EnumPartnerChargeReason.WAITING } } },
+        ],
+      },
+      select: { id: true },
+      orderBy: { waitPayOwedAt: 'asc' },
+      take: 200,
+    })
+    return rows.map((row) => row.id)
+  }
+
   // Spec 0015: the restaurant's charge for this delivery's cancellation, or null.
   async findPartnerCharge(deliveryId: string) {
     return this.prisma.partnerCharge.findUnique({
-      where: { deliveryId },
+      where: { cancellationOf: deliveryId },
       select: { amount: true, currencyCode: true, createdAt: true },
     })
   }

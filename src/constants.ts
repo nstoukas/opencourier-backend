@@ -96,6 +96,17 @@ export const DEFAULT_FEE_PERCENTAGE_AMOUNT = 'DEFAULT_FEE_PERCENTAGE_AMOUNT'
 // the fallback VALUES used only when the Config row is missing. The operative values are co-op
 // settings in the Config table (offerExpiryEnabled, offerExpirySeconds, noCourierRetrySeconds).
 export const DEFAULT_OFFER_EXPIRY_ENABLED = false
+// Restaurant delay pay (spec 0033). Off until the co-op switches it on; fallbacks only.
+export const DEFAULT_WAIT_PAY_ENABLED = false
+export const DEFAULT_WAIT_PAY_FREE_MINUTES = 5
+export const WAIT_PAY_FREE_MINUTES_MIN = 0
+export const WAIT_PAY_FREE_MINUTES_MAX = 60
+export const DEFAULT_WAIT_PAY_CENTS_PER_MINUTE = 10
+export const WAIT_PAY_CENTS_PER_MINUTE_MIN = 0
+export const WAIT_PAY_CENTS_PER_MINUTE_MAX = 200
+export const DEFAULT_WAIT_LIMIT_MINUTES = 10
+export const WAIT_LIMIT_MINUTES_MIN = 1
+export const WAIT_LIMIT_MINUTES_MAX = 60
 // Offers timed to food readiness (spec 0031). Off until the assembly decides; fallbacks only.
 export const DEFAULT_OFFER_TIMING_ENABLED = false
 export const DEFAULT_OFFER_LEAD_MINUTES = 3

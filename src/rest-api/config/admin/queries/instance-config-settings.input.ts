@@ -37,6 +37,10 @@ export class InstanceConfigSettingsInput {
   offerTimingEnabled?: boolean
   offerLeadMinutes?: number
   offerTimingCandidates?: number
+  waitPayEnabled?: boolean
+  waitPayFreeMinutes?: number
+  waitPayCentsPerMinute?: number
+  waitLimitMinutes?: number
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number

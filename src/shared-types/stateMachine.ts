@@ -49,6 +49,7 @@ export const STATE_MACHINE: Record<
   },
   [EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION]: {
     on: {
+      [EnumDeliveryEventType.WAIT_UNDISPATCHED]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider left after waiting (spec 0033)
       [EnumDeliveryEventType.PICKED_UP]: EnumDeliveryStatus.PICKED_UP,
       [EnumDeliveryEventType.CANCELED]: EnumDeliveryStatus.CANCELED,
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
