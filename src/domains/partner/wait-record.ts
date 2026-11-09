@@ -8,6 +8,13 @@ export const DEFAULT_WAIT_RECORD_DAYS = 30
 
 const MINUTE_MS = 60_000
 
+// The events that take a delivery from one rider and give it to another (or back to waiting).
+export const HAND_OVER_EVENTS: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.REASSIGNED,
+  EnumDeliveryEventType.RETURNED_TO_WAITING,
+  EnumDeliveryEventType.HANDED_BACK,
+]
+
 export type WaitRecordDelivery = {
   id: string
   createdAt: Date
@@ -35,10 +42,15 @@ export function waitMinutesOf(delivery: WaitRecordDelivery): number | null {
   const pickups = delivery.events.filter((event) => event.type === EnumDeliveryEventType.PICKED_UP)
   const lastPickup = latest(pickups.map((event) => event.occurredAt))
   if (!lastPickup) return null
+  // A delivery that changed hands: an arrival from before the last hand over is the earlier rider's.
+  const lastHandOver = latest(
+    delivery.events.filter((event) => HAND_OVER_EVENTS.includes(event.type)).map((event) => event.occurredAt)
+  )
   const arrivals = delivery.events.filter(
     (event) =>
       event.type === EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION &&
-      event.occurredAt.getTime() <= lastPickup.getTime()
+      event.occurredAt.getTime() <= lastPickup.getTime() &&
+      (lastHandOver === null || event.occurredAt.getTime() >= lastHandOver.getTime())
   )
   const lastArrival = latest(arrivals.map((event) => event.occurredAt))
   if (!lastArrival) return null

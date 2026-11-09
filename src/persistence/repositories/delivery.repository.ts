@@ -26,6 +26,7 @@ export type PrismaDeliveryWithLocations = Delivery & {
   dropoffLocation: Location | null
 }
 
+import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 @Injectable()
 export class DeliveryRepository extends EntityRepository implements IDeliveryRepository {
   constructor(prisma: PrismaService) {
@@ -245,6 +246,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
                 EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
                 EnumDeliveryEventType.PICKED_UP,
                 EnumDeliveryEventType.READY_DELAYED,
+                ...HAND_OVER_EVENTS,
               ],
             },
           },
