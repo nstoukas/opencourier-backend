@@ -368,36 +368,202 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       )
     })
 
-    it('rate 0 writes nothing (decision 23.10)', async () => {
+    it('a rate of 0 at settle writes no award, event or charge and does clear the stamp (decision 23.10)', async () => {
       mockConfigDomainService.instanceConfig.getWaitPayCentsPerMinute.mockResolvedValue(0)
 
-      // When rate is 0, isWaitPayOwed returned false, so waitPayOwedAt is not even set.
-      // But even if settleWaitPay is called, with centsPerMinute = 0:
-      // wait is 10 min * 0 cents = 0 cents -> does not write
+      // waitPayOwedAt was set when the wait ended, but at settle time rate is 0
       mockDeliveryRepository.findById.mockResolvedValue({
         ...baseDelivery,
-        waitPayOwedAt: null,
+        waitPayOwedAt: baseDelivery.waitPayOwedAt,
       })
 
       await service.settleWaitPay(DELIVERY_ID)
 
+      // Writes no award, no COURIER_PAID_FOR_WAIT event, and no partner charge
       expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
       expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
+
+      // But clears the waitPayOwedAt stamp so it does not loop forever
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { waitPayOwedAt: baseDelivery.waitPayOwedAt },
+        { waitPayOwedAt: null }
+      )
     })
 
-    it('delay pay off pays and charges nothing', async () => {
+    it('switch off at settle but stamp set (pay earned while on): still pays', async () => {
+      // Delay pay was switched off after the wait earned pay (waitPayOwedAt already set)
       mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(false)
       mockDeliveryRepository.findById.mockResolvedValue({
         ...baseDelivery,
-        waitPayOwedAt: null,
+        waitPayOwedAt: baseDelivery.waitPayOwedAt,
       })
 
       await service.settleWaitPay(DELIVERY_ID)
 
+      const expectedWaitOf = waitOfKey(DELIVERY_ID, 'evt-pickup-1')
+
+      // Still pays the earned compensation
+      expect(mockCourierCompensationRepository.createWaitPayOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 100,
+          courierId: COURIER_ID,
+          waitOf: expectedWaitOf,
+        })
+      )
+      // Emits the paid event
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
+          courierId: COURIER_ID,
+        })
+      )
+      // Writes the partner charge
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 100,
+          waitOf: expectedWaitOf,
+        })
+      )
+      // Clears the stamp
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { waitPayOwedAt: baseDelivery.waitPayOwedAt },
+        { waitPayOwedAt: null }
+      )
+    })
+
+    it('settleWaitPay with waitPayOwedAt set and no end event on the trail: no award, no charge, no clearing write, an error is logged, it resolves', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation()
+
+      // Trail has only ARRIVED event; PICKED_UP or WAIT_UNDISPATCHED is missing from trail
+      mockDeliveryEventRepository.findWaitEvents.mockResolvedValue([
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: ARRIVED_AT,
+          courierId: COURIER_ID,
+        },
+      ] as any)
+
+      await expect(service.settleWaitPay(DELIVERY_ID)).resolves.toBeUndefined()
+
+      // No award, no charge, no event
       expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
-      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
       expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+
+      // No clearing write: waitPayOwedAt stamp stays set
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalledWith(
+        DELIVERY_ID,
+        expect.anything(),
+        { waitPayOwedAt: null }
+      )
+
+      // Logs error for audit visibility and sweep retry
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('WAIT_PAY_NOT_ON_TRAIL')
+      )
+    })
+
+    it('with an earlier unpaid wait on the trail and the newest end event missing: that earlier wait is not newly paid and the stamp stays', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation()
+
+      // Trail: Rider 1 arrived and left (earlier wait, 10 min, unpaid).
+      // Rider 2 arrived, but newest end event has no arrival / earned no minutes so it cannot be completed.
+      const atTime = (h: number, m: number) => new Date(Date.UTC(2026, 10, 9, h, m))
+      const events = [
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: atTime(9, 58),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-leave-1',
+          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+          occurredAt: atTime(10, 15),
+          courierId: 'courier-1',
+        },
+        // Rider 2 newest end event: picked up without arrival (so completed wait for newest end is missing)
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: atTime(10, 35),
+          courierId: 'courier-2',
+        },
+      ]
+      mockDeliveryEventRepository.findWaitEvents.mockResolvedValue(events as any)
+      // Earlier wait was unpaid (no existing awards in repository)
+      mockCourierCompensationRepository.findWaitAwards.mockResolvedValue([])
+
+      await service.settleWaitPay(DELIVERY_ID)
+
+      // That earlier wait is not newly paid!
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
+
+      // And the stamp stays (clearing write is NOT called)
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalledWith(
+        DELIVERY_ID,
+        expect.anything(),
+        { waitPayOwedAt: null }
+      )
+      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('WAIT_PAY_NOT_ON_TRAIL'))
+    })
+
+    it('with an earlier paid wait on the trail and the newest end event missing: that earlier wait is not newly paid and the stamp stays', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation()
+
+      const atTime = (h: number, m: number) => new Date(Date.UTC(2026, 10, 9, h, m))
+      const events = [
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: atTime(9, 58),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-leave-1',
+          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+          occurredAt: atTime(10, 15),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: atTime(10, 35),
+          courierId: 'courier-2',
+        },
+      ]
+      mockDeliveryEventRepository.findWaitEvents.mockResolvedValue(events as any)
+      // Earlier wait was already paid
+      mockCourierCompensationRepository.findWaitAwards.mockResolvedValue([
+        {
+          id: 'comp-wait-1',
+          amount: 100,
+          currencyCode: 'EUR',
+          reason: EnumCourierCompensationReason.WAITING,
+          policy: 'WAIT_PAY',
+          courierId: 'courier-1',
+          deliveryId: DELIVERY_ID,
+          waitOf: waitOfKey(DELIVERY_ID, 'evt-leave-1'),
+        } as any,
+      ])
+
+      await service.settleWaitPay(DELIVERY_ID)
+
+      // Earlier wait is not newly paid
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+
+      // And the stamp stays (clearing write is NOT called)
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalledWith(
+        DELIVERY_ID,
+        expect.anything(),
+        { waitPayOwedAt: null }
+      )
+      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('WAIT_PAY_NOT_ON_TRAIL'))
     })
 
     it('waitPayOwedAt is not cleared if delivery does not have waitPayOwedAt set', async () => {
@@ -850,6 +1016,33 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       const timing = await (service as any).offerTimingOf(match)
       // 10 min readyAt - 3 min lead = 7 min = 420_000 ms
       expect(timing.dueInMs).toBe(7 * 60_000)
+
+      jest.useRealTimers()
+    })
+
+    it('a left order with Timed offers ON uses road time and lead (no double hold)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferTimingEnabled.mockResolvedValue(true)
+      mockConfigDomainService.instanceConfig.getOfferLeadMinutes.mockResolvedValue(3)
+
+      const now = new Date('2026-11-09T10:00:00.000Z').getTime()
+      jest.useFakeTimers().setSystemTime(now)
+
+      const match = {
+        courier: courierEntity,
+        delivery: {
+          readyAt: new Date(now + 20 * 60_000), // ready in 20 min
+          foodReadyAt: null,
+          undispatchedAt: new Date(now - 60_000), // rider left earlier
+        },
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+        travelSeconds: 300, // 5 min road travel time from matcher
+      }
+
+      const timing = await (service as any).offerTimingOf(match)
+      // 20 min readyAt - 5 min travel - 3 min lead = 12 min due = 720_000 ms (no double hold)
+      expect(timing.dueInMs).toBe(12 * 60_000)
+      expect(timing.note).toContain('travel ~5 min')
+      expect(timing.note).toContain('lead 3 min')
 
       jest.useRealTimers()
     })

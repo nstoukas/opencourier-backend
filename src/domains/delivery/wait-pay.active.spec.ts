@@ -2,6 +2,7 @@ import { EnumDeliveryEventType } from '@prisma/types'
 import {
   paidWaitMinutes,
   completedWaits,
+  latestCompletedWait,
   waitOfKey,
   WAIT_END_EVENTS,
   WaitEvent,
@@ -347,6 +348,127 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       const result = completedWaits(events, promisedReadyAt, freeMinutes)
       expect(result).toHaveLength(1)
       expect(result[0]?.endEventId).toBe('evt-pickup')
+    })
+  })
+
+  describe('latestCompletedWait (review fix)', () => {
+    const promisedReadyAt = at(10, 0)
+    const freeMinutes = 5
+
+    it('returns the wait closed by the newest end event', () => {
+      const events: WaitEvent[] = [
+        // Wait 1: rider 1 arrived 09:58 and left 10:15 (10 min)
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(9, 58),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-leave-1',
+          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+          occurredAt: at(10, 15),
+          courierId: 'courier-1',
+        },
+        // Wait 2: rider 2 arrived 10:20 and picked up 10:35 (15 min)
+        {
+          id: 'evt-arr-2',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(10, 20),
+          courierId: 'courier-2',
+        },
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: at(10, 35),
+          courierId: 'courier-2',
+        },
+      ]
+
+      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      expect(result).toEqual({
+        endEventId: 'evt-pickup-2',
+        courierId: 'courier-2',
+        minutes: 15,
+      })
+    })
+
+    it('returns null when the newest end has no arrival on the trail, even when an earlier wait exists', () => {
+      const events: WaitEvent[] = [
+        // Earlier wait: rider 1 arrived 09:58 and left 10:15 (10 min completed wait)
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(9, 58),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-leave-1',
+          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+          occurredAt: at(10, 15),
+          courierId: 'courier-1',
+        },
+        // Newest end: rider 2 picked up at 10:35 WITHOUT an arrival event on the trail
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: at(10, 35),
+          courierId: 'courier-2',
+        },
+      ]
+
+      // Even though wait 1 completed, newest end (evt-pickup-2) has no arrival, so latestCompletedWait is null
+      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      expect(result).toBeNull()
+    })
+
+    it('returns null when the newest end earned no minutes, even when an earlier wait exists', () => {
+      const events: WaitEvent[] = [
+        // Earlier wait: rider 1 arrived 09:58 and left 10:15 (10 min completed wait)
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(9, 58),
+          courierId: 'courier-1',
+        },
+        {
+          id: 'evt-leave-1',
+          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+          occurredAt: at(10, 15),
+          courierId: 'courier-1',
+        },
+        // Newest end: rider 2 arrived at 10:20 and picked up at 10:20 (0 paid minutes)
+        {
+          id: 'evt-arr-2',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(10, 20),
+          courierId: 'courier-2',
+        },
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: at(10, 20),
+          courierId: 'courier-2',
+        },
+      ]
+
+      // Even though wait 1 earned 10 minutes, newest end earned 0 minutes, so latestCompletedWait is null
+      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      expect(result).toBeNull()
+    })
+
+    it('returns null when there are no end events on the trail', () => {
+      const events: WaitEvent[] = [
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(9, 58),
+          courierId: 'courier-1',
+        },
+      ]
+
+      expect(latestCompletedWait(events, promisedReadyAt, freeMinutes)).toBeNull()
+      expect(latestCompletedWait([], promisedReadyAt, freeMinutes)).toBeNull()
     })
   })
 })
