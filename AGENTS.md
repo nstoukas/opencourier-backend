@@ -119,6 +119,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - Restaurant delay pay (spec 0033) lives in `src/domains/delivery/wait-pay.ts`: `waitPaidFrom` and `waitLeaveFrom` are the whole rule, called by every path that pays, blocks or displays, so never restate it. `promisedReadyAt` is the first promise and is never moved. A write that takes a rider off a delivery must null `arrivedAtPickupAt` too. `waitPayOwedAt` is the marker that pay is owed: it is set in the status write and cleared only once the rider's row, the event and the charge exist, and the `cancellation-award-sweep` retries it for 24 h. `PartnerCharge` has no unique on `deliveryId`: use `cancellationOf` or `waitOf`. A rider's own taps are trusted (decision 23.19): no checks aimed at riders.
 
+- The admin Dispatch board (spec 0034) is `GET admin/v1/dispatch/board`: one function per row kind in `src/services/dispatch-board/dispatch-board.ts`, listed in `DispatchBoardService.getBoard`; a new kind is one more of each, and its `kind` is a plain string so an older tab draws it as a plain row. Nothing there may time, count or rank a rider. Every write of `Courier.currentLocation` must set `currentLocationAt` in the same statement, or the rider drops off the map after 5 minutes; the entity `declare`s that column so it never leaves the server.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
