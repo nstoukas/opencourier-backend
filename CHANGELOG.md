@@ -9,6 +9,8 @@ Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipe
 (192 commits, 25 July to 2 November 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
+Scope row 21 (restaurant ready signals, spec 0023) was built on the branch `feat/ready-signals` and merged in on 9 November. Every order carries a `readyAt` (the restaurant's pick, or now plus `Partner.usualPrepMinutes`), a restaurant can delay it or mark the food ready, each is a `DeliveryEvent`, and the rider holding the job is told at once. Nothing here changes pay, price, matching or offer timing. Reviewed by Fable and agy. With it the suite is at **3215 passing tests**; typecheck is clean and lint is unchanged.
+
 Scope row 102 (a partner edit moves only its own drop off point) was built on the branch `fix/partner-edit-own-dropoff` and merged in on 9 November. A partner's `POST deliveries/:id` used to rewrite the shared `Location` row, moving every other delivery and quote on it; a moved point now gets a row of its own. After agy's cross family review, the drift limit is measured from the quote's point rather than the last edit, so many small moves cannot walk the door away from what the rider is paid for, and a restaurant's move is recorded as a `DROPOFF_POINT_CORRECTED` event (actor `PARTNER`). With it the suite is at **3008 passing tests**; typecheck is clean and lint is unchanged.
 
 Scope row 49 (zero is a valid value for every co-op setting) was built on the branch
