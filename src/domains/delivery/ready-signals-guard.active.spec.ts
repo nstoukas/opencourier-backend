@@ -53,6 +53,9 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         // Creation and the two restaurant actions.
         'domains/delivery/delivery.domain.service.ts',
         'domains/delivery/ready-signals.ts',
+        // Wait record (spec 0030: reads only).
+        'domains/partner/wait-record.ts',
+        'persistence/repositories/delivery.repository.ts',
         // Shapes and read only views.
         'domains/delivery/entities/delivery.entity.ts',
         'domains/delivery/entities/delivery-with-locations.entity.ts',

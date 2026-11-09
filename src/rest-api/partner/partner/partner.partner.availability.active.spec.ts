@@ -50,7 +50,11 @@ describe('PartnerPartnerRestApiController availability endpoints (spec 0029)', (
       resume: jest.fn(),
     } as any
 
-    controller = new PartnerPartnerRestApiController(locationDomainService, availabilityDomainService)
+    controller = new PartnerPartnerRestApiController(
+      locationDomainService,
+      availabilityDomainService,
+      { getWaitRecord: jest.fn() } as any
+    )
   })
 
   afterEach(() => {

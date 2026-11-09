@@ -69,6 +69,7 @@ describe('PartnerAdminRestApiController', () => {
       mockPartnerDomainService,
       mockPartnerAdminRestApiService,
       mockPartnerAvailabilityDomainService,
+      { getWaitRecord: jest.fn() } as any,
     )
   })
 
