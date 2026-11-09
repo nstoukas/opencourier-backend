@@ -221,6 +221,63 @@ describe('wait-record domain logic (spec 0030)', () => {
       }
       expect(waitMinutesOf(delivery)).toBe(10)
     })
+
+    test('spec 0035: a hand over after the last pickup leaves the wait in the record (e.g. removal approved after pickup)', () => {
+      // Arrival at +15 min, readyAt at +20 min, pickup at +25 min.
+      // Removal approved after pickup at +35 min.
+      // The hand-over is after the last pickup, so it does not discard the arrival.
+      // Wait is 25 - 20 = 5 minutes.
+      const delivery: WaitRecordDelivery = {
+        id: 'del-removal-after-pickup',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(15) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(25) },
+          { type: EnumDeliveryEventType.REMOVAL_APPROVED, occurredAt: at(35) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBe(5)
+    })
+
+    test('spec 0035: a hand over before the last pickup still discards the earlier riders arrival', () => {
+      // Rider 1 arrives at +12 min.
+      // Removal approved before pickup at +18 min.
+      // Order picked up at +30 min without a second arrival tap.
+      // The hand-over is before the pickup, so Rider 1's arrival is discarded.
+      const delivery: WaitRecordDelivery = {
+        id: 'del-removal-before-pickup-discard',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(12) },
+          { type: EnumDeliveryEventType.REMOVAL_APPROVED, occurredAt: at(18) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(30) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBeNull()
+    })
+
+    test('spec 0035: a hand over at exactly the same moment as the last pickup counts as before it (the at or before rule)', () => {
+      // Arrival at +15 min, readyAt at +20 min.
+      // Pickup at +25 min and hand-over at exactly +25 min.
+      // Under the rule (occurredAt <= lastPickup), this hand-over counts as at or before pickup,
+      // discarding the arrival at +15 min. Result is null.
+      const delivery: WaitRecordDelivery = {
+        id: 'del-handover-exact-pickup-moment',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(15) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(25) },
+          { type: EnumDeliveryEventType.REMOVAL_APPROVED, occurredAt: at(25) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBeNull()
+    })
   })
 
   describe('waitRecordOf: wait statistics and order counting (AC-2, AC-3)', () => {

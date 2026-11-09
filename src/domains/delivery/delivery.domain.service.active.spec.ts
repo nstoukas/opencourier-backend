@@ -247,9 +247,10 @@ describe('DeliveryDomainService', () => {
       expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
 
       // Case 8: Assert DeliveryReassignedEvent emission with exact required fields and message format
-      const expectedMessage =
+      const awardMessage =
         'Admin reassigned delivery from courier courier-old to courier courier-new; ' +
         'payout policy FULL_COMPENSATION awards 350 EUR (cents) to the dropped courier: Admin note'
+      const expectedEventMessage = `${awardMessage} (award comp-1)`
 
       expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
         deliveryId: 'del-happy',
@@ -258,13 +259,14 @@ describe('DeliveryDomainService', () => {
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: 'courier-new',
         droppedCourierId: 'courier-old',
-        message: expectedMessage,
+        message: expectedEventMessage,
       })
 
-      // Case 9: Assert award row message and event message are character-identical
+      // Case 9: Assert award row message and event message: event message ends with its award id
       const createCallArg = mockCourierCompensationRepository.create.mock.calls[0]![0]
       const processEventCallArg = mockDeliveryEventService.processDeliveryEvent.mock.calls[0]![0] as any
-      expect(createCallArg.message).toEqual(processEventCallArg.message)
+      expect(createCallArg.message).toEqual(awardMessage)
+      expect(processEventCallArg.message).toEqual(`${createCallArg.message} (award comp-1)`)
 
       // Assert dropped courier added to rejected list (Redis cache)
       expect(mockCacheService.save).toHaveBeenCalledTimes(1)
@@ -355,8 +357,8 @@ describe('DeliveryDomainService', () => {
       expect(result).toEqual(movedOnDelivery)
     })
 
-    test('Spec 0035 AC-23: award is rolled back when hasSuccessfulReassignedWithMessage is false even if reloaded delivery still looks reassigned', async () => {
-      jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+    test('Spec 0035 AC-23 / decision 24.40: award stands and REASSIGNMENT_OUTCOME_UNKNOWN is logged when hasSuccessfulReassignedWithMessage is false but dropped rider is off reloaded delivery', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
 
       const initialDelivery = {
         id: 'del-looks-reassigned',
@@ -365,7 +367,7 @@ describe('DeliveryDomainService', () => {
         totalCompensation: 500,
         currencyCode: 'EUR',
       }
-      // Reloaded delivery looks reassigned, but the trail check says false
+      // Reloaded delivery shows courierId is null (rider is off the delivery)
       const reassignedLookingDelivery = {
         id: 'del-looks-reassigned',
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
@@ -381,12 +383,223 @@ describe('DeliveryDomainService', () => {
 
       mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
+      const result = await service.reassignDelivery('del-looks-reassigned', 'courier-new')
+
+      // Award stands because rider is off delivery: deleteById was NOT called
+      expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
+      expect(result).toEqual(reassignedLookingDelivery)
+
+      // REASSIGNMENT_OUTCOME_UNKNOWN is logged
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining('REASSIGNMENT_OUTCOME_UNKNOWN')
+      )
+    })
+
+    test('decision 24.40 / AC-23: successful row found decides regardless of reloaded delivery: award stands and no REASSIGNMENT_OUTCOME_UNKNOWN log even if reloaded delivery still shows dropped rider', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
+      const initialDelivery = {
+        id: 'del-row-found-stale-reload',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+      // Stale read shows the dropped rider still assigned
+      const staleReloadedDelivery = {
+        id: 'del-row-found-stale-reload',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        matchedCourierId: null,
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(staleReloadedDelivery as any)
+
+      // Event row was found on the trail!
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(true)
+
+      const result = await service.reassignDelivery('del-row-found-stale-reload', 'courier-new')
+
+      // Award stands: deleteById is NOT called
+      expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
+      // Returns reloaded delivery
+      expect(result).toEqual(staleReloadedDelivery)
+      // No REASSIGNMENT_OUTCOME_UNKNOWN logged
+      expect(loggerSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('REASSIGNMENT_OUTCOME_UNKNOWN')
+      )
+    })
+
+    test('decision 24.40 / AC-23: successful row found while rider is off delivery logs no REASSIGNMENT_OUTCOME_UNKNOWN and rolls nothing back', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
+      const initialDelivery = {
+        id: 'del-row-found-rider-off',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+      const reassignedDelivery = {
+        id: 'del-row-found-rider-off',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: 'courier-new',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(reassignedDelivery as any)
+
+      // Event row was found on the trail!
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(true)
+
+      const result = await service.reassignDelivery('del-row-found-rider-off', 'courier-new')
+
+      // Award stands: deleteById is NOT called
+      expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
+      expect(result).toEqual(reassignedDelivery)
+      // Must NOT log REASSIGNMENT_OUTCOME_UNKNOWN
+      expect(loggerSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('REASSIGNMENT_OUTCOME_UNKNOWN')
+      )
+    })
+
+    test('decision 24.40: no successful row found and reloaded delivery still has dropped rider: award is rolled back with deleteById and throws CantUpdateDeliveryStatusError', async () => {
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
+      const initialDelivery = {
+        id: 'del-no-row-dropped-rider-still-on',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+      const reloadedWithSameRider = {
+        id: 'del-no-row-dropped-rider-still-on',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old', // still on delivery
+        matchedCourierId: null,
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(reloadedWithSameRider as any)
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
+
       await expect(
-        service.reassignDelivery('del-looks-reassigned', 'courier-new')
+        service.reassignDelivery('del-no-row-dropped-rider-still-on', 'courier-new')
       ).rejects.toThrow(CantUpdateDeliveryStatusError)
 
-      // Award rolled back because hasSuccessfulReassignedWithMessage answered false
+      // Award is rolled back
       expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-1')
+    })
+
+    test('decision 24.41 / Spec 0035 AC-23: event message ends with (award <id>), hasSuccessfulReassignedWithMessage queried with exact full message, and second reassign between same two riders with failed attempt does not match first attempt message so its award is rolled back', async () => {
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const deliveryId = 'del-double-reassign'
+      const droppedCourierId = 'courier-A'
+      const newCourierId = 'courier-B'
+
+      const deliveryStateBeforeFirst = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: droppedCourierId,
+        matchedCourierId: null,
+        totalCompensation: 300,
+        currencyCode: 'EUR',
+      }
+      const deliveryStateAfterFirst = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: newCourierId,
+        totalCompensation: 300,
+        currencyCode: 'EUR',
+      }
+
+      // First attempt: compensation id is 'comp-attempt-1'
+      mockCourierCompensationRepository.create.mockResolvedValueOnce({ id: 'comp-attempt-1' } as any)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(deliveryStateBeforeFirst as any)
+        .mockResolvedValueOnce(deliveryStateAfterFirst as any)
+
+      const baseAwardMessage =
+        'Admin reassigned delivery from courier courier-A to courier courier-B; ' +
+        'payout policy FULL_COMPENSATION awards 300 EUR (cents) to the dropped courier'
+      const firstAttemptFullMessage = `${baseAwardMessage} (award comp-attempt-1)`
+      const secondAttemptFullMessage = `${baseAwardMessage} (award comp-attempt-2)`
+
+      // Fake for hasSuccessfulReassignedWithMessage:
+      // Answers true ONLY if the queried message matches the first attempt's exact message saved in DB.
+      // If the code queried without (award <id>), the second attempt would also match!
+      const savedMessagesInDb = new Set<string>()
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockImplementation(
+        (_delId: string, message: string) => Promise.resolve(savedMessagesInDb.has(message))
+      )
+
+      // Run first attempt:
+      mockDeliveryEventService.processDeliveryEvent.mockImplementationOnce((event: any) => {
+        savedMessagesInDb.add(event.message)
+        return Promise.resolve()
+      })
+
+      const firstResult = await service.reassignDelivery(deliveryId, newCourierId)
+      expect(firstResult).toEqual(deliveryStateAfterFirst)
+      expect(mockDeliveryEventService.hasSuccessfulReassignedWithMessage).toHaveBeenCalledWith(
+        deliveryId,
+        firstAttemptFullMessage
+      )
+      expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
+
+      // Now, second attempt between the SAME two riders on the SAME delivery:
+      const deliveryStateBeforeSecond = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: droppedCourierId,
+        matchedCourierId: null,
+        totalCompensation: 300,
+        currencyCode: 'EUR',
+      }
+      const deliveryStateAfterFailedSecond = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: droppedCourierId, // Rider is STILL on delivery
+        matchedCourierId: null,
+        totalCompensation: 300,
+        currencyCode: 'EUR',
+      }
+
+      mockCourierCompensationRepository.create.mockResolvedValueOnce({ id: 'comp-attempt-2' } as any)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(deliveryStateBeforeSecond as any)
+        .mockResolvedValueOnce(deliveryStateAfterFailedSecond as any)
+
+      // In this second attempt, processDeliveryEvent did not save the event row
+      mockDeliveryEventService.processDeliveryEvent.mockResolvedValueOnce(undefined)
+
+      await expect(service.reassignDelivery(deliveryId, newCourierId)).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+
+      // Verify that hasSuccessfulReassignedWithMessage was asked about the second attempt's full message
+      expect(mockDeliveryEventService.hasSuccessfulReassignedWithMessage).toHaveBeenLastCalledWith(
+        deliveryId,
+        secondAttemptFullMessage
+      )
+
+      // Because secondAttemptFullMessage !== firstAttemptFullMessage, hasSuccessfulReassignedWithMessage returned false,
+      // and reloaded delivery still shows dropped courier, the second attempt's award ('comp-attempt-2') is rolled back!
+      expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-attempt-2')
     })
 
     // Test Plan Item 4: Rollback undoes the rejected-list entry it added when reassignment does not take effect

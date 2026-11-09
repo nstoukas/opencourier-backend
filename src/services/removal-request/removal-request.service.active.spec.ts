@@ -18,11 +18,11 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import {
+  ADMIN_ORDER_CHANGED_MESSAGE,
   ALREADY_OPEN_MESSAGE,
   BOARD_STALE_MESSAGE,
   LAST_REASON_MESSAGE,
   NOTE_REQUIRED_MESSAGE,
-  ORDER_CHANGED_MESSAGE,
   REASON_GONE_MESSAGE,
   REQUEST_NOT_OPEN_MESSAGE,
   RemovalRequestService,
@@ -348,12 +348,60 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
     })
   })
 
+  describe('Admin refusals answer ADMIN_ORDER_CHANGED_MESSAGE (review nit 1, decision 24.45)', () => {
+    test('admin refusal: rider no longer holds delivery at approve answers ADMIN_ORDER_CHANGED_MESSAGE exactly', async () => {
+      const deliveryWithDifferentCourier = makeDelivery({ courierId: 'courier-different', status: EnumDeliveryStatus.ACCEPTED })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(deliveryWithDifferentCourier)
+
+      let thrownError: any
+      try {
+        await service.approve(requestId, adminUserId, false)
+      } catch (err) {
+        thrownError = err
+      }
+
+      expect(thrownError).toBeInstanceOf(ConflictException)
+      expect(thrownError.message).toBe(ADMIN_ORDER_CHANGED_MESSAGE)
+      expect(mockRemovalRequestRepository.closeIfOpen).toHaveBeenCalledWith(requestId)
+    })
+
+    test('admin refusal: before pickup act missed answers ADMIN_ORDER_CHANGED_MESSAGE exactly', async () => {
+      mockDeliveryEventService.removeRiderBeforePickup.mockResolvedValue(null)
+
+      let thrownError: any
+      try {
+        await service.approve(requestId, adminUserId, false)
+      } catch (err) {
+        thrownError = err
+      }
+
+      expect(thrownError).toBeInstanceOf(ConflictException)
+      expect(thrownError.message).toBe(ADMIN_ORDER_CHANGED_MESSAGE)
+    })
+
+    test('admin refusal: after pickup delivery does not read CANCELED answers ADMIN_ORDER_CHANGED_MESSAGE exactly', async () => {
+      const delivery = makeDelivery({ status: EnumDeliveryStatus.PICKED_UP })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryRepository.findById.mockResolvedValue(makeDelivery({ status: EnumDeliveryStatus.DROPPED_OFF }))
+
+      let thrownError: any
+      try {
+        await service.approve(requestId, adminUserId, true)
+      } catch (err) {
+        thrownError = err
+      }
+
+      expect(thrownError).toBeInstanceOf(ConflictException)
+      expect(thrownError.message).toBe(ADMIN_ORDER_CHANGED_MESSAGE)
+    })
+  })
+
   describe('AC-8: Approve racing a pickup or withdraw (missed action write)', () => {
     test('before pickup: removeRiderBeforePickup returning null saves failed REMOVAL_APPROVED row, undoes claim, answers 409, no pay', async () => {
       mockDeliveryEventService.removeRiderBeforePickup.mockResolvedValue(null)
 
       await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(
-        new ConflictException(ORDER_CHANGED_MESSAGE)
+        new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
       )
 
       // Step 5: Failed REMOVAL_APPROVED row is saved
@@ -385,7 +433,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       mockDeliveryRepository.findById.mockResolvedValue(makeDelivery({ status: EnumDeliveryStatus.DROPPED_OFF }))
 
       await expect(service.approve(requestId, adminUserId, true)).rejects.toThrow(
-        new ConflictException(ORDER_CHANGED_MESSAGE)
+        new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
       )
 
       expect(mockDeliveryEventService.recordRemovalEvent).toHaveBeenCalledWith(
@@ -415,7 +463,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
         makeDelivery({ status: EnumDeliveryStatus.DISPATCHED, courierId })
       )
 
-      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ORDER_CHANGED_MESSAGE)
+      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ADMIN_ORDER_CHANGED_MESSAGE)
 
       expect(mockRemovalRequestRepository.updateIfApproved).toHaveBeenCalledWith(requestId, {
         status: EnumRemovalRequestStatus.OPEN,
@@ -434,7 +482,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
         makeDelivery({ status: EnumDeliveryStatus.DISPATCHED, courierId: 'courier-other' })
       )
 
-      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ORDER_CHANGED_MESSAGE)
+      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ADMIN_ORDER_CHANGED_MESSAGE)
 
       expect(mockRemovalRequestRepository.updateIfApproved).toHaveBeenCalledWith(requestId, {
         status: EnumRemovalRequestStatus.CLOSED,
@@ -453,7 +501,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
         makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId })
       )
 
-      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ORDER_CHANGED_MESSAGE)
+      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ADMIN_ORDER_CHANGED_MESSAGE)
 
       expect(mockRemovalRequestRepository.updateIfApproved).toHaveBeenCalledWith(requestId, {
         status: EnumRemovalRequestStatus.CLOSED,
@@ -483,7 +531,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
         )
         .mockResolvedValueOnce(true)
 
-      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ORDER_CHANGED_MESSAGE)
+      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ADMIN_ORDER_CHANGED_MESSAGE)
 
       // Fallback sets CLOSED
       expect(mockRemovalRequestRepository.updateIfApproved).toHaveBeenLastCalledWith(requestId, {
@@ -735,6 +783,93 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       expect(sentRequest.label).toBe('Moped breakdown')
       expect(sentRequest.paidToRider).toBe(true)
       expect(sentRequest.chargedToRestaurant).toBe(false)
+    })
+
+    test('createReason passes only editable reason fields: extra keys like removedAt and id do not reach repository (review minor 6)', async () => {
+      mockRemovalRequestRepository.createReason = jest.fn().mockResolvedValue({ id: 'r-created' } as any)
+
+      const dirtyInput = {
+        label: '  Flat tire  ',
+        paidToRider: true,
+        chargedToRestaurant: false,
+        needsNote: false,
+        position: 10,
+        removedAt: new Date(),
+        id: 'injected-id',
+        createdAt: new Date(),
+      } as any
+
+      await service.createReason(dirtyInput)
+
+      expect(mockRemovalRequestRepository.createReason).toHaveBeenCalledTimes(1)
+      const createArg = (mockRemovalRequestRepository.createReason as jest.Mock).mock.calls[0][0]
+      expect(createArg).toEqual({
+        label: 'Flat tire',
+        paidToRider: true,
+        chargedToRestaurant: false,
+        needsNote: false,
+        position: 10,
+      })
+      expect(createArg).not.toHaveProperty('removedAt')
+      expect(createArg).not.toHaveProperty('id')
+      expect(createArg).not.toHaveProperty('createdAt')
+    })
+
+    test('updateReason with a label passes only editable reason fields: extra keys like removedAt and id do not reach repository (review minor 6)', async () => {
+      mockRemovalRequestRepository.updateActiveReason = jest.fn().mockResolvedValue({ id: 'r-1' } as any)
+
+      const dirtyInputWithLabel = {
+        label: '  Updated Label  ',
+        paidToRider: false,
+        chargedToRestaurant: true,
+        needsNote: true,
+        position: 3,
+        removedAt: new Date(),
+        id: 'injected-id-2',
+        updatedAt: new Date(),
+      } as any
+
+      await service.updateReason('r-1', dirtyInputWithLabel)
+
+      expect(mockRemovalRequestRepository.updateActiveReason).toHaveBeenCalledTimes(1)
+      const [idArg, dataArg] = (mockRemovalRequestRepository.updateActiveReason as jest.Mock).mock.calls[0]
+      expect(idArg).toBe('r-1')
+      expect(dataArg).toEqual({
+        label: 'Updated Label',
+        paidToRider: false,
+        chargedToRestaurant: true,
+        needsNote: true,
+        position: 3,
+      })
+      expect(dataArg).not.toHaveProperty('removedAt')
+      expect(dataArg).not.toHaveProperty('id')
+      expect(dataArg).not.toHaveProperty('updatedAt')
+    })
+
+    test('updateReason without a label passes only editable reason fields: extra keys like removedAt and id do not reach repository (review minor 6)', async () => {
+      mockRemovalRequestRepository.updateActiveReason = jest.fn().mockResolvedValue({ id: 'r-2' } as any)
+
+      const dirtyInputWithoutLabel = {
+        paidToRider: true,
+        position: 5,
+        removedAt: new Date(),
+        id: 'injected-id-3',
+      } as any
+
+      await service.updateReason('r-2', dirtyInputWithoutLabel)
+
+      expect(mockRemovalRequestRepository.updateActiveReason).toHaveBeenCalledTimes(1)
+      const [idArg, dataArg] = (mockRemovalRequestRepository.updateActiveReason as jest.Mock).mock.calls[0]
+      expect(idArg).toBe('r-2')
+      expect(dataArg).toEqual({
+        label: undefined,
+        paidToRider: true,
+        chargedToRestaurant: undefined,
+        needsNote: undefined,
+        position: 5,
+      })
+      expect(dataArg).not.toHaveProperty('removedAt')
+      expect(dataArg).not.toHaveProperty('id')
     })
   })
 
@@ -1140,7 +1275,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       // 6. failure path: missed approval before pickup
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(makeDelivery({ status: EnumDeliveryStatus.ACCEPTED }))
       mockDeliveryEventService.removeRiderBeforePickup.mockResolvedValue(null)
-      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ORDER_CHANGED_MESSAGE)
+      await expect(service.approve(requestId, adminUserId, false)).rejects.toThrow(ADMIN_ORDER_CHANGED_MESSAGE)
 
       // 7. failure path: event recording error logs error with deliveryId but never note
       mockDeliveryRepository.findById.mockResolvedValue(
@@ -1189,7 +1324,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       )
 
       await expect(service.approve(requestId, adminUserId, true)).rejects.toThrow(
-        new ConflictException(ORDER_CHANGED_MESSAGE)
+        new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
       )
 
       // Confirm that the catch block in approveAfterPickup executed

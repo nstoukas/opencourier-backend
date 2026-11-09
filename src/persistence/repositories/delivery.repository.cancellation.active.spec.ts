@@ -4,6 +4,7 @@ import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
   EnumPartnerChargeReason,
+  EnumRemovalRequestStatus,
 } from '@prisma/types'
 import { DeliveryRepository } from './delivery.repository'
 import { CourierCompensationRepository } from './courier-compensation.repository'
@@ -105,6 +106,15 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
           courierCompensations: {
             where: { reason: EnumCourierCompensationReason.CANCELLATION, courierId: 'courier-1' },
           },
+          removalRequests: {
+            where: {
+              status: EnumRemovalRequestStatus.APPROVED,
+              afterPickup: true,
+              paidToRider: false,
+              courierId: 'courier-1',
+            },
+            select: { id: true },
+          },
         },
       })
       const calledWhere = mockPrisma.delivery.findMany.mock.calls[0][0].where
@@ -131,10 +141,37 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
           courierCompensations: {
             where: { reason: EnumCourierCompensationReason.CANCELLATION, courierId: 'courier-1' },
           },
+          removalRequests: {
+            where: {
+              status: EnumRemovalRequestStatus.APPROVED,
+              afterPickup: true,
+              paidToRider: false,
+              courierId: 'courier-1',
+            },
+            select: { id: true },
+          },
         },
       })
       const calledWhere = mockPrisma.delivery.findMany.mock.calls[0][0].where
       expect(calledWhere.id).toBe('del-specific-1')
+    })
+
+    it('Spec 0035 decision 24.5: includes approved, after pickup, unpaid removal requests for this rider only', async () => {
+      const since = new Date('2026-10-31T12:00:00Z')
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([])
+
+      await repository.findCancelledJobsForCourier('courier-rider-specific', since, DELIVERY_ONGOING_STATUSES)
+
+      const includeArg = mockPrisma.delivery.findMany.mock.calls[0][0].include
+      expect(includeArg.removalRequests).toEqual({
+        where: {
+          status: EnumRemovalRequestStatus.APPROVED,
+          afterPickup: true,
+          paidToRider: false,
+          courierId: 'courier-rider-specific',
+        },
+        select: { id: true },
+      })
     })
 
     it('findPartnerCharge queries partnerCharge by deliveryId with selected fields', async () => {

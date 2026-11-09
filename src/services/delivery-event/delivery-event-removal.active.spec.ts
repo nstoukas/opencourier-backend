@@ -531,6 +531,91 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(mockRemovalRequestRepository.markSettled).not.toHaveBeenCalled()
     })
 
+    test('settleCancellation: failure in finishRemovalSettlement is caught, does not throw, leaves settledAt null, logs REMOVAL_SETTLE_FAILED, runs restaurant cancellation charge, and later settleRemoval finishes settlement', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+        cancelledBy: EnumCancelledBy.RESTAURANT,
+        partnerId: 'partner-99',
+        totalCost: 800,
+        currencyCode: 'EUR',
+        courierId,
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+      const approvedRequest = makeRequest({
+        paidToRider: true,
+        chargedToRestaurant: true,
+        payAmount: 400,
+        payPolicy: 'FULL_COMPENSATION',
+        afterPickup: true,
+        settledAt: null,
+      })
+      mockRemovalRequestRepository.findApprovedAfterPickup.mockResolvedValue(approvedRequest)
+      mockCourierCompensationRepository.findCancellationAward.mockResolvedValue({ id: 'comp-1', amount: 400 } as any)
+
+      // Make finishRemovalSettlement fail for real: markSettled rejects
+      mockRemovalRequestRepository.markSettled.mockRejectedValueOnce(new Error('Database error during markSettled'))
+
+      // settleCancellation does NOT throw
+      await expect(service.settleCancellation(deliveryId)).resolves.not.toThrow()
+
+      // REMOVAL_SETTLE_FAILED is logged with deliveryId
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`REMOVAL_SETTLE_FAILED {"deliveryId":"${deliveryId}"}`)
+      )
+
+      // chargePartnerForCancellation still runs for restaurant cancellation
+      expect(mockPartnerChargeRepository.createOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partnerId: 'partner-99',
+          deliveryId,
+          amount: 800,
+          reason: EnumPartnerChargeReason.CANCELLATION,
+        })
+      )
+
+      // settledAt stayed null because markSettled failed
+      expect(approvedRequest.settledAt).toBeNull()
+
+      // A later settleRemoval finishes the settlement
+      mockRemovalRequestRepository.findById.mockResolvedValue(approvedRequest)
+      mockRemovalRequestRepository.markSettled.mockClear()
+      mockRemovalRequestRepository.markSettled.mockResolvedValueOnce(undefined)
+      await service.settleRemoval(requestId)
+      expect(mockRemovalRequestRepository.markSettled).toHaveBeenCalledTimes(1)
+      expect(mockRemovalRequestRepository.markSettled).toHaveBeenCalledWith(requestId)
+    })
+
+    test('settleCancellation: REMOVAL_LOOKUP_FAILED branch stops award and compensation write, logs error, does not throw', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+        courierId,
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+      mockRemovalRequestRepository.findApprovedAfterPickup.mockRejectedValueOnce(
+        new Error('Database read failure for approved removal')
+      )
+
+      await expect(service.settleCancellation(deliveryId)).resolves.not.toThrow()
+
+      // Error logged with REMOVAL_LOOKUP_FAILED and deliveryId
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`REMOVAL_LOOKUP_FAILED {"deliveryId":"${deliveryId}"}`)
+      )
+
+      // Award is NOT made, no compensation write
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).not.toHaveBeenCalled()
+      expect(mockCourierCompensationRepository.createRemovalPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION })
+      )
+    })
+
     test('pin repository query: findApprovedAfterPickup filters by status APPROVED, afterPickup true and courierId', async () => {
       const mockPrisma = {
         deliveryRemovalRequest: {

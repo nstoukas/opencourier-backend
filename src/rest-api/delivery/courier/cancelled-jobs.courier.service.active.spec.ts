@@ -43,6 +43,7 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
       state: 'Thessaly',
     },
     courierCompensations: [{ amount: 450 }],
+    removalRequests: [],
   }
 
   beforeEach(() => {
@@ -210,6 +211,42 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
       it('returns payAmount = null when courierCompensations is empty (pay is still being recorded)', async () => {
         mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
           { ...sampleCancelledRow, courierCompensations: [] } as any,
+        ])
+
+        const jobs = await service.getMyCancelledJobs(courierId)
+        expect(jobs[0]!.payAmount).toBeNull()
+      })
+
+      it('answers payAmount = 0 for an approved after-pickup unpaid removal job when courierCompensations is empty (decision 24.5, 24.42)', async () => {
+        mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
+          { ...sampleCancelledRow, courierCompensations: [], removalRequests: [{ id: 'req-unpaid-1' }] } as any,
+        ])
+
+        const jobs = await service.getMyCancelledJobs(courierId)
+        expect(jobs[0]!.payAmount).toBe(0)
+      })
+
+      it('answers the award amount when an award row exists and removalRequests is empty', async () => {
+        mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
+          { ...sampleCancelledRow, courierCompensations: [{ amount: 450 }], removalRequests: [] } as any,
+        ])
+
+        const jobs = await service.getMyCancelledJobs(courierId)
+        expect(jobs[0]!.payAmount).toBe(450)
+      })
+
+      it('answers the award amount when both an award row and an approved unpaid removal request exist', async () => {
+        mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
+          { ...sampleCancelledRow, courierCompensations: [{ amount: 450 }], removalRequests: [{ id: 'req-unpaid-1' }] } as any,
+        ])
+
+        const jobs = await service.getMyCancelledJobs(courierId)
+        expect(jobs[0]!.payAmount).toBe(450)
+      })
+
+      it('answers payAmount = null when neither award nor approved unpaid removal exists', async () => {
+        mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
+          { ...sampleCancelledRow, courierCompensations: [], removalRequests: [] } as any,
         ])
 
         const jobs = await service.getMyCancelledJobs(courierId)

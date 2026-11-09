@@ -404,7 +404,7 @@ describe('DeliveryEventDomainService', () => {
         droppedOffAt: new Date('2026-07-10T09:00:00Z'),
         dropoffAddress: 'Address A',
         pickupBusinessName: 'Pizzeria',
-        compensation: 600, // 450 + 150
+        compensation: 450, // Main line holds what is left after breaking out other lines
         tips: 0,
         total: 600,
         kind: 'CANCELLATION_COMPENSATION',
@@ -446,6 +446,141 @@ describe('DeliveryEventDomainService', () => {
       expect(result?.waitingPay).toBe(120)
       expect(result?.returnTripPay).toBeUndefined()
       expect(result?.total).toBe(720) // 500 + 100 + 120 waitingPay (RETURN_TRIP not added)
+    })
+
+    test('job not delivered, removal with wait: REMOVAL names line, compensation holds removal amount, waitingPay is own field, removalPay key absent, compensation plus waitingPay equals total (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-removal-wait',
+          createdAt: new Date('2026-07-10T09:00:00Z'),
+          amount: 250,
+          reason: EnumCourierCompensationReason.REMOVAL,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-removal-wait',
+          createdAt: new Date('2026-07-10T09:10:00Z'),
+          amount: 80,
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-removal-wait')
+
+      expect(result).not.toBeNull()
+      expect(result?.kind).toBe('REMOVAL_COMPENSATION')
+      expect(result?.compensation).toBe(250)
+      expect(result?.waitingPay).toBe(80)
+      expect(result).not.toHaveProperty('removalPay')
+      expect(result?.total).toBe(330)
+      expect(result!.compensation + result!.waitingPay!).toBe(result!.total)
+    })
+
+    test('job not delivered, cancellation with removal, wait and return trip: CANCELLATION names line, compensation holds cancellation amount, other pays in own fields, sum equals total (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-canc-all',
+          createdAt: new Date('2026-07-10T09:00:00Z'),
+          amount: 400,
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-canc-all',
+          createdAt: new Date('2026-07-10T09:05:00Z'),
+          amount: 120,
+          reason: EnumCourierCompensationReason.REMOVAL,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-canc-all',
+          createdAt: new Date('2026-07-10T09:10:00Z'),
+          amount: 70,
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-canc-all',
+          createdAt: new Date('2026-07-10T09:20:00Z'),
+          amount: 150,
+          reason: EnumCourierCompensationReason.RETURN_TRIP,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-canc-all')
+
+      expect(result).not.toBeNull()
+      expect(result?.kind).toBe('CANCELLATION_COMPENSATION')
+      expect(result?.compensation).toBe(400)
+      expect(result?.removalPay).toBe(120)
+      expect(result?.waitingPay).toBe(70)
+      expect(result?.returnTripPay).toBe(150)
+      expect(result?.total).toBe(740)
+      expect(result!.compensation + result!.removalPay! + result!.waitingPay! + result!.returnTripPay!).toBe(result!.total)
+    })
+
+    test('delivered job with both WAITING and REMOVAL: total is delivered total plus wait plus removal, and waitingPay and removalPay are each their own field (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-delivered-wait-removal',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 500,
+        tips: 50,
+        pickupBusinessName: 'Pizzeria',
+        dropoffAddress: 'Address B',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-delivered-wait-removal',
+          createdAt: new Date('2026-07-10T09:40:00Z'),
+          amount: 110,
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: null,
+        },
+        {
+          deliveryId: 'del-delivered-wait-removal',
+          createdAt: new Date('2026-07-10T09:45:00Z'),
+          amount: 130,
+          reason: EnumCourierCompensationReason.REMOVAL,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: null,
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-delivered-wait-removal')
+
+      expect(result?.waitingPay).toBe(110)
+      expect(result?.removalPay).toBe(130)
+      expect(result?.total).toBe(790) // 550 + 110 + 130
+    })
+
+    test('delivered job with neither WAITING nor REMOVAL row: returned object has no waitingPay key and no removalPay key (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-delivered-plain',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 500,
+        tips: 50,
+        pickupBusinessName: 'Pizzeria',
+        dropoffAddress: 'Address C',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-delivered-plain')
+
+      expect(result).not.toBeNull()
+      expect(result).not.toHaveProperty('waitingPay')
+      expect(result).not.toHaveProperty('removalPay')
+      expect(result?.total).toBe(550)
     })
   })
 
