@@ -73,7 +73,7 @@ import { CourierCompensationRepository } from 'src/persistence/repositories/cour
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
 import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
-import { completedWaits, paidWaitMinutes, waitOfKey } from 'src/domains/delivery/wait-pay'
+import { latestCompletedWait, paidWaitMinutes, waitOfKey } from 'src/domains/delivery/wait-pay'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -1204,6 +1204,7 @@ export class DeliveryEventService {
   // is still missing. Only the newest wait can start a payment: an earlier one ended either paid or
   // while delay pay was off. Safe to call any number of times (right after the wait and from the
   // minute sweep). Never throws: waitPayOwedAt stays set on a failure, so the sweep tries again.
+  // The free minutes and rate are read here: only a retry after a representative changes one differs.
   async settleWaitPay(deliveryId: string): Promise<void> {
     try {
       const delivery = await this.deliveryRepository.findById(deliveryId)
@@ -1213,11 +1214,11 @@ export class DeliveryEventService {
       const freeMinutes = await config.getWaitPayFreeMinutes()
       const centsPerMinute = await config.getWaitPayCentsPerMinute()
       const events = await this.deliveryEventRepository.findWaitEvents(deliveryId)
-      const waits = completedWaits(events, delivery.promisedReadyAt, freeMinutes)
-      const newest = waits[waits.length - 1]
+      const newest = latestCompletedWait(events, delivery.promisedReadyAt, freeMinutes)
 
       const awards = await this.courierCompensationRepository.findWaitAwards(deliveryId)
-      if (newest && !awards.some((award) => award.waitOf === waitOfKey(deliveryId, newest.endEventId))) {
+      // A rate set to 0 since the wait ended writes nothing (decision 23.10).
+      if (newest && centsPerMinute > 0 && !awards.some((award) => award.waitOf === waitOfKey(deliveryId, newest.endEventId))) {
         if (newest.courierId) {
           awards.push(
             await this.courierCompensationRepository.createWaitPayOnce({
@@ -1232,11 +1233,19 @@ export class DeliveryEventService {
             })
           )
         } else {
+          // Only a PICKED_UP saved before spec 0033 can have no rider.
           this.logger.warn(`Delivery ${deliveryId}: a wait ended with no rider on record, so it was not paid`)
         }
       }
       for (const award of awards) {
         await this.finishWaitPayment(delivery, award)
+      }
+
+      // Nothing on the trail to pay from, though the status write said pay is owed: an event was never
+      // saved. The stamp stays, so the sweep keeps trying for a day and the gap shows in the log.
+      if (!newest) {
+        this.logger.error(`WAIT_PAY_NOT_ON_TRAIL ${JSON.stringify({ deliveryId })}`)
+        return
       }
 
       // Only the time that was read: a wait that became owed meanwhile keeps its own.
@@ -1256,6 +1265,7 @@ export class DeliveryEventService {
     const waitOf = award.waitOf
     if (!waitOf) return
 
+    // The event's message carries `wait <waitOf>` below and this check reads it: keep that part as is.
     const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
     if (!paidMessages.some((message) => message.includes(waitOf))) {
       const event: DeliveryCourierPaidForWaitEvent = {

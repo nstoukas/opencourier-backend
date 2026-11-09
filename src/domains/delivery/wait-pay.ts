@@ -60,6 +60,21 @@ export function completedWaits(events: WaitEvent[], promisedReadyAt: Date | null
   return waits
 }
 
+// The wait closed by the newest end event on the trail, or null when the trail cannot show one: the
+// end or its arrival was never saved, or it earned no minutes. A wait from earlier in the delivery's
+// history is never returned, so it cannot be paid in place of the one that is owed.
+export function latestCompletedWait(
+  events: WaitEvent[],
+  promisedReadyAt: Date | null,
+  freeMinutes: number
+): CompletedWait | null {
+  const ends = events.filter((event) => WAIT_END_EVENTS.includes(event.type))
+  const lastEnd = ends[ends.length - 1]
+  const waits = completedWaits(events, promisedReadyAt, freeMinutes)
+  const last = waits[waits.length - 1]
+  return lastEnd && last && last.endEventId === lastEnd.id ? last : null
+}
+
 export function waitOfKey(deliveryId: string, endEventId: string): string {
   return `${deliveryId}:${endEventId}`
 }
