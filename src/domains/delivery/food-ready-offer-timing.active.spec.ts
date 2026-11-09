@@ -148,5 +148,22 @@ describe('DeliveryDomainService.markFoodReady - Offer Timing (Spec 0031: AC-7)',
 
       expect(deliveryEventService.offerOrWait).not.toHaveBeenCalled()
     })
+
+    it('does not reject markFoodReady when offerOrWait throws an error', async () => {
+      const initial = baseDelivery()
+      const updated = { ...initial, foodReadyAt: NOW }
+
+      deliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValueOnce(updated)
+
+      deliveryEventService.offerOrWait.mockRejectedValueOnce(
+        new Error('BullMQ connection failure during offerOrWait')
+      )
+
+      // The restaurant's tap is already saved and notified; offer failure must not reject markFoodReady
+      await expect(service.markFoodReady('del-1')).resolves.toEqual(updated)
+      expect(deliveryEventService.offerOrWait).toHaveBeenCalledWith('del-1')
+    })
   })
 })

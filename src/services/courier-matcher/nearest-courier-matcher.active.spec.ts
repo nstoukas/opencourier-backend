@@ -214,6 +214,81 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
       })
     })
 
+    it('two candidates with no route keep their nearest first order, and a routed rider beats any unrouted one', async () => {
+      // Candidate A: 200m straight line, OSRM fails (unrouted)
+      // Candidate B: 800m straight line, road time 500s (routed)
+      // Candidate C: 1200m straight line, OSRM fails (unrouted)
+      const candidates = [
+        {
+          courierId: 'courier-A',
+          distance: 200,
+          courierLocation: { latitude: 39.36, longitude: 22.94 },
+        },
+        {
+          courierId: 'courier-B',
+          distance: 800,
+          courierLocation: { latitude: 39.37, longitude: 22.95 },
+        },
+        {
+          courierId: 'courier-C',
+          distance: 1200,
+          courierLocation: { latitude: 39.38, longitude: 22.96 },
+        },
+      ]
+
+      courierDomainService.getNearestAvailableCandidates.mockResolvedValueOnce(candidates)
+
+      osrmRoutingService.getRoute.mockImplementation(async (args) => {
+        // Only courier B routes successfully; A and C fail OSRM routing
+        if (args.fromLocation.latitude === 39.37) {
+          return { durationSeconds: 500 } as any
+        }
+        throw new Error('OSRM routing engine unreachable')
+      })
+
+      const result = await service.findCourierForDelivery({
+        pickupLocation,
+        dropoffLocation,
+        rejectedCourierIds: [],
+      })
+
+      // 1. Routed rider (Candidate B) beats unrouted rider (Candidate A), even though Candidate A is closer straight-line
+      expect(result).toEqual({
+        courierId: 'courier-B',
+        distance: 800,
+        travelSeconds: 500,
+      })
+
+      // 2. When only candidates with no route exist, they preserve their nearest-first straight-line order
+      const unroutedOnly = [
+        {
+          courierId: 'courier-A',
+          distance: 200,
+          courierLocation: { latitude: 39.36, longitude: 22.94 },
+        },
+        {
+          courierId: 'courier-C',
+          distance: 1200,
+          courierLocation: { latitude: 39.38, longitude: 22.96 },
+        },
+      ]
+      courierDomainService.getNearestAvailableCandidates.mockResolvedValueOnce(unroutedOnly)
+      osrmRoutingService.getRoute.mockRejectedValue(new Error('OSRM unreachable'))
+
+      const unroutedResult = await service.findCourierForDelivery({
+        pickupLocation,
+        dropoffLocation,
+        rejectedCourierIds: ['courier-B'],
+      })
+
+      // Candidate A (200m) beats Candidate C (1200m), both having travelSeconds null
+      expect(unroutedResult).toEqual({
+        courierId: 'courier-A',
+        distance: 200,
+        travelSeconds: null,
+      })
+    })
+
     it('picks the straight-line nearest rider with travelSeconds null when all candidate routes fail', async () => {
       const candidates = [
         {

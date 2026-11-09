@@ -299,6 +299,40 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       )
     })
 
+    it('held delay scheduled with BullMQ is a whole number of milliseconds even with fractional road duration', async () => {
+      // readyAt is in 9 min 20 sec (560,000 ms).
+      // Travel: 350.4995 seconds (350,499.5 ms, fractional). Lead: 3 min (180,000 ms).
+      // dueAt = readyAt - 350.4995s - 180s = NOW_MS + 29,500.5 ms.
+      // Math.min(29,500.5, 30,000) = 29,500.5 ms (fractional!).
+      const delivery = createWaitingDelivery('del-fractional-delay', {
+        readyAt: new Date(NOW_MS + (9 * 60 + 20) * 1000),
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+
+      const courier = createMatchedCourier()
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery,
+        pickupLocation,
+        travelSeconds: 350.4995,
+      })
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
+
+      const result = await (service as any).offerToNextCourier('del-fractional-delay')
+
+      expect(result).toBe('NOT_DUE')
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'no-courier-retry',
+        { deliveryId: 'del-fractional-delay' },
+        expect.objectContaining({ delay: 29501 })
+      )
+      const scheduledDelay = mockBullMQService.addJob.mock.calls[0][2].delay
+      // Math.ceil converts fractional milliseconds into a whole integer
+      expect(Number.isInteger(scheduledDelay)).toBe(true)
+      expect(scheduledDelay % 1).toBe(0)
+      expect(scheduledDelay).toBe(29501)
+    })
+
     it('offers now when the due moment has passed (now >= dueAt), including timing note in OFFERED event message', async () => {
       // readyAt is in 5 min (300s).
       // Travel is 6 min (360s). Lead is 3 min (180s).
@@ -384,8 +418,8 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
   })
 
   describe('AC-5: OSRM Failure, Unknown Location, or Missing readyAt', () => {
-    it('offers now with travel unknown when OSRM fails for the chosen rider', async () => {
-      const delivery = createWaitingDelivery('del-osrm-fail', {
+    it('when matcher gives travelSeconds null (it tried, no route), offerTimingOf makes no second route call and says travel unknown', async () => {
+      const delivery = createWaitingDelivery('del-matcher-null-route', {
         readyAt: new Date(NOW_MS + 25 * 60_000),
       })
       mockDeliveryRepository.findByIdOrThrow
@@ -393,7 +427,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
         .mockResolvedValueOnce({ ...delivery, matchedCourierId: 'courier-1' })
 
       const courier = createMatchedCourier()
-      // Matcher did not provide travelSeconds (e.g. Seniority or Static matcher, or OSRM failed)
+      // Matcher tried candidate ranking and could not route: travelSeconds is null
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier,
         delivery,
@@ -402,7 +436,79 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       })
       mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
 
-      // OSRM routing throws an error
+      const result = await (service as any).offerToNextCourier('del-matcher-null-route')
+
+      // Must offer now, never held
+      expect(result).toBe('OFFERED')
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+
+      // Makes NO second route call! Neither rider location nor OSRM is queried
+      expect(mockCourierRepository.getCurrentLocation).not.toHaveBeenCalled()
+      expect(mockOsrmRoutingService.getRoute).not.toHaveBeenCalled()
+
+      // Event message says travel unknown
+      const readyClock = clock(delivery.readyAt!)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.OFFERED,
+          message: expect.stringContaining(`, ready ${readyClock}, travel unknown`),
+        })
+      )
+    })
+
+    it('when matcher gives travelSeconds undefined (SENIORITY or STATIC), offerTimingOf asks for the route', async () => {
+      const delivery = createWaitingDelivery('del-matcher-undefined-route', {
+        readyAt: new Date(NOW_MS + 25 * 60_000),
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+
+      const courier = createMatchedCourier('courier-senior', 'user-senior')
+      // SENIORITY or STATIC matcher does not set travelSeconds (undefined)
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery,
+        pickupLocation,
+        travelSeconds: undefined,
+      })
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
+
+      const riderLoc = { latitude: 39.36, longitude: 22.94 }
+      mockCourierRepository.getCurrentLocation.mockResolvedValueOnce(riderLoc)
+      mockOsrmRoutingService.getRoute.mockResolvedValueOnce({ durationSeconds: 360 })
+
+      const result = await (service as any).offerToNextCourier('del-matcher-undefined-route')
+
+      // Must ask for the route
+      expect(mockCourierRepository.getCurrentLocation).toHaveBeenCalledWith('courier-senior')
+      expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledWith({
+        fromLocation: riderLoc,
+        toLocation: pickupLocation,
+      })
+
+      // Timing applies: dueAt = 25m - 6m - 3m = 16 min in future -> held
+      expect(result).toBe('NOT_DUE')
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+    })
+
+    it('offers now with travel unknown when matcher gives travelSeconds undefined and OSRM fails for chosen rider', async () => {
+      const delivery = createWaitingDelivery('del-osrm-fail', {
+        readyAt: new Date(NOW_MS + 25 * 60_000),
+      })
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(delivery)
+        .mockResolvedValueOnce({ ...delivery, matchedCourierId: 'courier-1' })
+
+      const courier = createMatchedCourier()
+      // Matcher did not set travelSeconds (e.g. Seniority or Static matcher)
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery,
+        pickupLocation,
+        travelSeconds: undefined,
+      })
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
+
+      mockCourierRepository.getCurrentLocation.mockResolvedValueOnce({ latitude: 39.36, longitude: 22.94 })
       mockOsrmRoutingService.getRoute.mockRejectedValueOnce(new Error('OSRM 500 error'))
 
       const result = await (service as any).offerToNextCourier('del-osrm-fail')
@@ -421,7 +527,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       )
     })
 
-    it('offers now with travel unknown when rider has no known current location', async () => {
+    it('offers now with travel unknown when matcher gives travelSeconds undefined and rider has no known current location', async () => {
       const delivery = createWaitingDelivery('del-no-loc', {
         readyAt: new Date(NOW_MS + 25 * 60_000),
       })
@@ -434,7 +540,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
         courier,
         delivery,
         pickupLocation,
-        travelSeconds: null,
+        travelSeconds: undefined,
       })
       mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
 
@@ -444,6 +550,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       const result = await (service as any).offerToNextCourier('del-no-loc')
 
       expect(result).toBe('OFFERED')
+      expect(mockOsrmRoutingService.getRoute).not.toHaveBeenCalled()
       const readyClock = clock(delivery.readyAt!)
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -507,6 +614,104 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       expect(eventCall.message).not.toContain('22.')
       expect(eventCall.message).not.toContain('latitude')
       expect(eventCall.message).not.toContain('longitude')
+    })
+  })
+
+  describe('AC-7: Ready signals interaction (READY_DELAYED on held delivery)', () => {
+    it('a held delivery whose readyAt moved later is held again, for the later moment, on the next look', async () => {
+      // 1. Initial state: readyAt is in 10 minutes (600s).
+      // Travel is 6 min (360s), lead is 3 min (180s).
+      // dueAt = readyAt - 9 min = 1 minute from NOW_MS (60,000 ms).
+      const initialReadyAt = new Date(NOW_MS + 10 * 60_000)
+      const deliveryInitial = createWaitingDelivery('del-delayed-held', {
+        readyAt: initialReadyAt,
+      })
+
+      const courier = createMatchedCourier()
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue(courier)
+
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(deliveryInitial)
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery: deliveryInitial,
+        pickupLocation,
+        travelSeconds: 360,
+      })
+
+      // First look at NOW_MS: held because due moment is 1 min in future
+      const firstResult = await (service as any).offerToNextCourier('del-delayed-held')
+      expect(firstResult).toBe('NOT_DUE')
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'no-courier-retry',
+        { deliveryId: 'del-delayed-held' },
+        expect.objectContaining({ delay: 30_000 })
+      )
+
+      // 2. Restaurant moves readyAt later by 15 min (e.g. via delayReady / READY_DELAYED)
+      // New readyAt is NOW_MS + 25 min (1500s).
+      // New due moment is readyAt - 9 min = NOW_MS + 16 min (960,000 ms).
+      const updatedReadyAt = new Date(NOW_MS + 25 * 60_000)
+      const deliveryDelayed = {
+        ...deliveryInitial,
+        readyAt: updatedReadyAt,
+      }
+
+      // 3. System clock advances by 2 minutes (past the original due moment of NOW_MS + 1 min!).
+      // If readyAt had NOT moved, this second look would have offered the delivery.
+      jest.advanceTimersByTime(2 * 60_000)
+
+      // The next backstop re-evaluation reads the delivery with updated readyAt
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(deliveryDelayed)
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery: deliveryDelayed,
+        pickupLocation,
+        travelSeconds: 360,
+      })
+
+      // Second look: re-evaluates timing afresh against the later readyAt
+      // At this moment, dueAt is still 14 minutes in future (840,000 ms).
+      const secondResult = await (service as any).offerToNextCourier('del-delayed-held')
+
+      // Held again!
+      expect(secondResult).toBe('NOT_DUE')
+      // Nobody offered, no updateIfMatches called
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      // Rescheduled with delay min(840_000, 30_000) = 30_000 ms
+      expect(mockBullMQService.addJob).toHaveBeenCalledTimes(2)
+      expect(mockBullMQService.addJob).toHaveBeenLastCalledWith(
+        'no-courier-retry',
+        { deliveryId: 'del-delayed-held' },
+        expect.objectContaining({ delay: 30_000 })
+      )
+
+      // 4. Advance time past the new due moment (to NOW_MS + 17 min)
+      jest.advanceTimersByTime(15 * 60_000)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(deliveryDelayed)
+        .mockResolvedValueOnce({ ...deliveryDelayed, matchedCourierId: courier.id })
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
+        courier,
+        delivery: deliveryDelayed,
+        pickupLocation,
+        travelSeconds: 360,
+      })
+
+      // Third look: now due! Offers now!
+      const thirdResult = await (service as any).offerToNextCourier('del-delayed-held')
+      expect(thirdResult).toBe('OFFERED')
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        'del-delayed-held',
+        expect.anything(),
+        expect.objectContaining({ matchedCourierId: courier.id })
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.OFFERED,
+          message: expect.stringContaining(`, ready ${clock(updatedReadyAt)}, travel ~6 min, lead 3 min`),
+        })
+      )
     })
   })
 
