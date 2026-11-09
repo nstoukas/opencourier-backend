@@ -4,7 +4,7 @@ import { DeliveryDomainService } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
-import { READY_ACTION_STATUSES } from './ready-signals'
+import { PARTNER_ENDED_STATUSES, READY_ACTION_STATUSES } from './ready-signals'
 
 // Spec 0023: the ready time at creation (AC-1), "+5 / +10 / +15 min" (AC-3, AC-5) and "Food ready"
 // (AC-4), as DeliveryDomainService runs them. Nothing here may touch pay, the quote or pickupReadyAt
@@ -542,5 +542,16 @@ describe('DeliveryDomainService ready signals (spec 0023)', () => {
         expect(deliveryEventService.recordReadyEvent).not.toHaveBeenCalled()
       }
     )
+  })
+
+  // Spec 0023 & review fix: ended statuses live in the domain, not a route file.
+  describe('PARTNER_ENDED_STATUSES (ready-signals.ts)', () => {
+    test('contains exactly DROPPED_OFF, CANCELED, and FAILED in the domain', () => {
+      expect(PARTNER_ENDED_STATUSES).toEqual([
+        EnumDeliveryStatus.DROPPED_OFF,
+        EnumDeliveryStatus.CANCELED,
+        EnumDeliveryStatus.FAILED,
+      ])
+    })
   })
 })

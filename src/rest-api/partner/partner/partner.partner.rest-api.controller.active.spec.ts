@@ -61,6 +61,7 @@ describe('PartnerPartnerRestApiController', () => {
       // Verify mapped profile DTO fields
       expect(result.name).toBe('To Steki')
       expect(result.phoneNumber).toBe('+302421012345')
+      expect(result.usualPrepMinutes).toBe(15)
       expect(result.pickupAddress).toEqual({
         street: 'Koumountourou',
         houseNumber: '15',
@@ -100,7 +101,22 @@ describe('PartnerPartnerRestApiController', () => {
       expect(keys).not.toContain('apiKey')
       expect(keys).not.toContain('userId')
       expect(keys).not.toContain('webhookUrl')
-      expect(keys).toEqual(expect.arrayContaining(['name', 'phoneNumber', 'pickupAddress']))
+      expect(keys).toEqual(expect.arrayContaining(['name', 'phoneNumber', 'pickupAddress', 'usualPrepMinutes']))
+    })
+
+    test('11. carries usualPrepMinutes from the partner entity, including 0 (decision 21.13, AC-9)', async () => {
+      mockLocationDomainService.getById.mockResolvedValue(mockLocationEntity)
+
+      const resultDefault = await controller.getProfile(mockPartnerWithLocation)
+      expect(resultDefault.usualPrepMinutes).toBe(15)
+
+      // A usual prep time of 0 (preselects "Now" in the order form) is carried as 0
+      const partnerWithZeroPrep = new PartnerEntity({
+        ...mockPartnerWithLocation,
+        usualPrepMinutes: 0,
+      })
+      const resultZero = await controller.getProfile(partnerWithZeroPrep)
+      expect(resultZero.usualPrepMinutes).toBe(0)
     })
   })
 })

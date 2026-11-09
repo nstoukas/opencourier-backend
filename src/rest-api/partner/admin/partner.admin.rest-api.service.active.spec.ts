@@ -435,6 +435,37 @@ describe('PartnerAdminRestApiService', () => {
       expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', { name: 'Renamed' })
       expect(mockPartnerDomainService.update.mock.calls[0]?.[1]).not.toHaveProperty('usualPrepMinutes')
     })
+
+    test('create with usualPrepMinutes null passes undefined to the repository (column default applies) and does not throw', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
+      mockPartnerDomainService.createWithLogin.mockResolvedValue(mockPartnerEntity)
+
+      await expect(
+        service.createRestaurant({ ...createInput, usualPrepMinutes: null as any })
+      ).resolves.toBe(mockPartnerEntity)
+
+      expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledTimes(1)
+      expect(mockPartnerDomainService.createWithLogin.mock.calls[0]?.[0].usualPrepMinutes).toBeUndefined()
+    })
+
+    test('update with usualPrepMinutes null leaves usualPrepMinutes out of the update data', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      await service.updateRestaurant('partner-100', { name: 'Renamed', usualPrepMinutes: null as any })
+
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', { name: 'Renamed' })
+      expect(mockPartnerDomainService.update.mock.calls[0]?.[1]).not.toHaveProperty('usualPrepMinutes')
+    })
+
+    test('update with only usualPrepMinutes null leaves update data empty and skips update call', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+
+      const result = await service.updateRestaurant('partner-100', { usualPrepMinutes: null as any })
+
+      expect(mockPartnerDomainService.update).not.toHaveBeenCalled()
+      expect(result).toBe(mockPartnerEntity)
+    })
   })
 
   describe('rotatePassword', () => {

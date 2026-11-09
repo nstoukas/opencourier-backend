@@ -929,4 +929,98 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       }
     })
   })
+
+  /**
+   * Spec 0023: Restaurant ready signals.
+   * DeliveryCourierDto carries readyAt and foodReadyAt from the delivery, null when absent.
+   */
+  describe('DeliveryCourierDto ready signals (Spec 0023, AC-7 & API surface)', () => {
+    const readyAtDate = new Date('2026-11-03T12:15:00.000Z')
+    const foodReadyAtDate = new Date('2026-11-03T12:20:00.000Z')
+
+    test('carries readyAt and foodReadyAt when present on the delivery', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        readyAt: readyAtDate,
+        foodReadyAt: foodReadyAtDate,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.readyAt).toEqual(readyAtDate)
+      expect(dto.foodReadyAt).toEqual(foodReadyAtDate)
+
+      // Verifies JSON serialization retains the fields and their ISO strings
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.readyAt).toBe('2026-11-03T12:15:00.000Z')
+      expect(serialized.foodReadyAt).toBe('2026-11-03T12:20:00.000Z')
+      expect('readyAt' in serialized).toBe(true)
+      expect('foodReadyAt' in serialized).toBe(true)
+    })
+
+    test('sets readyAt and foodReadyAt to null when absent (undefined) on the delivery', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER)
+      // Omit readyAt and foodReadyAt as on an order created before this change
+      delete (delivery as any).readyAt
+      delete (delivery as any).foodReadyAt
+
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.readyAt).toBeNull()
+      expect(dto.foodReadyAt).toBeNull()
+
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.readyAt).toBeNull()
+      expect(serialized.foodReadyAt).toBeNull()
+      expect('readyAt' in serialized).toBe(true)
+      expect('foodReadyAt' in serialized).toBe(true)
+    })
+
+    test('sets readyAt and foodReadyAt to null when explicitly null on the delivery', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.CREATED, {
+        readyAt: null,
+        foodReadyAt: null,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.readyAt).toBeNull()
+      expect(dto.foodReadyAt).toBeNull()
+
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.readyAt).toBeNull()
+      expect(serialized.foodReadyAt).toBeNull()
+    })
+
+    test('sets foodReadyAt to null while readyAt is set and food is still preparing', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.DISPATCHED, {
+        readyAt: readyAtDate,
+        foodReadyAt: null,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.readyAt).toEqual(readyAtDate)
+      expect(dto.foodReadyAt).toBeNull()
+
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.readyAt).toBe('2026-11-03T12:15:00.000Z')
+      expect(serialized.foodReadyAt).toBeNull()
+    })
+
+    test('ready signals are visible across both offered and held deliveries (restaurant promise, not customer data)', () => {
+      const offerDelivery = createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, {
+        readyAt: readyAtDate,
+        foodReadyAt: null,
+      })
+      const heldDelivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        readyAt: readyAtDate,
+        foodReadyAt: foodReadyAtDate,
+      })
+
+      const offerDto = new DeliveryCourierDto(offerDelivery)
+      const heldDto = new DeliveryCourierDto(heldDelivery)
+
+      expect(offerDto.readyAt).toEqual(readyAtDate)
+      expect(offerDto.foodReadyAt).toBeNull()
+      expect(heldDto.readyAt).toEqual(readyAtDate)
+      expect(heldDto.foodReadyAt).toEqual(foodReadyAtDate)
+    })
+  })
 })
