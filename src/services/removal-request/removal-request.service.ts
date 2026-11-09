@@ -30,8 +30,7 @@ import {
 } from 'src/shared-types'
 import { isUniqueConstraintError } from 'src/prisma.util'
 
-export const ORDER_CHANGED_MESSAGE = 'This order changed. Check your jobs.'
-// The same refusal, worded for the dispatcher looking at the board.
+// The refusal when an order moved on, worded for the dispatcher looking at the board.
 export const ADMIN_ORDER_CHANGED_MESSAGE = 'This order changed while you were deciding. Look at the row again.'
 export const BOARD_STALE_MESSAGE = 'This order moved on since the board was loaded. Reload and try again.'
 export const REQUEST_NOT_OPEN_MESSAGE = 'This request has already been answered or withdrawn.'
