@@ -70,7 +70,8 @@ describe('Delivery Partner RestApiService - Dispatch Stop (Spec 0014, AC-6)', ()
       mockQuoteToDeliveryConversionService,
       mockDispatchStopRepository,
       // Spec 0017: the history period (30 days), added by hand so the suite compiles.
-      { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any
+      { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any,
+      {} as any
     )
   })
 

@@ -168,7 +168,8 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
         mockQuoteToDeliveryConversionService,
         mockDispatchStopRepository,
         // Spec 0017: the history period (30 days), added by hand so the suite compiles.
-        { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any
+        { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any,
+        {} as any
       )
     })
 
