@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { EnumUserRole } from '@prisma/types'
+import { IS_API_KEY_AUTH } from 'src/decorators/api-key-auth.decorator'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { PartnerPartnerRestApiController } from './partner.partner.rest-api.controller'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
@@ -217,6 +218,19 @@ describe('PartnerPartnerRestApiController availability endpoints (spec 0029)', (
 
       expect(profile.availability.pausedUntil).toBeNull()
       expect(profile.availability.acceptingOrders).toBe(true)
+    })
+  })
+
+  // Agy review bug 2: availability endpoints must carry @ApiKeyAuth() like all other partner routes
+  describe('ApiKeyAuth decorator on partner availability routes', () => {
+    test.each([
+      ['busyOn', PartnerPartnerRestApiController.prototype.busyOn],
+      ['busyOff', PartnerPartnerRestApiController.prototype.busyOff],
+      ['pause', PartnerPartnerRestApiController.prototype.pause],
+      ['resume', PartnerPartnerRestApiController.prototype.resume],
+    ])('route handler %s carries @ApiKeyAuth() metadata', (_name, handler) => {
+      const isApiKeyAuth = Reflect.getMetadata(IS_API_KEY_AUTH, handler)
+      expect(isApiKeyAuth).toBe(true)
     })
   })
 })

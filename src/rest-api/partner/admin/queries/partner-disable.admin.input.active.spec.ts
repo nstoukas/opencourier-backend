@@ -53,4 +53,15 @@ describe('PartnerDisableAdminInput through ValidationPipe (spec 0029, AC-5)', ()
     await expect(transform({ reason: null })).rejects.toThrow(BadRequestException)
     await expect(transform({ reason: [] })).rejects.toThrow(BadRequestException)
   })
+
+  // RefuseIfNotSentAsString: non-string primitives are refused rather than coerced (row 72, agy risk 1)
+  test('refuses reason sent as number (123) with 400 BadRequestException', async () => {
+    await expect(transform({ reason: 123 })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(transform({ reason: 123 })).rejects.toThrow('reason must be sent as text')
+  })
+
+  test('refuses reason sent as boolean (true) with 400 BadRequestException', async () => {
+    await expect(transform({ reason: true })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(transform({ reason: true })).rejects.toThrow('reason must be sent as text')
+  })
 })

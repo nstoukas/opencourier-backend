@@ -14,6 +14,24 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
 
   const NOW = new Date('2026-11-09T12:00:00.000Z')
 
+  const sampleLocationDbRow = {
+    id: 'loc-1',
+    addressLine1: null,
+    addressLine2: null,
+    city: 'Volos',
+    state: 'Magnesia',
+    street: 'Iasonos',
+    zipCode: '38221',
+    countryCode: 'GR',
+    stateCode: 'Magnesia',
+    houseNumber: '12',
+    longitude: 22.944,
+    latitude: 39.362,
+    formattedAddress: 'Iasonos 12, Volos',
+    createdAt: NOW,
+    updatedAt: NOW,
+  }
+
   const samplePartnerDbRow = {
     id: 'partner-1',
     name: 'To Steki',
@@ -29,6 +47,9 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
     pickupLocationId: 'loc-1',
     createdAt: NOW,
     updatedAt: NOW,
+    // Included relations (spec 0029, AC-10, agy bug 1 fix)
+    user: { email: 'kitchen@volos.gr' },
+    pickupLocation: sampleLocationDbRow,
   }
 
   beforeEach(() => {
@@ -69,6 +90,7 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
       expect(mockPrisma.partner.update).toHaveBeenCalledWith({
         where: { id: 'partner-1' },
         data: partnerData,
+        include: { user: { select: { email: true } }, pickupLocation: true },
       })
       expect(mockPrisma.partnerAvailabilityChange.create).toHaveBeenCalledWith({
         data: {
@@ -84,6 +106,11 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
       expect(result).toBeInstanceOf(PartnerEntity)
       expect(result.id).toBe('partner-1')
       expect(result.busyExtraMinutes).toBe(15)
+      // Spec 0029, agy bug 1: update include hydrates userEmail and pickupLocation
+      expect(result.userEmail).toBe('kitchen@volos.gr')
+      expect(result.pickupLocation).toBeDefined()
+      expect(result.pickupLocation?.id).toBe('loc-1')
+      expect(result.pickupLocation?.formattedAddress).toBe('Iasonos 12, Volos')
     })
   })
 

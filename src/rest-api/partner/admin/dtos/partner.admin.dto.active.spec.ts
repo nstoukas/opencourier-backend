@@ -109,4 +109,102 @@ describe('PartnerAdminDto', () => {
     expect(new PartnerAdminDto(new PartnerEntity({ ...base, usualPrepMinutes: 25 })).usualPrepMinutes).toBe(25)
     expect(new PartnerAdminDto(new PartnerEntity({ ...base, usualPrepMinutes: 0 })).usualPrepMinutes).toBe(0)
   })
+
+  // Spec 0029, AC-7: PartnerAdminDto carries all six availability fields built by availabilityOf(partner, now)
+  describe('availability (spec 0029, AC-7)', () => {
+    const basePartner = {
+      id: 'partner-100',
+      name: 'To Steki',
+      logo: null,
+      phoneNumber: null,
+      webhookUrl: null,
+      usualPrepMinutes: 15,
+      busyExtraMinutes: null,
+      pausedUntil: null,
+      disabledAt: null,
+      disabledReason: null,
+      userId: null,
+      pickupLocationId: null,
+      createdAt,
+      updatedAt,
+    }
+
+    test('carries all six availability fields when restaurant is in normal state', () => {
+      const partner = new PartnerEntity({
+        ...basePartner,
+        busyExtraMinutes: 15,
+      })
+      const now = new Date('2026-11-09T12:00:00Z')
+      const dto = new PartnerAdminDto(partner, now)
+
+      expect(dto.availability).toBeDefined()
+      expect(dto.availability).toMatchObject({
+        busyExtraMinutes: 15,
+        pausedUntil: null,
+        disabledAt: null,
+        disabledReason: null,
+        acceptingOrders: true,
+        notAcceptingReason: null,
+      })
+      // Assert exact keys to ensure all 6 fields are present
+      expect(dto.availability).toHaveProperty('busyExtraMinutes', 15)
+      expect(dto.availability).toHaveProperty('pausedUntil', null)
+      expect(dto.availability).toHaveProperty('disabledAt', null)
+      expect(dto.availability).toHaveProperty('disabledReason', null)
+      expect(dto.availability).toHaveProperty('acceptingOrders', true)
+      expect(dto.availability).toHaveProperty('notAcceptingReason', null)
+    })
+
+    test('an expired pause reads pausedUntil null with acceptingOrders true', () => {
+      const expiredPauseTime = new Date('2026-11-09T11:45:00Z') // 15 min before now
+      const now = new Date('2026-11-09T12:00:00Z')
+
+      const partner = new PartnerEntity({
+        ...basePartner,
+        pausedUntil: expiredPauseTime,
+      })
+
+      const dto = new PartnerAdminDto(partner, now)
+
+      expect(dto.availability.pausedUntil).toBeNull()
+      expect(dto.availability.acceptingOrders).toBe(true)
+      expect(dto.availability.notAcceptingReason).toBeNull()
+    })
+
+    test('an active pause reads pausedUntil as date with acceptingOrders false and formatted refusal reason', () => {
+      const activePauseTime = new Date('2026-11-09T12:30:00Z') // 30 min ahead
+      const now = new Date('2026-11-09T12:00:00Z')
+
+      const partner = new PartnerEntity({
+        ...basePartner,
+        pausedUntil: activePauseTime,
+      })
+
+      const dto = new PartnerAdminDto(partner, now)
+
+      expect(dto.availability.pausedUntil).toEqual(activePauseTime)
+      expect(dto.availability.acceptingOrders).toBe(false)
+      expect(dto.availability.notAcceptingReason).toContain('Ordering is paused until')
+    })
+
+    test('disabled restaurant carries disabledAt, reason, and acceptingOrders false', () => {
+      const disabledAt = new Date('2026-11-09T10:00:00Z')
+      const now = new Date('2026-11-09T12:00:00Z')
+
+      const partner = new PartnerEntity({
+        ...basePartner,
+        disabledAt,
+        disabledReason: 'Health inspection pending',
+      })
+
+      const dto = new PartnerAdminDto(partner, now)
+
+      expect(dto.availability.disabledAt).toEqual(disabledAt)
+      expect(dto.availability.disabledReason).toBe('Health inspection pending')
+      expect(dto.availability.acceptingOrders).toBe(false)
+      expect(dto.availability.notAcceptingReason).toBe(
+        'The co-op has disabled this restaurant: Health inspection pending'
+      )
+    })
+  })
 })
