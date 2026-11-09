@@ -186,6 +186,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       {
         instanceConfig: {
           getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+          getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
           getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
           getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
           getHandBackSeconds: jest.fn().mockResolvedValue(0),
@@ -195,6 +196,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       { getOrDefault: jest.fn().mockResolvedValue([]), save: jest.fn() } as unknown as CacheService,
       { newOffer: jest.fn(), offerEnded: jest.fn(), jobCancelled: jest.fn() } as unknown as OfferPushService,
       { findOn: jest.fn().mockResolvedValue(null) } as unknown as DispatchStopRepository,
+      { getRoute: jest.fn() } as any,
       {} as any,
       {} as any
     )

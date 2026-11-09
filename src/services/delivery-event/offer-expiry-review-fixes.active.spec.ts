@@ -121,6 +121,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
     mockConfigDomainService = {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
       },
@@ -148,6 +149,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService,
       // No dispatch stop is on in these tests (spec 0014).
       { findOn: jest.fn().mockResolvedValue(null) } as any,
+      { getRoute: jest.fn() } as any,
       {} as any,
       {} as any
     )
@@ -171,6 +173,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-free-1', userId: 'user-free-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
 
       mockCourierRepository.findById.mockResolvedValue({ id: 'courier-free-1', userId: 'user-free-1' } as any)
@@ -388,6 +392,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-1', userId: 'user-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'courier-1', userId: 'user-1' } as any)
 
@@ -431,6 +437,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-matched', userId: 'u-matched' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockCourierRepository.findByIdOrThrow.mockResolvedValue(courierEntity)
 
@@ -486,6 +494,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'c-1' },
         delivery: {},
+        pickupLocation: {} as any,
+        travelSeconds: null,
       } as any)
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 

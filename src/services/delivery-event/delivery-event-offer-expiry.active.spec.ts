@@ -115,6 +115,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
     mockConfigDomainService = {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
       },
@@ -143,6 +144,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService,
       // No dispatch stop is on in these tests (spec 0014).
       { findOn: jest.fn().mockResolvedValue(null) } as any,
+      { getRoute: jest.fn() } as any,
       {} as any,
       {} as any
     )
@@ -169,6 +171,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-1', userId: 'user-courier-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
 
       const createdEvent: DeliveryCreatedEvent = {
@@ -295,6 +299,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-2', userId: 'user-courier-2' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
 
       const createdEvent: DeliveryCreatedEvent = {
@@ -357,6 +363,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-sos-active', userId: 'user-sos-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockCourierRepository.hasActiveSos.mockResolvedValueOnce(true)
 
@@ -392,6 +400,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'testing-courier', userId: 'user-testing-courier' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockCourierRepository.hasActiveSos.mockResolvedValueOnce(true)
 
@@ -418,6 +428,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-1', userId: 'user-courier-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockRejectedValueOnce(
         new Error('OSRM routing failure')
@@ -488,6 +500,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-1', userId: 'user-courier-1' } as any,
         delivery: {} as any,
+        pickupLocation: {} as any,
+        travelSeconds: null,
       })
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 

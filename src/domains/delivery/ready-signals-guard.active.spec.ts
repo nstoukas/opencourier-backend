@@ -72,8 +72,10 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     )
   })
 
-  test('in DeliveryEventService only notifyReadyUpdated uses them, and never as a write', () => {
-    expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')]).toEqual(['notifyReadyUpdated'])
+  test('in DeliveryEventService only notifyReadyUpdated and offerTimingOf use them, and never as a write', () => {
+    expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')].sort()).toEqual(
+      ['notifyReadyUpdated', 'offerTimingOf'].sort()
+    )
   })
 
   test('no matching, pay, price or quote code reads them (AC-10)', () => {

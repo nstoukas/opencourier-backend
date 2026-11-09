@@ -136,6 +136,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       instanceConfig: {
         getHandBackSeconds: jest.fn().mockResolvedValue(60),
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(false),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(60),
         getCancellationPayoutPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
@@ -176,6 +177,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       mockCacheService,
       mockOfferPushService,
       mockDispatchStopRepository,
+      { getRoute: jest.fn() } as any,
       mockCourierCompensationRepository,
       mockPartnerChargeRepository
     )

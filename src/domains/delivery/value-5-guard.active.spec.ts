@@ -305,6 +305,7 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         { newOffer: jest.fn(), offerEnded: jest.fn() } as unknown as OfferPushService,
         // No dispatch stop is on in these tests (spec 0014).
         { findOn: jest.fn().mockResolvedValue(null) } as any,
+        { getRoute: jest.fn() } as any,
         {} as any,
         {} as any
       )

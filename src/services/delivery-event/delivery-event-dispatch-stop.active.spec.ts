@@ -146,6 +146,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
     mockConfigDomainService = {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(false),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(60),
       },
@@ -178,6 +179,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       mockCacheService,
       mockOfferPushService,
       mockDispatchStopRepository,
+      { getRoute: jest.fn() } as any,
       {} as any,
       {} as any
     )

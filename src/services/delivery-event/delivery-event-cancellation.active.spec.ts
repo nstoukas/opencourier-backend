@@ -129,6 +129,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
     mockConfigDomainService = {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(false),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
         getReassignmentPayoutPolicies: jest.fn().mockResolvedValue({
@@ -191,6 +192,7 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       mockCacheService,
       mockOfferPushService,
       mockDispatchStopRepository,
+      { getRoute: jest.fn() } as any,
       mockCourierCompensationRepository,
       mockPartnerChargeRepository
     )

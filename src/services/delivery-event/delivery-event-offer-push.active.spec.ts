@@ -126,6 +126,7 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
     const mockConfigDomainService = {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(false),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
       },
@@ -153,6 +154,7 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       mockOfferPushService,
       // No dispatch stop is on in these tests (spec 0014).
       { findOn: jest.fn().mockResolvedValue(null) } as any,
+      { getRoute: jest.fn() } as any,
       {} as any,
       {} as any
     )
