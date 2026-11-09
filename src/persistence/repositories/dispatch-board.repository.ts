@@ -4,7 +4,7 @@ import { DISPATCH_MAP_POSITION_MAX_AGE_MINUTES } from 'src/constants'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
-import { busyCourierDeliverySubQuery } from './courier.repository'
+import { activeSosCourierSubQuery, busyCourierDeliverySubQuery } from './courier.repository'
 
 // Every field the board reads from a live delivery, and no more. `satisfies` checks the object
 // against Prisma's type without widening it, so Prisma still knows exactly which fields come back.
@@ -58,8 +58,9 @@ export class DispatchBoardRepository extends EntityRepository {
     })
   }
 
-  // One query for the card and the map, using the matcher's own busy rule (AC-2). The time is
-  // compared in the database, where it was written, so an age never has to leave this statement.
+  // One query for the card and the map, using the matcher's own busy rule (AC-2): a job, an open
+  // offer, or an active SOS, so a rider asking for help never reads as free (decision 90.3). The
+  // time is compared in the database, where it was written, so an age never has to leave this statement.
   async findWorkingCouriers(): Promise<WorkingCourier[]> {
     const fresh = Prisma.sql`"currentLocation" IS NOT NULL
       AND "currentLocationAt" >= (NOW() AT TIME ZONE 'UTC') - make_interval(mins => ${DISPATCH_MAP_POSITION_MAX_AGE_MINUTES}::int)`
@@ -68,7 +69,7 @@ export class DispatchBoardRepository extends EntityRepository {
         "Courier"."id",
         "Courier"."firstName" || ' ' || "Courier"."lastName" AS "name",
         "Courier"."status"::text AS "status",
-        EXISTS (${busyCourierDeliverySubQuery()}) AS "busy",
+        (EXISTS (${busyCourierDeliverySubQuery()}) OR EXISTS (${activeSosCourierSubQuery()})) AS "busy",
         CASE WHEN ${fresh} THEN ST_Y("currentLocation") END AS "latitude",
         CASE WHEN ${fresh} THEN ST_X("currentLocation") END AS "longitude"
       FROM "Courier"

@@ -16,6 +16,7 @@ async function main() {
     await db.$queryRaw`
       UPDATE "Courier"
       SET "currentLocation" = ST_GeomFromText(${point}, 4326),
+          "currentLocationAt" = NOW() AT TIME ZONE 'UTC',
           "status" = 'ONLINE'
       WHERE "id" = ${courier.id}
     `

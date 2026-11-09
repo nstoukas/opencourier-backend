@@ -134,7 +134,8 @@ async function createCouriers() {
 
     await prisma.$queryRaw`
       UPDATE "Courier"
-      SET "currentLocation" = ST_GeomFromText(${point}, 4326)
+      SET "currentLocation" = ST_GeomFromText(${point}, 4326),
+          "currentLocationAt" = NOW() AT TIME ZONE 'UTC'
       WHERE "id" = ${courier.id}
     `
 

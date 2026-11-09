@@ -350,6 +350,7 @@ export function buildMap(live: LiveDelivery[], couriers: WorkingCourier[]): Disp
 
 // The first and last instant of the day `now` falls on, in the co-op's own time zone (AC-2).
 export function todayBounds(now: Date): { start: Date; end: Date } {
-  const start = dayjs(now).tz(INSTANCE_TIMEZONE).startOf('day')
-  return { start: start.toDate(), end: start.add(1, 'day').toDate() }
+  const today = dayjs(now).tz(INSTANCE_TIMEZONE)
+  // The next midnight, not 24 hours on: the two days the clocks change last 25 and 23 hours.
+  return { start: today.startOf('day').toDate(), end: today.add(1, 'day').startOf('day').toDate() }
 }
