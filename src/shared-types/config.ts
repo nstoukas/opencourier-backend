@@ -41,6 +41,10 @@ export type InstanceConfigSettings = {
   offerExpiryEnabled: boolean
   offerExpirySeconds: number
   noCourierRetrySeconds: number
+  // Offers timed to food readiness (spec 0031), set by co-op representatives. Off by default.
+  offerTimingEnabled: boolean
+  offerLeadMinutes: number
+  offerTimingCandidates: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
@@ -121,6 +125,9 @@ export enum ConfigKey {
   OFFER_EXPIRY_ENABLED = 'offerExpiryEnabled',
   OFFER_EXPIRY_SECONDS = 'offerExpirySeconds',
   NO_COURIER_RETRY_SECONDS = 'noCourierRetrySeconds',
+  OFFER_TIMING_ENABLED = 'offerTimingEnabled',
+  OFFER_LEAD_MINUTES = 'offerLeadMinutes',
+  OFFER_TIMING_CANDIDATES = 'offerTimingCandidates',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',

@@ -116,6 +116,25 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   noCourierRetrySeconds?: number
 
+  // Spec 0031: offers timed to food readiness. The ranges live in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  offerTimingEnabled?: boolean
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  offerLeadMinutes?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  offerTimingCandidates?: number
+
   // Saved customers (spec 0005). Whole months; the 1 to 36 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

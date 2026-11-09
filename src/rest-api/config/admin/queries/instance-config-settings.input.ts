@@ -34,6 +34,9 @@ export class InstanceConfigSettingsInput {
   offerExpiryEnabled?: boolean
   offerExpirySeconds?: number
   noCourierRetrySeconds?: number
+  offerTimingEnabled?: boolean
+  offerLeadMinutes?: number
+  offerTimingCandidates?: number
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number

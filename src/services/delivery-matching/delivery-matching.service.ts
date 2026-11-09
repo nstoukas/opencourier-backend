@@ -71,6 +71,9 @@ export class DeliveryMatchingService {
     return {
       courier,
       delivery,
+      // Spec 0031: what the due check reads; the nearest matcher already worked out the road time.
+      pickupLocation,
+      travelSeconds: result.travelSeconds ?? null,
     }
   }
 

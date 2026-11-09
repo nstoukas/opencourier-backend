@@ -36,6 +36,10 @@ export class CourierDomainService {
     return courier
   }
 
+  async getNearestAvailableCandidates(args: ICourierFindNearestArgs, limit: number) {
+    return this.courierRepository.findNearestAvailableCandidates(args, limit)
+  }
+
   async getMostSeniorAvailableCourier(args: ICourierFindBySeniorityArgs) {
     const courier = await this.courierRepository.findMostSeniorAvailableCourier(args)
 

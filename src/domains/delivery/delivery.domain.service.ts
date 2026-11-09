@@ -228,6 +228,15 @@ export class DeliveryDomainService {
     await this.deliveryEventService.recordReadyEvent(ready, delivery.status)
     const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     await this.deliveryEventService.notifyReadyUpdated(updated, null)
+    // Spec 0031, AC-7: a held order goes out now. Only a delivery still waiting with nobody offered.
+    if (
+      updated.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
+      !updated.matchedCourierId &&
+      !updated.courierId &&
+      (await this.configDomainService.instanceConfig.getOfferTimingEnabled())
+    ) {
+      await this.deliveryEventService.offerOrWait(deliveryId)
+    }
     return updated
   }
 

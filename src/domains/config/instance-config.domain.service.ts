@@ -17,6 +17,13 @@ import {
   DEFAULT_QUOTE_TO_DELIVERY_MAX_DISTANCE_DRIFT,
   DELIVERY_QUOTE_EXPIRATION_MINUTES,
   DEFAULT_OFFER_EXPIRY_ENABLED,
+  DEFAULT_OFFER_LEAD_MINUTES,
+  DEFAULT_OFFER_TIMING_CANDIDATES,
+  DEFAULT_OFFER_TIMING_ENABLED,
+  OFFER_LEAD_MINUTES_MAX,
+  OFFER_LEAD_MINUTES_MIN,
+  OFFER_TIMING_CANDIDATES_MAX,
+  OFFER_TIMING_CANDIDATES_MIN,
   DEFAULT_OFFER_EXPIRY_SECONDS,
   DEFAULT_NO_COURIER_RETRY_SECONDS,
   OFFER_EXPIRY_SECONDS_MIN,
@@ -115,6 +122,20 @@ export const NUMERIC_SETTING_RULES: {
     max: OFFER_EXPIRY_SECONDS_MAX,
   },
   {
+    key: 'offerLeadMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: OFFER_LEAD_MINUTES_MIN,
+    max: OFFER_LEAD_MINUTES_MAX,
+  },
+  {
+    key: 'offerTimingCandidates',
+    whyZeroIsRefused: 'no rider could be compared at all',
+    mustBeInteger: true,
+    min: OFFER_TIMING_CANDIDATES_MIN,
+    max: OFFER_TIMING_CANDIDATES_MAX,
+  },
+  {
     key: 'noCourierRetrySeconds',
     whyZeroIsRefused: 'a delivery nobody can take would be matched again without any pause',
     mustBeInteger: true,
@@ -211,6 +232,9 @@ export class InstanceConfigDomainService {
     const offerExpiryEnabled = await this.getOfferExpiryEnabled()
     const offerExpirySeconds = await this.getOfferExpirySeconds()
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
+    const offerTimingEnabled = await this.getOfferTimingEnabled()
+    const offerLeadMinutes = await this.getOfferLeadMinutes()
+    const offerTimingCandidates = await this.getOfferTimingCandidates()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
@@ -251,6 +275,9 @@ export class InstanceConfigDomainService {
       offerExpiryEnabled,
       offerExpirySeconds,
       noCourierRetrySeconds,
+      offerTimingEnabled,
+      offerLeadMinutes,
+      offerTimingCandidates,
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
@@ -412,6 +439,9 @@ export class InstanceConfigDomainService {
     if (data.shiftsEnabled !== undefined && typeof data.shiftsEnabled !== 'boolean') {
       throw new BadRequestException('shiftsEnabled must be true or false')
     }
+    if (data.offerTimingEnabled !== undefined && typeof data.offerTimingEnabled !== 'boolean') {
+      throw new BadRequestException('offerTimingEnabled must be a boolean')
+    }
     if (data.offerExpiryEnabled !== undefined && typeof data.offerExpiryEnabled !== 'boolean') {
       throw new BadRequestException('offerExpiryEnabled must be true or false')
     }
@@ -514,6 +544,15 @@ export class InstanceConfigDomainService {
     }
     if (data.noCourierRetrySeconds !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
+    }
+    if (data.offerTimingEnabled !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
+    }
+    if (data.offerLeadMinutes !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.OFFER_LEAD_MINUTES, data.offerLeadMinutes)
+    }
+    if (data.offerTimingCandidates !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_CANDIDATES, data.offerTimingCandidates)
     }
     if (data.savedCustomerRetentionMonths !== undefined) {
       await this.configRepository.saveByKey(
@@ -846,6 +885,31 @@ export class InstanceConfigDomainService {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.OFFER_EXPIRY_ENABLED, DEFAULT_OFFER_EXPIRY_ENABLED)
 
     return enabled.value === true
+  }
+
+  // Spec 0031: three co-op settings, off and quiet until a representative switches it on.
+  async getOfferTimingEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.OFFER_TIMING_ENABLED, DEFAULT_OFFER_TIMING_ENABLED)
+
+    return enabled.value === true
+  }
+
+  async getOfferLeadMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.OFFER_LEAD_MINUTES,
+      DEFAULT_OFFER_LEAD_MINUTES,
+      OFFER_LEAD_MINUTES_MIN,
+      OFFER_LEAD_MINUTES_MAX
+    )
+  }
+
+  async getOfferTimingCandidates(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.OFFER_TIMING_CANDIDATES,
+      DEFAULT_OFFER_TIMING_CANDIDATES,
+      OFFER_TIMING_CANDIDATES_MIN,
+      OFFER_TIMING_CANDIDATES_MAX
+    )
   }
 
   async getOfferExpirySeconds(): Promise<number> {

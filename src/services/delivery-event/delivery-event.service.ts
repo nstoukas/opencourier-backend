@@ -1,6 +1,7 @@
 import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
 import type { JobReadyUpdatedMessage } from 'src/shared-types/notification'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { OnEvent } from '@nestjs/event-emitter'
 import { ConfigService } from '@nestjs/config'
 import {
@@ -59,7 +60,7 @@ import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cach
 import { OfferPushService } from '../pushNotification/offer-push.service'
 import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
-import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { adminRefusedMessage, clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
@@ -105,7 +106,11 @@ const EVENTS_NOT_SENT_TO_PARTNERS: EnumDeliveryEventType[] = [
 
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
 // STOPPED: dispatch is stopped (spec 0014); no offer is made and nothing is recorded or retried.
-type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED'
+type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED' | 'NOT_DUE'
+
+// What the timing check of one offer came to (spec 0031): how long to hold it, and the words the
+// OFFERED event adds. `note` is empty when the offer is not a timed one.
+type OfferTiming = { dueInMs: number; note: string }
 
 @Injectable()
 export class DeliveryEventService {
@@ -130,6 +135,7 @@ export class DeliveryEventService {
     // Spec 0003: the push half of telling a rider about an offer (off unless Firebase is set up).
     private readonly offerPushService: OfferPushService,
     private readonly dispatchStopRepository: DispatchStopRepository,
+    private readonly osrmRoutingService: OsrmRoutingService,
     // Spec 0015: the rider's pay and the restaurant's charge when a job is cancelled.
     private readonly courierCompensationRepository: CourierCompensationRepository,
     private readonly partnerChargeRepository: PartnerChargeRepository
@@ -831,7 +837,8 @@ export class DeliveryEventService {
   // Returns the rider offered and the delivery, or undefined when nobody is free (which is recorded
   // like any other "nobody free", with its backstop retry).
   async offerWaitingDeliveryNow(deliveryId: string) {
-    const result = await this.offerToNextCourier(deliveryId)
+    // The admin test routes offer at once, like a hand offer: no hold (spec 0031).
+    const result = await this.offerToNextCourier(deliveryId, { ignoreTiming: true })
     if (result === 'NO_COURIER') {
       await this.recordNoCourierAvailable(deliveryId)
       return undefined
@@ -1083,7 +1090,7 @@ export class DeliveryEventService {
 
   // After a triggering event: offer to the next rider, or record that nobody is free and set the
   // backstop timer.
-  private async offerOrWait(deliveryId: string): Promise<void> {
+  async offerOrWait(deliveryId: string): Promise<void> {
     let result: OfferStepResult
     try {
       result = await this.offerToNextCourier(deliveryId)
@@ -1105,7 +1112,10 @@ export class DeliveryEventService {
   // retry and a rider becoming free. Amounts are worked out first; only when they succeed is the
   // offer written, in one conditional update with its start time and deadline, so a failure can
   // never leave an offer with no timer behind (flow 1).
-  private async offerToNextCourier(deliveryId: string): Promise<OfferStepResult> {
+  private async offerToNextCourier(
+    deliveryId: string,
+    options: { ignoreTiming?: boolean } = {}
+  ): Promise<OfferStepResult> {
     // The one gate for every automatic offer (spec 0014, AC-4): while dispatch is stopped, nobody is
     // offered anything. The end of the stop matches every waiting delivery again.
     if (await this.dispatchStopRepository.findOn(new Date())) {
@@ -1127,6 +1137,19 @@ export class DeliveryEventService {
     if (await this.courierRepository.hasActiveSos(courier.id)) {
       this.logger.log(`Courier ${courier.id} has an active SOS; delivery ${deliveryId} is not offered to them`)
       return 'NO_COURIER'
+    }
+
+    // Spec 0031: with offers timed, hold this one until the chosen rider needs to leave. Checked here,
+    // after the rider is chosen, so every path that offers passes through it (as the dispatch stop
+    // above does), and each try chooses the rider and the time afresh.
+    const timing =
+      options.ignoreTiming === true ? { dueInMs: 0, note: '' } : await this.offerTimingOf(match)
+    if (timing.dueInMs > 0) {
+      const retrySeconds = await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()
+      // At most one retry period away, so a setting switched off or a rider coming free counts soon.
+      await this.scheduleNoCourierRetry(deliveryId, Math.min(timing.dueInMs, retrySeconds * 1000))
+      this.logger.log(`Delivery ${deliveryId} is held for ${Math.round(timing.dueInMs / 1000)} s`)
+      return 'NOT_DUE'
     }
 
     const { totalCost, totalCompensation, fee, feePercentage } =
@@ -1170,7 +1193,7 @@ export class DeliveryEventService {
     // From here the offer is written. Each step below is guarded on its own, so one failing cannot
     // skip the others, above all the expiry timer, which is what ends an offer nobody answers.
     try {
-      await this.saveOfferedEvent(deliveryId, courier.id, EnumEventActor.SYSTEM, offerExpiresAt)
+      await this.saveOfferedEvent(deliveryId, courier.id, EnumEventActor.SYSTEM, offerExpiresAt, null, timing.note)
     } catch (error) {
       this.logger.error(`Could not record OFFERED for delivery ${deliveryId}: ${error}`, (error as Error).stack)
     }
@@ -1226,7 +1249,8 @@ export class DeliveryEventService {
     courierId: string,
     actor: EnumEventActor,
     offerExpiresAt: Date | null,
-    replacedCourierId: string | null = null
+    replacedCourierId: string | null = null,
+    timingNote = ''
   ): Promise<void> {
     const deadline = offerExpiresAt ? `answer by ${offerExpiresAt.toISOString()}` : 'no deadline'
     const replaced = replacedCourierId ? `; moved by an admin from the open offer to courier ${replacedCourierId}` : ''
@@ -1236,13 +1260,53 @@ export class DeliveryEventService {
       actor,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: `Offered to courier ${courierId}, ${deadline}${replaced}`,
+      message: `Offered to courier ${courierId}, ${deadline}${replaced}${timingNote}`,
     }
     await this.saveDeliveryEvent(offeredEvent, {
       transitionSuccessful: true,
       oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
     })
+  }
+
+  // Spec 0031, AC-2, AC-5, AC-6: when this offer is due, and what its event says. Never throws, and
+  // never carries a coordinate into the note or a log line (value 5): a route that cannot be worked
+  // out means the offer goes now and says so, so an order is never stuck waiting on the router.
+  private async offerTimingOf(match: {
+    courier: { id: string }
+    delivery: { readyAt: Date | null; foodReadyAt: Date | null }
+    pickupLocation: { latitude: number; longitude: number }
+    travelSeconds: number | null
+  }): Promise<OfferTiming> {
+    const config = this.configDomainService.instanceConfig
+    if (!(await config.getOfferTimingEnabled())) return { dueInMs: 0, note: '' }
+    const readyTime = match.delivery.foodReadyAt ?? match.delivery.readyAt
+    if (!readyTime) return { dueInMs: 0, note: '' }
+
+    const travelSeconds = match.travelSeconds ?? (await this.roadSecondsToPickup(match.courier.id, match.pickupLocation))
+    if (travelSeconds === null) return { dueInMs: 0, note: `, ready ${clock(readyTime)}, travel unknown` }
+
+    const leadMinutes = await config.getOfferLeadMinutes()
+    const dueAt = readyTime.getTime() - travelSeconds * 1000 - leadMinutes * 60_000
+    return {
+      dueInMs: dueAt - Date.now(),
+      note: `, ready ${clock(readyTime)}, travel ~${Math.round(travelSeconds / 60)} min, lead ${leadMinutes} min`,
+    }
+  }
+
+  private async roadSecondsToPickup(
+    courierId: string,
+    pickupLocation: { latitude: number; longitude: number }
+  ): Promise<number | null> {
+    try {
+      const fromLocation = await this.courierRepository.getCurrentLocation(courierId)
+      if (!fromLocation) return null
+      const route = await this.osrmRoutingService.getRoute({ fromLocation, toLocation: pickupLocation })
+      return route.durationSeconds
+    } catch (error) {
+      this.logger.warn(`No route for courier ${courierId} to the pickup: ${(error as Error).message}`)
+      return null
+    }
   }
 
   // CANCELED or FAILED (flow 7): an open offer ends with the status change and the backstop goes.
@@ -1580,14 +1644,15 @@ export class DeliveryEventService {
   // this from its own handler still exists while it runs.
   // A failed remove does not stop the add: an extra pending retry is harmless (it finds the delivery
   // offered and does nothing, and the next remove cleans it up), a missing one leaves it stuck.
-  private async scheduleNoCourierRetry(deliveryId: string) {
+  // `delayMs`: a held offer's next look (spec 0031); without it, the co-op's retry period.
+  private async scheduleNoCourierRetry(deliveryId: string, delayMs?: number) {
     await this.removeNoCourierRetry(deliveryId)
     try {
-      const seconds = await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()
+      const delay = delayMs ?? (await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()) * 1000
       await this.bullMQService.addJob<NoCourierRetryJobPayload>(
         'no-courier-retry',
         { deliveryId },
-        { delay: seconds * 1000, jobId: `${noCourierRetryJobIdPrefix(deliveryId)}${Date.now()}` }
+        { delay, jobId: `${noCourierRetryJobIdPrefix(deliveryId)}${Date.now()}` }
       )
     } catch (error) {
       this.logger.error(`Could not set the retry timer of delivery ${deliveryId}: ${error}`)

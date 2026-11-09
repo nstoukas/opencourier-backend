@@ -3,6 +3,7 @@ import { CourierDomainModule } from 'src/domains/courier/courier.domain.module'
 import { DeliveryDomainModule } from 'src/domains/delivery/delivery.domain.module'
 import { PartnerDomainModule } from 'src/domains/partner/partner.domain.module'
 import { LocationDomainModule } from 'src/domains/location/location.domain.module'
+import { OsrmRoutingModule } from 'src/services/osrm/osrm-routing.module'
 import { NearestCourierMatcherService } from './nearest-courier-matcher.service'
 import { CourierMatcherService } from './courier-matcher.service'
 import { StaticCourierMatcherService } from './static-courier-matcher.service'
@@ -13,7 +14,7 @@ import { CourierSeniorityMatcherService } from './courier-seniority-matcher.serv
 
 @Global()
 @Module({
-  imports: [DeliveryDomainModule, PartnerDomainModule, CourierDomainModule, LocationDomainModule, ConfigDomainModule],
+  imports: [OsrmRoutingModule, DeliveryDomainModule, PartnerDomainModule, CourierDomainModule, LocationDomainModule, ConfigDomainModule],
 })
 export class CourierMatcherModule {
   static forRoot(): DynamicModule {

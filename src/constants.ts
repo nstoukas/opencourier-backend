@@ -96,6 +96,14 @@ export const DEFAULT_FEE_PERCENTAGE_AMOUNT = 'DEFAULT_FEE_PERCENTAGE_AMOUNT'
 // the fallback VALUES used only when the Config row is missing. The operative values are co-op
 // settings in the Config table (offerExpiryEnabled, offerExpirySeconds, noCourierRetrySeconds).
 export const DEFAULT_OFFER_EXPIRY_ENABLED = false
+// Offers timed to food readiness (spec 0031). Off until the assembly decides; fallbacks only.
+export const DEFAULT_OFFER_TIMING_ENABLED = false
+export const DEFAULT_OFFER_LEAD_MINUTES = 3
+export const OFFER_LEAD_MINUTES_MIN = 0
+export const OFFER_LEAD_MINUTES_MAX = 30
+export const DEFAULT_OFFER_TIMING_CANDIDATES = 5
+export const OFFER_TIMING_CANDIDATES_MIN = 1
+export const OFFER_TIMING_CANDIDATES_MAX = 20
 export const DEFAULT_OFFER_EXPIRY_SECONDS = 60
 export const DEFAULT_NO_COURIER_RETRY_SECONDS = 30
 // Allowed ranges, enforced on save (NUMERIC_SETTING_RULES) and on read. The 20 s floor gives a

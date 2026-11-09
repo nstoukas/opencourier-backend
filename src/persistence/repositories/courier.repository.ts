@@ -220,7 +220,9 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     })
   }
 
-  async findNearestAvailableCourier(args: ICourierFindNearestArgs) {
+  // The available riders nearest to a point, closest first, at most `limit`. Shared by the single
+  // nearest rider and the shortlist the travel time matcher compares (spec 0031).
+  private async nearestAvailableRows(args: ICourierFindNearestArgs, limit: number) {
     const { location, excludeCourierIds, maxDistanceInKM } = args
 
     const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
@@ -268,10 +270,28 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       }
 
       ORDER BY distance
-      LIMIT 1
+      LIMIT ${limit}
     `
 
-    const result = await this.prisma.$queryRaw<Array<{ id: string; distance: number; currentLocation: string }>>(query)
+    return this.prisma.$queryRaw<Array<{ id: string; distance: number; currentLocation: string }>>(query)
+  }
+
+  // GeoJSON lists a point as [longitude, latitude], the same order getCurrentLocation reads.
+  async findNearestAvailableCandidates(args: ICourierFindNearestArgs, limit: number) {
+    const rows = await this.nearestAvailableRows(args, limit)
+    return rows.map((row) => {
+      const point = JSON.parse(row.currentLocation)
+      return {
+        courierId: row.id,
+        distance: row.distance,
+        courierLocation: { latitude: point.coordinates[1], longitude: point.coordinates[0] },
+      }
+    })
+  }
+
+  async findNearestAvailableCourier(args: ICourierFindNearestArgs) {
+    const { location } = args
+    const result = await this.nearestAvailableRows(args, 1)
 
     if (result.length === 0 || !result[0]) {
       return null

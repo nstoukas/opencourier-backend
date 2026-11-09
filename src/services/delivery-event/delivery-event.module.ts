@@ -1,3 +1,4 @@
+import { OsrmRoutingModule } from 'src/services/osrm/osrm-routing.module'
 import { DeliveryEventService } from './delivery-event.service'
 import { Module, Global } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
@@ -8,7 +9,7 @@ import { CacheModule } from '../cache/cache.module'
 
 @Global()
 @Module({
-  imports: [HttpModule, PartnerWebhookModule, DeliveryCalculationModule, ConfigDomainModule, CacheModule],
+  imports: [OsrmRoutingModule, HttpModule, PartnerWebhookModule, DeliveryCalculationModule, ConfigDomainModule, CacheModule],
   providers: [DeliveryEventService],
   exports: [DeliveryEventService],
 })

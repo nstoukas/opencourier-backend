@@ -85,6 +85,15 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   noCourierRetrySeconds: number
 
+  @ApiProperty({ type: Boolean })
+  offerTimingEnabled: boolean
+
+  @ApiProperty({ type: Number })
+  offerLeadMinutes: number
+
+  @ApiProperty({ type: Number })
+  offerTimingCandidates: number
+
   @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
@@ -142,6 +151,9 @@ export class InstanceConfigSettingsDto {
     this.offerExpiryEnabled = data.offerExpiryEnabled
     this.offerExpirySeconds = data.offerExpirySeconds
     this.noCourierRetrySeconds = data.noCourierRetrySeconds
+    this.offerTimingEnabled = data.offerTimingEnabled
+    this.offerLeadMinutes = data.offerLeadMinutes
+    this.offerTimingCandidates = data.offerTimingCandidates
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds
