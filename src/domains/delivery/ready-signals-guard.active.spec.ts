@@ -53,6 +53,9 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         // Creation and the two restaurant actions.
         'domains/delivery/delivery.domain.service.ts',
         'domains/delivery/ready-signals.ts',
+        // Wait record (spec 0030: reads only).
+        'domains/partner/wait-record.ts',
+        'persistence/repositories/delivery.repository.ts',
         // Shapes and read only views.
         'domains/delivery/entities/delivery.entity.ts',
         'domains/delivery/entities/delivery-with-locations.entity.ts',
@@ -76,6 +79,10 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')].sort()).toEqual(
       ['notifyReadyUpdated', 'offerTimingOf'].sort()
     )
+  })
+
+  test('in DeliveryRepository only findForWaitRecord mentions them (reads only, spec 0030)', () => {
+    expect([...methodsMentioning('persistence/repositories/delivery.repository.ts')]).toEqual(['findForWaitRecord'])
   })
 
   test('no matching, pay, price or quote code reads them (AC-10)', () => {

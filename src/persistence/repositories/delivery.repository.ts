@@ -19,6 +19,7 @@ import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreate } from 'src/domains/delivery/interfaces/IDeliveryCreate'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
+import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 
 export type PrismaDeliveryWithLocations = Delivery & {
@@ -220,6 +221,40 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       if (row._max.createdAt) result.set(row.deliveryId, row._max.createdAt)
     }
     return result
+  }
+
+  // Spec 0030: this restaurant's deliveries in the period that reached pickup and have a ready time,
+  // with only the events the wait record reads. No courierId is selected, so no rider can leak.
+  async findForWaitRecord(partnerId: string, since: Date) {
+    const deliveries = await this.prisma.delivery.findMany({
+      where: {
+        partnerId,
+        createdAt: { gte: since },
+        readyAt: { not: null },
+        deliveryEvent: { some: { type: EnumDeliveryEventType.PICKED_UP, transitionSuccessful: true } },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        readyAt: true,
+        foodReadyAt: true,
+        deliveryEvent: {
+          where: {
+            transitionSuccessful: true,
+            type: {
+              in: [
+                EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+                EnumDeliveryEventType.PICKED_UP,
+                EnumDeliveryEventType.READY_DELAYED,
+                ...HAND_OVER_EVENTS,
+              ],
+            },
+          },
+          select: { type: true, occurredAt: true },
+        },
+      },
+    })
+    return deliveries.map(({ deliveryEvent, ...delivery }) => ({ ...delivery, events: deliveryEvent }))
   }
 
   async findById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {

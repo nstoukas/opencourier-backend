@@ -66,7 +66,8 @@ describe('PartnerAdminRestApiController availability endpoints (spec 0029)', () 
     controller = new PartnerAdminRestApiController(
       mockPartnerDomainService,
       mockPartnerAdminRestApiService,
-      mockPartnerAvailabilityDomainService
+      mockPartnerAvailabilityDomainService,
+      { getWaitRecord: jest.fn() } as any
     )
   })
 

@@ -59,7 +59,11 @@ describe('PartnerPartnerRestApiController', () => {
       resume: jest.fn(),
     } as unknown as jest.Mocked<PartnerAvailabilityDomainService>
 
-    controller = new PartnerPartnerRestApiController(mockLocationDomainService, mockPartnerAvailabilityDomainService)
+    controller = new PartnerPartnerRestApiController(
+      mockLocationDomainService,
+      mockPartnerAvailabilityDomainService,
+      { getWaitRecord: jest.fn() } as any
+    )
   })
 
   describe('getProfile', () => {

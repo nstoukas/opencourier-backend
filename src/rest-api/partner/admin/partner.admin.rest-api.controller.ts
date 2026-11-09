@@ -10,6 +10,10 @@ import { AvailabilityActor, PartnerAvailabilityDomainService } from 'src/domains
 import * as errors from 'src/errors'
 import { PartnerAdminDto } from './dtos/partner.admin.dto'
 import { PartnerAvailabilityChangeAdminDto } from './dtos/partner-availability.admin.dto'
+import { PartnerWaitRecordAdminDto } from './dtos/partner-wait-record.admin.dto'
+import { PartnerWaitRecordAdminArgs } from './queries/partner-wait-record.admin.args'
+import { DEFAULT_WAIT_RECORD_DAYS } from 'src/domains/partner/wait-record'
+import { PartnerWaitRecordDomainService } from 'src/domains/partner/partner-wait-record.domain.service'
 import { PartnerDisableAdminInput } from './queries/partner-disable.admin.input'
 import { PartnerPaginatedAdminDto } from './dtos/partner.admin.paginated.dto'
 import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
@@ -26,6 +30,7 @@ export class PartnerAdminRestApiController {
     private readonly partnerDomainService: PartnerDomainService,
     private readonly partnerAdminRestApiService: PartnerAdminRestApiService,
     private readonly partnerAvailabilityDomainService: PartnerAvailabilityDomainService,
+    private readonly partnerWaitRecordDomainService: PartnerWaitRecordDomainService,
   ) {}
 
   @common.Get('')
@@ -133,6 +138,25 @@ export class PartnerAdminRestApiController {
     await this.partnerDomainService.getByIdOrThrow(id)
     const changes = await this.partnerAvailabilityDomainService.getChanges(id)
     return changes.map((change) => new PartnerAvailabilityChangeAdminDto(change))
+  }
+
+  // Spec 0030, AC-1: one restaurant's wait record.
+  @common.Get(':id/wait-record')
+  @swagger.ApiResponse({ type: PartnerWaitRecordAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: "A restaurant's wait record" })
+  @Roles(EnumUserRole.ADMIN)
+  async getWaitRecord(
+    @common.Param('id') id: string,
+    @common.Query() args: PartnerWaitRecordAdminArgs
+  ): Promise<PartnerWaitRecordAdminDto> {
+    const partner = await this.partnerDomainService.getByIdOrThrow(id)
+    const record = await this.partnerWaitRecordDomainService.getWaitRecord(
+      partner,
+      args.days ?? DEFAULT_WAIT_RECORD_DAYS,
+      new Date()
+    )
+    return new PartnerWaitRecordAdminDto(record)
   }
 
   private actorOf(user: UserEntity): AvailabilityActor {
