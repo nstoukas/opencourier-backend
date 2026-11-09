@@ -69,7 +69,11 @@ export class DeliveryEventDomainService {
     const first = compRows[0]
     if (!first) return null
     const totalAmount = compRows.reduce((sum, r) => sum + r.amount, 0)
-    return compensationToEarningsDelivery({
+    // Spec 0035, AC-17: the return trip is its own line on the detail, as a wait is above.
+    const returnTripPay = compRows
+      .filter((r) => r.reason === EnumCourierCompensationReason.RETURN_TRIP)
+      .reduce((sum, r) => sum + r.amount, 0)
+    const entry = compensationToEarningsDelivery({
       deliveryId: first.deliveryId,
       amount: totalAmount,
       // A cancellation names the line (spec 0015) even if this rider was also reassigned off it once.
@@ -80,6 +84,7 @@ export class DeliveryEventDomainService {
       pickupBusinessName: first.pickupBusinessName,
       dropoffLocation: first.dropoffLocation,
     })
+    return returnTripPay > 0 ? { ...entry, returnTripPay } : entry
   }
 }
 

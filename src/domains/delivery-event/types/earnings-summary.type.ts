@@ -55,5 +55,7 @@ export interface EarningsDelivery {
   kind?: 'REASSIGNMENT_COMPENSATION' | 'CANCELLATION_COMPENSATION' | 'WAITING' | 'REMOVAL_COMPENSATION' | 'RETURN_TRIP'
   // Spec 0033, on the detail of a delivered order only: what its wait paid, already inside `total`.
   waitingPay?: number
+  // Spec 0035, on the detail of a job cancelled after pickup: what the return trip paid, already inside `total`.
+  returnTripPay?: number
 }
 
