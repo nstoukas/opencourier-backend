@@ -543,4 +543,27 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(loggerError).not.toHaveBeenCalled()
     })
   })
+
+  describe('updateCurrentLocationById (spec 0034, AC-12 invariant)', () => {
+    test('sets currentLocation and currentLocationAt in the same SQL statement', async () => {
+      mockPrisma.courier.findUniqueOrThrow.mockResolvedValue({ id: 'courier-loc-1' })
+      mockPrisma.$queryRaw.mockResolvedValue([])
+
+      await repository.updateCurrentLocationById('courier-loc-1', {
+        latitude: 39.3622,
+        longitude: 22.9411,
+      })
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const sqlObj = mockPrisma.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql
+      const sqlText = sqlObj.strings.join(' ? ')
+
+      expect(sqlText).toContain('UPDATE "Courier"')
+      expect(sqlText).toContain('SET "currentLocation" = ST_GeomFromText(')
+      expect(sqlText).toContain('"currentLocationAt" = NOW() AT TIME ZONE \'UTC\'')
+      expect(sqlText).toContain('WHERE "id" =')
+      expect(sqlObj.values).toContain('POINT(22.9411 39.3622)')
+      expect(sqlObj.values).toContain('courier-loc-1')
+    })
+  })
 })

@@ -1,10 +1,10 @@
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
-import { RequestMethod } from '@nestjs/common'
+import { RequestMethod, NotFoundException } from '@nestjs/common'
 import { DeliveryAdminRestApiController } from './delivery.admin.rest-api.controller'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryEventDomainService } from 'src/domains/delivery-event/delivery-event.domain.service'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
-import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
+import { DeliveryIssueForAdmin } from 'src/persistence/repositories/delivery-issue.repository'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { DeliveryNotFoundException } from 'src/errors'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
@@ -102,6 +102,7 @@ describe('DeliveryAdminRestApiController', () => {
     mockDeliveryIssueDomainService = {
       report: jest.fn(),
       listForDelivery: jest.fn(),
+      markHandled: jest.fn(),
     } as unknown as jest.Mocked<DeliveryIssueDomainService>
 
     // Construct controller directly using dependency injection pattern
@@ -224,7 +225,7 @@ describe('DeliveryAdminRestApiController', () => {
   })
 
   describe('getDeliveryIssues (clause 5)', () => {
-    const mockIssues: DeliveryIssueWithCourier[] = [
+    const mockIssues: DeliveryIssueForAdmin[] = [
       {
         id: 'issue-1',
         deliveryId: mockDeliveryId,
@@ -232,6 +233,9 @@ describe('DeliveryAdminRestApiController', () => {
         reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
         note: 'Customer specified wrong street number',
         createdAt: new Date('2026-10-27T08:00:00.000Z'),
+        handledAt: null,
+        handledByUserId: null,
+        handledBy: null,
         courier: {
           firstName: 'Nikos',
           lastName: 'Papastamou',
@@ -244,6 +248,9 @@ describe('DeliveryAdminRestApiController', () => {
         reason: EnumDeliveryIssueReason.NO_SIGNAL,
         note: null,
         createdAt: new Date('2026-10-27T08:30:00.000Z'),
+        handledAt: null,
+        handledByUserId: null,
+        handledBy: null,
         courier: {
           firstName: 'Maria',
           lastName: 'Oikonomou',
@@ -316,6 +323,59 @@ describe('DeliveryAdminRestApiController', () => {
       expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.submitDeliveryEvent).toHaveBeenCalledTimes(0)
       expect(mockDeliveryDomainService.reassignDelivery).toHaveBeenCalledTimes(0)
+    })
+  })
+
+  describe('markDeliveryIssueHandled (spec 0034, AC-7)', () => {
+    const mockUser = { id: 'admin-123' } as any
+
+    test('marks issue handled and returns DeliveryIssueAdminDto with handledAt and handledBy', async () => {
+      const handledAt = new Date('2026-11-09T14:00:00.000Z')
+      const mockHandledIssue: DeliveryIssueForAdmin = {
+        id: 'issue-1',
+        deliveryId: mockDeliveryId,
+        courierId: 'courier-1',
+        reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
+        note: 'Customer specified wrong street number',
+        createdAt: new Date('2026-10-27T08:00:00.000Z'),
+        handledAt,
+        handledByUserId: 'admin-123',
+        handledBy: { id: 'admin-123', email: 'dispatcher@coop.gr', username: 'dispatcher' },
+        courier: { firstName: 'Nikos', lastName: 'Papastamou' },
+      }
+      mockDeliveryIssueDomainService.markHandled.mockResolvedValue(mockHandledIssue)
+
+      const result = await controller.markDeliveryIssueHandled(mockDeliveryId, 'issue-1', mockUser)
+
+      expect(mockDeliveryIssueDomainService.markHandled).toHaveBeenCalledWith(mockDeliveryId, 'issue-1', 'admin-123')
+      expect(result.id).toBe('issue-1')
+      expect(result.handledAt).toEqual(handledAt)
+      expect(result.handledBy).toEqual({ id: 'admin-123', email: 'dispatcher@coop.gr', username: 'dispatcher' })
+    })
+
+    test('carries @Roles(ADMIN)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.markDeliveryIssueHandled)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('is routed at PATH :deliveryId/issues/:issueId/handled with METHOD POST', () => {
+      const path = Reflect.getMetadata(PATH_METADATA, controller.markDeliveryIssueHandled)
+      const method = Reflect.getMetadata(METHOD_METADATA, controller.markDeliveryIssueHandled)
+      expect(path).toBe(':deliveryId/issues/:issueId/handled')
+      expect(method).toBe(RequestMethod.POST)
+    })
+
+    test('carries HttpCode 200', () => {
+      const httpCode = Reflect.getMetadata('__httpCode__', controller.markDeliveryIssueHandled)
+      expect(httpCode).toBe(200)
+    })
+
+    test('forwards NotFoundException if issue or delivery does not exist', async () => {
+      mockDeliveryIssueDomainService.markHandled.mockRejectedValue(new NotFoundException('Report issue-unknown not found'))
+
+      await expect(controller.markDeliveryIssueHandled(mockDeliveryId, 'issue-unknown', mockUser)).rejects.toThrow(
+        NotFoundException
+      )
     })
   })
 

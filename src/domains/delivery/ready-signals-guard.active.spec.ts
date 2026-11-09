@@ -58,6 +58,9 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         'persistence/repositories/delivery.repository.ts',
         // Wait pay (spec 0033: reads only).
         'domains/delivery/wait-pay.ts',
+        // Dispatch board (spec 0034: reads only).
+        'persistence/repositories/dispatch-board.repository.ts',
+        'services/dispatch-board/dispatch-board.ts',
         // Shapes and read only views.
         'domains/delivery/entities/delivery.entity.ts',
         'domains/delivery/entities/delivery-with-locations.entity.ts',

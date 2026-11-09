@@ -46,3 +46,37 @@ describe('CourierEntity - searchFold is never carried (spec 0025 AC-7, decision 
     expect(entity.id).toBe('courier-fold-test')
   })
 })
+
+describe('CourierEntity - currentLocationAt is never carried (spec 0034 AC-13)', () => {
+  // Spec 0034: when the position was last written. Declared because the Prisma model has it, never
+  // copied from the row, like searchFold: only the dispatch board's query reads it (AC-13).
+  const rowWithLocationAt = {
+    id: 'courier-loc-test',
+    node_uri: null,
+    firstName: 'Kostas',
+    lastName: 'Rider',
+    phoneNumber: '+306912345678',
+    status: EnumCourierStatus.ONLINE,
+    deliverySetting: EnumCourierDeliverySetting.AUTO_ACCEPT,
+    rejectedOffers: [],
+    stripeAccountId: null,
+    stripeAccountStatus: EnumStripeAccountStatus.PENDING,
+    userId: 'user-2',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    currentLocationAt: new Date(),
+  }
+
+  it('built from a row with currentLocationAt set, has no currentLocationAt property', () => {
+    expect('currentLocationAt' in new CourierEntity(rowWithLocationAt as any)).toBe(false)
+  })
+
+  it('has no currentLocationAt among its own keys', () => {
+    expect(Object.keys(new CourierEntity(rowWithLocationAt as any))).not.toContain('currentLocationAt')
+  })
+
+  it('serialises with no currentLocationAt key', () => {
+    const json = JSON.stringify(new CourierEntity(rowWithLocationAt as any))
+    expect(json).not.toContain('currentLocationAt')
+  })
+})

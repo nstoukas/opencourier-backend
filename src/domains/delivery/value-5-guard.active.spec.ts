@@ -347,4 +347,98 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
       expect(columnNames).toEqual(ALLOWED_COLUMNS)
     })
   })
+
+  describe('Spec 0034 / Value 5: Dispatch board DTOs never grow a per-rider timing or count field', () => {
+    const dtoPath = path.resolve(process.cwd(), 'src/rest-api/dispatch-board/admin/dtos/dispatch-board.admin.dto.ts')
+    const dtoContent = fs.readFileSync(dtoPath, 'utf8')
+
+    it('DispatchAttentionRowAdminDto properties equal the strict explicit allow list', () => {
+      const { DispatchAttentionRowAdminDto } = require('src/rest-api/dispatch-board/admin/dtos/dispatch-board.admin.dto')
+      const row = new DispatchAttentionRowAdminDto({
+        id: '1',
+        kind: 'WAITING_FOR_RIDER',
+        since: null,
+        sortAt: new Date(),
+        deliveryId: null,
+        sosId: null,
+        issueId: null,
+        threadId: null,
+        status: null,
+        courierId: null,
+        orderReference: null,
+        restaurantName: null,
+        riderName: null,
+        customerLabel: null,
+        detail: '',
+        held: false,
+      })
+
+      const ALLOWED_ROW_PROPERTIES = [
+        'id',
+        'kind',
+        'since',
+        'deliveryId',
+        'sosId',
+        'issueId',
+        'threadId',
+        'status',
+        'courierId',
+        'orderReference',
+        'restaurantName',
+        'riderName',
+        'customerLabel',
+        'detail',
+        'held',
+      ].sort()
+
+      expect(Object.keys(row).sort()).toEqual(ALLOWED_ROW_PROPERTIES)
+    })
+
+    it('DispatchBoardAdminDto properties equal the strict explicit allow list', () => {
+      const { DispatchBoardAdminDto } = require('src/rest-api/dispatch-board/admin/dtos/dispatch-board.admin.dto')
+      const board = new DispatchBoardAdminDto({
+        generatedAt: new Date(),
+        cards: {} as any,
+        attention: [],
+        attentionMore: 0,
+        map: { couriers: [], waitingDeliveries: [] },
+        dispatchStop: { active: false, until: null },
+      })
+
+      const ALLOWED_BOARD_PROPERTIES = [
+        'generatedAt',
+        'cards',
+        'attention',
+        'attentionMore',
+        'map',
+        'dispatchStop',
+      ].sort()
+
+      expect(Object.keys(board).sort()).toEqual(ALLOWED_BOARD_PROPERTIES)
+    })
+
+    it('fails if board DTO code declares any per-rider timing, count, rating, or position history fields', () => {
+      // Strip comments to inspect declared identifiers only
+      const codeOnly = dtoContent
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*/g, '')
+
+      // Forbidden fields that time, count, rank, or track riders
+      const FORBIDDEN_PATTERNS = [
+        /\b(?:rider|courier)?(?:Speed|Pace)\b/i,
+        /\b(?:response|reaction|answer)Time\b/i,
+        /\b(?:door|dropoff|pickup)Duration\b/i,
+        /\b(?:timeSpent|durationSeconds)\b/i,
+        /\b(?:rating|score|rank|streak|tier)\b/i,
+        /\b(?:acceptanceRate|declineCount|declinedOffers|deliveriesCount)\b/i,
+        /\b(?:trail|history|previousPositions|positionAge)\b/i,
+        /\bcurrentLocationAt\b/,
+        /\bsortAt\b/,
+      ]
+
+      for (const pattern of FORBIDDEN_PATTERNS) {
+        expect(codeOnly).not.toMatch(pattern)
+      }
+    })
+  })
 })
