@@ -60,10 +60,16 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
     const ranked = await Promise.all(
       candidates.map(async (candidate) => ({ candidate, travelSeconds: await this.roadSeconds(candidate.courierLocation, pickupLocation) }))
     )
-    // A rider whose route cannot be worked out comes last; ties go to the nearer rider (the list is
-    // already closest first, and sort keeps that order for equals).
-    ranked.sort((a, b) => (a.travelSeconds ?? Infinity) - (b.travelSeconds ?? Infinity))
-    const best = ranked[0]!
+    // A rider whose route cannot be worked out comes last. Ties, and two riders with no route, go to the
+    // nearer rider: the list is already closest first, and sort keeps that order for equals.
+    ranked.sort((a, b) => {
+      if (a.travelSeconds === null && b.travelSeconds === null) return 0
+      if (a.travelSeconds === null) return 1
+      if (b.travelSeconds === null) return -1
+      return a.travelSeconds - b.travelSeconds
+    })
+    const best = ranked[0]
+    if (!best) return null
     return { courierId: best.candidate.courierId, distance: best.candidate.distance, travelSeconds: best.travelSeconds }
   }
 

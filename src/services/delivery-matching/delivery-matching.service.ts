@@ -73,7 +73,8 @@ export class DeliveryMatchingService {
       delivery,
       // Spec 0031: what the due check reads; the nearest matcher already worked out the road time.
       pickupLocation,
-      travelSeconds: result.travelSeconds ?? null,
+      // undefined: this matcher did not work out a road time. null: it tried and could not.
+      travelSeconds: result.travelSeconds,
     }
   }
 

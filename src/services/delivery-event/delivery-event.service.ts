@@ -1147,8 +1147,10 @@ export class DeliveryEventService {
     if (timing.dueInMs > 0) {
       const retrySeconds = await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()
       // At most one retry period away, so a setting switched off or a rider coming free counts soon.
-      await this.scheduleNoCourierRetry(deliveryId, Math.min(timing.dueInMs, retrySeconds * 1000))
-      this.logger.log(`Delivery ${deliveryId} is held for ${Math.round(timing.dueInMs / 1000)} s`)
+      // `Math.ceil`: road times are fractional and the job's delay is whole milliseconds.
+      const delayMs = Math.ceil(Math.min(timing.dueInMs, retrySeconds * 1000))
+      await this.scheduleNoCourierRetry(deliveryId, delayMs)
+      this.logger.log(`Delivery ${deliveryId} is held; looking again in ${Math.round(delayMs / 1000)} s`)
       return 'NOT_DUE'
     }
 
@@ -1271,19 +1273,23 @@ export class DeliveryEventService {
 
   // Spec 0031, AC-2, AC-5, AC-6: when this offer is due, and what its event says. Never throws, and
   // never carries a coordinate into the note or a log line (value 5): a route that cannot be worked
-  // out means the offer goes now and says so, so an order is never stuck waiting on the router.
+  // out means the offer goes now and says so, so a delivery is never stuck waiting on the router.
   private async offerTimingOf(match: {
     courier: { id: string }
     delivery: { readyAt: Date | null; foodReadyAt: Date | null }
     pickupLocation: { latitude: number; longitude: number }
-    travelSeconds: number | null
+    travelSeconds?: number | null
   }): Promise<OfferTiming> {
     const config = this.configDomainService.instanceConfig
     if (!(await config.getOfferTimingEnabled())) return { dueInMs: 0, note: '' }
     const readyTime = match.delivery.foodReadyAt ?? match.delivery.readyAt
     if (!readyTime) return { dueInMs: 0, note: '' }
 
-    const travelSeconds = match.travelSeconds ?? (await this.roadSecondsToPickup(match.courier.id, match.pickupLocation))
+    // Only asked when the matcher did not work it out. A null from the matcher already means no route.
+    const travelSeconds =
+      match.travelSeconds !== undefined
+        ? match.travelSeconds
+        : await this.roadSecondsToPickup(match.courier.id, match.pickupLocation)
     if (travelSeconds === null) return { dueInMs: 0, note: `, ready ${clock(readyTime)}, travel unknown` }
 
     const leadMinutes = await config.getOfferLeadMinutes()
