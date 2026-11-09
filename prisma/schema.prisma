@@ -792,8 +792,6 @@ enum EnumPartnerChargeReason {
   REMOVAL
 }
 
-// What a restaurant owes the co-op, recorded now and invoiced by the payments rows later
-// (spec 0015: a restaurant's own cancellation after a rider accepted, for the delivery's price).
 // Spec 0035: the co-op's list of reasons a rider can give for asking off an order. Whether each
 // one pays the rider or bills the restaurant is set by representatives in admin (value 2).
 model RemovalReason {
@@ -857,6 +855,8 @@ model DeliveryRemovalRequest {
   @@index([deliveryId, createdAt])
 }
 
+// What a restaurant owes the co-op, recorded now and invoiced by the payments rows later
+// (spec 0015: a restaurant's own cancellation after a rider accepted, for the delivery's price).
 model PartnerCharge {
   id           String                  @id @default(cuid())
   partnerId    String

@@ -702,6 +702,8 @@ export class DeliveryDomainService {
       throw error
     }
 
+    // Names this award, so a second reassign between the same two riders is never read as this one.
+    const eventMessage = `${awardMessage} (award ${compensationId})`
     const reassignedEvent: DeliveryReassignedEvent = {
       deliveryId,
       type: EnumDeliveryEventType.REASSIGNED,
@@ -710,7 +712,7 @@ export class DeliveryDomainService {
       courierId: newCourierId,
       // Spec 0035 (AC-20): the rider it is taken from, so a wait is paid to whoever actually waited.
       droppedCourierId,
-      message: awardMessage,
+      message: eventMessage,
     }
 
     let reloadedDelivery
@@ -739,7 +741,7 @@ export class DeliveryDomainService {
     // in the moment between the two, undoing an award that was really earned.
     let tookEffect: boolean
     try {
-      tookEffect = await this.deliveryEventService.hasSuccessfulReassignedWithMessage(deliveryId, awardMessage)
+      tookEffect = await this.deliveryEventService.hasSuccessfulReassignedWithMessage(deliveryId, eventMessage)
     } catch (error) {
       // Could not tell: keep the award (binding value 4), and log it the way the failure above does.
       this.logger.error(
@@ -747,6 +749,15 @@ export class DeliveryDomainService {
         (error as Error).stack
       )
       throw error
+    }
+
+    // No row, but the rider is off the delivery: the move was written and its event row was lost. The
+    // rider really lost the order, so the award stands (binding value 4), for a human to check.
+    if (!tookEffect && reloadedDelivery.courierId !== droppedCourierId) {
+      this.logger.error(
+        formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' })
+      )
+      return reloadedDelivery
     }
 
     if (!tookEffect) {

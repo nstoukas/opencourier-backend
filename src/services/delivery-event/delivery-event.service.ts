@@ -1748,7 +1748,13 @@ export class DeliveryEventService {
       const skipAward = approved !== null && !approved.paidToRider
       const awardDone = skipAward || (await this.awardCancellationPay(delivery, delivery.courierId, approved))
       if (approved && !approved.settledAt && awardDone) {
-        await this.finishRemovalSettlement(delivery, approved)
+        // Caught here because this runs inside the cancel: a failed charge or stamp must not stop the
+        // restaurant's webhook or the rider's cancelled job push. settledAt stays null for the sweep.
+        try {
+          await this.finishRemovalSettlement(delivery, approved)
+        } catch (error) {
+          this.logger.error(`REMOVAL_SETTLE_FAILED {"deliveryId":"${delivery.id}"}: ${error}`)
+        }
       }
     } else {
       // Should not happen (a rider is set on accept); say so rather than leave it quietly unpaid.

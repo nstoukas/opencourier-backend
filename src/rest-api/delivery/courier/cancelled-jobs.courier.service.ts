@@ -137,7 +137,8 @@ export class CancelledJobsCourierService {
       // The query only returns rows with cancelledAt set.
       cancelledAt: row.cancelledAt as Date,
       pickedUp: row.cancelledFromStatus !== null && DELIVERY_PICKED_UP_STATUSES.includes(row.cancelledFromStatus),
-      payAmount: row.courierCompensations[0]?.amount ?? null,
+      // Null tells the app the pay is still being written. An unpaid removal never gets a row, so it is 0.
+      payAmount: row.courierCompensations[0]?.amount ?? (row.removalRequests.length > 0 ? 0 : null),
       currencyCode: row.currencyCode,
       foodOutcome: row.foodOutcome,
     })

@@ -31,6 +31,8 @@ import {
 import { isUniqueConstraintError } from 'src/prisma.util'
 
 export const ORDER_CHANGED_MESSAGE = 'This order changed. Check your jobs.'
+// The same refusal, worded for the dispatcher looking at the board.
+export const ADMIN_ORDER_CHANGED_MESSAGE = 'This order changed while you were deciding. Look at the row again.'
 export const BOARD_STALE_MESSAGE = 'This order moved on since the board was loaded. Reload and try again.'
 export const REQUEST_NOT_OPEN_MESSAGE = 'This request has already been answered or withdrawn.'
 export const ALREADY_OPEN_MESSAGE = 'A removal request is already open for this order.'
@@ -209,7 +211,7 @@ export class RemovalRequestService {
     if (!this.riderHolds(delivery, request.courierId)) {
       // Should not happen (the close rule closes it), but a request left open would block the next one.
       await this.removalRequestRepository.closeIfOpen(request.id)
-      throw new ConflictException(ORDER_CHANGED_MESSAGE)
+      throw new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
     }
 
     const pickedUp = DELIVERY_PICKED_UP_STATUSES.includes(delivery.status)
@@ -258,7 +260,7 @@ export class RemovalRequestService {
     if (!event) {
       await this.recordMissedApproval(request, oldStatus)
       await this.undoClaim(request)
-      throw new ConflictException(ORDER_CHANGED_MESSAGE)
+      throw new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
     }
 
     await this.deliveryEventService.settleRemoval(request.id)
@@ -293,7 +295,7 @@ export class RemovalRequestService {
     if (latest?.status !== EnumDeliveryStatus.CANCELED) {
       await this.recordMissedApproval(request, latest?.status ?? oldStatus)
       await this.undoClaim(request)
-      throw new ConflictException(ORDER_CHANGED_MESSAGE)
+      throw new ConflictException(ADMIN_ORDER_CHANGED_MESSAGE)
     }
 
     await this.recordEvent(
@@ -438,11 +440,22 @@ export class RemovalRequestService {
   }
 
   async createReason(input: RemovalReasonInput): Promise<RemovalReason> {
-    return this.removalRequestRepository.createReason({ ...input, label: this.cleanLabel(input.label) })
+    return this.removalRequestRepository.createReason({
+      ...this.editableReasonFields(input),
+      label: this.cleanLabel(input.label),
+    })
+  }
+
+  // The global validation pipe keeps body fields it has no rule for, so name the ones a reason may
+  // change: a body carrying removedAt must not get past the last reason check.
+  private editableReasonFields(input: Partial<RemovalReasonInput>): Partial<RemovalReasonInput> {
+    const { label, paidToRider, chargedToRestaurant, needsNote, position } = input
+    return { label, paidToRider, chargedToRestaurant, needsNote, position }
   }
 
   async updateReason(id: string, input: Partial<RemovalReasonInput>): Promise<RemovalReason> {
-    const data = input.label === undefined ? input : { ...input, label: this.cleanLabel(input.label) }
+    const fields = this.editableReasonFields(input)
+    const data = fields.label === undefined ? fields : { ...fields, label: this.cleanLabel(fields.label) }
     const reason = await this.removalRequestRepository.updateActiveReason(id, data)
     if (!reason) throw new NotFoundException('Removal reason not found')
     return reason

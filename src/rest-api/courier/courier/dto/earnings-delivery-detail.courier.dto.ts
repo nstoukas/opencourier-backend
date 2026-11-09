@@ -37,6 +37,9 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ required: false, type: Number, description: 'What the return trip to the restaurant paid on this cancelled job, in integer cents, inside total' })
   returnTripPay?: number
 
+  @ApiProperty({ required: false, type: Number, description: 'What a removal from this order paid, in integer cents, inside total' })
+  removalPay?: number
+
   constructor(delivery: EarningsDelivery, meta: { currency: string }) {
     this.deliveryId = delivery.deliveryId
     this.droppedOffAt = delivery.droppedOffAt
@@ -49,5 +52,6 @@ export class EarningsDeliveryDetailCourierDto {
     this.kind = delivery.kind
     this.waitingPay = delivery.waitingPay
     this.returnTripPay = delivery.returnTripPay
+    this.removalPay = delivery.removalPay
   }
 }

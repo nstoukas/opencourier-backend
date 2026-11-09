@@ -46,7 +46,11 @@ export function waitMinutesOf(delivery: WaitRecordDelivery): number | null {
   if (!lastPickup) return null
   // A delivery that changed hands: an arrival from before the last hand over is the earlier rider's.
   const lastHandOver = latest(
-    delivery.events.filter((event) => HAND_OVER_EVENTS.includes(event.type)).map((event) => event.occurredAt)
+    delivery.events
+      // After the last pickup a hand over changes nothing about who waited for that pickup (spec 0035:
+      // a removal approved after pickup would otherwise drop this wait from the record).
+      .filter((event) => HAND_OVER_EVENTS.includes(event.type) && event.occurredAt.getTime() <= lastPickup.getTime())
+      .map((event) => event.occurredAt)
   )
   const arrivals = delivery.events.filter(
     (event) =>

@@ -9,6 +9,7 @@ import {
   EnumDeliveryStatus,
   Location,
   Prisma,
+  EnumRemovalRequestStatus,
 } from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
@@ -121,6 +122,11 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       include: {
         pickupLocation: true,
         courierCompensations: { where: { reason: EnumCourierCompensationReason.CANCELLATION, courierId } },
+        // Spec 0035 (decision 24.5): an approval after pickup for an unpaid reason, so no award will ever come.
+        removalRequests: {
+          where: { status: EnumRemovalRequestStatus.APPROVED, afterPickup: true, paidToRider: false, courierId },
+          select: { id: true },
+        },
       },
     })
   }

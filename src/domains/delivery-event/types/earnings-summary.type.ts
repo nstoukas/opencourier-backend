@@ -57,5 +57,7 @@ export interface EarningsDelivery {
   waitingPay?: number
   // Spec 0035, on the detail of a job cancelled after pickup: what the return trip paid, already inside `total`.
   returnTripPay?: number
+  // Spec 0035, on a detail: what a removal from this order paid, already inside `total`.
+  removalPay?: number
 }
 
