@@ -1,3 +1,4 @@
+import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import {
   READY_ACTION_STATUSES,
@@ -54,7 +55,6 @@ export function arrivalHow(detected?: boolean): string {
 
 // A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
 const DEFAULT_USUAL_PREP_MINUTES = 15
-import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 
 @Injectable()
 export class DeliveryDomainService {
