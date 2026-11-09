@@ -1,4 +1,4 @@
-import { EnumDeliveryIssueReason, EnumDeliveryStatus } from '@prisma/types'
+import { EnumDeliveryIssueReason, EnumDeliveryStatus, EnumRemovalRequestStatus } from '@prisma/types'
 import { ConflictException } from '@nestjs/common'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
@@ -12,7 +12,9 @@ describe('DeliveryRestApiCourierService', () => {
   let service: DeliveryRestApiCourierService
   let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
   let mockLocationNoteDomainService: jest.Mocked<LocationNoteDomainService>
+  let mockLocationNoteReactionDomainService: jest.Mocked<LocationNoteReactionDomainService>
   let mockDeliveryIssueDomainService: jest.Mocked<DeliveryIssueDomainService>
+  let mockRemovalRequestRepo: any
 
   const deliveryId = 'del-assigned-101'
   const courierId = 'courier-assigned-202'
@@ -45,21 +47,27 @@ describe('DeliveryRestApiCourierService', () => {
 
     mockLocationNoteDomainService = {
       create: jest.fn().mockResolvedValue({ id: 'note-1' } as any),
+      getManyByLocationIds: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<LocationNoteDomainService>
+
+    mockLocationNoteReactionDomainService = {
+      getCountsByNoteIds: jest.fn().mockResolvedValue({}),
+      getReactionByCourierOnNoteIds: jest.fn().mockResolvedValue({}),
+    } as unknown as jest.Mocked<LocationNoteReactionDomainService>
 
     mockDeliveryIssueDomainService = {
       report: jest.fn().mockResolvedValue(mockStoredIssue),
       listForDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryIssueDomainService>
 
-    const mockRemovalRequestRepo = {
-      findNewestByCourierForDeliveries: jest.fn().mockResolvedValue(new Map()),
-    } as any
+    mockRemovalRequestRepo = {
+      findNewestByCourierForDeliveries: jest.fn().mockResolvedValue([]),
+    }
 
     service = new DeliveryRestApiCourierService(
       mockDeliveryDomainService,
       mockLocationNoteDomainService,
-      {} as LocationNoteReactionDomainService,
+      mockLocationNoteReactionDomainService,
       mockDeliveryIssueDomainService,
       {} as any,
       mockRemovalRequestRepo
@@ -408,6 +416,177 @@ describe('DeliveryRestApiCourierService', () => {
 
       await expect(service.cancelDelivery('del-other', courierId)).rejects.toThrow(DeliveryNotFoundException)
       expect(mockDeliveryDomainService.cancelDelivery).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getMyInProgressDeliveriesWithNotes - removalRequest (Spec 0035 AC-11)', () => {
+    const makeDelivery = (id: string, status = EnumDeliveryStatus.DISPATCHED) => ({
+      id,
+      courierId,
+      status,
+      dropoffLocationId: 'loc-drop-1',
+      pickupLocationId: 'loc-pick-1',
+      pickupLocation: { street: 'Pickup St' },
+      dropoffLocation: { street: 'Dropoff St' },
+      pickupLocationNotes: [],
+      dropoffLocationNotes: [],
+    })
+
+    test('calls findNewestByCourierForDeliveries and includes removalRequest only when OPEN or DECLINED', async () => {
+      mockDeliveryDomainService.getMany = jest.fn().mockResolvedValue({
+        data: [
+          makeDelivery('del-open'),
+          makeDelivery('del-declined'),
+          makeDelivery('del-withdrawn'),
+          makeDelivery('del-approved'),
+          makeDelivery('del-closed'),
+        ],
+        pagination: {},
+      })
+
+      mockRemovalRequestRepo.findNewestByCourierForDeliveries = jest.fn().mockResolvedValue([
+        {
+          id: 'req-open',
+          deliveryId: 'del-open',
+          courierId,
+          status: EnumRemovalRequestStatus.OPEN,
+          label: 'Moped breakdown',
+          paidToRider: true,
+          decisionNote: null,
+          createdAt: new Date('2026-11-09T10:00:00Z'),
+        },
+        {
+          id: 'req-declined',
+          deliveryId: 'del-declined',
+          courierId,
+          status: EnumRemovalRequestStatus.DECLINED,
+          label: 'Customer unreachable',
+          paidToRider: false,
+          decisionNote: 'Wait another 5 mins',
+          createdAt: new Date('2026-11-09T10:05:00Z'),
+        },
+        {
+          id: 'req-withdrawn',
+          deliveryId: 'del-withdrawn',
+          courierId,
+          status: EnumRemovalRequestStatus.WITHDRAWN,
+          label: 'Food not ready',
+          paidToRider: true,
+          decisionNote: null,
+          createdAt: new Date('2026-11-09T10:10:00Z'),
+        },
+        {
+          id: 'req-approved',
+          deliveryId: 'del-approved',
+          courierId,
+          status: EnumRemovalRequestStatus.APPROVED,
+          label: 'Personal emergency',
+          paidToRider: true,
+          decisionNote: null,
+          createdAt: new Date('2026-11-09T10:15:00Z'),
+        },
+        {
+          id: 'req-closed',
+          deliveryId: 'del-closed',
+          courierId,
+          status: EnumRemovalRequestStatus.CLOSED,
+          label: 'Other',
+          paidToRider: true,
+          decisionNote: null,
+          createdAt: new Date('2026-11-09T10:20:00Z'),
+        },
+      ])
+
+      const result = await service.getMyInProgressDeliveriesWithNotes(courierId)
+
+      expect(mockRemovalRequestRepo.findNewestByCourierForDeliveries).toHaveBeenCalledWith(
+        courierId,
+        ['del-open', 'del-declined', 'del-withdrawn', 'del-approved', 'del-closed']
+      )
+
+      const delOpen = result.data.find((d) => d.id === 'del-open')
+      expect(delOpen?.removalRequest).toEqual(
+        expect.objectContaining({
+          id: 'req-open',
+          status: EnumRemovalRequestStatus.OPEN,
+          label: 'Moped breakdown',
+          paidToRider: true,
+        })
+      )
+
+      const delDeclined = result.data.find((d) => d.id === 'del-declined')
+      expect(delDeclined?.removalRequest).toEqual(
+        expect.objectContaining({
+          id: 'req-declined',
+          status: EnumRemovalRequestStatus.DECLINED,
+          label: 'Customer unreachable',
+          paidToRider: false,
+          decisionNote: 'Wait another 5 mins',
+        })
+      )
+
+      // WITHDRAWN, APPROVED, CLOSED are NOT shown (null)
+      const delWithdrawn = result.data.find((d) => d.id === 'del-withdrawn')
+      expect(delWithdrawn?.removalRequest).toBeNull()
+
+      const delApproved = result.data.find((d) => d.id === 'del-approved')
+      expect(delApproved?.removalRequest).toBeNull()
+
+      const delClosed = result.data.find((d) => d.id === 'del-closed')
+      expect(delClosed?.removalRequest).toBeNull()
+    })
+
+    test('newest wins: when multiple requests exist for delivery, newest entry in array determines visibility', async () => {
+      mockDeliveryDomainService.getMany = jest.fn().mockResolvedValue({
+        data: [makeDelivery('del-multi-1'), makeDelivery('del-multi-2')],
+        pagination: {},
+      })
+
+      // Delivery 1 has newest = OPEN, older = DECLINED
+      // Delivery 2 has newest = WITHDRAWN, older = OPEN
+      mockRemovalRequestRepo.findNewestByCourierForDeliveries = jest.fn().mockResolvedValue([
+        {
+          id: 'req-new-open',
+          deliveryId: 'del-multi-1',
+          status: EnumRemovalRequestStatus.OPEN,
+          label: 'Food not ready',
+          paidToRider: true,
+          createdAt: new Date('2026-11-09T11:00:00Z'),
+        },
+        {
+          id: 'req-old-declined',
+          deliveryId: 'del-multi-1',
+          status: EnumRemovalRequestStatus.DECLINED,
+          label: 'Food not ready',
+          paidToRider: true,
+          createdAt: new Date('2026-11-09T10:00:00Z'),
+        },
+        {
+          id: 'req-new-withdrawn',
+          deliveryId: 'del-multi-2',
+          status: EnumRemovalRequestStatus.WITHDRAWN,
+          label: 'Unsafe drop off',
+          paidToRider: true,
+          createdAt: new Date('2026-11-09T11:00:00Z'),
+        },
+        {
+          id: 'req-old-open',
+          deliveryId: 'del-multi-2',
+          status: EnumRemovalRequestStatus.OPEN,
+          label: 'Unsafe drop off',
+          paidToRider: true,
+          createdAt: new Date('2026-11-09T10:00:00Z'),
+        },
+      ])
+
+      const result = await service.getMyInProgressDeliveriesWithNotes(courierId)
+
+      const del1 = result.data.find((d) => d.id === 'del-multi-1')
+      expect(del1?.removalRequest?.id).toBe('req-new-open')
+
+      // For delivery 2, newest is WITHDRAWN so removalRequest is null (even though older was OPEN)
+      const del2 = result.data.find((d) => d.id === 'del-multi-2')
+      expect(del2?.removalRequest).toBeNull()
     })
   })
 })

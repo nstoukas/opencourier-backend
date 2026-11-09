@@ -553,6 +553,30 @@ describe('earnings-summary.util', () => {
       expect(result.total).toBe(450)
     })
 
+    it('maps reason REMOVAL to kind REMOVAL_COMPENSATION (Spec 0035 AC-17)', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.REMOVAL,
+      })
+
+      expect(result.kind).toBe('REMOVAL_COMPENSATION')
+      expect(result.compensation).toBe(450)
+      expect(result.tips).toBe(0)
+      expect(result.total).toBe(450)
+    })
+
+    it('maps reason RETURN_TRIP to kind RETURN_TRIP (Spec 0035 AC-17)', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.RETURN_TRIP,
+      })
+
+      expect(result.kind).toBe('RETURN_TRIP')
+      expect(result.compensation).toBe(450)
+      expect(result.tips).toBe(0)
+      expect(result.total).toBe(450)
+    })
+
     it('maps absent / undefined reason to kind REASSIGNMENT_COMPENSATION', () => {
       const result = compensationToEarningsDelivery({
         ...baseCompRow,

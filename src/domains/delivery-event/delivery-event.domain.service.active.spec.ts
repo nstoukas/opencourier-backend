@@ -375,6 +375,78 @@ describe('DeliveryEventDomainService', () => {
         kind: 'REASSIGNMENT_COMPENSATION',
       })
     })
+
+    test('cancelled job with return trip pay exposes returnTripPay as its own line and sums into total (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-cancelled-return',
+          createdAt: new Date('2026-07-10T09:00:00Z'),
+          amount: 450, // Cancellation compensation
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-cancelled-return',
+          createdAt: new Date('2026-07-10T09:15:00Z'),
+          amount: 150, // Return trip compensation
+          reason: EnumCourierCompensationReason.RETURN_TRIP,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-cancelled-return')
+
+      expect(result).toEqual({
+        deliveryId: 'del-cancelled-return',
+        droppedOffAt: new Date('2026-07-10T09:00:00Z'),
+        dropoffAddress: 'Address A',
+        pickupBusinessName: 'Pizzeria',
+        compensation: 600, // 450 + 150
+        tips: 0,
+        total: 600,
+        kind: 'CANCELLATION_COMPENSATION',
+        returnTripPay: 150, // Own line, not mixed into waitingPay or another field
+      })
+      expect(result?.waitingPay).toBeUndefined()
+    })
+
+    test('delivered order does not add RETURN_TRIP rows into waitingPay (Spec 0035 AC-17)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-delivered-clean',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 500,
+        tips: 100,
+        pickupBusinessName: 'Pizzeria',
+        dropoffAddress: 'Address B',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-delivered-clean',
+          createdAt: new Date('2026-07-10T09:45:00Z'),
+          amount: 120,
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: null,
+        },
+        {
+          deliveryId: 'del-delivered-clean',
+          createdAt: new Date('2026-07-10T09:50:00Z'),
+          amount: 200,
+          reason: EnumCourierCompensationReason.RETURN_TRIP,
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: null,
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-delivered-clean')
+
+      expect(result?.waitingPay).toBe(120)
+      expect(result?.returnTripPay).toBeUndefined()
+      expect(result?.total).toBe(720) // 500 + 100 + 120 waitingPay (RETURN_TRIP not added)
+    })
   })
 
   describe('courierId scoping', () => {

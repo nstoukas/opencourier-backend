@@ -6,7 +6,7 @@ import { DispatchBoardRepository } from 'src/persistence/repositories/dispatch-b
 import { DispatchStopService } from 'src/services/dispatch-stop/dispatch-stop.service'
 import { SosService } from 'src/services/sos/sos.service'
 import { DispatchBoardService } from './dispatch-board.service'
-import { ATTENTION_KIND, todayBounds } from './dispatch-board'
+import { ATTENTION_KIND, removalRequestRows, todayBounds } from './dispatch-board'
 
 describe('DispatchBoardService (spec 0034)', () => {
   let service: DispatchBoardService
@@ -16,6 +16,7 @@ describe('DispatchBoardService (spec 0034)', () => {
   let mockSosService: jest.Mocked<SosService>
   let mockDispatchStopService: jest.Mocked<DispatchStopService>
   let mockConfigDomainService: jest.Mocked<ConfigDomainService>
+  let mockRemovalRequestRepo: any
 
   const NOW = new Date('2026-11-09T14:00:00.000Z')
 
@@ -48,9 +49,9 @@ describe('DispatchBoardService (spec 0034)', () => {
       },
     } as unknown as jest.Mocked<ConfigDomainService>
 
-    const mockRemovalRequestRepo = {
+    mockRemovalRequestRepo = {
       findOpenForBoard: jest.fn().mockResolvedValue([]),
-    } as any
+    }
 
     service = new DispatchBoardService(
       mockDispatchBoardRepo,
@@ -288,6 +289,93 @@ describe('DispatchBoardService (spec 0034)', () => {
       expect(lateRow).toBeDefined()
       expect(lateRow?.deliveryId).toBe('del-late')
       expect(lateRow?.detail).toContain('food was due 15:40')
+    })
+  })
+
+  describe('removalRequestRows & getBoard integration (Spec 0035 AC-6)', () => {
+    const makeOpenRemovalRequest = (overrides: Partial<any> = {}) => ({
+      id: 'req-rem-1',
+      deliveryId: 'del-rem-1',
+      courierId: 'c-rider-1',
+      reasonId: 'reason-1',
+      label: 'Moped breakdown or accident',
+      paidToRider: true,
+      chargedToRestaurant: false,
+      note: 'Engine smoking on highway',
+      createdAt: new Date('2026-11-09T13:45:00.000Z'),
+      courier: { firstName: 'Vasilis', lastName: 'Papageorgiou' },
+      delivery: {
+        id: 'del-rem-1',
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId: 'c-rider-1',
+        orderReference: 'ORD-REM-100',
+        pickupBusinessName: 'Volos Grill',
+        dropoffName: 'Customer Name',
+        dropoffBusinessName: null,
+      },
+      ...overrides,
+    })
+
+    test('removalRequestRows maps open removal request before pickup', () => {
+      const request = makeOpenRemovalRequest({
+        paidToRider: true,
+        delivery: {
+          id: 'del-rem-1',
+          status: EnumDeliveryStatus.DISPATCHED,
+          courierId: 'c-rider-1',
+          orderReference: 'ORD-REM-100',
+          pickupBusinessName: 'Volos Grill',
+          dropoffName: 'Customer Name',
+          dropoffBusinessName: null,
+        },
+      })
+
+      const [row] = removalRequestRows([request as any])
+      expect(row).toBeDefined()
+      expect(row?.kind).toBe(ATTENTION_KIND.REMOVAL_REQUEST)
+      expect(row?.since).toEqual(request.createdAt)
+      expect(row?.riderName).toBe('Vasilis Papageorgiou')
+      expect(row?.removalRequestId).toBe('req-rem-1')
+      expect(row?.pickedUp).toBe(false)
+      expect(row?.detail).toContain('Vasilis Papageorgiou asks to come off this order: Moped breakdown or accident (Paid)')
+      expect(row?.detail).toContain('Engine smoking on highway')
+      // Does NOT claim approving cancels order
+      expect(row?.detail).not.toContain('approving cancels the order')
+    })
+
+    test('removalRequestRows maps open removal request after pickup and says approving cancels order', () => {
+      const request = makeOpenRemovalRequest({
+        paidToRider: false,
+        delivery: {
+          id: 'del-rem-1',
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: 'c-rider-1',
+          orderReference: 'ORD-REM-100',
+          pickupBusinessName: 'Volos Grill',
+          dropoffName: 'Customer Name',
+          dropoffBusinessName: null,
+        },
+      })
+
+      const [row] = removalRequestRows([request as any])
+      expect(row).toBeDefined()
+      expect(row?.kind).toBe(ATTENTION_KIND.REMOVAL_REQUEST)
+      expect(row?.pickedUp).toBe(true)
+      expect(row?.detail).toContain('(Not paid)')
+      expect(row?.detail).toContain('Food already picked up: approving cancels the order.')
+    })
+
+    test('getBoard queries findOpenForBoard and includes REMOVAL_REQUEST rows in attention', async () => {
+      const request = makeOpenRemovalRequest()
+      mockRemovalRequestRepo.findOpenForBoard.mockResolvedValue([request])
+
+      const board = await service.getBoard(NOW)
+
+      expect(mockRemovalRequestRepo.findOpenForBoard).toHaveBeenCalled()
+      const removalRow = board.attention.find((r) => r.kind === ATTENTION_KIND.REMOVAL_REQUEST)
+      expect(removalRow).toBeDefined()
+      expect(removalRow?.removalRequestId).toBe('req-rem-1')
+      expect(removalRow?.riderName).toBe('Vasilis Papageorgiou')
     })
   })
 })

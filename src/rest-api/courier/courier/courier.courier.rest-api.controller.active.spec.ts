@@ -317,6 +317,25 @@ describe('CourierCourierRestApiController', () => {
       // Confirm first argument to domain service is logged in courier.id ('courier-777')
       expect(mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mock.calls[0]?.[0]).toBe('courier-777')
     })
+
+    test('propagates returnTripPay when present on delivery detail (Spec 0035 AC-17)', async () => {
+      mockDeliveryEventDomainService.getEarningsDeliveryDetailForCourier.mockResolvedValue({
+        deliveryId: 'del-with-return',
+        droppedOffAt: new Date('2026-07-10T12:00:00Z'),
+        dropoffAddress: 'Ermou 10, Volos',
+        pickupBusinessName: 'Test Biz',
+        compensation: 600,
+        tips: 0,
+        total: 600,
+        kind: 'CANCELLATION_COMPENSATION',
+        returnTripPay: 150,
+      })
+
+      const result = await controller.getMyEarningsDeliveryDetail('del-with-return', mockCourier)
+
+      expect(result.returnTripPay).toBe(150)
+      expect(result.total).toBe(600)
+    })
   })
 })
 

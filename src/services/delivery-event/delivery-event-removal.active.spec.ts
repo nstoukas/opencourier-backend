@@ -7,6 +7,7 @@ import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
   EnumEventActor,
+  EnumFoodOutcome,
   EnumPartnerChargeReason,
   EnumRemovalRequestStatus,
 } from '@prisma/types'
@@ -29,6 +30,9 @@ import { CourierCompensationRepository } from 'src/persistence/repositories/cour
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { DELIVERY_ONGOING_STATUSES, RemovalRequestDecidedMessage } from 'src/shared-types'
+import { WAIT_END_EVENTS } from 'src/domains/delivery/wait-pay'
+import { roundMoney } from 'src/core/utils/money'
 
 describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14, AC-15)', () => {
   let service: DeliveryEventService
@@ -97,6 +101,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     mockWebsocketDispatcher = {
       sendOfferToCourier: jest.fn().mockResolvedValue(undefined),
       dispatchDeliveryStatusUpdated: jest.fn().mockResolvedValue(undefined),
+      sendRemovalRequestDecided: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<WebsocketDispatcher>
 
     mockCourierRepository = {
@@ -109,6 +114,10 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     mockDeliveryRepository = {
       findByIdOrThrow: jest.fn().mockResolvedValue(makeDelivery()),
       findById: jest.fn().mockResolvedValue(makeDelivery()),
+      findByIdOrThrowWithQuote: jest.fn().mockResolvedValue({
+        delivery: makeDelivery({ foodOutcome: EnumFoodOutcome.RETURNED }),
+        quote: { distanceFee: 400 },
+      }),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       findWaitPayToSettle: jest.fn().mockResolvedValue([]),
       findCancellationsToSettle: jest.fn().mockResolvedValue([]),
@@ -122,12 +131,16 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       findLatestOfTypes: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<DeliveryEventRepository>
 
-    mockTaskScheduler = { scheduleTask: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<TaskBusScheduler>
+    mockTaskScheduler = {
+      scheduleTask: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<TaskBusScheduler>
     mockTaskBusService = { registerTaskHandler: jest.fn() } as unknown as jest.Mocked<TaskBusService>
     mockPartnerWebhookService = {
       sendDeliveryUpdatePartnerWebhook: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<PartnerWebhookService>
-    mockDeliveryMatchingService = { matchDeliveryToCourier: jest.fn() } as unknown as jest.Mocked<DeliveryMatchingService>
+    mockDeliveryMatchingService = {
+      matchDeliveryToCourier: jest.fn(),
+    } as unknown as jest.Mocked<DeliveryMatchingService>
     mockDeliveryCalculationService = {
       calculateDeliveryAmountsForMatchedCourier: jest.fn(),
     } as unknown as jest.Mocked<DeliveryCalculationService>
@@ -160,9 +173,12 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       newOffer: jest.fn().mockResolvedValue(undefined),
       offerEnded: jest.fn().mockResolvedValue(undefined),
       jobCancelled: jest.fn().mockResolvedValue(undefined),
+      removalRequestDecided: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<OfferPushService>
 
-    mockDispatchStopRepository = { findOn: jest.fn().mockResolvedValue(null) } as unknown as jest.Mocked<DispatchStopRepository>
+    mockDispatchStopRepository = {
+      findOn: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<DispatchStopRepository>
 
     mockCourierCompensationRepository = {
       createRemovalPayOnce: jest.fn().mockImplementation(async (input) => ({ id: 'comp-rem-1', ...input })),
@@ -175,6 +191,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     mockPartnerChargeRepository = {
       createRemovalChargeOnce: jest.fn().mockImplementation(async (input) => ({ id: 'charge-rem-1', ...input })),
       createOnce: jest.fn().mockImplementation(async (input) => ({ id: 'charge-canc-1', ...input })),
+      findByDeliveryId: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<PartnerChargeRepository>
 
     mockRemovalRequestRepository = {
@@ -220,11 +237,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(event?.message).toBe('Removal approved: Restaurant closed')
 
       // Skip list updated first
-      expect(saveSpy).toHaveBeenCalledWith(
-        `delivery-rejected-couriers:${deliveryId}`,
-        [courierId],
-        1200
-      )
+      expect(saveSpy).toHaveBeenCalledWith(`delivery-rejected-couriers:${deliveryId}`, [courierId], 1200)
 
       // updateIfMatches condition MUST include courierId and status
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
@@ -265,11 +278,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
 
       expect(event).toBeNull()
       // Skip list entry undone
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
-        `delivery-rejected-couriers:${deliveryId}`,
-        [],
-        1200
-      )
+      expect(mockCacheService.save).toHaveBeenLastCalledWith(`delivery-rejected-couriers:${deliveryId}`, [], 1200)
       // No REMOVAL_APPROVED event saved
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.REMOVAL_APPROVED })
@@ -640,5 +649,667 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
 
       expect(mockPartnerChargeRepository.createRemovalChargeOnce).not.toHaveBeenCalled()
     })
+
+    test('AC-18: a sweep that runs twice writes each piece once (idempotent removal settlement, event not repeated)', async () => {
+      const request = makeRequest({
+        paidToRider: true,
+        chargedToRestaurant: true,
+        payAmount: 350,
+        payPolicy: 'FULL_COMPENSATION',
+        afterPickup: false,
+      })
+      mockRemovalRequestRepository.findById.mockResolvedValue(request)
+
+      // First run: no existing messages
+      mockDeliveryEventRepository.findMessagesOfType.mockResolvedValue([])
+      await service.settleRemoval(requestId)
+
+      expect(mockCourierCompensationRepository.createRemovalPayOnce).toHaveBeenCalledTimes(1)
+      expect(mockCourierCompensationRepository.createRemovalPayOnce).toHaveBeenCalledWith(
+        expect.objectContaining({ removalOf: requestId })
+      )
+      expect(mockPartnerChargeRepository.createRemovalChargeOnce).toHaveBeenCalledTimes(1)
+      expect(mockPartnerChargeRepository.createRemovalChargeOnce).toHaveBeenCalledWith(
+        expect.objectContaining({ removalOf: requestId })
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL })
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL })
+      )
+
+      // Reset mock invocation counts
+      mockDeliveryEventRepository.create.mockClear()
+
+      // Second run: existing messages now carry `removal ${requestId}`
+      mockDeliveryEventRepository.findMessagesOfType.mockImplementation(async (delId, type) => {
+        if (type === EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL) {
+          return [
+            `Courier courier-1 paid 350 EUR (cents) under FULL_COMPENSATION: Order not ready; removal ${requestId}`,
+          ]
+        }
+        if (type === EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL) {
+          return [
+            `Partner restaurant charged 350 EUR (cents) under FULL_COMPENSATION: Order not ready; removal ${requestId}`,
+          ]
+        }
+        return []
+      })
+
+      await service.settleRemoval(requestId)
+
+      // Compensation and charge createRemoval*Once are called again with unique removalOf (idempotent upsert in repository)
+      expect(mockCourierCompensationRepository.createRemovalPayOnce).toHaveBeenCalledTimes(2)
+      expect(mockPartnerChargeRepository.createRemovalChargeOnce).toHaveBeenCalledTimes(2)
+
+      // Neither event is repeated because findMessagesOfType already contains `removal ${requestId}`
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL })
+      )
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL })
+      )
+    })
+  })
+
+  describe('AC-11: notifyRemovalDecided (websocket and push notification)', () => {
+    test('sends websocket and push notification with payload; payAmount is null when reason is unpaid', async () => {
+      const unpaidMessage: RemovalRequestDecidedMessage = {
+        deliveryId,
+        outcome: 'DECLINED',
+        decisionNote: 'Finish the delivery please',
+        paid: false,
+        payAmount: null,
+        currencyCode: 'EUR',
+      }
+
+      await service.notifyRemovalDecided(courierId, unpaidMessage)
+
+      expect(mockCourierRepository.findById).toHaveBeenCalledWith(courierId)
+      expect(mockWebsocketDispatcher.sendRemovalRequestDecided).toHaveBeenCalledWith('user-courier-1', unpaidMessage)
+      expect(mockOfferPushService.removalRequestDecided).toHaveBeenCalledWith(courierId, unpaidMessage)
+    })
+
+    test('carries payAmount when reason is paid', async () => {
+      const paidMessage: RemovalRequestDecidedMessage = {
+        deliveryId,
+        outcome: 'APPROVED',
+        decisionNote: null,
+        paid: true,
+        payAmount: 350,
+        currencyCode: 'EUR',
+      }
+
+      await service.notifyRemovalDecided(courierId, paidMessage)
+
+      expect(mockWebsocketDispatcher.sendRemovalRequestDecided).toHaveBeenCalledWith('user-courier-1', paidMessage)
+      expect(mockOfferPushService.removalRequestDecided).toHaveBeenCalledWith(courierId, paidMessage)
+    })
+
+    test('websocket failure is caught and logged, does not throw or prevent push', async () => {
+      mockWebsocketDispatcher.sendRemovalRequestDecided.mockRejectedValueOnce(new Error('Socket disconnected'))
+      const message: RemovalRequestDecidedMessage = {
+        deliveryId,
+        outcome: 'APPROVED',
+        decisionNote: null,
+        paid: true,
+        payAmount: 350,
+        currencyCode: 'EUR',
+      }
+
+      await expect(service.notifyRemovalDecided(courierId, message)).resolves.toBeUndefined()
+      // Push notification is still delivered
+      expect(mockOfferPushService.removalRequestDecided).toHaveBeenCalledWith(courierId, message)
+    })
+  })
+
+  describe('AC-12: Close rule in saveDeliveryEvent', () => {
+    test.each([
+      EnumDeliveryStatus.CANCELED,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.ASSIGNING_COURIER, // Target of REASSIGNED, RETURNED_TO_WAITING, HANDED_BACK, WAIT_UNDISPATCHED
+    ])(
+      'successful event with newStatus %s outside DELIVERY_ONGOING_STATUSES closes open request',
+      async (newStatus) => {
+        await (service as any).saveDeliveryEvent(
+          {
+            deliveryId,
+            type: EnumDeliveryEventType.CANCELED,
+            actor: EnumEventActor.ADMIN,
+            source: EnumDeliveryEventSource.OPENCOURIER,
+          },
+          {
+            transitionSuccessful: true,
+            oldStatus: EnumDeliveryStatus.PICKED_UP,
+            newStatus,
+          }
+        )
+
+        expect(mockRemovalRequestRepository.closeOpenForDelivery).toHaveBeenCalledWith(deliveryId)
+      }
+    )
+
+    test('reassignment (critical case): successful REASSIGNED event landing in ASSIGNING_COURIER closes open request', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.REASSIGNED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'new-courier',
+          droppedCourierId: courierId,
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        }
+      )
+
+      expect(mockRemovalRequestRepository.closeOpenForDelivery).toHaveBeenCalledWith(deliveryId)
+    })
+
+    test('failed row (transitionSuccessful: false) does NOT close open request', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.CANCELED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        },
+        {
+          transitionSuccessful: false,
+          oldStatus: EnumDeliveryStatus.PICKED_UP,
+          newStatus: EnumDeliveryStatus.CANCELED,
+        }
+      )
+
+      expect(mockRemovalRequestRepository.closeOpenForDelivery).not.toHaveBeenCalled()
+    })
+
+    test('move between ongoing statuses (e.g. PICKED_UP) does NOT close open request', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.PICKED_UP,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          newStatus: EnumDeliveryStatus.PICKED_UP,
+        }
+      )
+
+      expect(mockRemovalRequestRepository.closeOpenForDelivery).not.toHaveBeenCalled()
+    })
+
+    test('failure of closeOpenForDelivery never breaks the saved event', async () => {
+      mockRemovalRequestRepository.closeOpenForDelivery.mockRejectedValueOnce(new Error('DB failure closing request'))
+
+      const saved = await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+          newStatus: EnumDeliveryStatus.DROPPED_OFF,
+        }
+      )
+
+      expect(saved).toBeDefined()
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalled()
+    })
+
+    test('repository query: closeOpenForDelivery where clause targets openFor and status OPEN', async () => {
+      const mockPrisma = {
+        deliveryRemovalRequest: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const repo = new RemovalRequestRepository(mockPrisma as any)
+
+      await repo.closeOpenForDelivery('del-close-where-test')
+
+      expect(mockPrisma.deliveryRemovalRequest.updateMany).toHaveBeenCalledWith({
+        where: { openFor: 'del-close-where-test', status: EnumRemovalRequestStatus.OPEN },
+        data: { status: EnumRemovalRequestStatus.CLOSED, openFor: null },
+      })
+    })
+  })
+
+  describe('AC-14: Rider approved before pickup, offered again, then restaurant cancels', () => {
+    test('normal cancellation pay stands when restaurant cancels after a prior before-pickup removal', async () => {
+      // Prior removal was before pickup (so afterPickup is false), findApprovedAfterPickup returns null
+      mockRemovalRequestRepository.findApprovedAfterPickup.mockResolvedValue(null)
+      mockDeliveryRepository.findById.mockResolvedValue(
+        makeDelivery({
+          status: EnumDeliveryStatus.CANCELED,
+          cancelledFromStatus: EnumDeliveryStatus.ACCEPTED,
+          cancelledAt: new Date(),
+          cancelledBy: EnumCancelledBy.RESTAURANT,
+          cancellationPayoutPolicy: 'FULL_COMPENSATION',
+          courierId: 'second-courier-rider',
+        })
+      )
+
+      await service.settleCancellation(deliveryId)
+
+      // The normal cancellation award is awarded to the rider holding it when restaurant cancelled
+      expect(mockCourierCompensationRepository.createCancellationAwardOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          courierId: 'second-courier-rider',
+          policy: 'FULL_COMPENSATION',
+          amount: 500,
+        })
+      )
+      // Normal cancellation event is recorded
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_CANCELLATION,
+          courierId: 'second-courier-rider',
+        })
+      )
+    })
+  })
+
+  describe('AC-16: Settle return trip (settleReturnTrip)', () => {
+    test('amount is quote distanceFee x returnTripPayPercent / 100 rounded, creates CourierCompensation with reason RETURN_TRIP, returnOf delivery id, policy RETURN_TRIP, not charged to restaurant', async () => {
+      mockConfigDomainService.instanceConfig.getReturnTripPayPercent.mockResolvedValue(75)
+      mockDeliveryRepository.findByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: makeDelivery({ foodOutcome: EnumFoodOutcome.RETURNED }),
+        quote: { distanceFee: 350 }, // 350 * 75% = 262.5 -> rounded 263
+      } as any)
+      mockCourierCompensationRepository.findReturnTripAward.mockResolvedValue(null)
+      mockDeliveryEventRepository.findLatestOfTypes.mockResolvedValue(null)
+
+      await service.settleReturnTrip(deliveryId)
+
+      expect(mockCourierCompensationRepository.createReturnTripPayOnce).toHaveBeenCalledWith({
+        amount: roundMoney((350 * 75) / 100),
+        currencyCode: 'EUR',
+        reason: EnumCourierCompensationReason.RETURN_TRIP,
+        policy: 'RETURN_TRIP',
+        message: 'The trip back to the restaurant, at 75% of the distance fee',
+        courierId,
+        deliveryId,
+        returnOf: deliveryId,
+      })
+
+      // Delivery event COURIER_PAID_FOR_RETURN_TRIP is recorded
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
+          courierId,
+          message: expect.stringContaining('paid 263 EUR (cents) for the trip back to the restaurant'),
+        })
+      )
+
+      // Return trip is NOT charged to the restaurant
+      expect(mockPartnerChargeRepository.createRemovalChargeOnce).not.toHaveBeenCalled()
+      expect(mockPartnerChargeRepository.createOnce).not.toHaveBeenCalled()
+    })
+
+    test('zero amount writes nothing (e.g. returnTripPayPercent is 0)', async () => {
+      mockConfigDomainService.instanceConfig.getReturnTripPayPercent.mockResolvedValue(0)
+      mockDeliveryRepository.findByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: makeDelivery({ foodOutcome: EnumFoodOutcome.RETURNED }),
+        quote: { distanceFee: 350 },
+      } as any)
+
+      await service.settleReturnTrip(deliveryId)
+
+      expect(mockCourierCompensationRepository.createReturnTripPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP })
+      )
+    })
+
+    test.each([EnumFoodOutcome.NOT_RETURNED, null])(
+      'foodOutcome not RETURNED writes nothing: %p',
+      async (foodOutcome) => {
+        mockDeliveryRepository.findByIdOrThrowWithQuote.mockResolvedValue({
+          delivery: makeDelivery({ foodOutcome: foodOutcome as any }),
+          quote: { distanceFee: 350 },
+        } as any)
+
+        await service.settleReturnTrip(deliveryId)
+
+        expect(mockCourierCompensationRepository.createReturnTripPayOnce).not.toHaveBeenCalled()
+        expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP })
+        )
+      }
+    )
+
+    test('AC-18: a return trip sweep that runs twice settles once and repeats write nothing', async () => {
+      mockConfigDomainService.instanceConfig.getReturnTripPayPercent.mockResolvedValue(75)
+      mockDeliveryRepository.findByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: makeDelivery({ foodOutcome: EnumFoodOutcome.RETURNED }),
+        quote: { distanceFee: 350 },
+      } as any)
+
+      // First run: no award, no paid event
+      const mockAward = { id: 'comp-ret-1', courierId, amount: 263, currencyCode: 'EUR' }
+      mockCourierCompensationRepository.findReturnTripAward.mockResolvedValueOnce(null)
+      mockCourierCompensationRepository.createReturnTripPayOnce.mockResolvedValueOnce(mockAward as any)
+      mockDeliveryEventRepository.findLatestOfTypes.mockResolvedValueOnce(null)
+
+      await service.settleReturnTrip(deliveryId)
+
+      expect(mockCourierCompensationRepository.createReturnTripPayOnce).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP })
+      )
+
+      // Second run: findReturnTripAward finds existing award, findLatestOfTypes finds existing event
+      mockCourierCompensationRepository.findReturnTripAward.mockResolvedValueOnce(mockAward as any)
+      mockDeliveryEventRepository.findLatestOfTypes.mockResolvedValueOnce({ id: 'evt-paid-1' } as any)
+      mockCourierCompensationRepository.createReturnTripPayOnce.mockClear()
+      mockDeliveryEventRepository.create.mockClear()
+
+      await service.settleReturnTrip(deliveryId)
+
+      expect(mockCourierCompensationRepository.createReturnTripPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP })
+      )
+    })
+  })
+
+  describe('AC-19: Wait pay after move (isWaitPayOwedAfterMove)', () => {
+    const arrivedAt = new Date('2026-11-09T10:00:00.000Z')
+    const promisedReadyAt = new Date('2026-11-09T10:00:00.000Z')
+
+    beforeEach(() => {
+      mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(true)
+      mockConfigDomainService.instanceConfig.getWaitPayCentsPerMinute.mockResolvedValue(10)
+      mockConfigDomainService.instanceConfig.getWaitPayFreeMinutes.mockResolvedValue(5)
+    })
+
+    test('removeRiderBeforePickup: stamps waitPayOwedAt when status is COURIER_ARRIVED_AT_PICKUP_LOCATION', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+        foodReadyAt: null,
+      })
+
+      await service.removeRiderBeforePickup(delivery, courierId, 'Restaurant closed')
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, courierId },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          waitPayOwedAt: expect.any(Date),
+        })
+      )
+    })
+
+    test('removeRiderBeforePickup: does NOT stamp waitPayOwedAt from any other status (e.g. DISPATCHED, ACCEPTED)', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.DISPATCHED,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+
+      await service.removeRiderBeforePickup(delivery, courierId, 'Moped breakdown')
+
+      const updateCall = mockDeliveryRepository.updateIfMatches.mock.calls[0]!
+      expect(updateCall[1]).toEqual({ status: EnumDeliveryStatus.DISPATCHED, courierId })
+      expect(updateCall[2].status).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+      expect(updateCall[2].waitPayOwedAt).toBeUndefined()
+    })
+
+    test('admin reassign (REASSIGNED): stamps waitPayOwedAt when leaving COURIER_ARRIVED_AT_PICKUP_LOCATION', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockResolvedValue({
+        deliveryId,
+        totalCost: 600,
+        totalCompensation: 500,
+        fee: 100,
+        feePercentage: 20,
+      })
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.REASSIGNED,
+        actor: EnumEventActor.ADMIN,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId: 'new-courier',
+      })
+
+      // The status write in updateDeliveryAndSendNotifications carries waitPayOwedAt
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          waitPayOwedAt: expect.any(Date),
+        })
+      )
+    })
+
+    test('admin reassign (REASSIGNED): does NOT stamp waitPayOwedAt from any other status (e.g. DISPATCHED)', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.DISPATCHED,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockResolvedValue({
+        deliveryId,
+        totalCost: 600,
+        totalCompensation: 500,
+        fee: 100,
+        feePercentage: 20,
+      })
+
+      await service.processDeliveryEvent({
+        deliveryId,
+        type: EnumDeliveryEventType.REASSIGNED,
+        actor: EnumEventActor.ADMIN,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId: 'new-courier',
+      })
+
+      // The status write does not carry waitPayOwedAt
+      const statusCall = mockDeliveryRepository.updateIfMatches.mock.calls.find(
+        (call) =>
+          call[1]?.status === EnumDeliveryStatus.DISPATCHED && call[2]?.status === EnumDeliveryStatus.ASSIGNING_COURIER
+      )
+      expect(statusCall).toBeDefined()
+      expect(statusCall![2].waitPayOwedAt).toBeUndefined()
+    })
+
+    test('dispatch stop return (returnToWaitingForDispatchStop): stamps waitPayOwedAt from COURIER_ARRIVED_AT_PICKUP_LOCATION and not from DISPATCHED', async () => {
+      const arrivedDelivery = makeDelivery({
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+      mockDeliveryRepository.findById.mockResolvedValueOnce(arrivedDelivery)
+
+      await service.returnToWaitingForDispatchStop(deliveryId, courierId, EnumEventActor.ADMIN, 'Heat wave')
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, courierId },
+        expect.objectContaining({
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          waitPayOwedAt: expect.any(Date),
+        })
+      )
+
+      // From DISPATCHED
+      const dispatchedDelivery = makeDelivery({
+        status: EnumDeliveryStatus.DISPATCHED,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+      mockDeliveryRepository.findById.mockResolvedValueOnce(dispatchedDelivery)
+
+      await service.returnToWaitingForDispatchStop(deliveryId, courierId, EnumEventActor.ADMIN, 'Heat wave')
+
+      const dispatchedCall =
+        mockDeliveryRepository.updateIfMatches.mock.calls[mockDeliveryRepository.updateIfMatches.mock.calls.length - 1]
+      expect(dispatchedCall![1]).toEqual({ status: EnumDeliveryStatus.DISPATCHED, courierId })
+      expect(dispatchedCall![2].status).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+      expect(dispatchedCall![2].waitPayOwedAt).toBeUndefined()
+    })
+
+    test('wait pay is owed after move whether or not the removal reason is paid', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+
+      // Even if reason is unpaid, wait pay from arrival is still stamped
+      await service.removeRiderBeforePickup(delivery, courierId, 'Personal emergency')
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        deliveryId,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, courierId },
+        expect.objectContaining({
+          waitPayOwedAt: expect.any(Date),
+        })
+      )
+    })
+  })
+
+  describe('AC-20: WAIT_END_EVENTS & saved row courierId', () => {
+    test('WAIT_END_EVENTS contains REMOVAL_APPROVED, REASSIGNED, and RETURNED_TO_WAITING', () => {
+      expect(WAIT_END_EVENTS).toContain(EnumDeliveryEventType.REMOVAL_APPROVED)
+      expect(WAIT_END_EVENTS).toContain(EnumDeliveryEventType.REASSIGNED)
+      expect(WAIT_END_EVENTS).toContain(EnumDeliveryEventType.RETURNED_TO_WAITING)
+    })
+
+    test('saved REASSIGNED row stores the dropped rider in courierId from droppedCourierId while event courierId is the new rider', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.REASSIGNED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'new-courier',
+          droppedCourierId: 'dropped-rider-1',
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        }
+      )
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.REASSIGNED,
+          courierId: 'dropped-rider-1', // Saved column is droppedCourierId!
+        })
+      )
+    })
+
+    test('saved RETURNED_TO_WAITING and REMOVAL_APPROVED store their rider in courierId', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.RETURNED_TO_WAITING,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'stop-rider-1',
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        }
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.RETURNED_TO_WAITING,
+          courierId: 'stop-rider-1',
+        })
+      )
+
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId,
+          type: EnumDeliveryEventType.REMOVAL_APPROVED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'removed-rider-1',
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        }
+      )
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.REMOVAL_APPROVED,
+          courierId: 'removed-rider-1',
+        })
+      )
+    })
+  })
+
+  describe('AC-21: processDeliveryEvent refuses the seven new removal types', () => {
+    const removalTypes = [
+      EnumDeliveryEventType.REMOVAL_REQUESTED,
+      EnumDeliveryEventType.REMOVAL_WITHDRAWN,
+      EnumDeliveryEventType.REMOVAL_DECLINED,
+      EnumDeliveryEventType.REMOVAL_APPROVED,
+      EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL,
+      EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL,
+      EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
+    ]
+
+    test.each(removalTypes)(
+      'processDeliveryEvent refuses %s: delivery status unchanged, no status write, failed row saved',
+      async (type) => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(
+          makeDelivery({ status: EnumDeliveryStatus.ACCEPTED, courierId })
+        )
+
+        await service.processDeliveryEvent({
+          deliveryId,
+          type,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+        } as any)
+
+        // No status write
+        expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+
+        // A failed row is what is saved
+        expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId,
+            type,
+            transitionSuccessful: false,
+            oldStatus: EnumDeliveryStatus.ACCEPTED,
+            message: `${type} is recorded by a removal request only`,
+          })
+        )
+      }
+    )
   })
 })

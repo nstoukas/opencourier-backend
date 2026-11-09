@@ -323,6 +323,72 @@ describe('DeliveryDomainService', () => {
       )
     })
 
+    test('Spec 0035 AC-23: award stands when hasSuccessfulReassignedWithMessage is true even if reloaded delivery has moved on / changed', async () => {
+      const initialDelivery = {
+        id: 'del-moved-on',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+      // Delivery status moved on (e.g. accepted by third courier or already delivered)
+      const movedOnDelivery = {
+        id: 'del-moved-on',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-third',
+        matchedCourierId: null,
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(movedOnDelivery as any)
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(true)
+
+      const result = await service.reassignDelivery('del-moved-on', 'courier-new')
+
+      // Award stands: create was called, deleteById was NOT called
+      expect(mockCourierCompensationRepository.create).toHaveBeenCalled()
+      expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
+      expect(result).toEqual(movedOnDelivery)
+    })
+
+    test('Spec 0035 AC-23: award is rolled back when hasSuccessfulReassignedWithMessage is false even if reloaded delivery still looks reassigned', async () => {
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
+      const initialDelivery = {
+        id: 'del-looks-reassigned',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+      // Reloaded delivery looks reassigned, but the trail check says false
+      const reassignedLookingDelivery = {
+        id: 'del-looks-reassigned',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: 'courier-new',
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+      }
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery as any)
+        .mockResolvedValueOnce(reassignedLookingDelivery as any)
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
+
+      await expect(
+        service.reassignDelivery('del-looks-reassigned', 'courier-new')
+      ).rejects.toThrow(CantUpdateDeliveryStatusError)
+
+      // Award rolled back because hasSuccessfulReassignedWithMessage answered false
+      expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-1')
+    })
+
     // Test Plan Item 4: Rollback undoes the rejected-list entry it added when reassignment does not take effect
     test('removes dropped courier from rejected list when reassignment fails and entry was added by us', async () => {
       jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})

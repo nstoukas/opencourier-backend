@@ -236,6 +236,29 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
       ])
     })
 
+    it('calls settleReturnTrip only when outcome is RETURNED, never on NOT_RETURNED (Spec 0035 AC-16)', async () => {
+      await service.recordFoodOutcome(deliveryId, courierId, {
+        outcome: EnumFoodOutcome.RETURNED,
+      })
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith(deliveryId)
+
+      mockDeliveryEventService.settleReturnTrip.mockClear()
+
+      mockDeliveryRepository.findCancelledJobsForCourier.mockResolvedValueOnce([
+        {
+          ...sampleCancelledRow,
+          foodOutcome: EnumFoodOutcome.NOT_RETURNED,
+        } as any,
+      ])
+
+      await service.recordFoodOutcome(deliveryId, courierId, {
+        outcome: EnumFoodOutcome.NOT_RETURNED,
+        note: 'Customer took food',
+      })
+      expect(mockDeliveryEventService.settleReturnTrip).not.toHaveBeenCalled()
+    })
+
     it('records RETURNED food outcome and emits FOOD_RETURNED event with default message when no note provided', async () => {
       const result = await service.recordFoodOutcome(deliveryId, courierId, {
         outcome: EnumFoodOutcome.RETURNED,

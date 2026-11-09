@@ -11,6 +11,8 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
   let mockDeliveryEventService: jest.Mocked<DeliveryEventService>
   let mockBullMQService: jest.Mocked<BullMQService>
   let mockTaskBusService: jest.Mocked<TaskBusService>
+  let mockRemovalRequestRepository: { findApprovedUnsettled: jest.Mock }
+  let mockRemovalRequestService: { sweepApprovedUnsettled: jest.Mock }
 
   let registeredHandler: (() => Promise<void>) | undefined
 
@@ -39,20 +41,20 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       }),
     } as unknown as jest.Mocked<TaskBusService>
 
-    const mockRemovalRequestRepository = {
+    mockRemovalRequestRepository = {
       findApprovedUnsettled: jest.fn().mockResolvedValue([]),
-    } as any
-    const mockRemovalRequestService = {
+    }
+    mockRemovalRequestService = {
       sweepApprovedUnsettled: jest.fn().mockResolvedValue(undefined),
-    } as any
+    }
 
     service = new CancellationSweepService(
       mockDeliveryRepository,
       mockDeliveryEventService,
       mockBullMQService,
       mockTaskBusService,
-      mockRemovalRequestRepository,
-      mockRemovalRequestService
+      mockRemovalRequestRepository as any,
+      mockRemovalRequestService as any
     )
   })
 
@@ -169,6 +171,79 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       expect(mockDeliveryEventService.settleWaitPay).not.toHaveBeenCalled()
       // Cancellation sweep still ran
       expect(mockDeliveryEventService.settleCancellation).toHaveBeenCalled()
+    })
+  })
+
+  describe('removal sweep execution (Spec 0035 AC-18)', () => {
+    it('reads approved unsettled removal requests between 24h and 1 min ago and calls sweepApprovedUnsettled for each', async () => {
+      const fixedNow = new Date('2026-11-01T12:00:00.000Z')
+      const expectedFrom = new Date(fixedNow.getTime() - 24 * 60 * 60 * 1000)
+      const expectedTo = new Date(fixedNow.getTime() - 60 * 1000)
+
+      const mockRequests = [{ id: 'req-1' }, { id: 'req-2' }] as any
+      mockRemovalRequestRepository.findApprovedUnsettled.mockResolvedValueOnce(mockRequests)
+
+      await service.sweep(fixedNow)
+
+      expect(mockRemovalRequestRepository.findApprovedUnsettled).toHaveBeenCalledWith(expectedFrom, expectedTo)
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenCalledTimes(2)
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenNthCalledWith(1, mockRequests[0], fixedNow)
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenNthCalledWith(2, mockRequests[1], fixedNow)
+    })
+
+    it('one request failing in sweepApprovedUnsettled does not stop the others', async () => {
+      const mockRequests = [{ id: 'req-fail' }, { id: 'req-ok' }] as any
+      mockRemovalRequestRepository.findApprovedUnsettled.mockResolvedValueOnce(mockRequests)
+      mockRemovalRequestService.sweepApprovedUnsettled
+        .mockRejectedValueOnce(new Error('Transient error'))
+        .mockResolvedValueOnce(undefined)
+
+      await service.sweep(new Date())
+
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenCalledWith(mockRequests[0], expect.any(Date))
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenCalledWith(mockRequests[1], expect.any(Date))
+    })
+
+    it('a read failure from findApprovedUnsettled is logged and does NOT throw or abort other sweeps', async () => {
+      mockRemovalRequestRepository.findApprovedUnsettled.mockRejectedValueOnce(new Error('DB read error'))
+
+      await expect(service.sweep(new Date())).resolves.toBeUndefined()
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.settleCancellation).toHaveBeenCalled()
+    })
+  })
+
+  describe('return trip sweep execution (Spec 0035 AC-16, AC-18)', () => {
+    it('reads deliveries with return trips to settle between 24h and 1 min ago and calls settleReturnTrip for each', async () => {
+      const fixedNow = new Date('2026-11-01T12:00:00.000Z')
+      const expectedFrom = new Date(fixedNow.getTime() - 24 * 60 * 60 * 1000)
+      const expectedTo = new Date(fixedNow.getTime() - 60 * 1000)
+
+      mockDeliveryRepository.findReturnTripsToSettle.mockResolvedValueOnce(['del-ret-1', 'del-ret-2'])
+
+      await service.sweep(fixedNow)
+
+      expect(mockDeliveryRepository.findReturnTripsToSettle).toHaveBeenCalledWith(expectedFrom, expectedTo)
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledTimes(2)
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenNthCalledWith(1, 'del-ret-1')
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenNthCalledWith(2, 'del-ret-2')
+    })
+
+    it('processes each delivery in the batch when multiple return trips are found', async () => {
+      mockDeliveryRepository.findReturnTripsToSettle.mockResolvedValueOnce(['del-ret-1', 'del-ret-2', 'del-ret-3'])
+
+      await service.sweep(new Date())
+
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith('del-ret-1')
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith('del-ret-2')
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith('del-ret-3')
+    })
+
+    it('a read failure from findReturnTripsToSettle is logged and does NOT throw', async () => {
+      mockDeliveryRepository.findReturnTripsToSettle.mockRejectedValueOnce(new Error('DB read error'))
+
+      await expect(service.sweep(new Date())).resolves.toBeUndefined()
+      expect(mockDeliveryEventService.settleReturnTrip).not.toHaveBeenCalled()
     })
   })
 })

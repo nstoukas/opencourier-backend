@@ -650,6 +650,102 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       expect(latestCompletedWait([], promisedReadyAt, foodReadyAt, freeMinutes)).toBeNull()
     })
 
+    describe('Spec 0035 AC-20: move events and latestCompletedWait', () => {
+      it('a wait ended by a pickup, then an admin reassign with no open arrival, still returns the pickup wait (decision 24.16)', () => {
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr-1',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(9, 58),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-pickup-1',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 20),
+            courierId: 'courier-1',
+          },
+          // Admin reassign later (after pickup, e.g. rider broke down). No new arrival occurred.
+          {
+            id: 'evt-reassign-1',
+            type: EnumDeliveryEventType.REASSIGNED,
+            occurredAt: at(10, 25),
+            courierId: 'courier-1',
+          },
+        ]
+
+        const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
+        expect(result).toEqual({
+          endEventId: 'evt-pickup-1',
+          courierId: 'courier-1',
+          minutes: 15,
+        })
+      })
+
+      it.each([
+        EnumDeliveryEventType.REASSIGNED,
+        EnumDeliveryEventType.REMOVAL_APPROVED,
+        EnumDeliveryEventType.RETURNED_TO_WAITING,
+      ])('a move (%s) that DOES close an open arrival returns that wait as the newest completed wait', (moveType) => {
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr-1',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(9, 58),
+            courierId: 'courier-dropped',
+          },
+          {
+            id: 'evt-move-1',
+            type: moveType,
+            occurredAt: at(10, 20),
+            courierId: 'courier-dropped',
+          },
+        ]
+
+        const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
+        expect(result).toEqual({
+          endEventId: 'evt-move-1',
+          courierId: 'courier-dropped',
+          minutes: 15,
+        })
+      })
+
+      it('a wait that earned no minutes, and an older wait, are never returned in place of a lost newest one', () => {
+        const events: WaitEvent[] = [
+          // Older wait that earned 10 minutes
+          {
+            id: 'evt-arr-old',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(9, 58),
+            courierId: 'courier-old',
+          },
+          {
+            id: 'evt-pickup-old',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 15),
+            courierId: 'courier-old',
+          },
+          // Newest arrival and move that earned 0 minutes (e.g. ended before free time)
+          {
+            id: 'evt-arr-new',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 0),
+            courierId: 'courier-new',
+          },
+          {
+            id: 'evt-move-new',
+            type: EnumDeliveryEventType.REMOVAL_APPROVED,
+            occurredAt: at(10, 3), // 3 minutes < 5 free minutes -> 0 paid minutes
+            courierId: 'courier-new',
+          },
+        ]
+
+        // Should NOT return the older completed wait
+        const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
+        expect(result).toBeNull()
+      })
+    })
+
     describe('with non-null foodReadyAt (decision 23.14)', () => {
       it('late rider who found the food ready produces no wait (returns null)', () => {
         // Promise 10:00, free 10 min -> free until 10:10.
