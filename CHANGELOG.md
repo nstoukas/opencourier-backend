@@ -9,6 +9,8 @@ Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipe
 (192 commits, 25 July to 2 November 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
+Scope row 15 (report a wrong or missing product, spec 0032) was built on the branch `feat/product-reports` and merged in on 9 November. A rider at the door, a restaurant once delivered, or an admin at any time can report one against a delivery; each report is a `ProductReport` row and a `PRODUCT_REPORTED` `DeliveryEvent`, and admins list and resolve them. Nothing here changes pay or status. Reviewed by Fable. With it the suite is at **3658 passing tests**.
+
 Scope row 22 (offers timed to food readiness, spec 0031) was built on the branch `feat/offer-timing` and merged in on 9 November, behind `offerTimingEnabled`, off by default. With it on, an offer waits until the chosen rider needs to leave to arrive about when the food is ready (`foodReadyAt` or `readyAt`, less OSRM road time, less `offerLeadMinutes`), the nearest matcher compares the nearest `offerTimingCandidates` riders by road time, and the `OFFERED` event says what it was based on. Food ready brings a held delivery forward. With it off, offers are unchanged. With it the suite is at **3506 passing tests**.
 
 Scope row 25 (the restaurant wait record, spec 0030) was built on the branch `feat/wait-record` and merged in on 9 November. `GET admin/v1/partner/:id/wait-record` and `GET partner/v1/partner/wait-record` give a restaurant's average rider wait past its ready time, late share and median real prep time over 7, 30 or 90 days, naming no rider.
