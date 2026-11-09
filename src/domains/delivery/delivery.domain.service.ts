@@ -138,6 +138,10 @@ export class DeliveryDomainService {
     return delivery
   }
 
+  async getWaitLimitMinutes(): Promise<number> {
+    return this.configDomainService.instanceConfig.getWaitLimitMinutes()
+  }
+
   async create(input: IDeliveryCreate) {
     // Every order gets a ready time (spec 0023, AC-1): the restaurant's pick, or its usual prep time.
     // `pickupReadyAt` keeps its own meaning; `readyAt` is the promise the restaurant can move later.
@@ -150,7 +154,8 @@ export class DeliveryDomainService {
       initialReadyAt(pickupReadyAt, partner?.usualPrepMinutes ?? DEFAULT_USUAL_PREP_MINUTES, now).getTime() +
         busyExtraMinutes * 60_000
     )
-    const delivery = await this.deliveryRepository.create({ ...input, readyAt })
+    // Spec 0033 (decision 23.6): the first promise is kept apart, so a later "+10" cannot erase a wait.
+    const delivery = await this.deliveryRepository.create({ ...input, readyAt, promisedReadyAt: readyAt })
 
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,
@@ -229,12 +234,14 @@ export class DeliveryDomainService {
     const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
     await this.deliveryEventService.notifyReadyUpdated(updated, null)
     // Spec 0031, AC-7: a held delivery goes out now. Only one still waiting with nobody offered. The
-    // restaurant's tap is already saved, so a failure here must not answer it with an error.
+    // restaurant's tap is already saved, so a failure here must not answer it with an error. Spec 0033
+    // (AC-7): an order a rider left is held with Timed offers off too, so it goes out here as well.
     if (
       updated.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
       !updated.matchedCourierId &&
       !updated.courierId &&
-      (await this.configDomainService.instanceConfig.getOfferTimingEnabled())
+      (updated.undispatchedAt !== null ||
+        (await this.configDomainService.instanceConfig.getOfferTimingEnabled()))
     ) {
       try {
         await this.deliveryEventService.offerOrWait(deliveryId)

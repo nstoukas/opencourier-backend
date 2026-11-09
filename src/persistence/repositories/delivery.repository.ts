@@ -4,6 +4,7 @@ import {
   EnumCancelledBy,
   EnumCourierCompensationReason,
   EnumDeliveryEventType,
+  EnumPartnerChargeReason,
   EnumDeliveryStatus,
   Location,
   Prisma,
@@ -123,17 +124,11 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
   }
 
-  // Spec 0033: deliveries with a wait owed and a piece of its payment still missing, for the sweep.
+  // Spec 0033: deliveries with a wait still being paid. settleWaitPay clears waitPayOwedAt once every
+  // piece is written, so a row here is one the sweep must finish.
   async findWaitPayToSettle(from: Date, to: Date): Promise<string[]> {
     const rows = await this.prisma.delivery.findMany({
-      where: {
-        waitPayOwedAt: { gte: from, lte: to },
-        OR: [
-          { courierCompensations: { none: { reason: EnumCourierCompensationReason.WAITING } } },
-          { deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT } } },
-          { partnerId: { not: null }, partnerCharges: { none: { reason: EnumPartnerChargeReason.WAITING } } },
-        ],
-      },
+      where: { waitPayOwedAt: { gte: from, lte: to } },
       select: { id: true },
       orderBy: { waitPayOwedAt: 'asc' },
       take: 200,

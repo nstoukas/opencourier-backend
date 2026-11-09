@@ -18,6 +18,7 @@ import {
   EnumCancelledBy,
   EnumCourierCompensationReason,
   EnumPartnerChargeReason,
+  CourierCompensation,
   Prisma,
 } from '@prisma/types'
 import {
@@ -29,6 +30,8 @@ import {
   DeliveryReturnedToWaitingEvent,
   DeliveryHandedBackEvent,
   DeliveryCourierPaidForCancellationEvent,
+  DeliveryCourierPaidForWaitEvent,
+  DeliveryWaitUndispatchedEvent,
   DeliveryFoodReturnedEvent,
   DeliveryDropoffPointCorrectedEvent,
   DeliveryFoodNotReturnedEvent,
@@ -70,6 +73,7 @@ import { CourierCompensationRepository } from 'src/persistence/repositories/cour
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
 import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
+import { completedWaits, paidWaitMinutes, waitOfKey } from 'src/domains/delivery/wait-pay'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -230,6 +234,11 @@ export class DeliveryEventService {
         throw new CantUpdateDeliveryStatusError('HANDED_BACK is recorded by a rider hand back only')
       }
 
+      if (deliveryEvent.type === EnumDeliveryEventType.WAIT_UNDISPATCHED) {
+        // Spec 0033: written only by leaveWait, after the limit is checked, so an admin cannot post it.
+        throw new CantUpdateDeliveryStatusError('WAIT_UNDISPATCHED is recorded by a rider leaving only')
+      }
+
       if (deliveryEvent.type === EnumDeliveryEventType.RETURNED_TO_WAITING) {
         // Spec 0014: written only by returnToWaitingForDispatchStop, in one conditional write with
         // its status (row 29 review). Never processed as an ordinary event.
@@ -266,6 +275,7 @@ export class DeliveryEventService {
             // No rider holds it now (spec 0020): no accept time, no hand back.
             acceptedAt: null,
             handBackUntil: null,
+            arrivedAtPickupAt: null,
             totalCost,
             totalCompensation,
             fee,
@@ -354,6 +364,8 @@ export class DeliveryEventService {
             offerExpiresAt: null,
             acceptedAt,
             handBackUntil: handBackSeconds > 0 ? new Date(acceptedAt.getTime() + handBackSeconds * 1000) : null,
+            // Spec 0033 (AC-7): someone took it, so the hold after a rider left is over.
+            undispatchedAt: null,
           })
 
           const courier = await this.courierRepository.findByIdOrThrow(courierId)
@@ -396,15 +408,26 @@ export class DeliveryEventService {
             `Delivery ${deliveryEvent.deliveryId}, courier has arrived at pickup location: ${deliveryEvent.actor}`
           )
 
-          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+          // Spec 0033: the rider's clock at the restaurant starts here; the tap time if signal was bad.
+          await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
+            arrivedAtPickupAt: deliveryEvent.occurredAt ?? new Date(),
+          })
           break
         case EnumDeliveryStatus.PICKED_UP:
           this.logger.log(`Delivery ${deliveryEvent.deliveryId} was picked up by: ${deliveryEvent.actor}`)
 
+          // Spec 0033: a delivery can change hands even after pickup, so the event names who picked it up.
+          if (deliveryEvent.type === EnumDeliveryEventType.PICKED_UP) {
+            deliveryEvent.courierId = dbDelivery.courierId
+          }
           // The tap time when the step waited on the phone for signal (spec 0009, AC-12).
+          const pickedUpAt = deliveryEvent.occurredAt ?? new Date()
+          const waitPayOwed = await this.isWaitPayOwed(dbDelivery, pickedUpAt)
           await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus, {
-            pickupReadyAt: deliveryEvent.occurredAt ?? new Date(),
+            pickupReadyAt: pickedUpAt,
+            ...(waitPayOwed ? { waitPayOwedAt: new Date() } : {}),
           })
+          if (waitPayOwed) await this.settleWaitPay(deliveryId)
           break
         case EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION:
           this.logger.log(
@@ -940,6 +963,7 @@ export class DeliveryEventService {
         offerExpiresAt: null,
         acceptedAt: null,
         handBackUntil: null,
+        arrivedAtPickupAt: null,
       }
     )
     if (!written) return { returned: false }
@@ -1003,6 +1027,7 @@ export class DeliveryEventService {
         offerExpiresAt: null,
         acceptedAt: null,
         handBackUntil: null,
+        arrivedAtPickupAt: null,
       }
     )
 
@@ -1061,6 +1086,203 @@ export class DeliveryEventService {
       this.logger.error(`Could not start matching after delivery ${deliveryId} was handed back: ${error}`)
     }
     return true
+  }
+
+  // Spec 0033 (AC-6): a rider leaves a restaurant that kept them past the co-op's limit, which the
+  // caller has checked. handBack's shape: the skip list first, one conditional write back to waiting,
+  // the event saved outside the state machine's switch, the restaurant and rider told, then matching.
+  // Unlike a hand back, the wait is paid. A missed write is saved as a failed row (value 1).
+  async leaveWait(delivery: DeliveryEntity, courierId: string, occurredAt: Date): Promise<boolean> {
+    const deliveryId = delivery.id
+    const oldStatus = delivery.status
+    const waitPayOwed = await this.isWaitPayOwed(delivery, occurredAt)
+
+    let addedToSkipList = false
+    try {
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+    }
+
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { status: oldStatus, courierId },
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+        offerExpiresAt: null,
+        acceptedAt: null,
+        handBackUntil: null,
+        arrivedAtPickupAt: null,
+        undispatchedAt: occurredAt,
+        ...(waitPayOwed ? { waitPayOwedAt: new Date() } : {}),
+      }
+    )
+
+    const event: DeliveryWaitUndispatchedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+      actor: EnumEventActor.COURIER,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId,
+      occurredAt,
+      message: written ? 'Left the restaurant after waiting past the limit' : 'Leaving refused: the order changed first',
+    }
+
+    if (!written) {
+      if (addedToSkipList) {
+        try {
+          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+        } catch (error) {
+          this.logger.error(`Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${error}`)
+        }
+      }
+      try {
+        await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
+      } catch (error) {
+        this.logger.error(`Could not record the refused WAIT_UNDISPATCHED for delivery ${deliveryId}: ${error}`)
+      }
+      return false
+    }
+
+    try {
+      await this.saveDeliveryEvent(event, {
+        transitionSuccessful: true,
+        oldStatus,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
+    } catch (error) {
+      this.logger.error(`Could not record WAIT_UNDISPATCHED for delivery ${deliveryId}: ${error}`)
+    }
+    if (waitPayOwed) await this.settleWaitPay(deliveryId)
+    try {
+      const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      if (updated.partnerId) {
+        await this.notifyPartner(updated.partnerId, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+      }
+      // The delivery no longer carries the rider's id, so tell them explicitly.
+      await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+    } catch (error) {
+      this.logger.error(`Could not tell the restaurant or rider that the rider left delivery ${deliveryId}: ${error}`)
+    }
+    // Held by the timing check until the food is due. The rider has left whatever happens here: the
+    // backstop sweep still finds the waiting delivery.
+    try {
+      await this.offerOrWait(deliveryId)
+    } catch (error) {
+      this.logger.error(`Could not start matching after the rider left delivery ${deliveryId}: ${error}`)
+    }
+    return true
+  }
+
+  // Spec 0033, AC-1 and AC-2: whether this wait earns delay pay under the settings in force now. Read
+  // before the status write, so the same write can record that money is owed.
+  private async isWaitPayOwed(delivery: DeliveryEntity, endedAt: Date): Promise<boolean> {
+    if (!delivery.arrivedAtPickupAt || !delivery.promisedReadyAt) return false
+    try {
+      const config = this.configDomainService.instanceConfig
+      if (!(await config.getWaitPayEnabled())) return false
+      if ((await config.getWaitPayCentsPerMinute()) <= 0) return false
+      const freeMinutes = await config.getWaitPayFreeMinutes()
+      return (
+        paidWaitMinutes({
+          arrivedAt: delivery.arrivedAtPickupAt,
+          promisedReadyAt: delivery.promisedReadyAt,
+          freeMinutes,
+          endedAt,
+        }) > 0
+      )
+    } catch (error) {
+      this.logger.error(`Could not read the delay pay settings for delivery ${delivery.id}: ${error}`)
+      return false
+    }
+  }
+
+  // Spec 0033, AC-3, AC-4, AC-8. Pays the rider and charges the restaurant for a wait, whichever piece
+  // is still missing. Only the newest wait can start a payment: an earlier one ended either paid or
+  // while delay pay was off. Safe to call any number of times (right after the wait and from the
+  // minute sweep). Never throws: waitPayOwedAt stays set on a failure, so the sweep tries again.
+  async settleWaitPay(deliveryId: string): Promise<void> {
+    try {
+      const delivery = await this.deliveryRepository.findById(deliveryId)
+      if (!delivery?.waitPayOwedAt) return
+
+      const config = this.configDomainService.instanceConfig
+      const freeMinutes = await config.getWaitPayFreeMinutes()
+      const centsPerMinute = await config.getWaitPayCentsPerMinute()
+      const events = await this.deliveryEventRepository.findWaitEvents(deliveryId)
+      const waits = completedWaits(events, delivery.promisedReadyAt, freeMinutes)
+      const newest = waits[waits.length - 1]
+
+      const awards = await this.courierCompensationRepository.findWaitAwards(deliveryId)
+      if (newest && !awards.some((award) => award.waitOf === waitOfKey(deliveryId, newest.endEventId))) {
+        if (newest.courierId) {
+          awards.push(
+            await this.courierCompensationRepository.createWaitPayOnce({
+              amount: newest.minutes * centsPerMinute,
+              currencyCode: delivery.currencyCode,
+              reason: EnumCourierCompensationReason.WAITING,
+              policy: 'WAIT_PAY',
+              message: `Waited ${newest.minutes} min at ${centsPerMinute} cents a minute`,
+              courierId: newest.courierId,
+              deliveryId,
+              waitOf: waitOfKey(deliveryId, newest.endEventId),
+            })
+          )
+        } else {
+          this.logger.warn(`Delivery ${deliveryId}: a wait ended with no rider on record, so it was not paid`)
+        }
+      }
+      for (const award of awards) {
+        await this.finishWaitPayment(delivery, award)
+      }
+
+      // Only the time that was read: a wait that became owed meanwhile keeps its own.
+      await this.deliveryRepository.updateIfMatches(
+        deliveryId,
+        { waitPayOwedAt: delivery.waitPayOwedAt },
+        { waitPayOwedAt: null }
+      )
+    } catch (error) {
+      this.logger.error(`WAIT_PAY_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${error}`, (error as Error).stack)
+    }
+  }
+
+  // The event and the restaurant's charge of one paid wait, each read from what the rider was paid, so
+  // the three always agree. Check, then write, as the cancellation award does (single worker).
+  private async finishWaitPayment(delivery: DeliveryEntity, award: CourierCompensation): Promise<void> {
+    const waitOf = award.waitOf
+    if (!waitOf) return
+
+    const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
+    if (!paidMessages.some((message) => message.includes(waitOf))) {
+      const event: DeliveryCourierPaidForWaitEvent = {
+        deliveryId: delivery.id,
+        type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
+        actor: EnumEventActor.SYSTEM,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId: award.courierId,
+        message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; wait ${waitOf}`,
+      }
+      await this.saveDeliveryEvent(event, {
+        transitionSuccessful: true,
+        oldStatus: delivery.status,
+        newStatus: delivery.status,
+      })
+    }
+
+    if (delivery.partnerId) {
+      await this.partnerChargeRepository.createWaitChargeOnce({
+        partnerId: delivery.partnerId,
+        deliveryId: delivery.id,
+        amount: award.amount,
+        currencyCode: award.currencyCode,
+        reason: EnumPartnerChargeReason.WAITING,
+        waitOf,
+      })
+    }
   }
 
   // End of a dispatch stop (spec 0014, AC-4): every waiting delivery, oldest first, gets an offer or
@@ -1281,12 +1503,14 @@ export class DeliveryEventService {
   // out means the offer goes now and says so, so a delivery is never stuck waiting on the router.
   private async offerTimingOf(match: {
     courier: { id: string }
-    delivery: { readyAt: Date | null; foodReadyAt: Date | null }
+    delivery: { readyAt: Date | null; foodReadyAt: Date | null; undispatchedAt: Date | null }
     pickupLocation: { latitude: number; longitude: number }
     travelSeconds?: number | null
   }): Promise<OfferTiming> {
     const config = this.configDomainService.instanceConfig
-    if (!(await config.getOfferTimingEnabled())) return { dueInMs: 0, note: '' }
+    if (!(await config.getOfferTimingEnabled())) {
+      return match.delivery.undispatchedAt ? this.holdAfterRiderLeft(match.delivery) : { dueInMs: 0, note: '' }
+    }
     const readyTime = match.delivery.foodReadyAt ?? match.delivery.readyAt
     if (!readyTime) return { dueInMs: 0, note: '' }
 
@@ -1302,6 +1526,18 @@ export class DeliveryEventService {
     return {
       dueInMs: dueAt - Date.now(),
       note: `, ready ${clock(readyTime)}, travel ~${Math.round(travelSeconds / 60)} min, lead ${leadMinutes} min`,
+    }
+  }
+
+  // Spec 0033 (AC-7): a rider left this order because the food was late, so with Timed offers off it
+  // is still not offered again until the food is ready or nearly due. No travel time here: that is
+  // part of Timed offers. Food marked ready, or no ready time at all, goes out as usual.
+  private async holdAfterRiderLeft(delivery: { readyAt: Date | null; foodReadyAt: Date | null }): Promise<OfferTiming> {
+    if (delivery.foodReadyAt || !delivery.readyAt) return { dueInMs: 0, note: '' }
+    const leadMinutes = await this.configDomainService.instanceConfig.getOfferLeadMinutes()
+    return {
+      dueInMs: delivery.readyAt.getTime() - leadMinutes * 60_000 - Date.now(),
+      note: `, ready ${clock(delivery.readyAt)}, lead ${leadMinutes} min`,
     }
   }
 
@@ -1359,6 +1595,7 @@ export class DeliveryEventService {
         // Spec 0020 (AC-2): a cancelled order can no longer be handed back.
         acceptedAt: null,
         handBackUntil: null,
+        arrivedAtPickupAt: null,
       }
     )
     if (!written) {
@@ -1792,7 +2029,7 @@ export class DeliveryEventService {
     // other event leaves it out (null), even when the event object carries a courierId.
     // Checking `type` narrows the union, so TypeScript knows courierId is a string on these two.
     // Spec 0015 adds the three cancellation records, which are each about one rider; spec 0016 the
-    // rider's drop off pin move.
+    // rider's drop off pin move; spec 0033 who picked up, left, or was paid for a wait.
     const riderId =
       deliveryEvent.type === EnumDeliveryEventType.OFFERED ||
       deliveryEvent.type === EnumDeliveryEventType.OFFER_EXPIRED ||
@@ -1801,7 +2038,10 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED ||
       deliveryEvent.type === EnumDeliveryEventType.DROPOFF_POINT_CORRECTED ||
       deliveryEvent.type === EnumDeliveryEventType.HANDED_BACK ||
-      deliveryEvent.type === EnumDeliveryEventType.PRODUCT_REPORTED
+      deliveryEvent.type === EnumDeliveryEventType.PRODUCT_REPORTED ||
+      deliveryEvent.type === EnumDeliveryEventType.PICKED_UP ||
+      deliveryEvent.type === EnumDeliveryEventType.WAIT_UNDISPATCHED ||
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_WAIT
         ? deliveryEvent.courierId
         : undefined
 

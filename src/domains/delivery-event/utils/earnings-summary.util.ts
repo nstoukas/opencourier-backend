@@ -63,6 +63,12 @@ export function toEarningsDelivery(row: CourierEarningsDeliveryRow): EarningsDel
   }
 }
 
+const COMPENSATION_KIND: Record<EnumCourierCompensationReason, NonNullable<EarningsDelivery['kind']>> = {
+  [EnumCourierCompensationReason.REASSIGNMENT]: 'REASSIGNMENT_COMPENSATION',
+  [EnumCourierCompensationReason.CANCELLATION]: 'CANCELLATION_COMPENSATION',
+  [EnumCourierCompensationReason.WAITING]: 'WAITING',
+}
+
 // Maps a compensation row (e.g. dropped rider payout) to EarningsDelivery.
 // droppedOffAt here is "when the money was awarded" — field name kept for backwards compatibility.
 export function compensationToEarningsDelivery(row: CourierCompensationDeliveryRow): EarningsDelivery {
@@ -74,8 +80,8 @@ export function compensationToEarningsDelivery(row: CourierCompensationDeliveryR
     compensation: row.amount,
     tips: 0,
     total: row.amount,
-    kind:
-      row.reason === EnumCourierCompensationReason.CANCELLATION ? 'CANCELLATION_COMPENSATION' : 'REASSIGNMENT_COMPENSATION',
+    // An older row, read without its reason, counts as a reassignment, as it always has.
+    kind: row.reason ? COMPENSATION_KIND[row.reason] : 'REASSIGNMENT_COMPENSATION',
   }
 }
 

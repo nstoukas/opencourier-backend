@@ -16,9 +16,11 @@ import { DeliveryRouteCourierService } from './route.courier.service'
 import { DeliveryRouteCourierRestApiController } from './route.courier.rest-api.controller'
 import { HandBackCourierService } from './hand-back.courier.service'
 import { HandBackCourierRestApiController } from './hand-back.courier.rest-api.controller'
+import { LeaveWaitCourierService } from './leave-wait.courier.service'
+import { LeaveWaitCourierRestApiController } from './leave-wait.courier.rest-api.controller'
 
 @Module({
-  providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService, HandBackCourierService],
+  providers: [LeaveWaitCourierService, DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService, HandBackCourierService],
   exports: [DeliveryRestApiCourierService],
   imports: [ProductReportDomainModule, DeliveryDomainModule,
     LocationNoteDomainModule,
@@ -33,6 +35,7 @@ import { HandBackCourierRestApiController } from './hand-back.courier.rest-api.c
     DropoffPointCourierRestApiController,
     DeliveryRouteCourierRestApiController,
     HandBackCourierRestApiController,
+    LeaveWaitCourierRestApiController,
     DeliveryCourierRestApiController,
   ],
 })

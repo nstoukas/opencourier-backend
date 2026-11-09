@@ -89,7 +89,8 @@ export class DeliveryCourierRestApiController {
       args.perPage
     )
 
-    const dto = new InProgressDeliveriesCourierPaginatedDto(deliveries)
+    const waitLimitMinutes = await this.deliveryRestApiCourierService.getWaitLimitMinutes()
+    const dto = new InProgressDeliveriesCourierPaginatedDto(deliveries, waitLimitMinutes)
     return dto
   }
 

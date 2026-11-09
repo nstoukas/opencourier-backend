@@ -54,9 +54,16 @@ export class DeliveryEventDomainService {
     deliveryId: string
   ): Promise<EarningsDelivery | null> {
     const row = await this.deliveryEventRepository.findCompletedDeliveryRowForCourierDelivery(courierId, deliveryId)
-    if (row) return toEarningsDelivery(row)
-
     const compRows = await this.courierCompensationRepository.findDetailedRowsForCourierDelivery(courierId, deliveryId)
+    if (row) {
+      const entry = toEarningsDelivery(row)
+      // Spec 0033: a delivered order's wait is shown beside its delivery pay, as its own amount.
+      const waitingPay = compRows
+        .filter((r) => r.reason === EnumCourierCompensationReason.WAITING)
+        .reduce((sum, r) => sum + r.amount, 0)
+      return waitingPay > 0 ? { ...entry, waitingPay, total: entry.total + waitingPay } : entry
+    }
+
     if (compRows.length === 0) return null
 
     const first = compRows[0]

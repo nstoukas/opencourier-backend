@@ -8,6 +8,8 @@ import { IDeliveryEventCreateInput } from 'src/domains/delivery-event/interfaces
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { CourierEarningsRow, CourierEarningsDeliveryRow } from 'src/domains/delivery-event/types/earnings-summary.type'
 import { TAP_FLOOR_EVENT_TYPES } from 'src/domains/delivery-event/utils/occurred-at.util'
+import { WAIT_END_EVENTS } from 'src/domains/delivery/wait-pay'
+import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 // Deliberate import direction — do not "fix". Persistence may depend on the domain
 // layer (entities, types, pure utils), same as the entity/type imports above; domain
 // code never imports from persistence. formatDropoffAddress is the single shared
@@ -35,9 +37,6 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return this.toDomainMany(rows)
   }
 
-  // When the latest successful job step of this delivery happened (its occurredAt), or null if it has
-  // none yet. The floor of the next step's tap time (spec 0009, AC-7). Ordered by occurredAt, not
-  // createdAt: a step that waited on the phone arrives after events that happened later.
   // Spec 0033: the steps that start, end or pass on a wait, in time order.
   async findWaitEvents(deliveryId: string) {
     return this.prisma.deliveryEvent.findMany({
@@ -62,6 +61,9 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return rows.map((row) => row.message ?? '')
   }
 
+  // When the latest successful job step of this delivery happened (its occurredAt), or null if it has
+  // none yet. The floor of the next step's tap time (spec 0009, AC-7). Ordered by occurredAt, not
+  // createdAt: a step that waited on the phone arrives after events that happened later.
   async findLatestJobStepOccurredAt(deliveryId: string): Promise<Date | null> {
     const row = await this.prisma.deliveryEvent.findFirst({
       where: { deliveryId, transitionSuccessful: true, type: { in: TAP_FLOOR_EVENT_TYPES } },

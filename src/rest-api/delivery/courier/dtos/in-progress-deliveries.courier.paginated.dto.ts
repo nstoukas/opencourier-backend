@@ -32,9 +32,15 @@ export class InProgressDeliveriesCourierPaginatedDto {
   @Expose()
   serverNow: Date
 
-  constructor(data: { data: InProgressDeliveryCourier[]; pagination?: PaginationDto }) {
+  // Spec 0033 (AC-5): how long after arriving a rider may leave a late order; the co-op's setting.
+  @ApiProperty({ type: Number })
+  @Expose()
+  waitLimitMinutes: number
+
+  constructor(data: { data: InProgressDeliveryCourier[]; pagination?: PaginationDto }, waitLimitMinutes: number) {
     this.data = data.data.map((order) => new InProgressDeliveryCourierDto(order))
     this.pagination = data.pagination
     this.serverNow = new Date()
+    this.waitLimitMinutes = waitLimitMinutes
   }
 }

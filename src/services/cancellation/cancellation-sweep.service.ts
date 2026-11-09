@@ -45,6 +45,29 @@ export class CancellationSweepService implements OnModuleInit {
   }
 
   async sweep(now: Date): Promise<void> {
+    await this.settleCancellations(now)
+    await this.settleWaits(now)
+  }
+
+  // Spec 0033: the same retry for restaurant delay pay, on the same minute job.
+  private async settleWaits(now: Date): Promise<void> {
+    let ids: string[]
+    try {
+      ids = await this.deliveryRepository.findWaitPayToSettle(
+        new Date(now.getTime() - ONE_DAY_MS),
+        new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
+      )
+    } catch (error) {
+      this.logger.error(`The wait pay sweep could not read: ${error}`)
+      return
+    }
+    // settleWaitPay never throws, so one bad delivery cannot stop the others.
+    for (const id of ids) {
+      await this.deliveryEventService.settleWaitPay(id)
+    }
+  }
+
+  private async settleCancellations(now: Date): Promise<void> {
     let ids: string[]
     try {
       ids = await this.deliveryRepository.findCancellationsToSettle(

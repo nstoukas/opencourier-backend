@@ -222,6 +222,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date, nullable: true })
   handBackUntil: Date | null
 
+  // Spec 0033 (AC-5): when the rider reached the restaurant, while they wait there; else null.
+  @ApiProperty({ type: Date, nullable: true })
+  arrivedAt: Date | null
+
   @ApiProperty({ type: String, nullable: true })
   dropoffLocationFormattedAddress: string | null
 
@@ -249,6 +253,8 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
       handBackUntil.getTime() > Date.now() &&
       (data.status === EnumDeliveryStatus.ACCEPTED || data.status === EnumDeliveryStatus.DISPATCHED)
     this.handBackUntil = inHandBackWindow ? handBackUntil : null
+    this.arrivedAt =
+      data.status === EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION ? (data.arrivedAtPickupAt ?? null) : null
     // The details stay hidden through the hand back's grace too (row 71 review): the server still
     // takes a hand back for OFFER_EXPIRY_GRACE_SECONDS after handBackUntil, so a rider who fetched
     // in those seconds could otherwise read them and still give the order back.

@@ -28,8 +28,11 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ type: String, description: 'Instance currency code, e.g. EUR' })
   currency: string
 
-  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION or CANCELLATION_COMPENSATION' })
+  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION or WAITING' })
   kind?: string
+
+  @ApiProperty({ required: false, type: Number, description: 'What waiting at the restaurant paid on this delivered order, in integer cents, inside total' })
+  waitingPay?: number
 
   constructor(delivery: EarningsDelivery, meta: { currency: string }) {
     this.deliveryId = delivery.deliveryId
@@ -41,5 +44,6 @@ export class EarningsDeliveryDetailCourierDto {
     this.total = delivery.total
     this.currency = meta.currency
     this.kind = delivery.kind
+    this.waitingPay = delivery.waitingPay
   }
 }

@@ -59,6 +59,14 @@ export class CourierCompensationRepository
     }
   }
 
+  // Spec 0033: every wait already paid on this delivery.
+  async findWaitAwards(deliveryId: string): Promise<CourierCompensation[]> {
+    return this.prisma.courierCompensation.findMany({
+      where: { deliveryId, waitOf: { not: null } },
+      orderBy: { createdAt: 'asc' },
+    })
+  }
+
   // Used only to undo an award that was written moments earlier for a reassignment that
   // then did not take effect. Prisma throws P2025 if the row is already gone; the caller
   // catches that and logs it rather than failing the request.
