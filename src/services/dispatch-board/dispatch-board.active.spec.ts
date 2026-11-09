@@ -237,6 +237,51 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
       expect(justAfterLocalMidnightUtc.getTime()).toBeLessThan(bounds.end.getTime())
     })
 
+    test('on Athens autumn clock change day (2026-10-25), window is 25 hours ending at next local midnight 2026-10-25T22:00:00.000Z', () => {
+      // Athens leaves summer time on Sunday 2026-10-25: 04:00 EEST (UTC+3) -> 03:00 EET (UTC+2).
+      // The local day lasts 25 hours.
+      // Start: 2026-10-25 00:00:00 EEST = 2026-10-24T21:00:00.000Z
+      // End: next local midnight 2026-10-26 00:00:00 EET = 2026-10-25T22:00:00.000Z
+      const now = new Date('2026-10-25T12:00:00.000Z')
+      const bounds = todayBounds(now)
+
+      expect(bounds.start.toISOString()).toBe('2026-10-24T21:00:00.000Z')
+      expect(bounds.end.toISOString()).toBe('2026-10-25T22:00:00.000Z')
+      // Window duration must be exactly 25 hours (90,000,000 ms)
+      const durationHours = (bounds.end.getTime() - bounds.start.getTime()) / (60 * 60 * 1000)
+      expect(durationHours).toBe(25)
+      // Must fail if end goes back to start plus 24 hours (2026-10-25T21:00:00.000Z)
+      expect(bounds.end.toISOString()).not.toBe('2026-10-25T21:00:00.000Z')
+    })
+
+    test('on Athens spring clock change day (2027-03-28), window is 23 hours ending at next local midnight 2027-03-28T21:00:00.000Z', () => {
+      // Athens enters summer time on Sunday 2027-03-28: 03:00 EET (UTC+2) -> 04:00 EEST (UTC+3).
+      // The local day lasts 23 hours.
+      // Start: 2027-03-28 00:00:00 EET = 2027-03-27T22:00:00.000Z
+      // End: next local midnight 2027-03-29 00:00:00 EEST = 2027-03-28T21:00:00.000Z
+      const now = new Date('2027-03-28T12:00:00.000Z')
+      const bounds = todayBounds(now)
+
+      expect(bounds.start.toISOString()).toBe('2027-03-27T22:00:00.000Z')
+      expect(bounds.end.toISOString()).toBe('2027-03-28T21:00:00.000Z')
+      // Window duration must be exactly 23 hours (82,800,000 ms)
+      const durationHours = (bounds.end.getTime() - bounds.start.getTime()) / (60 * 60 * 1000)
+      expect(durationHours).toBe(23)
+      // Must fail if end goes back to start plus 24 hours (2027-03-28T22:00:00.000Z)
+      expect(bounds.end.toISOString()).not.toBe('2027-03-28T22:00:00.000Z')
+    })
+
+    test('an ordinary day stays exactly 24 hours', () => {
+      // Ordinary day with no clock change (e.g. 2026-11-09)
+      const now = new Date('2026-11-09T14:00:00.000Z')
+      const bounds = todayBounds(now)
+
+      expect(bounds.start.toISOString()).toBe('2026-11-08T22:00:00.000Z')
+      expect(bounds.end.toISOString()).toBe('2026-11-09T22:00:00.000Z')
+      const durationHours = (bounds.end.getTime() - bounds.start.getTime()) / (60 * 60 * 1000)
+      expect(durationHours).toBe(24)
+    })
+
     test.each(['UTC', 'Asia/Tokyo', 'America/New_York'])(
       'todayBounds produces identical results regardless of system TZ environment variable (TZ=%s)',
       (tz) => {
@@ -249,6 +294,33 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
           // In Athens, 12:00 UTC is 14:00 EET. Start of day is 00:00 EET = 2026-11-08T22:00:00.000Z
           expect(bounds.start.toISOString()).toBe('2026-11-08T22:00:00.000Z')
           expect(bounds.end.toISOString()).toBe('2026-11-09T22:00:00.000Z')
+          expect((bounds.end.getTime() - bounds.start.getTime()) / 3600000).toBe(24)
+        } finally {
+          process.env.TZ = originalTz
+        }
+      }
+    )
+
+    test.each(['UTC', 'Asia/Tokyo'])(
+      'clock change days produce identical 25h and 23h bounds regardless of system TZ (TZ=%s)',
+      (tz) => {
+        const originalTz = process.env.TZ
+        try {
+          process.env.TZ = tz
+
+          // Autumn 25h day: 2026-10-25
+          const autumnBounds = todayBounds(new Date('2026-10-25T14:00:00.000Z'))
+          expect(autumnBounds.start.toISOString()).toBe('2026-10-24T21:00:00.000Z')
+          expect(autumnBounds.end.toISOString()).toBe('2026-10-25T22:00:00.000Z')
+          expect((autumnBounds.end.getTime() - autumnBounds.start.getTime()) / 3600000).toBe(25)
+          expect(autumnBounds.end.toISOString()).not.toBe('2026-10-25T21:00:00.000Z')
+
+          // Spring 23h day: 2027-03-28
+          const springBounds = todayBounds(new Date('2027-03-28T14:00:00.000Z'))
+          expect(springBounds.start.toISOString()).toBe('2027-03-27T22:00:00.000Z')
+          expect(springBounds.end.toISOString()).toBe('2027-03-28T21:00:00.000Z')
+          expect((springBounds.end.getTime() - springBounds.start.getTime()) / 3600000).toBe(23)
+          expect(springBounds.end.toISOString()).not.toBe('2027-03-28T22:00:00.000Z')
         } finally {
           process.env.TZ = originalTz
         }

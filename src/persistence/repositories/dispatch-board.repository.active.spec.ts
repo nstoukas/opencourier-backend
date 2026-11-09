@@ -163,5 +163,44 @@ describe('DispatchBoardRepository (spec 0034)', () => {
       expect(result[0]?.latitude).toBeNull()
       expect(result[0]?.longitude).toBeNull()
     })
+
+    test('a rider in an active SOS is busy: SQL text combines delivery and active SOS subqueries with OR (spec 0022 AC-7, decision 90.3)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+
+      await repository.findWorkingCouriers()
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const sqlObj = mockPrisma.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql
+      const sqlText = sqlObj.strings.join(' ? ')
+
+      // 1. Delivery busy subquery must be present
+      expect(sqlText).toContain('FROM "Delivery"')
+      expect(sqlText).toContain('"Delivery"."courierId" = "Courier"."id"')
+      expect(sqlText).toContain('"Delivery"."matchedCourierId" = "Courier"."id"')
+
+      // 2. Active SOS subquery must be present (activeSosCourierSubQuery)
+      expect(sqlText).toContain('FROM "SosIncident"')
+      expect(sqlText).toContain('"SosIncident"."courierId" = "Courier"."id"')
+      expect(sqlText).toContain('"SosIncident"."closedAt" IS NULL')
+      expect(sqlText).toContain('"SosIncident"."safeAt" IS NULL')
+      expect(sqlText).toContain('"SosIncident"."falseAlarmAt" IS NULL')
+
+      // 3. Must combine busy subquery and active SOS subquery with OR:
+      // (EXISTS (busy) OR EXISTS (activeSos)) AS "busy"
+      expect(sqlText).toMatch(
+        /\(EXISTS\s*\([\s\S]*FROM "Delivery"[\s\S]*\)\s+OR\s+EXISTS\s*\([\s\S]*FROM "SosIncident"[\s\S]*\)\)\s*AS\s*"busy"/
+      )
+
+      // 4. Must NOT combine them with AND:
+      expect(sqlText).not.toMatch(
+        /\(EXISTS\s*\([\s\S]*FROM "Delivery"[\s\S]*\)\s+AND\s+EXISTS\s*\([\s\S]*FROM "SosIncident"[\s\S]*\)\)\s*AS\s*"busy"/
+      )
+
+      // Note on what a unit test mock cannot prove:
+      // The unit test verifies the exact SQL template text produced by Prisma.sql and parameter bindings.
+      // What a mock cannot prove is that the raw SQL syntax (such as PostgreSQL's correlated EXISTS subqueries,
+      // PostGIS ST_X/ST_Y functions, and make_interval) executes without error against a live PostGIS database,
+      // and that PostgreSQL actually returns busy: true when an active SOS incident exists for that courier.
+    })
   })
 })
