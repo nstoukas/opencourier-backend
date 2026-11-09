@@ -1146,8 +1146,51 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       waiting.dropoffLocationNotes = []
 
       const dto = new InProgressDeliveryCourierDto(waiting, waitRules)
-      expect(dto.leaveFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+      // Decision 23.15: rider arrived late at 10:15, so leaveFrom is 10:15 + 10 min = 10:25
+      expect(dto.leaveFrom).toEqual(new Date('2026-11-09T10:25:00.000Z'))
       expect(dto.paidFrom).toBeNull()
+    })
+
+    test('leaveFrom runs from the later of promisedReadyAt and arrivedAtPickupAt (decision 23.15)', () => {
+      // Arrived early: 09:50 for 10:00 promise, limit 10 -> leaveFrom 10:10
+      const early = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt: new Date('2026-11-09T09:50:00.000Z'),
+      }) as any
+      early.pickupLocationNotes = []
+      early.dropoffLocationNotes = []
+      const earlyDto = new InProgressDeliveryCourierDto(early, waitRules)
+      expect(earlyDto.leaveFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+
+      // Arrived late: 10:20 for 10:00 promise, limit 10 -> leaveFrom 10:30
+      const late = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt: new Date('2026-11-09T10:20:00.000Z'),
+      }) as any
+      late.pickupLocationNotes = []
+      late.dropoffLocationNotes = []
+      const lateDto = new InProgressDeliveryCourierDto(late, waitRules)
+      expect(lateDto.leaveFrom).toEqual(new Date('2026-11-09T10:30:00.000Z'))
+    })
+
+    test('leaveFrom is null when arrivedAtPickupAt or promisedReadyAt is missing', () => {
+      // Missing arrivedAtPickupAt
+      const noArrival = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt: null,
+      }) as any
+      noArrival.pickupLocationNotes = []
+      noArrival.dropoffLocationNotes = []
+      expect(new InProgressDeliveryCourierDto(noArrival, waitRules).leaveFrom).toBeNull()
+
+      // Missing promisedReadyAt
+      const noPromise = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt: null,
+        arrivedAtPickupAt,
+      }) as any
+      noPromise.pickupLocationNotes = []
+      noPromise.dropoffLocationNotes = []
+      expect(new InProgressDeliveryCourierDto(noPromise, waitRules).leaveFrom).toBeNull()
     })
   })
 })

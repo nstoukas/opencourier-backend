@@ -154,6 +154,34 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
     })
   })
 
+  describe('waitLeaveFrom (AC-6, decision 23.15)', () => {
+    // Decision 23.15: runs from the later of the first promise and the rider's arrival
+    it('arrived before the promise: leave from promise plus the limit', () => {
+      // Promise 10:00, arrival 09:50, leave limit 10 minutes -> leave from 10:10
+      const leave = waitLeaveFrom(at(10, 0), at(9, 50), 10)
+      expect(leave).toEqual(at(10, 10))
+    })
+
+    it('arrived after the promise (10:20 for 10:00, limit 10): leave from arrival plus the limit (10:30)', () => {
+      // Promise 10:00, arrival 10:20, leave limit 10 minutes -> leave from 10:30
+      const leave = waitLeaveFrom(at(10, 0), at(10, 20), 10)
+      expect(leave).toEqual(at(10, 30))
+    })
+
+    it('arrived exactly at the promise: leave from promise plus the limit', () => {
+      // Promise 10:00, arrival 10:00, leave limit 10 minutes -> leave from 10:10
+      const leave = waitLeaveFrom(at(10, 0), at(10, 0), 10)
+      expect(leave).toEqual(at(10, 10))
+    })
+
+    it('applies the configured leaveMinutes limit (e.g. 1 minute or 15 minutes)', () => {
+      // 1 minute limit with late arrival 10:15 -> 10:16
+      expect(waitLeaveFrom(at(10, 0), at(10, 15), 1)).toEqual(at(10, 16))
+      // 15 minute limit with early arrival 09:55 -> 10:15
+      expect(waitLeaveFrom(at(10, 0), at(9, 55), 15)).toEqual(at(10, 15))
+    })
+  })
+
   describe('WAIT_END_EVENTS', () => {
     it('includes exactly PICKED_UP and WAIT_UNDISPATCHED', () => {
       expect(WAIT_END_EVENTS).toEqual([
