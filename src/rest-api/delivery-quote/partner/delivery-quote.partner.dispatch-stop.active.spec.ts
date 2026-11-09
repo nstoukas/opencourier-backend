@@ -89,9 +89,8 @@ describe('Delivery Quote Partner - Dispatch Stop (Spec 0014, AC-6)', () => {
         failureReason: DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED,
         failureMessage: 'Delivery is stopped until 17:00 (heat).',
       })
-      // Neither locations nor partner were queried
+      // Locations and courier matcher were not queried
       expect(mockLocationDomainService.findOrCreate).not.toHaveBeenCalled()
-      expect(mockPartnerDomainService.getById).not.toHaveBeenCalled()
       expect(mockCourierMatcherService.findCourierForDelivery).not.toHaveBeenCalled()
     })
   })

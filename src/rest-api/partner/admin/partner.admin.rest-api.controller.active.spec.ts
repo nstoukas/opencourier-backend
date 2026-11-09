@@ -1,6 +1,7 @@
 import { EnumCountryCode, EnumUserRole } from '@prisma/types'
 import { PartnerAdminRestApiController } from './partner.admin.rest-api.controller'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
+import { PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
 import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
@@ -9,6 +10,7 @@ describe('PartnerAdminRestApiController', () => {
   let controller: PartnerAdminRestApiController
   let mockPartnerDomainService: jest.Mocked<PartnerDomainService>
   let mockPartnerAdminRestApiService: jest.Mocked<PartnerAdminRestApiService>
+  let mockPartnerAvailabilityDomainService: jest.Mocked<PartnerAvailabilityDomainService>
 
   const mockPartnerEntity = new PartnerEntity({
     id: 'partner-100',
@@ -17,6 +19,10 @@ describe('PartnerAdminRestApiController', () => {
     phoneNumber: '+302421000000',
     webhookUrl: null,
     usualPrepMinutes: 15,
+    busyExtraMinutes: null,
+    pausedUntil: null,
+    disabledAt: null,
+    disabledReason: null,
     userId: 'user-200',
     pickupLocationId: 'loc-300',
     createdAt: new Date('2026-07-01T10:00:00Z'),
@@ -53,9 +59,16 @@ describe('PartnerAdminRestApiController', () => {
       rotatePassword: jest.fn(),
     } as unknown as jest.Mocked<PartnerAdminRestApiService>
 
+    mockPartnerAvailabilityDomainService = {
+      disable: jest.fn(),
+      enable: jest.fn(),
+      getChanges: jest.fn(),
+    } as unknown as jest.Mocked<PartnerAvailabilityDomainService>
+
     controller = new PartnerAdminRestApiController(
       mockPartnerDomainService,
       mockPartnerAdminRestApiService,
+      mockPartnerAvailabilityDomainService,
     )
   })
 

@@ -1,12 +1,14 @@
 import { EnumCountryCode } from '@prisma/types'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
+import { PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { PartnerPartnerRestApiController } from './partner.partner.rest-api.controller'
 
 describe('PartnerPartnerRestApiController', () => {
   let controller: PartnerPartnerRestApiController
   let mockLocationDomainService: jest.Mocked<LocationDomainService>
+  let mockPartnerAvailabilityDomainService: jest.Mocked<PartnerAvailabilityDomainService>
 
   // Helper object representing a partner entity with a pickup location reference
   const mockPartnerWithLocation = new PartnerEntity({
@@ -16,6 +18,10 @@ describe('PartnerPartnerRestApiController', () => {
     phoneNumber: '+302421012345',
     webhookUrl: 'https://example.com/webhook',
     usualPrepMinutes: 15,
+    busyExtraMinutes: null,
+    pausedUntil: null,
+    disabledAt: null,
+    disabledReason: null,
     userId: 'user-789',
     pickupLocationId: 'loc-456',
     createdAt: new Date('2026-07-01T10:00:00Z'),
@@ -46,7 +52,14 @@ describe('PartnerPartnerRestApiController', () => {
       getById: jest.fn(),
     } as unknown as jest.Mocked<LocationDomainService>
 
-    controller = new PartnerPartnerRestApiController(mockLocationDomainService)
+    mockPartnerAvailabilityDomainService = {
+      setBusy: jest.fn(),
+      clearBusy: jest.fn(),
+      pause: jest.fn(),
+      resume: jest.fn(),
+    } as unknown as jest.Mocked<PartnerAvailabilityDomainService>
+
+    controller = new PartnerPartnerRestApiController(mockLocationDomainService, mockPartnerAvailabilityDomainService)
   })
 
   describe('getProfile', () => {
