@@ -9,8 +9,6 @@ import {
 } from './ready-signals'
 import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
-// A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
-const DEFAULT_USUAL_PREP_MINUTES = 15
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
@@ -53,6 +51,9 @@ import { ICourierTap } from './interfaces/ICourierTap'
 export function arrivalHow(detected?: boolean): string {
   return detected === true ? ' (detected by the app)' : ' (tapped by the rider)'
 }
+
+// A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
+const DEFAULT_USUAL_PREP_MINUTES = 15
 
 @Injectable()
 export class DeliveryDomainService {

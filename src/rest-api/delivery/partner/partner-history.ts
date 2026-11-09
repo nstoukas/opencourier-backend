@@ -1,16 +1,12 @@
 import { EnumDeliveryStatus, Prisma } from '@prisma/types'
+import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
+
+export { PARTNER_ENDED_STATUSES }
 
 // Order history (spec 0017). A restaurant sees a delivery of its own when it was created within the
 // co-op's period (restaurantHistoryDays, rolling 24 h days back from now) or is still open, whatever
 // its age, so it never loses sight of an order it may still act on (decision 28.2). Older ended
 // deliveries hold a customer's name, phone and address the restaurant no longer needs.
-
-// A delivery that ended: delivered, cancelled or failed (the admin list's ended set, row 96).
-export const PARTNER_ENDED_STATUSES: EnumDeliveryStatus[] = [
-  EnumDeliveryStatus.DROPPED_OFF,
-  EnumDeliveryStatus.CANCELED,
-  EnumDeliveryStatus.FAILED,
-]
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

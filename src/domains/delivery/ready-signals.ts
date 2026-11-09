@@ -1,9 +1,16 @@
 import { EnumDeliveryStatus } from '@prisma/types'
-import { PARTNER_ENDED_STATUSES } from 'src/rest-api/delivery/partner/partner-history'
 
 // Spec 0023: the restaurant's ready time and its two actions, "+5 / +10 / +15 min" and "Food ready".
 // The rules live here, as plain values and functions, so the routes stay thin and each rule is
 // tested on its own.
+
+// A delivery that ended: delivered, cancelled or failed (the admin list's ended set, row 96). Here, in
+// the domain, so a route file can import it and not the other way round.
+export const PARTNER_ENDED_STATUSES: EnumDeliveryStatus[] = [
+  EnumDeliveryStatus.DROPPED_OFF,
+  EnumDeliveryStatus.CANCELED,
+  EnumDeliveryStatus.FAILED,
+]
 
 // The statuses in which a restaurant may still move the ready time or mark the food ready: before
 // the rider has the food. (There is no CONFIRMED status; CONFIRMED is only an event type.)
