@@ -56,10 +56,13 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         // Wait record (spec 0030: reads only).
         'domains/partner/wait-record.ts',
         'persistence/repositories/delivery.repository.ts',
+        // Wait pay (spec 0033: reads only).
+        'domains/delivery/wait-pay.ts',
         // Shapes and read only views.
         'domains/delivery/entities/delivery.entity.ts',
         'domains/delivery/entities/delivery-with-locations.entity.ts',
         'rest-api/delivery/courier/dtos/delivery.courier.dto.ts',
+        'rest-api/delivery/courier/dtos/in-progress-delivery.courier.dto.ts',
         'rest-api/delivery/partner/dtos/delivery.partner.dto.ts',
         // Telling the holding rider (reads only).
         'services/delivery-event/delivery-event.service.ts',
@@ -75,10 +78,22 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     )
   })
 
-  test('in DeliveryEventService only holdAfterRiderLeft, notifyReadyUpdated and offerTimingOf use them, and never as a write', () => {
+  test('in DeliveryEventService only holdAfterRiderLeft, isWaitPayOwed, notifyReadyUpdated, offerTimingOf and settleWaitPay use them, and never as a write', () => {
     expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')].sort()).toEqual(
-      ['holdAfterRiderLeft', 'notifyReadyUpdated', 'offerTimingOf'].sort()
+      ['holdAfterRiderLeft', 'isWaitPayOwed', 'notifyReadyUpdated', 'offerTimingOf', 'settleWaitPay'].sort()
     )
+  })
+
+  test('waitPaidFrom and the in-progress DTO may read foodReadyAt, never write it (spec 0033)', () => {
+    for (const relPath of [
+      'domains/delivery/wait-pay.ts',
+      'rest-api/delivery/courier/dtos/in-progress-delivery.courier.dto.ts',
+    ]) {
+      const content = read(relPath)
+      expect(content).toMatch(/\bfoodReadyAt\b/)
+      expect(content).not.toMatch(/\bfoodReadyAt\s*=[^=]/)
+      expect(content).not.toMatch(/prisma\..*foodReadyAt/i)
+    }
   })
 
   test('in DeliveryRepository only findForWaitRecord mentions them (reads only, spec 0030)', () => {

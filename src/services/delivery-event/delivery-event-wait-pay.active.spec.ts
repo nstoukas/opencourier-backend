@@ -1165,6 +1165,51 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       expect(mockCourierCompensationRepository.createWaitPayOnce).toHaveBeenCalled()
     })
 
+    it('isWaitPayOwed false for a late rider with food ready, so nothing is stamped (decision 23.14)', async () => {
+      // Promise 10:00, free 10 min (ends 10:10). Food ready at 10:05.
+      // Rider arrived late at 10:15 (> 10:10). Food was already ready at arrival (10:05 <= 10:15).
+      mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(true)
+      mockConfigDomainService.instanceConfig.getWaitPayFreeMinutes.mockResolvedValue(10)
+
+      const lateArrival = new Date('2026-11-09T10:15:00.000Z')
+      const foodReady = new Date('2026-11-09T10:05:00.000Z')
+      const pickupTime = new Date('2026-11-09T10:17:00.000Z')
+
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: COURIER_ID,
+          promisedReadyAt: new Date('2026-11-09T10:00:00.000Z'),
+          arrivedAtPickupAt: lateArrival,
+          foodReadyAt: foodReady,
+        })
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: COURIER_ID,
+        })
+
+      await service.processDeliveryEvent({
+        deliveryId: DELIVERY_ID,
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: pickupTime,
+      })
+
+      // Nothing is stamped in the update
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION },
+        expect.not.objectContaining({
+          waitPayOwedAt: expect.anything(),
+        })
+      )
+      // Nothing is awarded
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+    })
+
     it('with delay pay off (AC-1), PICKED_UP past free minutes does not stamp waitPayOwedAt and writes no pay row, event, or charge', async () => {
       mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(false)
       mockDeliveryRepository.findByIdOrThrow

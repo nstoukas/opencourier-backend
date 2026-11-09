@@ -114,6 +114,23 @@ describe('DeliveryAdminDto (AC-7, AC-13)', () => {
         currencyCode: 'EUR',
         createdAt: chargeCreatedAt,
       })
+      expect(dto.waitCharges).toEqual([])
+    })
+  })
+
+  describe('Wait charges (Spec 0033 decision 23.20)', () => {
+    it('defaults waitCharges to empty array when not passed', () => {
+      const dto = new DeliveryAdminDto(sampleDelivery)
+      expect(dto.waitCharges).toEqual([])
+    })
+
+    it('carries waitCharges when provided', () => {
+      const waitCharges = [
+        { amount: 150, currencyCode: 'EUR', createdAt: new Date('2026-11-09T10:00:00Z') },
+        { amount: 300, currencyCode: 'EUR', createdAt: new Date('2026-11-09T10:30:00Z') },
+      ]
+      const dto = new DeliveryAdminDto(sampleDelivery, sampleQuote, undefined, null, waitCharges)
+      expect(dto.waitCharges).toEqual(waitCharges)
     })
   })
 })

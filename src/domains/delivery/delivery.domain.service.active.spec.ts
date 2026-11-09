@@ -1361,5 +1361,64 @@ describe('DeliveryDomainService', () => {
         expect(result).toBe(mockCharge)
       })
     })
+
+    describe('getCourierWaitRules (Spec 0033)', () => {
+      it('returns wait rules with payOn false when delay pay is off', async () => {
+        const config = (mockConfigDomainService as any).instanceConfig
+        config.getWaitLimitMinutes = jest.fn().mockResolvedValue(10)
+        config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(10)
+        config.getWaitPayEnabled = jest.fn().mockResolvedValue(false)
+        config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(15)
+
+        const rules = await service.getCourierWaitRules()
+        expect(rules).toEqual({
+          leaveMinutes: 10,
+          freeMinutes: 10,
+          payOn: false,
+        })
+      })
+
+      it('returns wait rules with payOn false when rate is 0', async () => {
+        const config = (mockConfigDomainService as any).instanceConfig
+        config.getWaitLimitMinutes = jest.fn().mockResolvedValue(15)
+        config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(5)
+        config.getWaitPayEnabled = jest.fn().mockResolvedValue(true)
+        config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(0)
+
+        const rules = await service.getCourierWaitRules()
+        expect(rules).toEqual({
+          leaveMinutes: 15,
+          freeMinutes: 5,
+          payOn: false,
+        })
+      })
+
+      it('returns wait rules with payOn true when enabled and rate > 0', async () => {
+        const config = (mockConfigDomainService as any).instanceConfig
+        config.getWaitLimitMinutes = jest.fn().mockResolvedValue(10)
+        config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(10)
+        config.getWaitPayEnabled = jest.fn().mockResolvedValue(true)
+        config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(10)
+
+        const rules = await service.getCourierWaitRules()
+        expect(rules).toEqual({
+          leaveMinutes: 10,
+          freeMinutes: 10,
+          payOn: true,
+        })
+      })
+    })
+
+    describe('getWaitCharges (Spec 0033 decision 23.20)', () => {
+      it('delegates to deliveryRepository.findWaitCharges', async () => {
+        const mockCharges = [{ amount: 150, currencyCode: 'EUR', createdAt: new Date() }]
+        ;(mockDeliveryRepository as any).findWaitCharges = jest.fn().mockResolvedValue(mockCharges)
+
+        const result = await service.getWaitCharges('del-1')
+
+        expect((mockDeliveryRepository as any).findWaitCharges).toHaveBeenCalledWith('del-1')
+        expect(result).toBe(mockCharges)
+      })
+    })
   })
 })

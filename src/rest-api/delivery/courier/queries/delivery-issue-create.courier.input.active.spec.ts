@@ -8,8 +8,17 @@ describe('DeliveryIssueCreateCourierInput (clause 2)', () => {
     EnumDeliveryIssueReason.WRONG_ADDRESS,
     EnumDeliveryIssueReason.NO_SIGNAL,
     EnumDeliveryIssueReason.ORDER_HANDED,
+    EnumDeliveryIssueReason.FOOD_NOT_READY,
     EnumDeliveryIssueReason.OTHER,
   ]
+
+  test('FOOD_NOT_READY is accepted by the courier issue input (spec 0033 AC-9, decision 23.16)', async () => {
+    const input = plainToInstance(DeliveryIssueCreateCourierInput, {
+      reason: EnumDeliveryIssueReason.FOOD_NOT_READY,
+    })
+    const errors = await validate(input)
+    expect(errors).toHaveLength(0)
+  })
 
   test.each(allReasons)('accepts valid reason %s with no note', async (reason) => {
     const input = plainToInstance(DeliveryIssueCreateCourierInput, { reason })

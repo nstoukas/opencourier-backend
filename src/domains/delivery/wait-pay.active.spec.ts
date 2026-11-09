@@ -1,6 +1,8 @@
 import { EnumDeliveryEventType } from '@prisma/types'
 import {
   paidWaitMinutes,
+  waitPaidFrom,
+  waitLeaveFrom,
   completedWaits,
   latestCompletedWait,
   waitOfKey,
@@ -13,41 +15,91 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
   const at = (hours: number, minutes: number, seconds = 0): Date =>
     new Date(Date.UTC(2026, 10, 9, hours, minutes, seconds))
 
-  describe('paidWaitMinutes (AC-2)', () => {
+  describe('waitPaidFrom and paidWaitMinutes (AC-2)', () => {
     // Spec 0033 AC-2 Example 1:
-    // Promised 10:00, free 5, arrival 09:58, pickup 10:15: paid 10 minutes.
-    // Explanation: Rider arrived at 09:58 (before promised 10:00).
-    // Free window ends at 10:00 + 5 min = 10:05.
-    // Start of paid wait is max(09:58, 10:05) = 10:05.
-    // Ended at 10:15 -> paid 10:15 - 10:05 = 10 minutes.
-    it('spec example 1: promised 10:00, free 5 min, arrival 09:58, ended 10:15 => paid 10 minutes', () => {
-      const minutes = paidWaitMinutes({
+    // Promise 10:00, free 10, arrival 09:58, food 10:20, pickup 10:22: paid 12 minutes.
+    it('spec example 1: promise 10:00, free 10, arrival 09:58, food 10:20, pickup 10:22 => paid 12', () => {
+      const times = {
         promisedReadyAt: at(10, 0),
-        freeMinutes: 5,
+        freeMinutes: 10,
         arrivedAt: at(9, 58),
-        endedAt: at(10, 15),
-      })
-      expect(minutes).toBe(10)
+        foodReadyAt: at(10, 20),
+      }
+      expect(waitPaidFrom(times)).toEqual(at(10, 10))
+      expect(paidWaitMinutes({ ...times, endedAt: at(10, 22) })).toBe(12)
     })
 
     // Spec 0033 AC-2 Example 2:
-    // Promised 10:00, free 5, arrival 10:12, pickup 10:15: paid 3 minutes.
-    // Explanation: Rider arrived at 10:12 (after promised 10:00 + 5 min = 10:05).
-    // Start of paid wait is max(10:12, 10:05) = 10:12.
-    // Ended at 10:15 -> paid 10:15 - 10:12 = 3 minutes.
-    it('spec example 2: promised 10:00, free 5 min, arrival 10:12, ended 10:15 => paid 3 minutes', () => {
-      const minutes = paidWaitMinutes({
+    // Arrival 10:15, food 10:25, pickup 10:27: paid 12 minutes.
+    it('spec example 2: promise 10:00, free 10, arrival 10:15, food 10:25, pickup 10:27 => paid 12', () => {
+      const times = {
         promisedReadyAt: at(10, 0),
-        freeMinutes: 5,
-        arrivedAt: at(10, 12),
-        endedAt: at(10, 15),
+        freeMinutes: 10,
+        arrivedAt: at(10, 15),
+        foodReadyAt: at(10, 25),
+      }
+      expect(waitPaidFrom(times)).toEqual(at(10, 15))
+      expect(paidWaitMinutes({ ...times, endedAt: at(10, 27) })).toBe(12)
+    })
+
+    // Spec 0033 AC-2 Example 3:
+    // Arrival 10:15, food marked ready 10:05, pickup 10:17: nothing.
+    it('spec example 3: promise 10:00, free 10, arrival 10:15, food 10:05, pickup 10:17 => nothing', () => {
+      const times = {
+        promisedReadyAt: at(10, 0),
+        freeMinutes: 10,
+        arrivedAt: at(10, 15),
+        foodReadyAt: at(10, 5),
+      }
+      expect(waitPaidFrom(times)).toBeNull()
+      expect(paidWaitMinutes({ ...times, endedAt: at(10, 17) })).toBe(0)
+    })
+
+    describe('boundaries (decision 23.14, 23.17)', () => {
+      it('arriving exactly at promise plus free is not late', () => {
+        // Promise 10:00, free 10 => free until 10:10.
+        // Arrived exactly at 10:10:00. Even if food was ready at 10:05, rider is NOT late.
+        const times = {
+          promisedReadyAt: at(10, 0),
+          freeMinutes: 10,
+          arrivedAt: at(10, 10),
+          foodReadyAt: at(10, 5),
+        }
+        expect(waitPaidFrom(times)).toEqual(at(10, 10))
+        expect(paidWaitMinutes({ ...times, endedAt: at(10, 20) })).toBe(10)
       })
-      expect(minutes).toBe(3)
+
+      it('food marked ready exactly at arrival counts as ready', () => {
+        // Promise 10:00, free 10 => free until 10:10. Rider arrived late at 10:15.
+        // Food marked ready exactly at 10:15:00. Food was ready at arrival -> nothing paid.
+        const times = {
+          promisedReadyAt: at(10, 0),
+          freeMinutes: 10,
+          arrivedAt: at(10, 15),
+          foodReadyAt: at(10, 15),
+        }
+        expect(waitPaidFrom(times)).toBeNull()
+        expect(paidWaitMinutes({ ...times, endedAt: at(10, 25) })).toBe(0)
+      })
+
+      it('no food ready tap counts as not ready', () => {
+        // Promise 10:00, free 10. Rider arrived at 10:15. Restaurant never tapped Food ready (foodReadyAt = null).
+        // Late rider still earns handover wait pay.
+        const times = {
+          promisedReadyAt: at(10, 0),
+          freeMinutes: 10,
+          arrivedAt: at(10, 15),
+          foodReadyAt: null,
+        }
+        expect(waitPaidFrom(times)).toEqual(at(10, 15))
+        expect(paidWaitMinutes({ ...times, endedAt: at(10, 27) })).toBe(12)
+      })
     })
 
     it('rounds down to whole minutes (e.g. 10 minutes 59 seconds rounds down to 10)', () => {
       const minutes = paidWaitMinutes({
         promisedReadyAt: at(10, 0),
+        foodReadyAt: null,
         freeMinutes: 5,
         arrivedAt: at(9, 58),
         endedAt: at(10, 15, 59), // 10 min 59 sec after 10:05
@@ -59,6 +111,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       // Arrived 09:50, promised 10:00, free 5 min (10:05), picked up at 10:02
       const minutes = paidWaitMinutes({
         promisedReadyAt: at(10, 0),
+        foodReadyAt: null,
         freeMinutes: 5,
         arrivedAt: at(9, 50),
         endedAt: at(10, 2),
@@ -69,6 +122,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
     it('never returns below 0 when pickup occurs before arrival (e.g. clock discrepancy)', () => {
       const minutes = paidWaitMinutes({
         promisedReadyAt: at(10, 0),
+        foodReadyAt: null,
         freeMinutes: 5,
         arrivedAt: at(10, 15),
         endedAt: at(10, 10),
@@ -79,6 +133,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
     it('returns 0 when pickup occurs exactly at the end of the free window', () => {
       const minutes = paidWaitMinutes({
         promisedReadyAt: at(10, 0),
+        foodReadyAt: null,
         freeMinutes: 5,
         arrivedAt: at(9, 55),
         endedAt: at(10, 5),
@@ -90,6 +145,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       // Promised 10:00, free 0, arrived 09:55, picked up 10:10 -> paid 10 minutes
       const minutes = paidWaitMinutes({
         promisedReadyAt: at(10, 0),
+        foodReadyAt: null,
         freeMinutes: 0,
         arrivedAt: at(9, 55),
         endedAt: at(10, 10),
@@ -115,6 +171,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
 
   describe('completedWaits (AC-2, AC-3, AC-6)', () => {
     const promisedReadyAt = at(10, 0)
+    const foodReadyAt = null
     const freeMinutes = 5
 
     it('returns empty array when delivery has no promisedReadyAt (no promise pays nothing)', () => {
@@ -132,7 +189,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
           courierId: 'courier-1',
         },
       ]
-      expect(completedWaits(events, null, freeMinutes)).toEqual([])
+      expect(completedWaits(events, null, foodReadyAt, freeMinutes)).toEqual([])
     })
 
     it('returns completed wait for ARRIVED_AT_PICKUP_LOCATION followed by PICKED_UP', () => {
@@ -151,7 +208,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = completedWaits(events, promisedReadyAt, freeMinutes)
+      const result = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toEqual([
         {
           endEventId: 'evt-pickup',
@@ -177,7 +234,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = completedWaits(events, promisedReadyAt, freeMinutes)
+      const result = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toEqual([
         {
           endEventId: 'evt-leave',
@@ -203,7 +260,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      expect(completedWaits(events, promisedReadyAt, freeMinutes)).toEqual([])
+      expect(completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)).toEqual([])
     })
 
     it('pairs multiple waits on one delivery in order (e.g. rider 1 leaves, rider 2 picks up)', () => {
@@ -236,7 +293,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = completedWaits(events, promisedReadyAt, freeMinutes)
+      const result = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toEqual([
         {
           endEventId: 'evt-leave-1',
@@ -283,7 +340,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         ]
 
         // Since Rider 2 had no arrival, no completed wait is recorded
-        expect(completedWaits(events, promisedReadyAt, freeMinutes)).toEqual([])
+        expect(completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)).toEqual([])
       }
     )
 
@@ -311,7 +368,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = completedWaits(events, promisedReadyAt, freeMinutes)
+      const result = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
       // Exactly 1 wait is returned (for Rider 1), none for Rider 2
       expect(result).toEqual([
         {
@@ -345,7 +402,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = completedWaits(events, promisedReadyAt, freeMinutes)
+      const result = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toHaveLength(1)
       expect(result[0]?.endEventId).toBe('evt-pickup')
     })
@@ -353,6 +410,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
 
   describe('latestCompletedWait (review fix)', () => {
     const promisedReadyAt = at(10, 0)
+    const foodReadyAt = null
     const freeMinutes = 5
 
     it('returns the wait closed by the newest end event', () => {
@@ -385,7 +443,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toEqual({
         endEventId: 'evt-pickup-2',
         courierId: 'courier-2',
@@ -418,7 +476,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       ]
 
       // Even though wait 1 completed, newest end (evt-pickup-2) has no arrival, so latestCompletedWait is null
-      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toBeNull()
     })
 
@@ -453,7 +511,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       ]
 
       // Even though wait 1 earned 10 minutes, newest end earned 0 minutes, so latestCompletedWait is null
-      const result = latestCompletedWait(events, promisedReadyAt, freeMinutes)
+      const result = latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)
       expect(result).toBeNull()
     })
 
@@ -467,8 +525,8 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
         },
       ]
 
-      expect(latestCompletedWait(events, promisedReadyAt, freeMinutes)).toBeNull()
-      expect(latestCompletedWait([], promisedReadyAt, freeMinutes)).toBeNull()
+      expect(latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)).toBeNull()
+      expect(latestCompletedWait([], promisedReadyAt, foodReadyAt, freeMinutes)).toBeNull()
     })
   })
 })

@@ -17,6 +17,7 @@ describe('LeaveWaitCourierService (Spec 0033 AC-6)', () => {
   const COURIER_ID = 'courier-1'
   const OTHER_COURIER_ID = 'courier-2'
   const DELIVERY_ID = 'del-wait-1'
+  const PROMISED_TIME = new Date('2026-11-09T10:00:00.000Z')
   const ARRIVAL_TIME = new Date('2026-11-09T10:00:00.000Z')
 
   beforeEach(() => {
@@ -48,6 +49,7 @@ describe('LeaveWaitCourierService (Spec 0033 AC-6)', () => {
       status,
       courierId: COURIER_ID,
       arrivedAtPickupAt: ARRIVAL_TIME,
+      promisedReadyAt: PROMISED_TIME,
       ...overrides,
     }
   }
@@ -137,10 +139,10 @@ describe('LeaveWaitCourierService (Spec 0033 AC-6)', () => {
       }
     })
 
-    it('throws ConflictException when delivery has no arrivedAtPickupAt timestamp', async () => {
+    it('throws ConflictException when delivery has no promisedReadyAt timestamp (409 with no promise)', async () => {
       mockDeliveryRepository.findById.mockResolvedValue(
         deliveryAt(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
-          arrivedAtPickupAt: null,
+          promisedReadyAt: null,
         })
       )
 
@@ -150,21 +152,73 @@ describe('LeaveWaitCourierService (Spec 0033 AC-6)', () => {
       expect(mockDeliveryEventService.leaveWait).not.toHaveBeenCalled()
     })
 
+    it('throws ConflictException just before promised plus the limit however long the rider has been there (409 just before promised plus limit)', async () => {
+      // Arrived early at 09:30:00 (waiting 39 min 59 sec!), promised at 10:00:00, limit 10 min.
+      // Leave time is 10:10:00. At 10:09:59 rider cannot leave yet.
+      const now = new Date('2026-11-09T10:09:59.000Z')
+      jest.useFakeTimers()
+      jest.setSystemTime(now)
+
+      try {
+        mockDeliveryRepository.findById.mockResolvedValue(
+          deliveryAt(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+            arrivedAtPickupAt: new Date('2026-11-09T09:30:00.000Z'),
+            promisedReadyAt: PROMISED_TIME,
+          })
+        )
+
+        await expect(service.leave(DELIVERY_ID, COURIER_ID)).rejects.toThrow(
+          new ConflictException(tooSoonMessage(10))
+        )
+        expect(mockDeliveryEventService.leaveWait).not.toHaveBeenCalled()
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
     it('uses singular "1 minute" in tooSoonMessage when limit is 1 minute', () => {
-      expect(tooSoonMessage(1)).toBe('You can leave 1 minute after arriving.')
-      expect(tooSoonMessage(10)).toBe('You can leave 10 minutes after arriving.')
+      expect(tooSoonMessage(1)).toBe('You can leave 1 minute after the time the food was promised.')
+      expect(tooSoonMessage(10)).toBe('You can leave 10 minutes after the time the food was promised.')
     })
   })
 
   describe('200 Success at and after the Limit', () => {
-    it('allows leaving exactly at the limit boundary (10 minutes after arrival) and returns ASSIGNING_COURIER', async () => {
-      // Arrived at 10:00:00, limit is 10 min, now is exactly 10:10:00
+    it('allows leaving exactly at the limit boundary (200 at promised plus limit)', async () => {
+      // Promised at 10:00:00, limit is 10 min, now is exactly 10:10:00
       const now = new Date('2026-11-09T10:10:00.000Z')
       jest.useFakeTimers()
       jest.setSystemTime(now)
 
       try {
         const delivery = deliveryAt(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION)
+        mockDeliveryRepository.findById.mockResolvedValue(delivery)
+        mockDeliveryEventService.leaveWait.mockResolvedValue(true)
+
+        const result = await service.leave(DELIVERY_ID, COURIER_ID)
+
+        expect(result).toEqual({ status: EnumDeliveryStatus.ASSIGNING_COURIER })
+        expect(mockDeliveryEventService.leaveWait).toHaveBeenCalledWith(
+          delivery,
+          COURIER_ID,
+          now
+        )
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('leave time is unmoved by a later readyAt bumped by the restaurant', async () => {
+      // Promised at 10:00:00, restaurant delayed readyAt to 10:30:00 (+30 min delay).
+      // Limit is 10 min. At 10:10:00 rider can leave because leave time counts from promisedReadyAt.
+      const now = new Date('2026-11-09T10:10:00.000Z')
+      jest.useFakeTimers()
+      jest.setSystemTime(now)
+
+      try {
+        const delivery = deliveryAt(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+          readyAt: new Date('2026-11-09T10:30:00.000Z'),
+          promisedReadyAt: PROMISED_TIME,
+        })
         mockDeliveryRepository.findById.mockResolvedValue(delivery)
         mockDeliveryEventService.leaveWait.mockResolvedValue(true)
 

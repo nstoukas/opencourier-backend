@@ -241,4 +241,29 @@ describe('Repositories for Wait Pay (Spec 0033 AC-3, AC-4, AC-8)', () => {
       expect(result).toEqual(['Courier courier-1 paid 100 EUR; wait del-1:evt-1'])
     })
   })
+
+  describe('DeliveryRepository.findWaitCharges (Spec 0033 decision 23.20)', () => {
+    it('findWaitCharges filters on WAITING and orders oldest first', async () => {
+      const mockPrisma = {
+        partnerCharge: {
+          findMany: jest.fn(),
+        },
+      }
+      const repository = new DeliveryRepository(mockPrisma as any)
+      const mockCharges = [
+        { amount: 100, currencyCode: 'EUR', createdAt: new Date('2026-11-09T10:00:00Z') },
+        { amount: 200, currencyCode: 'EUR', createdAt: new Date('2026-11-09T10:30:00Z') },
+      ]
+      mockPrisma.partnerCharge.findMany.mockResolvedValueOnce(mockCharges)
+
+      const result = await repository.findWaitCharges('del-1')
+
+      expect(mockPrisma.partnerCharge.findMany).toHaveBeenCalledWith({
+        where: { deliveryId: 'del-1', reason: EnumPartnerChargeReason.WAITING },
+        select: { amount: true, currencyCode: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      expect(result).toEqual(mockCharges)
+    })
+  })
 })

@@ -85,6 +85,7 @@ describe('DeliveryAdminRestApiController', () => {
       getByIdOrThrow: jest.fn(),
       getByIdOrThrowWithQuote: jest.fn(),
       getPartnerCharge: jest.fn(),
+      getWaitCharges: jest.fn().mockResolvedValue([]),
       getMany: jest.fn(),
       update: jest.fn(),
       submitDeliveryEvent: jest.fn(),
@@ -476,6 +477,29 @@ describe('DeliveryAdminRestApiController', () => {
 
       expect(mockDeliveryDomainService.getPartnerCharge).not.toHaveBeenCalled()
       expect(dto.partnerCharge).toBeNull()
+    })
+
+    it('passes waitCharges from domain service into dto (spec 0033 decision 23.20)', async () => {
+      const mockActiveDelivery = {
+        id: mockDeliveryId,
+        cancelledAt: null,
+        status: EnumDeliveryStatus.ACCEPTED,
+      }
+      const mockWaitCharges = [
+        { amount: 120, currencyCode: 'EUR', createdAt: new Date('2026-11-09T10:20:00Z') },
+      ]
+
+      mockDeliveryDomainService.getByIdOrThrowWithQuote.mockResolvedValue({
+        delivery: mockActiveDelivery as any,
+        quote: null as any,
+      })
+      mockDeliveryDomainService.getOfferViews.mockResolvedValue(new Map())
+      mockDeliveryDomainService.getWaitCharges.mockResolvedValue(mockWaitCharges)
+
+      const dto = await controller.getDelivery(mockDeliveryId)
+
+      expect(mockDeliveryDomainService.getWaitCharges).toHaveBeenCalledWith(mockDeliveryId)
+      expect(dto.waitCharges).toEqual(mockWaitCharges)
     })
   })
 })

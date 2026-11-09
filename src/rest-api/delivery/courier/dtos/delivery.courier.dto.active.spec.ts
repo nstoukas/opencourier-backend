@@ -318,7 +318,8 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       rawDelivery.dropoffLocationNotes = []
 
       const inProgressDto = new InProgressDeliveryCourierDto(
-        rawDelivery as InProgressDeliveryCourier
+        rawDelivery as InProgressDeliveryCourier,
+        { leaveMinutes: 10, freeMinutes: 10, payOn: true }
       )
 
       expect(inProgressDto.dropoffPhoneNumber).toBe(customerPhone)
@@ -332,7 +333,8 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       rawDelivery.dropoffLocationNotes = []
 
       const inProgressDto = new InProgressDeliveryCourierDto(
-        rawDelivery as InProgressDeliveryCourier
+        rawDelivery as InProgressDeliveryCourier,
+        { leaveMinutes: 10, freeMinutes: 10, payOn: true }
       )
 
       expect(inProgressDto.dropoffPhoneNumber).toBeUndefined()
@@ -908,7 +910,11 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       const raw = withDetails(EnumDeliveryStatus.ACCEPTED) as any
       raw.pickupLocationNotes = []
       raw.dropoffLocationNotes = []
-      const dto = new InProgressDeliveryCourierDto(raw as InProgressDeliveryCourier)
+      const dto = new InProgressDeliveryCourierDto(raw as InProgressDeliveryCourier, {
+        leaveMinutes: 10,
+        freeMinutes: 10,
+        payOn: true,
+      })
       for (const field of FIELDS) expectFieldPresent(dto, field)
     })
 
@@ -1073,5 +1079,75 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         expect(serialized.arrivedAt).toBeNull()
       }
     )
+  })
+
+  describe('leaveFrom and paidFrom on InProgressDeliveryCourierDto (Spec 0033 AC-5)', () => {
+    const waitRules = { leaveMinutes: 10, freeMinutes: 10, payOn: true }
+    const promisedReadyAt = new Date('2026-11-09T10:00:00.000Z')
+    const arrivedAtPickupAt = new Date('2026-11-09T09:58:00.000Z')
+
+    test('leaveFrom and paidFrom set only at the pickup (COURIER_ARRIVED_AT_PICKUP_LOCATION)', () => {
+      const waiting = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt,
+        foodReadyAt: null,
+      }) as any
+      waiting.pickupLocationNotes = []
+      waiting.dropoffLocationNotes = []
+
+      const dto = new InProgressDeliveryCourierDto(waiting, waitRules)
+      expect(dto.leaveFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+      expect(dto.paidFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+
+      // Outside of pickup status, both are null
+      const nonWaitingStatuses = [
+        EnumDeliveryStatus.ACCEPTED,
+        EnumDeliveryStatus.DISPATCHED,
+        EnumDeliveryStatus.PICKED_UP,
+        EnumDeliveryStatus.ON_THE_WAY,
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+      ]
+
+      for (const status of nonWaitingStatuses) {
+        const d = createMockDelivery(status, {
+          promisedReadyAt,
+          arrivedAtPickupAt,
+        }) as any
+        d.pickupLocationNotes = []
+        d.dropoffLocationNotes = []
+        const otherDto = new InProgressDeliveryCourierDto(d, waitRules)
+        expect(otherDto.leaveFrom).toBeNull()
+        expect(otherDto.paidFrom).toBeNull()
+      }
+    })
+
+    test('paidFrom is null when payOn is false', () => {
+      const waiting = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt,
+      }) as any
+      waiting.pickupLocationNotes = []
+      waiting.dropoffLocationNotes = []
+
+      const dto = new InProgressDeliveryCourierDto(waiting, { ...waitRules, payOn: false })
+      expect(dto.leaveFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+      expect(dto.paidFrom).toBeNull()
+    })
+
+    test('paidFrom is null for a late rider with food ready', () => {
+      // Promise 10:00, free 10 => free until 10:10.
+      // Rider arrived late at 10:15, food was already ready at 10:05.
+      const waiting = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        promisedReadyAt,
+        arrivedAtPickupAt: new Date('2026-11-09T10:15:00.000Z'),
+        foodReadyAt: new Date('2026-11-09T10:05:00.000Z'),
+      }) as any
+      waiting.pickupLocationNotes = []
+      waiting.dropoffLocationNotes = []
+
+      const dto = new InProgressDeliveryCourierDto(waiting, waitRules)
+      expect(dto.leaveFrom).toEqual(new Date('2026-11-09T10:10:00.000Z'))
+      expect(dto.paidFrom).toBeNull()
+    })
   })
 })

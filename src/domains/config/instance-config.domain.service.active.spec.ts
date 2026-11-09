@@ -2318,6 +2318,12 @@ describe('InstanceConfigDomainService', () => {
         const settings = await service.getInstanceConfigSettings()
         expect(settings.shiftsEnabled).toBe(false)
         expect(settings.shiftDropNoticeHours).toBe(12)
+        expect(settings.waitPayFreeMinutes).toBe(10)
+      })
+
+      it('getWaitPayFreeMinutes defaults to 10 with no config row (spec 0033 decision 23.18)', async () => {
+        configRepository.getByKey.mockRejectedValue(notFoundError)
+        expect(await service.getWaitPayFreeMinutes()).toBe(10)
       })
 
       it('getInstanceConfigSettings carries stored values', async () => {
