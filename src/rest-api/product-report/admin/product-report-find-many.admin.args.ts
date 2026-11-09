@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsIn, IsInt, IsOptional, IsString, MaxLength } from 'class-validator'
+import { RefuseIfNotSentAsString } from 'src/decorators/refuseIfNotSentAsString.decorator'
 
 export class ProductReportFindManyAdminArgs {
   @ApiPropertyOptional({ enum: ['open', 'resolved', 'all'] })
@@ -24,6 +25,7 @@ export class ProductReportFindManyAdminArgs {
 export class ProductReportResolveAdminInput {
   @ApiPropertyOptional({ type: String, maxLength: 500 })
   @IsOptional()
+  @RefuseIfNotSentAsString()
   @IsString()
   @MaxLength(500)
   resolution?: string

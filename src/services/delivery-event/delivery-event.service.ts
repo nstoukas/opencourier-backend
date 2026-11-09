@@ -1553,8 +1553,6 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
-  // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
-  // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
   // Spec 0032: a product report and its resolution, with no status change.
   async recordProductReportEvent(
     event: DeliveryProductReportedEvent | DeliveryProductReportResolvedEvent,
@@ -1563,6 +1561,8 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
+  // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
+  // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
   async recordReadyEvent(
     event: DeliveryReadyDelayedEvent | DeliveryFoodReadyEvent,
     status: EnumDeliveryStatus
