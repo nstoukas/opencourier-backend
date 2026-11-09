@@ -75,9 +75,9 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     )
   })
 
-  test('in DeliveryEventService only notifyReadyUpdated and offerTimingOf use them, and never as a write', () => {
+  test('in DeliveryEventService only holdAfterRiderLeft, notifyReadyUpdated and offerTimingOf use them, and never as a write', () => {
     expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')].sort()).toEqual(
-      ['notifyReadyUpdated', 'offerTimingOf'].sort()
+      ['holdAfterRiderLeft', 'notifyReadyUpdated', 'offerTimingOf'].sort()
     )
   })
 

@@ -1023,4 +1023,55 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       expect(heldDto.foodReadyAt).toEqual(foodReadyAtDate)
     })
   })
+
+  describe('arrivedAt only while at the pickup (Spec 0033 AC-5)', () => {
+    const arrivedAtDate = new Date('2026-11-09T10:00:00.000Z')
+
+    test('carries arrivedAt when status is COURIER_ARRIVED_AT_PICKUP_LOCATION', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        arrivedAtPickupAt: arrivedAtDate,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.arrivedAt).toEqual(arrivedAtDate)
+      const serialized = JSON.parse(JSON.stringify(dto))
+      expect(serialized.arrivedAt).toBe('2026-11-09T10:00:00.000Z')
+    })
+
+    test('sets arrivedAt to null when arrivedAtPickupAt is null even at pickup location', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION, {
+        arrivedAtPickupAt: null,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.arrivedAt).toBeNull()
+    })
+
+    const otherStatuses = [
+      EnumDeliveryStatus.CREATED,
+      EnumDeliveryStatus.ASSIGNING_COURIER,
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.PICKED_UP,
+      EnumDeliveryStatus.ON_THE_WAY,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.CANCELED,
+      EnumDeliveryStatus.FAILED,
+    ]
+
+    test.each(otherStatuses)(
+      'sets arrivedAt to null in status %s even when arrivedAtPickupAt is present on delivery',
+      (status) => {
+        const delivery = createMockDelivery(status, {
+          arrivedAtPickupAt: arrivedAtDate,
+        })
+        const dto = new DeliveryCourierDto(delivery)
+
+        expect(dto.arrivedAt).toBeNull()
+        const serialized = JSON.parse(JSON.stringify(dto))
+        expect(serialized.arrivedAt).toBeNull()
+      }
+    )
+  })
 })

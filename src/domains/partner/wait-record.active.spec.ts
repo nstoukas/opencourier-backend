@@ -22,11 +22,12 @@ describe('wait-record domain logic (spec 0030)', () => {
       expect(DEFAULT_WAIT_RECORD_DAYS).toBe(30)
     })
 
-    test('HAND_OVER_EVENTS includes REASSIGNED, RETURNED_TO_WAITING and HANDED_BACK (AC-3)', () => {
+    test('HAND_OVER_EVENTS includes REASSIGNED, RETURNED_TO_WAITING, HANDED_BACK and WAIT_UNDISPATCHED (AC-3)', () => {
       expect(HAND_OVER_EVENTS).toEqual([
         EnumDeliveryEventType.REASSIGNED,
         EnumDeliveryEventType.RETURNED_TO_WAITING,
         EnumDeliveryEventType.HANDED_BACK,
+        EnumDeliveryEventType.WAIT_UNDISPATCHED,
       ])
     })
   })
@@ -180,6 +181,7 @@ describe('wait-record domain logic (spec 0030)', () => {
       ['REASSIGNED', EnumDeliveryEventType.REASSIGNED],
       ['RETURNED_TO_WAITING', EnumDeliveryEventType.RETURNED_TO_WAITING],
       ['HANDED_BACK', EnumDeliveryEventType.HANDED_BACK],
+      ['WAIT_UNDISPATCHED', EnumDeliveryEventType.WAIT_UNDISPATCHED],
     ])('an arrival before the last %s does not count: a second rider who never taps arrival returns null', (_name, eventType) => {
       // Rider 1 arrives at +10 min, delivery has a hand-over event (%s) at +15 min.
       // Rider 2 picks up at +35 min with no arrival tap. readyAt was +20 min.

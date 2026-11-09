@@ -541,6 +541,18 @@ describe('earnings-summary.util', () => {
       expect(result.kind).toBe('REASSIGNMENT_COMPENSATION')
     })
 
+    it('maps reason WAITING to kind WAITING (Spec 0033 AC-3, AC-5)', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.WAITING,
+      })
+
+      expect(result.kind).toBe('WAITING')
+      expect(result.compensation).toBe(450)
+      expect(result.tips).toBe(0)
+      expect(result.total).toBe(450)
+    })
+
     it('maps absent / undefined reason to kind REASSIGNMENT_COMPENSATION', () => {
       const result = compensationToEarningsDelivery({
         ...baseCompRow,

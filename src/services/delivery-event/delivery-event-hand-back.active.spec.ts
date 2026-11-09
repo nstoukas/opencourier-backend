@@ -394,6 +394,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
           courierId: null,
           matchedCourierId: 'courier-new-1',
           acceptedAt: null,
+          arrivedAtPickupAt: null,
           handBackUntil: null,
         })
       )
@@ -430,6 +431,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
         expect.objectContaining({
           status: EnumDeliveryStatus.CANCELED,
           acceptedAt: null,
+          arrivedAtPickupAt: null,
           handBackUntil: null,
         })
       )
@@ -472,6 +474,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
           offeredAt: null,
           offerExpiresAt: null,
           acceptedAt: null,
+          arrivedAtPickupAt: null,
           handBackUntil: null,
         }
       )

@@ -50,6 +50,10 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     shiftDropNoticeHours: 12,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
+    waitPayEnabled: false,
+    waitPayFreeMinutes: 5,
+    waitPayCentsPerMinute: 10,
+    waitLimitMinutes: 10,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

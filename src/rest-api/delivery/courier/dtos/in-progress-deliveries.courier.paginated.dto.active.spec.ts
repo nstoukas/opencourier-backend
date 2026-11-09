@@ -15,10 +15,11 @@ describe('InProgressDeliveriesCourierPaginatedDto (Spec 0020 AC-3)', () => {
         prevPage: null,
         nextPage: null,
       },
-    })
+    }, 10)
     const after = Date.now()
 
     expect(dto.serverNow).toBeInstanceOf(Date)
+    expect(dto.waitLimitMinutes).toBe(10)
     expect(dto.serverNow.getTime()).toBeGreaterThanOrEqual(before)
     expect(dto.serverNow.getTime()).toBeLessThanOrEqual(after)
   })
@@ -48,10 +49,11 @@ describe('InProgressDeliveriesCourierPaginatedDto (Spec 0020 AC-3)', () => {
     const dto = new InProgressDeliveriesCourierPaginatedDto({
       data: [mockOrder],
       pagination,
-    })
+    }, 15)
 
     expect(dto.data).toHaveLength(1)
     expect(dto.data[0]?.id).toBe('del-prog-1')
     expect(dto.pagination).toEqual(pagination)
+    expect(dto.waitLimitMinutes).toBe(15)
   })
 })

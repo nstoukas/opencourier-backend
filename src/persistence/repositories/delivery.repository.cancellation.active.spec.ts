@@ -58,7 +58,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
             {
               cancelledBy: EnumCancelledBy.RESTAURANT,
               partnerId: { not: null },
-              partnerCharge: { is: null },
+              partnerCharges: { none: { reason: EnumPartnerChargeReason.CANCELLATION } },
             },
           ],
         },
@@ -143,7 +143,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
       const result = await repository.findPartnerCharge('del-1')
 
       expect(mockPrisma.partnerCharge.findUnique).toHaveBeenCalledWith({
-        where: { deliveryId: 'del-1' },
+        where: { cancellationOf: 'del-1' },
         select: { amount: true, currencyCode: true, createdAt: true },
       })
       expect(result).toEqual({ amount: 900, currencyCode: 'EUR' })
@@ -251,7 +251,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
       const result = await repository.createOnce(input)
 
       expect(result).toEqual({ id: 'charge-1', ...input })
-      expect(mockPrisma.partnerCharge.create).toHaveBeenCalledWith({ data: input })
+      expect(mockPrisma.partnerCharge.create).toHaveBeenCalledWith({ data: { ...input, cancellationOf: 'del-1' } })
     })
 
     it('on unique constraint violation (P2002), fetches and returns the existing charge', async () => {
@@ -272,7 +272,7 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
       const result = await repository.createOnce(input)
 
       expect(mockPrisma.partnerCharge.findUnique).toHaveBeenCalledWith({
-        where: { deliveryId: 'del-1' },
+        where: { cancellationOf: 'del-1' },
       })
       expect(result).toEqual({ id: 'charge-existing', ...input })
     })

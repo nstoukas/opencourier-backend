@@ -60,6 +60,7 @@ describe('DeliveryDomainService.markFoodReady - Offer Timing (Spec 0031: AC-7)',
       status: EnumDeliveryStatus.ASSIGNING_COURIER,
       matchedCourierId: null,
       courierId: null,
+      undispatchedAt: null,
       foodReadyAt: null,
       readyAt: new Date(NOW.getTime() + 15 * 60_000),
       ...overrides,
@@ -105,6 +106,22 @@ describe('DeliveryDomainService.markFoodReady - Offer Timing (Spec 0031: AC-7)',
       await service.markFoodReady('del-1')
 
       expect(deliveryEventService.offerOrWait).not.toHaveBeenCalled()
+    })
+
+    it('runs offerOrWait when delivery was left by a rider (undispatchedAt set), even when offerTimingEnabled is false (Spec 0033 AC-7, decision 23.13)', async () => {
+      instanceConfig.getOfferTimingEnabled.mockResolvedValue(false)
+
+      const initial = baseDelivery({ undispatchedAt: new Date(NOW.getTime() - 60_000) })
+      const updated = { ...initial, foodReadyAt: NOW }
+
+      deliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValueOnce(updated)
+
+      await service.markFoodReady('del-1')
+
+      expect(deliveryEventService.offerOrWait).toHaveBeenCalledTimes(1)
+      expect(deliveryEventService.offerOrWait).toHaveBeenCalledWith('del-1')
     })
 
     it('does NOT run offerOrWait when an offer is already out (matchedCourierId is set)', async () => {

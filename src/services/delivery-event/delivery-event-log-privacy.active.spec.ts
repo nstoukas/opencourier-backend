@@ -173,7 +173,13 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       { scheduleTask: jest.fn().mockResolvedValue(undefined) } as unknown as TaskBusScheduler,
       { registerTaskHandler: jest.fn() } as unknown as TaskBusService,
       { sendDeliveryUpdatePartnerWebhook: jest.fn().mockResolvedValue(undefined) } as unknown as PartnerWebhookService,
-      { findCourierForDelivery: jest.fn().mockResolvedValue({ courier }) } as unknown as DeliveryMatchingService,
+      {
+        findCourierForDelivery: jest.fn().mockResolvedValue({
+          courier,
+          delivery: { readyAt: null, foodReadyAt: null, undispatchedAt: null },
+          pickupLocation: { latitude: 39.36, longitude: 22.94 },
+        }),
+      } as unknown as DeliveryMatchingService,
       {
         calculateDeliveryAmountsForMatchedCourier: jest
           .fn()

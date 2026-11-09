@@ -257,6 +257,40 @@ describe('DeliveryEventDomainService', () => {
       })
     })
 
+    test('adds waitingPay to total and returns waitingPay on a delivered order when WAITING compensation exists (Spec 0033 decision 23.11)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-with-wait',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 600,
+        tips: 150,
+        pickupBusinessName: 'Ta Koutsavakia',
+        dropoffAddress: 'Iasonos 12, Volos',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-with-wait',
+          createdAt: new Date('2026-07-10T09:55:00Z'),
+          amount: 100, // 100 cents waiting pay
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Ta Koutsavakia',
+          dropoffLocation: null,
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-with-wait')
+
+      expect(result).toEqual({
+        deliveryId: 'del-with-wait',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        dropoffAddress: 'Iasonos 12, Volos',
+        pickupBusinessName: 'Ta Koutsavakia',
+        compensation: 600,
+        tips: 150,
+        waitingPay: 100,
+        total: 850, // 600 + 150 + 100
+      })
+    })
+
     test('returns null when delivery row is not found or not completed and no compensation rows exist', async () => {
       mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
       mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([])

@@ -17,10 +17,12 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
   beforeEach(() => {
     mockDeliveryRepository = {
       findCancellationsToSettle: jest.fn().mockResolvedValue(['del-1', 'del-2', 'del-3']),
+      findWaitPayToSettle: jest.fn().mockResolvedValue(['del-wait-1', 'del-wait-2']),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockDeliveryEventService = {
       settleCancellation: jest.fn().mockResolvedValue(undefined),
+      settleWaitPay: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockBullMQService = {
@@ -109,6 +111,53 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
 
       await expect(service.sweep(new Date())).resolves.toBeUndefined()
       expect(mockDeliveryEventService.settleCancellation).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('wait pay sweep execution (Spec 0033 AC-8, decision 23.9)', () => {
+    it('reads deliveries with waitPayOwedAt between 24h ago and 1 min ago and calls settleWaitPay for each', async () => {
+      const fixedNow = new Date('2026-11-01T12:00:00.000Z')
+      const expectedFrom = new Date(fixedNow.getTime() - 24 * 60 * 60 * 1000)
+      const expectedTo = new Date(fixedNow.getTime() - 60 * 1000)
+
+      await service.sweep(fixedNow)
+
+      // Margin of 1 minute leaves inline settlement alone
+      expect(mockDeliveryRepository.findWaitPayToSettle).toHaveBeenCalledWith(
+        expectedFrom,
+        expectedTo
+      )
+
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledTimes(2)
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenNthCalledWith(1, 'del-wait-1')
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenNthCalledWith(2, 'del-wait-2')
+    })
+
+    it('a half-written payment is completed by the sweep calling settleWaitPay', async () => {
+      mockDeliveryRepository.findWaitPayToSettle.mockResolvedValueOnce(['del-half-paid'])
+
+      await service.sweep(new Date())
+
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledWith('del-half-paid')
+    })
+
+    it('processes each delivery in the batch even when multiple ids are returned', async () => {
+      mockDeliveryRepository.findWaitPayToSettle.mockResolvedValueOnce(['del-wait-1', 'del-wait-2', 'del-wait-3'])
+
+      await service.sweep(new Date())
+
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledWith('del-wait-1')
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledWith('del-wait-2')
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledWith('del-wait-3')
+    })
+
+    it('a read failure from findWaitPayToSettle is logged and does NOT throw or abort cancellation sweep', async () => {
+      mockDeliveryRepository.findWaitPayToSettle.mockRejectedValueOnce(new Error('Postgres query failure'))
+
+      await expect(service.sweep(new Date())).resolves.toBeUndefined()
+      expect(mockDeliveryEventService.settleWaitPay).not.toHaveBeenCalled()
+      // Cancellation sweep still ran
+      expect(mockDeliveryEventService.settleCancellation).toHaveBeenCalled()
     })
   })
 })

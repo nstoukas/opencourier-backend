@@ -308,4 +308,42 @@ describe('InstanceConfigSettingsAdminInput validation', () => {
       expect(result.shiftDropNoticeHours).toBeUndefined()
     })
   })
+
+  describe('Restaurant delays (Spec 0033 AC-1)', () => {
+    const transform = (body: Record<string, unknown>) =>
+      pipe.transform(body, { type: 'body', metatype: InstanceConfigSettingsAdminInput })
+
+    const numericFields = ['waitPayFreeMinutes', 'waitPayCentsPerMinute', 'waitLimitMinutes'] as const
+
+    for (const field of numericFields) {
+      it.each(['10', '0', true, false, []])(`refuses ${field} sent as %p (not a JSON number)`, async (value) => {
+        const promise = transform({ [field]: value })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow(`${field} must be sent as a number`)
+      })
+
+      it(`refuses ${field} sent as empty text instead of converting to 0`, async () => {
+        await expect(transform({ [field]: '' })).rejects.toThrow(`${field} cannot be empty`)
+      })
+
+      it(`passes valid number for ${field}`, async () => {
+        const result = (await transform({ [field]: 10 })) as InstanceConfigSettingsAdminInput
+        expect(result[field]).toBe(10)
+      })
+    }
+
+    it.each(['false', 'true', '', null, 0, 1, [], {}])(
+      'refuses waitPayEnabled sent as %p (not a boolean)',
+      async (value) => {
+        const promise = transform({ waitPayEnabled: value })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('waitPayEnabled must be sent as true or false')
+      }
+    )
+
+    it.each([true, false])('passes waitPayEnabled %p untouched', async (value) => {
+      const result = (await transform({ waitPayEnabled: value })) as InstanceConfigSettingsAdminInput
+      expect(result.waitPayEnabled).toBe(value)
+    })
+  })
 })

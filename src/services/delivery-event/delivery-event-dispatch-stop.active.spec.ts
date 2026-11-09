@@ -274,6 +274,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       const matchedCourier = { id: 'courier-race', userId: 'user-courier-race' }
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue({
         courier: matchedCourier,
+        delivery: { readyAt: null, foodReadyAt: null, undispatchedAt: null },
         distanceMeters: 500,
       })
       mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockResolvedValue({
@@ -428,6 +429,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
           offeredAt: null,
           offerExpiresAt: null,
           acceptedAt: null,
+          arrivedAtPickupAt: null,
           handBackUntil: null,
         }
       )
@@ -501,6 +503,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
           offeredAt: null,
           offerExpiresAt: null,
           acceptedAt: null,
+          arrivedAtPickupAt: null,
           handBackUntil: null,
         }
       )

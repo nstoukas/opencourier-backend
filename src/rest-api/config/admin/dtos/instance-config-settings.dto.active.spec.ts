@@ -51,6 +51,10 @@ describe('InstanceConfigSettingsDto', () => {
     shiftDropNoticeHours: 12,
     dispatchPhoneNumber: null,
     cancellationPayoutPolicy: 'FULL_COMPENSATION',
+    waitPayEnabled: false,
+    waitPayFreeMinutes: 5,
+    waitPayCentsPerMinute: 10,
+    waitLimitMinutes: 10,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

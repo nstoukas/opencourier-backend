@@ -175,4 +175,27 @@ describe('DeliveryDomainService busy mode on creation (spec 0029, AC-2)', () => 
       })
     )
   })
+
+  test('sets promisedReadyAt to the initial readyAt (including busyExtraMinutes) at creation (Spec 0033 AC-2, decision 23.6)', async () => {
+    partnerRepository.findById.mockResolvedValue({
+      id: 'partner-1',
+      usualPrepMinutes: 20,
+      busyExtraMinutes: 15,
+    })
+
+    const input: any = {
+      partnerId: 'partner-1',
+      pickupReadyAt: null,
+    }
+
+    await service.create(input)
+
+    const expectedReadyAt = new Date(NOW.getTime() + 35 * MINUTE) // 12:35 UTC
+    expect(deliveryRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        readyAt: expectedReadyAt,
+        promisedReadyAt: expectedReadyAt,
+      })
+    )
+  })
 })

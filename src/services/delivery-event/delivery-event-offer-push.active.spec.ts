@@ -107,7 +107,11 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
     } as unknown as jest.Mocked<BullMQService>
 
     mockDeliveryMatchingService = {
-      findCourierForDelivery: jest.fn().mockResolvedValue({ courier: sampleCourier }),
+      findCourierForDelivery: jest.fn().mockResolvedValue({
+        courier: sampleCourier,
+        delivery: sampleDelivery,
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+      }),
     } as unknown as jest.Mocked<DeliveryMatchingService>
 
     mockDeliveryCalculationService = {
