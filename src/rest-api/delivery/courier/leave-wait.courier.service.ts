@@ -10,7 +10,7 @@ export const NOT_WAITING_MESSAGE = 'You can only leave while you are waiting at 
 export const ORDER_CHANGED_MESSAGE = 'This order changed. Check your jobs.'
 
 export function tooSoonMessage(limitMinutes: number): string {
-  return `You can leave ${limitMinutes} ${limitMinutes === 1 ? 'minute' : 'minutes'} after the time the food was promised.`
+  return `You can leave ${limitMinutes} ${limitMinutes === 1 ? 'minute' : 'minutes'} after the promised time, or after you arrived if that was later.`
 }
 
 // Spec 0033 (AC-6): a rider leaves a restaurant that kept them waiting past the co-op's limit. The
@@ -39,8 +39,12 @@ export class LeaveWaitCourierService {
         : await this.deliveryEventService.occurredAtForCourierTap(delivery, { receivedAt: new Date(), tapAgeMs })
 
     const limitMinutes = await this.configDomainService.instanceConfig.getWaitLimitMinutes()
-    // Counted from the restaurant's first promise (decision 23.15), not from the rider's arrival.
-    if (!delivery.promisedReadyAt || occurredAt < waitLeaveFrom(delivery.promisedReadyAt, limitMinutes)) {
+    // From the first promise, or the rider's arrival if that was later (decision 23.15).
+    if (
+      !delivery.promisedReadyAt ||
+      !delivery.arrivedAtPickupAt ||
+      occurredAt < waitLeaveFrom(delivery.promisedReadyAt, delivery.arrivedAtPickupAt, limitMinutes)
+    ) {
       throw new ConflictException(tooSoonMessage(limitMinutes))
     }
 

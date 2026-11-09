@@ -52,9 +52,10 @@ export function paidWaitMinutes(input: WaitTimes & { endedAt: Date }): number {
 }
 
 // AC-6. When a rider may leave: the co-op's minutes after the first promise, so a delay tapped by
-// the restaurant cannot push it back.
-export function waitLeaveFrom(promisedReadyAt: Date, leaveMinutes: number): Date {
-  return new Date(promisedReadyAt.getTime() + leaveMinutes * MINUTE_MS)
+// the restaurant cannot push it back, or after they arrived if that was later: a rider who comes
+// after the promised time still waits those minutes (decision 23.15).
+export function waitLeaveFrom(promisedReadyAt: Date, arrivedAt: Date, leaveMinutes: number): Date {
+  return new Date(Math.max(promisedReadyAt.getTime(), arrivedAt.getTime()) + leaveMinutes * MINUTE_MS)
 }
 
 // The co-op's settings the rider's job card needs. `payOn` is false with delay pay off or a rate of 0.

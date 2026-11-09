@@ -32,7 +32,8 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
 
     const waiting = data.status === EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION
     const promised = waiting ? data.promisedReadyAt ?? null : null
-    this.leaveFrom = promised ? waitLeaveFrom(promised, waitRules.leaveMinutes) : null
+    this.leaveFrom =
+      promised && data.arrivedAtPickupAt ? waitLeaveFrom(promised, data.arrivedAtPickupAt, waitRules.leaveMinutes) : null
     this.paidFrom =
       promised && waitRules.payOn && data.arrivedAtPickupAt
         ? waitPaidFrom({
