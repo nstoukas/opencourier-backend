@@ -22,12 +22,13 @@ describe('wait-record domain logic (spec 0030)', () => {
       expect(DEFAULT_WAIT_RECORD_DAYS).toBe(30)
     })
 
-    test('HAND_OVER_EVENTS includes REASSIGNED, RETURNED_TO_WAITING, HANDED_BACK and WAIT_UNDISPATCHED (AC-3)', () => {
+    test('HAND_OVER_EVENTS includes REASSIGNED, RETURNED_TO_WAITING, HANDED_BACK, WAIT_UNDISPATCHED and REMOVAL_APPROVED (AC-3)', () => {
       expect(HAND_OVER_EVENTS).toEqual([
         EnumDeliveryEventType.REASSIGNED,
         EnumDeliveryEventType.RETURNED_TO_WAITING,
         EnumDeliveryEventType.HANDED_BACK,
         EnumDeliveryEventType.WAIT_UNDISPATCHED,
+        EnumDeliveryEventType.REMOVAL_APPROVED,
       ])
     })
   })

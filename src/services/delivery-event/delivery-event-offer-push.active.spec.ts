@@ -160,7 +160,8 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

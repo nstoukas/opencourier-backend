@@ -183,10 +183,13 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
   })
 
   describe('WAIT_END_EVENTS', () => {
-    it('includes exactly PICKED_UP and WAIT_UNDISPATCHED', () => {
+    it('includes exactly PICKED_UP, WAIT_UNDISPATCHED, REMOVAL_APPROVED, REASSIGNED, RETURNED_TO_WAITING', () => {
       expect(WAIT_END_EVENTS).toEqual([
         EnumDeliveryEventType.PICKED_UP,
         EnumDeliveryEventType.WAIT_UNDISPATCHED,
+        EnumDeliveryEventType.REMOVAL_APPROVED,
+        EnumDeliveryEventType.REASSIGNED,
+        EnumDeliveryEventType.RETURNED_TO_WAITING,
       ])
     })
   })
@@ -336,10 +339,38 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       ])
     })
 
+    it('clears arrival when handover event HANDED_BACK occurs so rider 1 arrival is not paired with rider 2 pickup', () => {
+      const events: WaitEvent[] = [
+        // Rider 1 arrives at 09:58
+        {
+          id: 'evt-arr-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          occurredAt: at(9, 58),
+          courierId: 'courier-1',
+        },
+        // Handover happens at 10:10
+        {
+          id: 'evt-handover',
+          type: EnumDeliveryEventType.HANDED_BACK,
+          occurredAt: at(10, 10),
+          courierId: 'courier-1',
+        },
+        // Rider 2 picks up at 10:20 WITHOUT tapping arrival
+        {
+          id: 'evt-pickup-2',
+          type: EnumDeliveryEventType.PICKED_UP,
+          occurredAt: at(10, 20),
+          courierId: 'courier-2',
+        },
+      ]
+
+      // Since HANDED_BACK does not end a wait and Rider 2 had no arrival, no completed wait is recorded
+      expect(completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)).toEqual([])
+    })
+
     test.each([
       EnumDeliveryEventType.REASSIGNED,
       EnumDeliveryEventType.RETURNED_TO_WAITING,
-      EnumDeliveryEventType.HANDED_BACK,
     ])(
       'clears arrival when handover event %s occurs so rider 1 arrival is not paired with rider 2 pickup',
       (handOverType) => {
@@ -351,7 +382,7 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
             occurredAt: at(9, 58),
             courierId: 'courier-1',
           },
-          // Handover happens at 10:10
+          // Handover happens at 10:10 (ends rider 1 wait)
           {
             id: 'evt-handover',
             type: handOverType,
@@ -367,8 +398,14 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
           },
         ]
 
-        // Since Rider 2 had no arrival, no completed wait is recorded
-        expect(completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)).toEqual([])
+        // Rider 1 gets their wait up to handover, and arrival is cleared so Rider 2 has no wait
+        expect(completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)).toEqual([
+          {
+            endEventId: 'evt-handover',
+            courierId: 'courier-1',
+            minutes: 5,
+          },
+        ])
       }
     )
 

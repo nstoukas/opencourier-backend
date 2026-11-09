@@ -18,11 +18,13 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
     mockDeliveryRepository = {
       findCancellationsToSettle: jest.fn().mockResolvedValue(['del-1', 'del-2', 'del-3']),
       findWaitPayToSettle: jest.fn().mockResolvedValue(['del-wait-1', 'del-wait-2']),
+      findReturnTripsToSettle: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockDeliveryEventService = {
       settleCancellation: jest.fn().mockResolvedValue(undefined),
       settleWaitPay: jest.fn().mockResolvedValue(undefined),
+      settleReturnTrip: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockBullMQService = {
@@ -37,11 +39,20 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       }),
     } as unknown as jest.Mocked<TaskBusService>
 
+    const mockRemovalRequestRepository = {
+      findApprovedUnsettled: jest.fn().mockResolvedValue([]),
+    } as any
+    const mockRemovalRequestService = {
+      sweepApprovedUnsettled: jest.fn().mockResolvedValue(undefined),
+    } as any
+
     service = new CancellationSweepService(
       mockDeliveryRepository,
       mockDeliveryEventService,
       mockBullMQService,
-      mockTaskBusService
+      mockTaskBusService,
+      mockRemovalRequestRepository,
+      mockRemovalRequestService
     )
   })
 

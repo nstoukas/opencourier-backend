@@ -153,7 +153,8 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       mockDispatchStopRepository,
       mockOsrmRoutingService,
       mockCourierCompensationRepository,
-      mockPartnerChargeRepository
+      mockPartnerChargeRepository,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

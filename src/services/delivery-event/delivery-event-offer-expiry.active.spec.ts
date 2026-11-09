@@ -146,7 +146,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

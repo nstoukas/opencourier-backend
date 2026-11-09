@@ -58,6 +58,7 @@ describe('DeliveryDomainService', () => {
       refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
       offerDeliveryToCourierAsAdmin: jest.fn(),
       occurredAtForCourierTap: jest.fn(),
+      hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockCourierRepository = {
@@ -256,6 +257,7 @@ describe('DeliveryDomainService', () => {
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: 'courier-new',
+        droppedCourierId: 'courier-old',
         message: expectedMessage,
       })
 
@@ -301,6 +303,8 @@ describe('DeliveryDomainService', () => {
       mockDeliveryRepository.findByIdOrThrow
         .mockResolvedValueOnce(initialDelivery as any)
         .mockResolvedValueOnce(unchangedDelivery as any)
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
       await expect(
         service.reassignDelivery('del-stuck', 'courier-new')
@@ -349,6 +353,8 @@ describe('DeliveryDomainService', () => {
         .mockResolvedValueOnce(['courier-other'])
         .mockResolvedValueOnce(['courier-other', 'courier-old'])
 
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
+
       await expect(
         service.reassignDelivery('del-undo', 'courier-new')
       ).rejects.toThrow(CantUpdateDeliveryStatusError)
@@ -391,6 +397,8 @@ describe('DeliveryDomainService', () => {
 
       // Courier-old was already in rejected list!
       mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-old'])
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
       await expect(
         service.reassignDelivery('del-pre-existing', 'courier-new')
@@ -493,6 +501,8 @@ describe('DeliveryDomainService', () => {
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(new Error('Redis down'))
 
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
+
       await expect(
         service.reassignDelivery('del-cache-rollback-fail', 'courier-new')
       ).rejects.toThrow(CantUpdateDeliveryStatusError)
@@ -590,6 +600,8 @@ describe('DeliveryDomainService', () => {
 
       // deleteById fails during rollback!
       mockCourierCompensationRepository.deleteById.mockRejectedValueOnce(new Error('Delete DB failure'))
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
       await expect(
         service.reassignDelivery('del-double-fault', 'courier-new')

@@ -54,6 +54,7 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
 
     mockDeliveryEventService = {
       recordCancellationEvent: jest.fn().mockResolvedValue(undefined),
+      settleReturnTrip: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     service = new CancelledJobsCourierService(mockDeliveryRepository, mockDeliveryEventService)

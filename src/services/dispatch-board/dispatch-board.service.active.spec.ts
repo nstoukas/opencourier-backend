@@ -48,13 +48,18 @@ describe('DispatchBoardService (spec 0034)', () => {
       },
     } as unknown as jest.Mocked<ConfigDomainService>
 
+    const mockRemovalRequestRepo = {
+      findOpenForBoard: jest.fn().mockResolvedValue([]),
+    } as any
+
     service = new DispatchBoardService(
       mockDispatchBoardRepo,
       mockDeliveryIssueRepo,
       mockDeliveryDomainService,
       mockSosService,
       mockDispatchStopService,
-      mockConfigDomainService
+      mockConfigDomainService,
+      mockRemovalRequestRepo
     )
   })
 

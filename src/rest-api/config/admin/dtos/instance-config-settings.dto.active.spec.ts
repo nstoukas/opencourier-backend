@@ -55,6 +55,7 @@ describe('InstanceConfigSettingsDto', () => {
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    returnTripPayPercent: 100,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

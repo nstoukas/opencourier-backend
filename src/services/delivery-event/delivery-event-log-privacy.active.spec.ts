@@ -204,7 +204,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       { findOn: jest.fn().mockResolvedValue(null) } as unknown as DispatchStopRepository,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

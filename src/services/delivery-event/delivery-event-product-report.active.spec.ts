@@ -36,7 +36,8 @@ describe('DeliveryEventService product report events (Spec 0032, AC-5, AC-7, AC-
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

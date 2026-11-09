@@ -307,7 +307,8 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         { findOn: jest.fn().mockResolvedValue(null) } as any,
         { getRoute: jest.fn() } as any,
         {} as any,
-        {} as any
+        {} as any,
+        { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
       )
 
       await service.handleOfferExpiryJob({
@@ -389,6 +390,8 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         'customerLabel',
         'detail',
         'held',
+        'removalRequestId',
+        'pickedUp',
       ].sort()
 
       expect(Object.keys(row).sort()).toEqual(ALLOWED_ROW_PROPERTIES)

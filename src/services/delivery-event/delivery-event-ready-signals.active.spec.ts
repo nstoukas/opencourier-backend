@@ -79,7 +79,8 @@ describe('DeliveryEventService ready signals (spec 0023)', () => {
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

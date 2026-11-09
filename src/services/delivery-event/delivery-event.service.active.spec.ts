@@ -116,7 +116,8 @@ describe('DeliveryEventService', () => {
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

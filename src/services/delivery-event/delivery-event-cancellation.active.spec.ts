@@ -194,7 +194,11 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       mockDispatchStopRepository,
       { getRoute: jest.fn() } as any,
       mockCourierCompensationRepository,
-      mockPartnerChargeRepository
+      mockPartnerChargeRepository,
+      {
+        closeOpenForDelivery: jest.fn().mockResolvedValue(undefined),
+        findApprovedAfterPickup: jest.fn().mockResolvedValue(null),
+      } as any
     )
   })
 

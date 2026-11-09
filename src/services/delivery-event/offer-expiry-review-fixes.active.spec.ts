@@ -151,7 +151,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       { findOn: jest.fn().mockResolvedValue(null) } as any,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

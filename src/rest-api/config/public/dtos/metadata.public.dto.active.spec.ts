@@ -54,6 +54,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    returnTripPayPercent: 100,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

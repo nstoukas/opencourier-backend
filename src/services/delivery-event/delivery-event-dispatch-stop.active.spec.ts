@@ -181,7 +181,8 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       mockDispatchStopRepository,
       { getRoute: jest.fn() } as any,
       {} as any,
-      {} as any
+      {} as any,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

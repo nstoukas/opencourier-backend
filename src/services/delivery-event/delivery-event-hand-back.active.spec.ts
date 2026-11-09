@@ -179,7 +179,8 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       mockDispatchStopRepository,
       { getRoute: jest.fn() } as any,
       mockCourierCompensationRepository,
-      mockPartnerChargeRepository
+      mockPartnerChargeRepository,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

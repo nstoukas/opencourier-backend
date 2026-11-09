@@ -240,7 +240,8 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       mockDispatchStopRepository,
       { getRoute: jest.fn() } as any,
       mockCourierCompensationRepository,
-      mockPartnerChargeRepository
+      mockPartnerChargeRepository,
+      { closeOpenForDelivery: jest.fn().mockResolvedValue(undefined) } as any
     )
   })
 

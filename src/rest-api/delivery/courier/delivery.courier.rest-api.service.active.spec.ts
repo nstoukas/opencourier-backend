@@ -52,12 +52,17 @@ describe('DeliveryRestApiCourierService', () => {
       listForDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryIssueDomainService>
 
+    const mockRemovalRequestRepo = {
+      findNewestByCourierForDeliveries: jest.fn().mockResolvedValue(new Map()),
+    } as any
+
     service = new DeliveryRestApiCourierService(
       mockDeliveryDomainService,
       mockLocationNoteDomainService,
       {} as LocationNoteReactionDomainService,
       mockDeliveryIssueDomainService,
-      {} as any
+      {} as any,
+      mockRemovalRequestRepo
     )
   })
 
