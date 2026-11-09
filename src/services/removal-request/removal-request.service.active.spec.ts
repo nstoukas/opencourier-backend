@@ -201,6 +201,88 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       // removeRiderBeforePickup is NOT called on after pickup path
       expect(mockDeliveryEventService.removeRiderBeforePickup).not.toHaveBeenCalled()
     })
+
+    describe('AC-11: notifyApproved payload payAmount (paid vs unpaid reason on both paths)', () => {
+      test('before pickup with an unpaid reason: notifyRemovalDecided payload has payAmount null and paid false', async () => {
+        const unpaidRequest = makeRequest({ paidToRider: false })
+        mockRemovalRequestRepository.findById.mockResolvedValue(unpaidRequest)
+        const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED, courierId })
+        mockDeliveryRepository.findById.mockResolvedValue(delivery)
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+
+        await service.approve(requestId, adminUserId, false)
+
+        expect(mockDeliveryEventService.notifyRemovalDecided).toHaveBeenCalledWith(
+          courierId,
+          expect.objectContaining({
+            outcome: 'APPROVED',
+            paid: false,
+            payAmount: null,
+          })
+        )
+      })
+
+      test('before pickup with a paid reason: notifyRemovalDecided payload has the fixed payAmount and paid true', async () => {
+        const paidRequest = makeRequest({ paidToRider: true })
+        mockRemovalRequestRepository.findById.mockResolvedValue(paidRequest)
+        const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED, courierId, totalCompensation: 500 })
+        mockDeliveryRepository.findById.mockResolvedValue(delivery)
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+
+        await service.approve(requestId, adminUserId, false)
+
+        expect(mockDeliveryEventService.notifyRemovalDecided).toHaveBeenCalledWith(
+          courierId,
+          expect.objectContaining({
+            outcome: 'APPROVED',
+            paid: true,
+            payAmount: 500,
+          })
+        )
+      })
+
+      test('after pickup with an unpaid reason: notifyRemovalDecided payload has payAmount null and paid false', async () => {
+        const unpaidRequest = makeRequest({ paidToRider: false })
+        mockRemovalRequestRepository.findById.mockResolvedValue(unpaidRequest)
+        const delivery = makeDelivery({ status: EnumDeliveryStatus.PICKED_UP, courierId })
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+        mockDeliveryRepository.findById.mockResolvedValue(
+          makeDelivery({ status: EnumDeliveryStatus.CANCELED, courierId })
+        )
+
+        await service.approve(requestId, adminUserId, true)
+
+        expect(mockDeliveryEventService.notifyRemovalDecided).toHaveBeenCalledWith(
+          courierId,
+          expect.objectContaining({
+            outcome: 'APPROVED',
+            paid: false,
+            payAmount: null,
+          })
+        )
+      })
+
+      test('after pickup with a paid reason: notifyRemovalDecided payload has the fixed payAmount and paid true', async () => {
+        const paidRequest = makeRequest({ paidToRider: true })
+        mockRemovalRequestRepository.findById.mockResolvedValue(paidRequest)
+        const delivery = makeDelivery({ status: EnumDeliveryStatus.PICKED_UP, courierId, totalCompensation: 500 })
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+        mockDeliveryRepository.findById.mockResolvedValue(
+          makeDelivery({ status: EnumDeliveryStatus.CANCELED, courierId })
+        )
+
+        await service.approve(requestId, adminUserId, true)
+
+        expect(mockDeliveryEventService.notifyRemovalDecided).toHaveBeenCalledWith(
+          courierId,
+          expect.objectContaining({
+            outcome: 'APPROVED',
+            paid: true,
+            payAmount: 500,
+          })
+        )
+      })
+    })
   })
 
   describe('AC-8: pickedUp mismatch (stale board)', () => {
@@ -671,25 +753,54 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       mockRemovalRequestRepository.createOpen = jest.fn().mockImplementation(async (data) => makeRequest(data))
     })
 
-    test('answers 404 unless the rider holds the delivery', async () => {
-      // Different rider
+    test('answers 404 unless the rider holds the delivery and createOpen is not called at all', async () => {
+      // Different rider: delivery exists but held by someone else -> no request row created
       mockDeliveryRepository.findById.mockResolvedValue(makeDelivery({ courierId: 'other-courier' }))
       await expect(service.send(deliveryId, courierId, { reasonId: 'reason-breakdown' })).rejects.toThrow(
         DeliveryNotFoundException
       )
+      expect(mockRemovalRequestRepository.createOpen).not.toHaveBeenCalled()
 
       // Null courier
       mockDeliveryRepository.findById.mockResolvedValue(makeDelivery({ courierId: null }))
       await expect(service.send(deliveryId, courierId, { reasonId: 'reason-breakdown' })).rejects.toThrow(
         DeliveryNotFoundException
       )
+      expect(mockRemovalRequestRepository.createOpen).not.toHaveBeenCalled()
 
-      // Not in ongoing status (e.g. ASSIGNING_COURIER)
+      // Status outside ongoing list (e.g. ASSIGNING_COURIER)
       mockDeliveryRepository.findById.mockResolvedValue(
         makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId })
       )
       await expect(service.send(deliveryId, courierId, { reasonId: 'reason-breakdown' })).rejects.toThrow(
         DeliveryNotFoundException
+      )
+      expect(mockRemovalRequestRepository.createOpen).not.toHaveBeenCalled()
+    })
+
+    test('send with a reason that is not paid and is charged calls createOpen with paidToRider false and chargedToRestaurant true (AC-2)', async () => {
+      const reasonUnpaidCharged = {
+        id: 'reason-unpaid-charged',
+        label: 'Unsafe drop off',
+        paidToRider: false,
+        chargedToRestaurant: true,
+        needsNote: false,
+        removedAt: null,
+      }
+      mockRemovalRequestRepository.findReasonById = jest.fn().mockResolvedValue(reasonUnpaidCharged as any)
+      mockDeliveryRepository.findById.mockResolvedValue(
+        makeDelivery({ status: EnumDeliveryStatus.ACCEPTED, courierId })
+      )
+
+      await service.send(deliveryId, courierId, { reasonId: reasonUnpaidCharged.id })
+
+      expect(mockRemovalRequestRepository.createOpen).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paidToRider: false,
+          chargedToRestaurant: true,
+          label: 'Unsafe drop off',
+          reasonId: 'reason-unpaid-charged',
+        })
       )
     })
 
@@ -1049,6 +1160,45 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       )
 
       expect(logCalls.length).toBeGreaterThan(0)
+      for (const logLine of logCalls) {
+        expect(logLine).not.toContain(sentinelNote)
+      }
+    })
+
+    test('approve after pickup failure path: processDeliveryEvent rejects with a sentinel note in the request, no logger call carries the note', async () => {
+      const logCalls: string[] = []
+      const captureLog = (...args: any[]) => {
+        logCalls.push(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '))
+      }
+      jest.spyOn((service as any).logger, 'log').mockImplementation(captureLog)
+      jest.spyOn((service as any).logger, 'warn').mockImplementation(captureLog)
+      jest.spyOn((service as any).logger, 'error').mockImplementation(captureLog)
+
+      const requestWithSecret = makeRequest({ note: sentinelNote, afterPickup: false })
+      mockRemovalRequestRepository.findById.mockResolvedValue(requestWithSecret)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(
+        makeDelivery({ status: EnumDeliveryStatus.PICKED_UP, courierId })
+      )
+      // When re-reading after failure, status is still PICKED_UP (cancellation failed)
+      mockDeliveryRepository.findById.mockResolvedValue(
+        makeDelivery({ status: EnumDeliveryStatus.PICKED_UP, courierId })
+      )
+
+      mockDeliveryEventService.processDeliveryEvent.mockRejectedValueOnce(
+        new Error('simulated cancellation process error')
+      )
+
+      await expect(service.approve(requestId, adminUserId, true)).rejects.toThrow(
+        new ConflictException(ORDER_CHANGED_MESSAGE)
+      )
+
+      // Confirm that the catch block in approveAfterPickup executed
+      const cancellationFailureLog = logCalls.find(
+        (line) => line.includes('Cancelling delivery') && line.includes('for a removal failed')
+      )
+      expect(cancellationFailureLog).toBeDefined()
+
+      // Confirm no logger call carries the sentinel note
       for (const logLine of logCalls) {
         expect(logLine).not.toContain(sentinelNote)
       }

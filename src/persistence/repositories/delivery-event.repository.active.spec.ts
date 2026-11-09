@@ -339,6 +339,63 @@ describe('DeliveryEventRepository', () => {
     })
   })
 
+  describe('Removal & Reassignment queries (Spec 0035, AC-18, AC-23)', () => {
+    describe('hasSuccessfulReassignedWithMessage (AC-23)', () => {
+      test('queries findFirst with transitionSuccessful true and the exact message', async () => {
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue({ id: 'evt-reassign-1' })
+
+        const result = await repository.hasSuccessfulReassignedWithMessage('del-1', 'Reassigned to rider 2')
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            deliveryId: 'del-1',
+            type: EnumDeliveryEventType.REASSIGNED,
+            transitionSuccessful: true,
+            message: 'Reassigned to rider 2',
+          },
+          select: { id: true },
+        })
+        expect(result).toBe(true)
+      })
+
+      test('returns false when no matching row is found', async () => {
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue(null)
+
+        const result = await repository.hasSuccessfulReassignedWithMessage('del-1', 'Different message')
+
+        expect(result).toBe(false)
+      })
+    })
+
+    describe('hasSuccessfulRemovalApprovedSince (AC-18)', () => {
+      test('queries findFirst with transitionSuccessful true and createdAt gte since', async () => {
+        const since = new Date('2026-11-09T10:00:00.000Z')
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue({ id: 'evt-approved-1' })
+
+        const result = await repository.hasSuccessfulRemovalApprovedSince('del-1', since)
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            deliveryId: 'del-1',
+            type: EnumDeliveryEventType.REMOVAL_APPROVED,
+            transitionSuccessful: true,
+            createdAt: { gte: since },
+          },
+          select: { id: true },
+        })
+        expect(result).toBe(true)
+      })
+
+      test('returns false when no matching row is found', async () => {
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue(null)
+
+        const result = await repository.hasSuccessfulRemovalApprovedSince('del-1', new Date())
+
+        expect(result).toBe(false)
+      })
+    })
+  })
+
   describe('Migration 20261031200000_add_delivery_event_occurred_at (Spec 0009, AC-4, AC-9)', () => {
     test('backfills occurredAt from createdAt and creates index on (newStatus, occurredAt)', () => {
       const migrationFilePath = path.resolve(

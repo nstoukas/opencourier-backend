@@ -504,6 +504,33 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(mockRemovalRequestRepository.markSettled).not.toHaveBeenCalled()
     })
 
+    test('settleCancellation after pickup with paid reason: createCancellationAwardOnce rejecting leaves settledAt null (markSettled NOT called)', async () => {
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.CANCELED,
+        cancelledAt: new Date(),
+        cancelledFromStatus: EnumDeliveryStatus.PICKED_UP,
+        courierId,
+      })
+      mockDeliveryRepository.findById.mockResolvedValue(delivery)
+      const approvedRequest = makeRequest({
+        paidToRider: true,
+        payAmount: 400,
+        payPolicy: 'FULL_COMPENSATION',
+        afterPickup: true,
+        settledAt: null,
+      })
+      mockRemovalRequestRepository.findApprovedAfterPickup.mockResolvedValue(approvedRequest)
+      mockCourierCompensationRepository.findCancellationAward.mockResolvedValue(null)
+      mockCourierCompensationRepository.createCancellationAwardOnce.mockRejectedValue(
+        new Error('Failed writing cancellation award')
+      )
+
+      await service.settleCancellation(deliveryId)
+
+      // Award failed, so markSettled is NOT called; settledAt stays null for the sweep
+      expect(mockRemovalRequestRepository.markSettled).not.toHaveBeenCalled()
+    })
+
     test('pin repository query: findApprovedAfterPickup filters by status APPROVED, afterPickup true and courierId', async () => {
       const mockPrisma = {
         deliveryRemovalRequest: {
@@ -710,6 +737,25 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL })
       )
+    })
+
+    test('settleRemoval: a settled request (settledAt already set) never pays again (no createRemovalPayOnce, no createRemovalChargeOnce, no event)', async () => {
+      const settledRequest = makeRequest({
+        status: EnumRemovalRequestStatus.APPROVED,
+        paidToRider: true,
+        chargedToRestaurant: true,
+        payAmount: 350,
+        payPolicy: 'FULL_COMPENSATION',
+        afterPickup: false,
+        settledAt: new Date('2026-11-09T10:15:00.000Z'),
+      })
+      mockRemovalRequestRepository.findById.mockResolvedValue(settledRequest)
+
+      await service.settleRemoval(requestId)
+
+      expect(mockCourierCompensationRepository.createRemovalPayOnce).not.toHaveBeenCalled()
+      expect(mockPartnerChargeRepository.createRemovalChargeOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
     })
   })
 
@@ -1071,6 +1117,34 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(updateCall[2].waitPayOwedAt).toBeUndefined()
     })
 
+    test('removeRiderBeforePickup from COURIER_ARRIVED_AT_PICKUP_LOCATION with wait owed runs settleWaitPay inline, from DISPATCHED it does not', async () => {
+      const settleWaitPaySpy = jest.spyOn(service, 'settleWaitPay').mockResolvedValue()
+
+      // 1. From COURIER_ARRIVED_AT_PICKUP_LOCATION with wait owed
+      const arrivedDelivery = makeDelivery({
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+        foodReadyAt: null,
+      })
+      await service.removeRiderBeforePickup(arrivedDelivery, courierId, 'Restaurant closed')
+
+      expect(settleWaitPaySpy).toHaveBeenCalledTimes(1)
+      expect(settleWaitPaySpy).toHaveBeenCalledWith(deliveryId)
+
+      settleWaitPaySpy.mockClear()
+
+      // 2. From DISPATCHED (no wait owed)
+      const dispatchedDelivery = makeDelivery({
+        status: EnumDeliveryStatus.DISPATCHED,
+        arrivedAtPickupAt: arrivedAt,
+        promisedReadyAt,
+      })
+      await service.removeRiderBeforePickup(dispatchedDelivery, courierId, 'Moped breakdown')
+
+      expect(settleWaitPaySpy).not.toHaveBeenCalled()
+    })
+
     test('admin reassign (REASSIGNED): stamps waitPayOwedAt when leaving COURIER_ARRIVED_AT_PICKUP_LOCATION', async () => {
       const delivery = makeDelivery({
         status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
@@ -1267,6 +1341,50 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
           courierId: 'removed-rider-1',
         })
       )
+    })
+
+    test('a REASSIGNED event given to processDeliveryEvent with no droppedCourierId saves row courierId as current rider before the move (dropped rider), not new rider or undefined', async () => {
+      const currentRider = 'dropped-rider-original'
+      const newRider = 'new-courier-rider'
+      const delivery = makeDelivery({
+        id: deliveryId,
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId: currentRider,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
+      mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mockResolvedValue({
+        deliveryId,
+        totalCost: 600,
+        totalCompensation: 500,
+        fee: 100,
+        feePercentage: 20,
+      })
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+      const reassignEvent = {
+        deliveryId,
+        type: EnumDeliveryEventType.REASSIGNED,
+        actor: EnumEventActor.ADMIN,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId: newRider,
+      }
+
+      await service.processDeliveryEvent(reassignEvent)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.REASSIGNED,
+          courierId: currentRider,
+        })
+      )
+
+      const reassignCall = mockDeliveryEventRepository.create.mock.calls.find(
+        (c) => c[0]?.type === EnumDeliveryEventType.REASSIGNED
+      )
+      expect(reassignCall).toBeDefined()
+      expect(reassignCall![0].courierId).toBe(currentRider)
+      expect(reassignCall![0].courierId).not.toBe(newRider)
+      expect(reassignCall![0].courierId).not.toBeUndefined()
     })
   })
 
