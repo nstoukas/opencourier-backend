@@ -6,6 +6,9 @@ import {
   EnumUndeliverableAction,
 } from '@prisma/types'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
+import { ProductReportDomainService, ProductReportInput } from 'src/domains/product-report/product-report.domain.service'
+import { EnumProductReportSource } from '@prisma/types'
+import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 import { DeliveryNotFoundException } from 'src/errors'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
@@ -36,7 +39,8 @@ export class DeliveryRestApiCourierService {
     private deliveryDomainService: DeliveryDomainService,
     private locationNoteDomainService: LocationNoteDomainService,
     private locationNoteReactionDomainService: LocationNoteReactionDomainService,
-    private deliveryIssueDomainService: DeliveryIssueDomainService
+    private deliveryIssueDomainService: DeliveryIssueDomainService,
+    private productReportDomainService: ProductReportDomainService
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -180,6 +184,22 @@ export class DeliveryRestApiCourierService {
       throw new DeliveryNotFoundException('Delivery not found')
     }
     return this.deliveryIssueDomainService.report({ deliveryId, courierId, reason: input.reason, note: input.note })
+  }
+
+  // Spec 0032, AC-2: only on this rider's own delivery, at the customer or just after.
+  async reportProduct(deliveryId: string, courier: CourierEntity, input: ProductReportInput) {
+    const delivery = await this.deliveryDomainService.getById(deliveryId, { courierId: courier.id })
+    if (!delivery) {
+      throw new DeliveryNotFoundException('Delivery not found')
+    }
+    this.productReportDomainService.refuseUnlessCourierMayReport(delivery.status)
+    return this.productReportDomainService.report(
+      delivery,
+      EnumProductReportSource.COURIER,
+      courier.userId,
+      input,
+      courier.id
+    )
   }
 
   // Spec 0015 (decision 32.14): a rider cannot cancel a job. Cancelling now pays the rider and can

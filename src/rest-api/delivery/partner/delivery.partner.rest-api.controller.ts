@@ -5,6 +5,7 @@ import * as errors from 'src/errors'
 import { EnumUserRole } from '@prisma/types'
 import { Roles } from 'src/decorators/roles.decorator'
 import { PARTNER_API_V1_PREFIX } from 'src/constants'
+import { ProductReportCreatePartnerInput } from './queries/product-report-create.partner.input'
 import { DeliveryCreatePartnerInput } from './queries/delivery-create.partner.input'
 import { DeliveryPartnerRestApiService } from './delivery.partner.rest-api.service'
 import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
@@ -182,6 +183,22 @@ export class DeliveryPartnerRestApiController {
   ): Promise<DeliveryPartnerDto> {
     const result = await this.deliveryPartnerRestApiService.markFoodReady(deliveryId, partner.id)
     return new DeliveryPartnerDto(result)
+  }
+
+  // Spec 0032, AC-3.
+  @common.Post(':deliveryId/product-reports')
+  @swagger.ApiBody({ type: ProductReportCreatePartnerInput })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Report a wrong or missing product' })
+  @ApiKeyAuth()
+  @Roles(EnumUserRole.PARTNER)
+  async reportProduct(
+    @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: ProductReportCreatePartnerInput,
+    @CurrentUserPartner() partner: PartnerEntity
+  ): Promise<{ id: string }> {
+    const report = await this.deliveryPartnerRestApiService.reportProduct(deliveryId, partner, input)
+    return { id: report.id }
   }
 
   @common.Post('test/:deliveryId/assign-courier')

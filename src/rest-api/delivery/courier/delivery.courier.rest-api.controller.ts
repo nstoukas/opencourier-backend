@@ -16,6 +16,7 @@ import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.servi
 import { ReportDeliveryIssueCourierInput } from './queries/report-delivery-issue.courier.input'
 import { MarkDeliveryAsDeliveredCourierInput } from './queries/mark-delivery-as-delivered.courier.input'
 import { DeliveryIssueCreateCourierInput } from './queries/delivery-issue-create.courier.input'
+import { ProductReportCreateCourierInput } from './queries/product-report-create.courier.input'
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
 import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
 import { ArrivedCourierInput } from './queries/arrived.courier.input'
@@ -172,6 +173,21 @@ export class DeliveryCourierRestApiController {
     // touched, unlike the older report-issue route above.
     const issue = await this.deliveryRestApiCourierService.reportIssue(deliveryId, courier.id, input)
     return new DeliveryIssueCourierDto(issue)
+  }
+
+  // Spec 0032, AC-2: a rider's report of a wrong or missing product, at the customer.
+  @common.Post(':deliveryId/product-reports')
+  @swagger.ApiBody({ type: ProductReportCreateCourierInput })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Report a wrong or missing product' })
+  @Roles(EnumUserRole.COURIER)
+  async reportProduct(
+    @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: ProductReportCreateCourierInput,
+    @CurrentUserCourier() courier: CourierEntity
+  ): Promise<{ id: string }> {
+    const report = await this.deliveryRestApiCourierService.reportProduct(deliveryId, courier, input)
+    return { id: report.id }
   }
 
   @common.Post(':deliveryId/accept')

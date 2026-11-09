@@ -126,6 +126,15 @@ export interface DeliveryPickedUpEvent extends BaseDeliveryEvent {
 export interface DeliveryCourierArrivedAtDropOffLocationEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ARRIVED_AT_DROPOFF_LOCATION
 }
+// Spec 0032: a wrong or missing product, and its resolution. Recorded without a status change;
+// `courierId` only when a rider filed it.
+export interface DeliveryProductReportedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.PRODUCT_REPORTED
+  courierId?: string
+}
+export interface DeliveryProductReportResolvedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.PRODUCT_REPORT_RESOLVED
+}
 export interface DeliveryOnTheWayEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ON_THE_WAY
 }
@@ -164,6 +173,8 @@ export type DeliveryEvent =
   | DeliveryFoodNotReturnedEvent
   | DeliveryDropoffPointCorrectedEvent
   | DeliveryReadyDelayedEvent
+  | DeliveryProductReportedEvent
+  | DeliveryProductReportResolvedEvent
   | DeliveryFoodReadyEvent
 
 export interface ResolvedPendingKeyRotation {

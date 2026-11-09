@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ProductReportDomainModule } from 'src/domains/product-report/product-report.domain.module'
 import { DeliveryDomainModule } from '../../../domains/delivery/delivery.domain.module'
 import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.controller'
 import { LocationNoteDomainModule } from 'src/domains/location-note/location-note.domain.module'
@@ -19,8 +20,7 @@ import { HandBackCourierRestApiController } from './hand-back.courier.rest-api.c
 @Module({
   providers: [DeliveryRestApiCourierService, CancelledJobsCourierService, DropoffPointCourierService, DeliveryRouteCourierService, HandBackCourierService],
   exports: [DeliveryRestApiCourierService],
-  imports: [
-    DeliveryDomainModule,
+  imports: [ProductReportDomainModule, DeliveryDomainModule,
     LocationNoteDomainModule,
     LocationNoteReactionDomainModule,
     DeliveryIssueDomainModule,

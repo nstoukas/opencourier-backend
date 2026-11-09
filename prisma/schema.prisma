@@ -407,6 +407,7 @@ model Delivery {
 
   payment              Payment[]
   deliveryEvent        DeliveryEvent[]
+  productReports       ProductReport[]
   locationNote         LocationNote[]
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
@@ -663,6 +664,9 @@ enum EnumDeliveryEventType {
   // STATE_MACHINE (the status does not change).
   READY_DELAYED
   FOOD_READY
+  // A wrong or missing product reported, and resolved (spec 0032). No status change.
+  PRODUCT_REPORTED
+  PRODUCT_REPORT_RESOLVED
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -687,6 +691,37 @@ model DeliveryIssue {
   createdAt  DateTime                @default(now())
 
   // The admin reads a delivery's reports in time order.
+  @@index([deliveryId, createdAt])
+}
+
+// A wrong or missing product (spec 0032). Beside DeliveryIssue, which needs a rider and has no
+// resolution. A report changes no pay and no status.
+enum EnumProductReportKind {
+  WRONG_ITEM
+  MISSING_ITEM
+}
+
+enum EnumProductReportSource {
+  COURIER
+  PARTNER
+  ADMIN
+}
+
+model ProductReport {
+  id               String                  @id @default(cuid())
+  deliveryId       String
+  delivery         Delivery                @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  kind             EnumProductReportKind
+  source           EnumProductReportSource
+  reporterUserId   String
+  itemName         String?                 @postgres.VarChar(120)
+  note             String?                 @postgres.VarChar(500)
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolution       String?                 @postgres.VarChar(500)
+  createdAt        DateTime                @default(now())
+
+  @@index([resolvedAt, createdAt])
   @@index([deliveryId, createdAt])
 }
 

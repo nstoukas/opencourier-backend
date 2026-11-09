@@ -1,6 +1,9 @@
-import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { ConflictException, ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { ProductReportDomainService, ProductReportInput } from 'src/domains/product-report/product-report.domain.service'
+import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
 import {
+  EnumProductReportSource,
   EnumCancelledBy,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
@@ -49,7 +52,8 @@ export class DeliveryPartnerRestApiService {
     private quoteToDeliveryConversionService: QuoteToDeliveryConversionService,
     private dispatchStopRepository: DispatchStopRepository,
     private configDomainService: ConfigDomainService,
-    private deliveryEventService: DeliveryEventService
+    private deliveryEventService: DeliveryEventService,
+    private productReportDomainService: ProductReportDomainService
   ) {}
 
   // Spec 0017: the restaurant's deliveries within the co-op's period, or still open, and the period
@@ -339,6 +343,18 @@ export class DeliveryPartnerRestApiService {
     }
 
     return updatedDelivery
+  }
+
+  // Spec 0032, AC-3: the restaurant's report, once the order is delivered.
+  async reportProduct(deliveryId: string, partner: PartnerEntity, input: ProductReportInput) {
+    const delivery = await this.deliveryDomainService.getById(deliveryId)
+    await this.assertVisibleToPartner(delivery, partner.id)
+    if (!delivery) {
+      throw new DeliveryNotFoundException('Delivery not found')
+    }
+    this.productReportDomainService.refuseUnlessPartnerMayReport(delivery.status)
+    if (!partner.userId) throw new ForbiddenException('This restaurant has no sign in.')
+    return this.productReportDomainService.report(delivery, EnumProductReportSource.PARTNER, partner.userId, input)
   }
 
   // `?? RESTAURANT`, not a default parameter: a default applies to undefined only, never to null.

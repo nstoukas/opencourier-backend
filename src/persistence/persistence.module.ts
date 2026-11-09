@@ -14,6 +14,7 @@ import { CourierCompensationRepository } from './repositories/courier-compensati
 import { CourierDeviceRepository } from './repositories/courier-device.repository'
 import { DispatchStopRepository } from './repositories/dispatch-stop.repository'
 import { PartnerAvailabilityChangeRepository } from './repositories/partner-availability-change.repository'
+import { ProductReportRepository } from './repositories/product-report.repository'
 import { ShiftSlotRepository } from './repositories/shift-slot.repository'
 import { ShiftBookingRepository } from './repositories/shift-booking.repository'
 import { SosIncidentRepository } from './repositories/sos-incident.repository'
@@ -39,6 +40,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     CourierDeviceRepository,
     DispatchStopRepository,
     PartnerAvailabilityChangeRepository,
+    ProductReportRepository,
     ShiftSlotRepository,
     ShiftBookingRepository,
     PartnerChargeRepository,
@@ -62,6 +64,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     CourierDeviceRepository,
     DispatchStopRepository,
     PartnerAvailabilityChangeRepository,
+    ProductReportRepository,
     ShiftSlotRepository,
     ShiftBookingRepository,
     PartnerChargeRepository,

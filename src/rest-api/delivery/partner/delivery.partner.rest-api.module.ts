@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ProductReportDomainModule } from 'src/domains/product-report/product-report.domain.module'
 import { DeliveryQuoteDomainModule } from 'src/domains/delivery-quote/delivery-quote.domain.module'
 import { DeliveryDomainModule } from 'src/domains/delivery/delivery.domain.module'
 import { DeliveryPartnerRestApiService } from './delivery.partner.rest-api.service'
@@ -12,8 +13,7 @@ import { QuoteToDeliveryConversionModule } from 'src/services/quote-to-delivery-
 @Module({
   providers: [DeliveryPartnerRestApiService],
   exports: [DeliveryPartnerRestApiService],
-  imports: [
-    DeliveryDomainModule,
+  imports: [ProductReportDomainModule, DeliveryDomainModule,
     DeliveryQuoteDomainModule,
     PartnerDomainModule,
     LocationDomainModule,

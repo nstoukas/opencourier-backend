@@ -12,6 +12,12 @@ import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.ar
 import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
 import { DeliveryEventAdminDto } from './dtos/delivery-event.admin.dto'
 import { DeliveryIssueAdminDto } from './dtos/delivery-issue.admin.dto'
+import { ProductReportDomainService } from 'src/domains/product-report/product-report.domain.service'
+import { ProductReportAdminDto } from 'src/rest-api/product-report/admin/product-report.admin.dto'
+import { ProductReportCreateAdminInput } from './queries/product-report-create.admin.input'
+import { EnumProductReportSource } from '@prisma/types'
+import { CurrentUser } from 'src/decorators/currentUser.decorator'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
 import { DeliverySubmitEventAdminInput } from './queries/delivery-submit-event.admin.input'
 import { DeliveryReassignAdminInput } from './queries/delivery-reassign.admin.input'
@@ -24,7 +30,8 @@ export class DeliveryAdminRestApiController {
   constructor(
     private readonly deliveryDomainService: DeliveryDomainService,
     private readonly deliveryEventDomainService: DeliveryEventDomainService,
-    private readonly deliveryIssueDomainService: DeliveryIssueDomainService
+    private readonly deliveryIssueDomainService: DeliveryIssueDomainService,
+    private readonly productReportDomainService: ProductReportDomainService
   ) {}
 
   @common.Get('')
@@ -107,6 +114,33 @@ export class DeliveryAdminRestApiController {
     }
     const issues = await this.deliveryIssueDomainService.listForDelivery(deliveryId)
     return issues.map((issue) => new DeliveryIssueAdminDto(issue))
+  }
+
+  // Spec 0032, AC-4 and AC-6: an admin takes the call, so any status is allowed.
+  @common.Get(':deliveryId/product-reports')
+  @swagger.ApiOkResponse({ type: [ProductReportAdminDto] })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: "A delivery's product reports" })
+  @Roles(EnumUserRole.ADMIN)
+  async getProductReports(@common.Param('deliveryId') deliveryId: string): Promise<ProductReportAdminDto[]> {
+    await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+    const reports = await this.productReportDomainService.listForDelivery(deliveryId)
+    return reports.map((report) => new ProductReportAdminDto(report))
+  }
+
+  @common.Post(':deliveryId/product-reports')
+  @swagger.ApiCreatedResponse({ type: ProductReportAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Report a wrong or missing product' })
+  @Roles(EnumUserRole.ADMIN)
+  async reportProduct(
+    @common.Param('deliveryId') deliveryId: string,
+    @common.Body() input: ProductReportCreateAdminInput,
+    @CurrentUser() user: UserEntity
+  ): Promise<ProductReportAdminDto> {
+    const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+    const report = await this.productReportDomainService.report(delivery, EnumProductReportSource.ADMIN, user.id, input)
+    return new ProductReportAdminDto({ ...report, reporterEmail: user.email ?? null })
   }
 
   @common.Post(':id/submit-event')

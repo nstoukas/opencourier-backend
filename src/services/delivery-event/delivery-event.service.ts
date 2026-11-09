@@ -1,4 +1,9 @@
-import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
+import type {
+  DeliveryFoodReadyEvent,
+  DeliveryProductReportedEvent,
+  DeliveryProductReportResolvedEvent,
+  DeliveryReadyDelayedEvent,
+} from 'src/shared-types/delivery-events'
 import type { JobReadyUpdatedMessage } from 'src/shared-types/notification'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
@@ -1550,6 +1555,14 @@ export class DeliveryEventService {
 
   // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
   // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
+  // Spec 0032: a product report and its resolution, with no status change.
+  async recordProductReportEvent(
+    event: DeliveryProductReportedEvent | DeliveryProductReportResolvedEvent,
+    status: EnumDeliveryStatus
+  ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
   async recordReadyEvent(
     event: DeliveryReadyDelayedEvent | DeliveryFoodReadyEvent,
     status: EnumDeliveryStatus
@@ -1787,7 +1800,8 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.FOOD_RETURNED ||
       deliveryEvent.type === EnumDeliveryEventType.FOOD_NOT_RETURNED ||
       deliveryEvent.type === EnumDeliveryEventType.DROPOFF_POINT_CORRECTED ||
-      deliveryEvent.type === EnumDeliveryEventType.HANDED_BACK
+      deliveryEvent.type === EnumDeliveryEventType.HANDED_BACK ||
+      deliveryEvent.type === EnumDeliveryEventType.PRODUCT_REPORTED
         ? deliveryEvent.courierId
         : undefined
 
