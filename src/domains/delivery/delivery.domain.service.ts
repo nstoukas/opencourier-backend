@@ -144,7 +144,12 @@ export class DeliveryDomainService {
     const now = new Date()
     const partner = input.partnerId ? await this.partnerRepository.findById(input.partnerId) : null
     const pickupReadyAt = input.pickupReadyAt ? new Date(input.pickupReadyAt) : null
-    const readyAt = initialReadyAt(pickupReadyAt, partner?.usualPrepMinutes ?? DEFAULT_USUAL_PREP_MINUTES, now)
+    // Spec 0029, AC-2: busy mode adds its minutes to every new order, picked time or usual one.
+    const busyExtraMinutes = partner?.busyExtraMinutes ?? 0
+    const readyAt = new Date(
+      initialReadyAt(pickupReadyAt, partner?.usualPrepMinutes ?? DEFAULT_USUAL_PREP_MINUTES, now).getTime() +
+        busyExtraMinutes * 60_000
+    )
     const delivery = await this.deliveryRepository.create({ ...input, readyAt })
 
     await this.deliveryEventService.processDeliveryEvent({
@@ -152,7 +157,7 @@ export class DeliveryDomainService {
       type: EnumDeliveryEventType.CREATED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Delivery was created delivery ${delivery.id} from partner ${input.partnerId}, ready at ${clock(readyAt)}`,
+      message: `Delivery was created delivery ${delivery.id} from partner ${input.partnerId}, ready at ${clock(readyAt)}${busyExtraMinutes > 0 ? `, busy mode +${busyExtraMinutes} min` : ''}`,
     })
 
     return delivery

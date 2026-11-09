@@ -165,6 +165,13 @@ model Partner {
   // How long this restaurant usually takes to prepare an order, in whole minutes (0 to 90). A new
   // order's ready time starts from it when the restaurant gives none (spec 0023). Set in admin.
   usualPrepMinutes Int @default(15)
+  // Spec 0029. Busy mode: minutes added to every new order's ready time; null is off.
+  busyExtraMinutes Int?
+  // Ordering paused until this moment; in force only while it is later than now.
+  pausedUntil DateTime?
+  // An admin disabled this restaurant, with this reason.
+  disabledAt     DateTime?
+  disabledReason String?   @postgres.VarChar(200)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -173,12 +180,39 @@ model Partner {
   deliveryQuotes DeliveryQuote[]
   savedCustomers SavedCustomer[]
   charges        PartnerCharge[]
+  availabilityChanges PartnerAvailabilityChange[]
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   pickupLocationId String?
   pickupLocation   Location? @relation(name: "partnerPickupLocation", fields: [pickupLocationId], references: [id], onDelete: SetNull)
+}
+
+enum EnumPartnerAvailabilityAction {
+  BUSY_ON
+  BUSY_OFF
+  PAUSED
+  RESUMED
+  DISABLED
+  ENABLED
+}
+
+// Spec 0029: who changed a restaurant's availability and when. Written in the transaction of the
+// change itself; not a DeliveryEvent, since a restaurant's availability is not one delivery.
+model PartnerAvailabilityChange {
+  id          String                        @id @default(cuid())
+  partnerId   String
+  partner     Partner                       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  action      EnumPartnerAvailabilityAction
+  actorRole   EnumUserRole
+  actorUserId String
+  extraMinutes Int?
+  pausedUntil  DateTime?
+  reason       String?                      @postgres.VarChar(200)
+  createdAt    DateTime                     @default(now())
+
+  @@index([partnerId, createdAt])
 }
 
 // A restaurant's regular customer, kept so the next order takes a few taps (spec 0005). Personal

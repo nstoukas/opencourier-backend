@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
+import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
 import { NotFoundException } from 'src/errors'
 import { CourierMatcherService } from 'src/services/courier-matcher/courier-matcher.service'
 import { DeliverQuoteCreatePartnerInput } from './queries/delivery-quote-create.partner.input'
@@ -12,6 +13,7 @@ import { GeoPosition } from 'src/shared-types'
 import { isPositionInRegion } from 'src/utils/geoJsonUtils'
 
 export enum DeliveryQuoteCreationFailureReason {
+  PARTNER_NOT_ACCEPTING = 'PARTNER_NOT_ACCEPTING',
   NO_AVAILABLE_COURIERS = 'NO_AVAILABLE_COURIERS',
   OUTSIDE_SERVICE_AREA = 'OUTSIDE_SERVICE_AREA',
   // Dispatch is stopped for heat or a storm (spec 0014); failureMessage says until when.
@@ -44,8 +46,24 @@ export class DeliveryQuotePartnerRestApiService {
   }
 
   async create(partnerId: string, input: DeliverQuoteCreatePartnerInput): Promise<DeliveryQuoteCreationResult> {
-    // Spec 0014, AC-6: no delivery is ordered while dispatch is stopped; the restaurant is told until when.
+    const partner = await this.partnerDomainService.getById(partnerId)
+
+    if (!partner) {
+      throw new NotFoundException('Partner not found')
+    }
+
+    // Spec 0029, AC-4: this restaurant's own state comes before the stop below.
     const now = new Date()
+    const refusal = partnerAvailabilityRefusal(partner, now)
+    if (refusal) {
+      return {
+        deliveryQuote: null,
+        failureReason: DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING,
+        failureMessage: refusal,
+      }
+    }
+
+    // Spec 0014, AC-6: no delivery is ordered while dispatch is stopped; the restaurant is told until when.
     const stop = await this.dispatchStopRepository.findOn(now)
     if (stop) {
       return {
@@ -53,12 +71,6 @@ export class DeliveryQuotePartnerRestApiService {
         failureReason: DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED,
         failureMessage: restaurantStoppedMessage(stop, now),
       }
-    }
-
-    const partner = await this.partnerDomainService.getById(partnerId)
-
-    if (!partner) {
-      throw new NotFoundException('Partner not found')
     }
 
     const pickupLocation = await this.locationDomainService.findOrCreate({

@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
+import { availabilityOf } from 'src/domains/partner/partner-availability'
 import { LocationAdminDto } from 'src/rest-api/location/admin/dtos/location.admin.dto'
+import { PartnerAvailabilityAdminDto } from './partner-availability.admin.dto'
 
 export class PartnerAdminDto {
   @ApiProperty({ type: String })
@@ -22,6 +24,10 @@ export class PartnerAdminDto {
   @ApiProperty({ type: Number })
   usualPrepMinutes: number
 
+  // Spec 0029, AC-7.
+  @ApiProperty({ type: PartnerAvailabilityAdminDto })
+  availability: PartnerAvailabilityAdminDto
+
   @ApiProperty({ type: String, nullable: true })
   userId: string | null
 
@@ -37,13 +43,14 @@ export class PartnerAdminDto {
   @ApiProperty({ type: Date })
   updatedAt: Date
 
-  constructor(data: PartnerEntity) {
+  constructor(data: PartnerEntity, now = new Date()) {
     this.id = data.id
     this.name = data.name
     this.phoneNumber = data.phoneNumber
     this.logo = data.logo
     this.webhookUrl = data.webhookUrl
     this.usualPrepMinutes = data.usualPrepMinutes
+    this.availability = new PartnerAvailabilityAdminDto(availabilityOf(data, now))
     this.userId = data.userId
     this.email = data.userEmail ?? null
     this.pickupAddress = data.pickupLocation ? new LocationAdminDto(data.pickupLocation) : null

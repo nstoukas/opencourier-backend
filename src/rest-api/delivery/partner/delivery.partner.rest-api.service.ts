@@ -1,4 +1,5 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
 import {
   EnumCancelledBy,
   EnumDeliveryEventSource,
@@ -110,9 +111,13 @@ export class DeliveryPartnerRestApiService {
       throw new NotFoundException('Partner not found')
     }
 
+    // Spec 0029, AC-4: a paused or disabled restaurant places no order, whatever the dispatch stop says.
+    const now = new Date()
+    const refusal = partnerAvailabilityRefusal(partner, now)
+    if (refusal) throw new ConflictException(refusal)
+
     // Spec 0014, AC-6: refused before anything is created, so a quote taken before a stop cannot
     // place an order during it.
-    const now = new Date()
     const stop = await this.dispatchStopRepository.findOn(now)
     if (stop) {
       throw new ServiceUnavailableException(restaurantStoppedMessage(stop, now))

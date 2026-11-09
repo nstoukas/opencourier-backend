@@ -13,7 +13,7 @@ import {
 import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
-import { ServiceUnavailableException } from '@nestjs/common'
+import { ConflictException, ServiceUnavailableException } from '@nestjs/common'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('delivery-quotes')
@@ -60,6 +60,10 @@ export class DeliveryQuotePartnerRestApiController {
     const creationResult = await this.deliveryQuoteRestApiPartnerService.create(partner.id, data)
 
     if (!creationResult.deliveryQuote) {
+      if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING) {
+        // Spec 0029: this restaurant's state, not the service being down, so 409 and not 503 (decision 34.8).
+        throw new ConflictException(creationResult.failureMessage ?? 'This restaurant cannot place orders right now.')
+      }
       if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED) {
         throw new ServiceUnavailableException(creationResult.failureMessage ?? 'Delivery is stopped.')
       }

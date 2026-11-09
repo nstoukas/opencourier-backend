@@ -6,8 +6,11 @@ import { Roles } from 'src/decorators/roles.decorator'
 import { CurrentUser } from 'src/decorators/currentUser.decorator'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
+import { AvailabilityActor, PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
 import * as errors from 'src/errors'
 import { PartnerAdminDto } from './dtos/partner.admin.dto'
+import { PartnerAvailabilityChangeAdminDto } from './dtos/partner-availability.admin.dto'
+import { PartnerDisableAdminInput } from './queries/partner-disable.admin.input'
 import { PartnerPaginatedAdminDto } from './dtos/partner.admin.paginated.dto'
 import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
 import { PartnerCreateAdminInput } from './queries/partner-create.admin.input'
@@ -22,6 +25,7 @@ export class PartnerAdminRestApiController {
   constructor(
     private readonly partnerDomainService: PartnerDomainService,
     private readonly partnerAdminRestApiService: PartnerAdminRestApiService,
+    private readonly partnerAvailabilityDomainService: PartnerAvailabilityDomainService,
   ) {}
 
   @common.Get('')
@@ -86,5 +90,52 @@ export class PartnerAdminRestApiController {
     @CurrentUser() admin: UserEntity,
   ): Promise<void> {
     await this.partnerAdminRestApiService.rotatePassword(id, body.password, admin.id)
+  }
+
+  // Spec 0029, AC-5: an admin disables a restaurant, with a reason.
+  @common.Post(':id/disable')
+  @common.HttpCode(200)
+  @swagger.ApiBody({ type: PartnerDisableAdminInput })
+  @swagger.ApiResponse({ type: PartnerAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Disable a restaurant' })
+  @Roles(EnumUserRole.ADMIN)
+  async disablePartner(
+    @common.Param('id') id: string,
+    @common.Body() input: PartnerDisableAdminInput,
+    @CurrentUser() user: UserEntity
+  ): Promise<PartnerAdminDto> {
+    const now = new Date()
+    const partner = await this.partnerDomainService.getByIdOrThrow(id)
+    const updated = await this.partnerAvailabilityDomainService.disable(partner, this.actorOf(user), input.reason, now)
+    return new PartnerAdminDto(updated, now)
+  }
+
+  @common.Post(':id/enable')
+  @common.HttpCode(200)
+  @swagger.ApiResponse({ type: PartnerAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Enable a restaurant again' })
+  @Roles(EnumUserRole.ADMIN)
+  async enablePartner(@common.Param('id') id: string, @CurrentUser() user: UserEntity): Promise<PartnerAdminDto> {
+    const partner = await this.partnerDomainService.getByIdOrThrow(id)
+    const updated = await this.partnerAvailabilityDomainService.enable(partner, this.actorOf(user))
+    return new PartnerAdminDto(updated)
+  }
+
+  // Spec 0029, AC-9: the restaurant's last availability changes, newest first.
+  @common.Get(':id/availability-changes')
+  @swagger.ApiResponse({ type: [PartnerAvailabilityChangeAdminDto] })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: "List a restaurant's availability changes" })
+  @Roles(EnumUserRole.ADMIN)
+  async getAvailabilityChanges(@common.Param('id') id: string): Promise<PartnerAvailabilityChangeAdminDto[]> {
+    await this.partnerDomainService.getByIdOrThrow(id)
+    const changes = await this.partnerAvailabilityDomainService.getChanges(id)
+    return changes.map((change) => new PartnerAvailabilityChangeAdminDto(change))
+  }
+
+  private actorOf(user: UserEntity): AvailabilityActor {
+    return { role: EnumUserRole.ADMIN, userId: user.id }
   }
 }

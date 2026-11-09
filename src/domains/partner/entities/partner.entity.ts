@@ -10,6 +10,12 @@ export class PartnerEntity implements Partner {
   // Whole minutes this restaurant usually needs to prepare an order (spec 0023).
   usualPrepMinutes: number
 
+  // Spec 0029: busy mode, a pause and an admin's disable.
+  busyExtraMinutes: number | null
+  pausedUntil: Date | null
+  disabledAt: Date | null
+  disabledReason: string | null
+
   userId: string | null
   pickupLocationId: string | null
 
@@ -33,6 +39,10 @@ export class PartnerEntity implements Partner {
     this.phoneNumber = data.phoneNumber
     this.webhookUrl = data.webhookUrl
     this.usualPrepMinutes = data.usualPrepMinutes
+    this.busyExtraMinutes = data.busyExtraMinutes
+    this.pausedUntil = data.pausedUntil
+    this.disabledAt = data.disabledAt
+    this.disabledReason = data.disabledReason
 
     this.userId = data.userId
     this.pickupLocationId = data.pickupLocationId
