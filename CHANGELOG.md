@@ -9,6 +9,8 @@ Everything below sits on top of upstream `main` on the branch `chore/aiflow-pipe
 (192 commits, 25 July to 2 November 2026). Each entry names its commit, and the commit
 message has the full reasoning and verification notes.
 
+Scope row 102 (a partner edit moves only its own drop off point) was built on the branch `fix/partner-edit-own-dropoff` and merged in on 9 November. A partner's `POST deliveries/:id` used to rewrite the shared `Location` row, moving every other delivery and quote on it; a moved point now gets a row of its own. After agy's cross family review, the drift limit is measured from the quote's point rather than the last edit, so many small moves cannot walk the door away from what the rider is paid for, and a restaurant's move is recorded as a `DROPOFF_POINT_CORRECTED` event (actor `PARTNER`). With it the suite is at **3008 passing tests**; typecheck is clean and lint is unchanged.
+
 Scope row 49 (zero is a valid value for every co-op setting) was built on the branch
 `fix/zero-valid-settings` and merged into this one on 30 September. With it the suite is at
 **292 passing tests**; typecheck is clean and lint is unchanged.

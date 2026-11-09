@@ -97,7 +97,8 @@ describe('DeliveryCancelPartnerInput and partner cancel (Spec 0015 AC-5)', () =>
         {} as any,
         {} as any,
         // Spec 0017: the history period (30 days), added by hand so the suite compiles.
-        { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any
+        { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any,
+        {} as any
       )
     })
 

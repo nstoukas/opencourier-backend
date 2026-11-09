@@ -1,7 +1,15 @@
-import { DeliveryNotFoundException } from 'src/errors'
-import { EnumCancelledBy, EnumDeliveryStatus } from '@prisma/types'
+import { DeliveryLocationDoesntMatchQuoteException, DeliveryNotFoundException, NotFoundException } from 'src/errors'
+import {
+  EnumCancelledBy,
+  EnumDeliveryEventSource,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
+  EnumEventActor,
+} from '@prisma/types'
+import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { DeliveryPartnerRestApiService } from './delivery.partner.rest-api.service'
 import { partnerHistoryCutoff } from './partner-history'
+import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.input'
 
 describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
   let service: DeliveryPartnerRestApiService
@@ -14,12 +22,15 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
   let mockQuoteToDeliveryConversionService: any
   let mockDispatchStopRepository: any
   let mockConfigDomainService: any
+  let mockDeliveryEventService: any
 
   const partnerId = 'partner-nosh'
   const otherPartnerId = 'partner-other'
 
   beforeEach(() => {
-    mockDeliveryQuoteDomainService = {}
+    mockDeliveryQuoteDomainService = {
+      getByIdOrThrow: jest.fn().mockResolvedValue({ id: 'quote-1', dropoffLocationId: 'loc-shared' }),
+    }
     mockDeliveryDomainService = {
       getMany: jest.fn(),
       getById: jest.fn(),
@@ -44,6 +55,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         getRestaurantHistoryDays: jest.fn().mockResolvedValue(30),
       },
     }
+    mockDeliveryEventService = {
+      recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined),
+    }
 
     service = new DeliveryPartnerRestApiService(
       mockDeliveryQuoteDomainService,
@@ -53,7 +67,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       mockCourierDomainService,
       mockQuoteToDeliveryConversionService,
       mockDispatchStopRepository,
-      mockConfigDomainService
+      mockConfigDomainService,
+      mockDeliveryEventService
     )
   })
 
@@ -309,6 +324,470 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.cancelDelivery).toHaveBeenCalledWith(
           'del-own-open-old',
           EnumCancelledBy.RESTAURANT
+        )
+      })
+    })
+  })
+
+  // Row 102: a Location row is shared between deliveries and quotes (`findOrCreate` reuses one for the
+  // same address and point), so a partner edit that moves the drop off must give the edited delivery a
+  // row of its own and never update the shared row in place.
+  describe('update moves only its own drop off point (row 102)', () => {
+    const sharedLocation = {
+      id: 'loc-shared',
+      addressLine1: 'Iasonos 12',
+      addressLine2: '3rd floor',
+      city: 'Volos',
+      state: 'Thessaly',
+      street: 'Iasonos',
+      zipCode: '38221',
+      countryCode: 'GR',
+      stateCode: 'TH',
+      houseNumber: '12',
+      formattedAddress: 'Iasonos 12, Volos 38221, Greece',
+      latitude: 39.3621,
+      longitude: 22.9425,
+    }
+
+    const ownDelivery = () => ({
+      id: 'del-own',
+      partnerId,
+      status: EnumDeliveryStatus.ACCEPTED,
+      createdAt: new Date(),
+      dropoffLocationId: 'loc-shared',
+      deliveryQuoteId: 'quote-1',
+    })
+
+    const pickupReadyAt = new Date('2026-11-03T10:00:00Z')
+    const pickupDeadlineAt = new Date('2026-11-03T10:30:00Z')
+    const dropoffReadyAt = new Date('2026-11-03T10:40:00Z')
+    const dropoffDeadlineAt = new Date('2026-11-03T11:00:00Z')
+
+    const inputAt = (latitude: number, longitude: number) =>
+      ({
+        dropoffLatitude: latitude,
+        dropoffLongitude: longitude,
+        pickupNotes: 'Ring at the back door',
+        pickupVerification: { signature: true },
+        pickupReadyAt,
+        pickupDeadlineAt,
+        dropoffNotes: 'Leave with the concierge',
+        dropoffReadyAt,
+        dropoffDeadlineAt,
+        dropoffVerification: { picture: true },
+        orderReference: 'ORD-102',
+        tipByCustomer: 150,
+      } as unknown as DeliveryUpdatePartnerInput)
+
+    const moved = () => inputAt(39.3625, 22.943)
+
+    // Every field the delivery update carried before row 102, unchanged.
+    const otherUpdateFields = {
+      pickupNotes: 'Ring at the back door',
+      pickupVerification: { signature: true },
+      pickupReadyAt,
+      pickupDeadlineAt,
+      dropoffNotes: 'Leave with the concierge',
+      dropoffReadyAt,
+      dropoffDeadlineAt,
+      dropoffVerification: { picture: true },
+      orderReference: 'ORD-102',
+      tips: 150,
+    }
+
+    beforeEach(() => {
+      mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(ownDelivery())
+      mockDeliveryDomainService.update.mockImplementation((id: string, data: Record<string, unknown>) =>
+        Promise.resolve({ id, ...data })
+      )
+      mockLocationDomainService.getById = jest.fn().mockResolvedValue({ ...sharedLocation })
+      mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new' })
+      mockLocationDomainService.update = jest.fn()
+      mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(true)
+    })
+
+    describe('a moved point', () => {
+      it('never updates the shared Location row in place', async () => {
+        await service.update('del-own', partnerId, moved())
+
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      })
+
+      it('creates one new Location with every address field copied and the new coordinates', async () => {
+        await service.update('del-own', partnerId, moved())
+
+        expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.create).toHaveBeenCalledWith({
+          addressLine1: 'Iasonos 12',
+          addressLine2: '3rd floor',
+          city: 'Volos',
+          state: 'Thessaly',
+          street: 'Iasonos',
+          zipCode: '38221',
+          countryCode: 'GR',
+          stateCode: 'TH',
+          houseNumber: '12',
+          formattedAddress: 'Iasonos 12, Volos 38221, Greece',
+          latitude: 39.3625,
+          longitude: 22.943,
+        })
+      })
+
+      it('points the delivery at the new row in the same update as its other fields', async () => {
+        const result = await service.update('del-own', partnerId, moved())
+
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-own', {
+          dropoffLocationId: 'loc-new',
+          ...otherUpdateFields,
+        })
+        expect(result).toEqual({ id: 'del-own', dropoffLocationId: 'loc-new', ...otherUpdateFields })
+      })
+
+      it('counts only the latitude moving as moved', async () => {
+        await service.update('del-own', partnerId, inputAt(39.3625, sharedLocation.longitude))
+
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.create).toHaveBeenCalledWith(
+          expect.objectContaining({ latitude: 39.3625, longitude: sharedLocation.longitude })
+        )
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+          'del-own',
+          expect.objectContaining({ dropoffLocationId: 'loc-new' })
+        )
+      })
+
+      it('counts only the longitude moving as moved', async () => {
+        await service.update('del-own', partnerId, inputAt(sharedLocation.latitude, 22.943))
+
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.create).toHaveBeenCalledWith(
+          expect.objectContaining({ latitude: sharedLocation.latitude, longitude: 22.943 })
+        )
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+          'del-own',
+          expect.objectContaining({ dropoffLocationId: 'loc-new' })
+        )
+      })
+
+      it('records one DROPOFF_POINT_CORRECTED event with actor PARTNER, source PARTNER_APP, no courierId, delivery status, and metres in message', async () => {
+        await service.update('del-own', partnerId, moved())
+
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledWith(
+          {
+            deliveryId: 'del-own',
+            type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+            actor: EnumEventActor.PARTNER,
+            source: EnumDeliveryEventSource.PARTNER_APP,
+            message: 'Drop off pin moved 62 m by the restaurant, from 39.36210, 22.94250 to 39.36250, 22.94300',
+          },
+          EnumDeliveryStatus.ACCEPTED
+        )
+        const [recordedEvent] = mockDeliveryEventService.recordDropoffPointCorrectedEvent.mock.calls[0]
+        expect(recordedEvent.courierId).toBeUndefined()
+        expect('courierId' in recordedEvent).toBe(false)
+      })
+    })
+
+    describe('an unmoved point', () => {
+      it('creates nothing, updates no Location and keeps the old id', async () => {
+        await service.update('del-own', partnerId, inputAt(sharedLocation.latitude, sharedLocation.longitude))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-own', {
+          dropoffLocationId: 'loc-shared',
+          ...otherUpdateFields,
+        })
+      })
+
+      it('runs no drift check, records no event and creates no Location even when current point is far from the quote', async () => {
+        const currentDeliveryLocation = {
+          ...sharedLocation,
+          id: 'loc-current-far',
+          latitude: 39.375,
+          longitude: 22.955,
+        }
+        const quoteLocation = {
+          ...sharedLocation,
+          id: 'loc-quote',
+          latitude: 39.3621,
+          longitude: 22.9425,
+        }
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          if (id === 'loc-current-far') return Promise.resolve({ ...currentDeliveryLocation })
+          if (id === 'loc-quote') return Promise.resolve({ ...quoteLocation })
+          return Promise.resolve(null)
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
+          ...ownDelivery(),
+          dropoffLocationId: 'loc-current-far',
+          deliveryQuoteId: 'quote-1',
+        })
+        mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'quote-1',
+          dropoffLocationId: 'loc-quote',
+        })
+
+        await service.update('del-own', partnerId, inputAt(39.375, 22.955))
+
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-own', {
+          dropoffLocationId: 'loc-current-far',
+          ...otherUpdateFields,
+        })
+      })
+    })
+
+    describe('checks that still come first', () => {
+      it("refuses a point too far from the quote's drop off point before writing anything", async () => {
+        mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift.mockResolvedValue(false)
+
+        await expect(service.update('del-own', partnerId, inputAt(39.5, 23.2))).rejects.toThrow(
+          "Delivery dropoff location doesn't match quote location"
+        )
+
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenCalledWith({
+          fromLocation: { latitude: sharedLocation.latitude, longitude: sharedLocation.longitude },
+          toLocation: { latitude: 39.5, longitude: 23.2 },
+        })
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+      })
+
+      it("answers NotFoundException when the quote's drop off point is gone, before anything is written", async () => {
+        mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'quote-1',
+          dropoffLocationId: 'loc-quote-deleted',
+        })
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          if (id === 'loc-shared') return Promise.resolve({ ...sharedLocation })
+          if (id === 'loc-quote-deleted') return Promise.resolve(null)
+          return Promise.resolve(null)
+        })
+
+        await expect(service.update('del-own', partnerId, moved())).rejects.toThrow(
+          new NotFoundException('Delivery locations not found')
+        )
+
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+      })
+
+      it("runs the visibility check first: another restaurant's delivery touches no Location", async () => {
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({ ...ownDelivery(), partnerId: otherPartnerId })
+
+        await expect(service.update('del-own', partnerId, inputAt(39.3625, 22.943))).rejects.toThrow(
+          new DeliveryNotFoundException('Delivery not found')
+        )
+
+        expect(mockLocationDomainService.getById).not.toHaveBeenCalled()
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+      })
+
+      it('reads the history period (visibility) before the drop off Location on an own delivery', async () => {
+        await service.update('del-own', partnerId, inputAt(39.3625, 22.943))
+
+        const visibilityOrder =
+          mockConfigDomainService.instanceConfig.getRestaurantHistoryDays.mock.invocationCallOrder[0]
+        const locationReadOrder = mockLocationDomainService.getById.mock.invocationCallOrder[0]
+        const createOrder = mockLocationDomainService.create.mock.invocationCallOrder[0]
+        expect(visibilityOrder).toBeLessThan(locationReadOrder)
+        expect(visibilityOrder).toBeLessThan(createOrder)
+      })
+    })
+
+    describe('drift measured from quote anchor across consecutive edits', () => {
+      it("measures drift from the quote's drop off point rather than the delivery's current point", async () => {
+        const quoteLocation = { ...sharedLocation, id: 'loc-quote', latitude: 39.3621, longitude: 22.9425 }
+        const currentDeliveryLocation = {
+          ...sharedLocation,
+          id: 'loc-current-moved',
+          latitude: 39.363,
+          longitude: 22.943,
+        }
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
+          ...ownDelivery(),
+          dropoffLocationId: 'loc-current-moved',
+          deliveryQuoteId: 'quote-1',
+        })
+        mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'quote-1',
+          dropoffLocationId: 'loc-quote',
+        })
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          if (id === 'loc-current-moved') return Promise.resolve({ ...currentDeliveryLocation })
+          if (id === 'loc-quote') return Promise.resolve({ ...quoteLocation })
+          return Promise.resolve(null)
+        })
+
+        await service.update('del-own', partnerId, inputAt(39.3625, 22.9435))
+
+        // Drift check MUST measure from quoteLocation, NOT from currentDeliveryLocation!
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenCalledWith({
+          fromLocation: { latitude: 39.3621, longitude: 22.9425 },
+          toLocation: { latitude: 39.3625, longitude: 22.9435 },
+        })
+      })
+
+      it('measures drift from the quote drop off point across consecutive small edits and refuses once farther than allowed', async () => {
+        const quoteLocation = { ...sharedLocation, id: 'loc-quote', latitude: 39.3621, longitude: 22.9425 }
+        let currentDelivery = {
+          ...ownDelivery(),
+          dropoffLocationId: 'loc-quote',
+          deliveryQuoteId: 'quote-1',
+        }
+        const locationStore = new Map<string, any>([['loc-quote', { ...quoteLocation }]])
+
+        mockDeliveryDomainService.getByIdOrThrow.mockImplementation(() => Promise.resolve({ ...currentDelivery }))
+        mockDeliveryDomainService.update.mockImplementation((id: string, data: any) => {
+          currentDelivery = { ...currentDelivery, ...data }
+          return Promise.resolve(currentDelivery)
+        })
+        mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'quote-1',
+          dropoffLocationId: 'loc-quote',
+        })
+        mockLocationDomainService.getById = jest.fn((id: string) => Promise.resolve(locationStore.get(id) ?? null))
+        let nextLocId = 1
+        mockLocationDomainService.create = jest.fn((data: any) => {
+          const newId = `loc-new-${nextLocId++}`
+          const created = { id: newId, ...data }
+          locationStore.set(newId, created)
+          return Promise.resolve(created)
+        })
+
+        // Max drift allowed is 100 metres from fromLocation
+        mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn(
+          async ({ fromLocation, toLocation }: { fromLocation: any; toLocation: any }) => {
+            const distance = haversineDistanceInMetres(
+              fromLocation.latitude,
+              fromLocation.longitude,
+              toLocation.latitude,
+              toLocation.longitude
+            )
+            return distance <= 100
+          }
+        )
+
+        // Edit 1: moves ~55.6m north (from 39.3621 to 39.3626).
+        // Distance from quote is ~55.6m <= 100m -> allowed.
+        const edit1Input = inputAt(39.3626, 22.9425)
+        const edit1Result = await service.update('del-own', partnerId, edit1Input)
+        expect(edit1Result.dropoffLocationId).toBe('loc-new-1')
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenNthCalledWith(1, {
+          fromLocation: { latitude: 39.3621, longitude: 22.9425 },
+          toLocation: { latitude: 39.3626, longitude: 22.9425 },
+        })
+
+        // Edit 2: moves another ~66.7m north (from 39.3626 to 39.3632).
+        // Distance from edit 1 point is ~66.7m (which would pass if measured from current delivery point).
+        // Distance from quote point is ~122.3m > 100m -> MUST be refused!
+        const edit2Input = inputAt(39.3632, 22.9425)
+        await expect(service.update('del-own', partnerId, edit2Input)).rejects.toThrow(
+          new DeliveryLocationDoesntMatchQuoteException("Delivery dropoff location doesn't match quote location")
+        )
+
+        // Verify that edit 2 measured from the quote point, NOT from the delivery's current point
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenNthCalledWith(2, {
+          fromLocation: { latitude: 39.3621, longitude: 22.9425 },
+          toLocation: { latitude: 39.3632, longitude: 22.9425 },
+        })
+
+        // The second edit wrote nothing: delivery still has edit1's location
+        expect(currentDelivery.dropoffLocationId).toBe('loc-new-1')
+      })
+    })
+
+    // The Done when, end to end on an in-memory store: two deliveries and a quote share one Location
+    // row; a partner edit of one delivery's drop off leaves the other two exactly where they were.
+    describe('simulation: deliveries and a quote sharing one Location row', () => {
+      type FakeLocation = typeof sharedLocation
+      type FakeDelivery = ReturnType<typeof ownDelivery>
+      let locations: Map<string, FakeLocation>
+      let deliveries: Map<string, FakeDelivery>
+      let quote: { id: string; dropoffLocationId: string }
+
+      const rowOrThrow = <T>(map: Map<string, T>, id: string): T => {
+        const row = map.get(id)
+        if (!row) throw new Error(`no row ${id}`)
+        return row
+      }
+
+      // What a reader of the database would see: the point a record resolves to right now.
+      const pointOf = (record: { dropoffLocationId: string }) => {
+        const location = rowOrThrow(locations, record.dropoffLocationId)
+        return { latitude: location.latitude, longitude: location.longitude }
+      }
+
+      beforeEach(() => {
+        locations = new Map([['loc-shared', { ...sharedLocation }]])
+        deliveries = new Map([
+          ['del-a', { ...ownDelivery(), id: 'del-a', dropoffLocationId: 'loc-shared' }],
+          ['del-b', { ...ownDelivery(), id: 'del-b', dropoffLocationId: 'loc-shared' }],
+        ])
+        quote = { id: 'quote-1', dropoffLocationId: 'loc-shared' }
+
+        let nextId = 1
+        mockDeliveryQuoteDomainService.getByIdOrThrow = jest.fn((id: string) => Promise.resolve({ ...quote }))
+        mockDeliveryDomainService.getByIdOrThrow.mockImplementation((id: string) =>
+          Promise.resolve({ ...rowOrThrow(deliveries, id) })
+        )
+        mockDeliveryDomainService.update.mockImplementation((id: string, data: Partial<FakeDelivery>) => {
+          const updated = { ...rowOrThrow(deliveries, id), ...data }
+          deliveries.set(id, updated)
+          return Promise.resolve(updated)
+        })
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          const location = locations.get(id)
+          return Promise.resolve(location ? { ...location } : null)
+        })
+        mockLocationDomainService.create = jest.fn((data: Omit<FakeLocation, 'id'>) => {
+          const created = { ...data, id: `loc-created-${nextId++}` }
+          locations.set(created.id, created)
+          return Promise.resolve(created)
+        })
+        // Writes through to the shared row, as the real repository would.
+        mockLocationDomainService.update = jest.fn((id: string, data: Partial<FakeLocation>) =>
+          Promise.resolve(Object.assign(rowOrThrow(locations, id), data))
+        )
+      })
+
+      it('moves only the edited delivery; the other delivery, the quote and the shared row keep the old point', async () => {
+        const oldPoint = { latitude: sharedLocation.latitude, longitude: sharedLocation.longitude }
+
+        await service.update('del-a', partnerId, inputAt(39.3625, 22.943))
+
+        // The shared row itself is untouched.
+        expect(locations.get('loc-shared')).toEqual(sharedLocation)
+        // Everyone else still sharing it sees the old point.
+        const other = rowOrThrow(deliveries, 'del-b')
+        expect(other.dropoffLocationId).toBe('loc-shared')
+        expect(pointOf(other)).toEqual(oldPoint)
+        expect(quote.dropoffLocationId).toBe('loc-shared')
+        expect(pointOf(quote)).toEqual(oldPoint)
+        // The edited delivery points at a row of its own, at the new point, with the same address.
+        const edited = rowOrThrow(deliveries, 'del-a')
+        expect(edited.dropoffLocationId).not.toBe('loc-shared')
+        expect(pointOf(edited)).toEqual({ latitude: 39.3625, longitude: 22.943 })
+        const { id: _sharedId, latitude: _lat, longitude: _lng, ...sharedAddress } = sharedLocation
+        expect(locations.get(edited.dropoffLocationId)).toEqual(
+          expect.objectContaining({ ...sharedAddress, latitude: 39.3625, longitude: 22.943 })
         )
       })
     })
