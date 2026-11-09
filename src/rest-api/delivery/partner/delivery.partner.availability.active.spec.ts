@@ -95,6 +95,7 @@ describe('DeliveryPartnerRestApiService - Availability checks (spec 0029, AC-4)'
       mockQuoteToDeliveryConversionService,
       mockDispatchStopRepository,
       { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any,
+      {} as any,
       {} as any
     )
   })

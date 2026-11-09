@@ -107,7 +107,8 @@ describe('DeliveryAdminRestApiController', () => {
     controller = new DeliveryAdminRestApiController(
       mockDeliveryDomainService,
       mockDeliveryEventDomainService,
-      mockDeliveryIssueDomainService
+      mockDeliveryIssueDomainService,
+      {} as any
     )
   })
 

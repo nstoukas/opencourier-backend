@@ -217,6 +217,7 @@ describe('DeliveryOrderItemInput.kind on partner delivery create (spec 0028 AC-1
         { isValidDeliveryLocationDrift: jest.fn().mockResolvedValue(true) } as any,
         { findOn: jest.fn().mockResolvedValue(null) } as any,
         { instanceConfig: { getRestaurantHistoryDays: () => Promise.resolve(30) } } as any,
+        {} as any,
         {} as any
       )
     })

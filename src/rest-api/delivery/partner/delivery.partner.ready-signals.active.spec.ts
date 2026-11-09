@@ -46,6 +46,7 @@ describe('Partner ready routes (spec 0023)', () => {
         {} as any,
         { findOn: jest.fn().mockResolvedValue(null) } as any,
         configDomainService,
+        {} as any,
         {} as any
       )
     })

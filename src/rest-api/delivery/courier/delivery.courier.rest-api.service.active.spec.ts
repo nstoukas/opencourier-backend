@@ -56,7 +56,8 @@ describe('DeliveryRestApiCourierService', () => {
       mockDeliveryDomainService,
       mockLocationNoteDomainService,
       {} as LocationNoteReactionDomainService,
-      mockDeliveryIssueDomainService
+      mockDeliveryIssueDomainService,
+      {} as any
     )
   })
 

@@ -68,7 +68,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       mockQuoteToDeliveryConversionService,
       mockDispatchStopRepository,
       mockConfigDomainService,
-      mockDeliveryEventService
+      mockDeliveryEventService,
+      {} as any
     )
   })
 
