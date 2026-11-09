@@ -79,6 +79,10 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     expect([...methodsMentioning('services/delivery-event/delivery-event.service.ts')]).toEqual(['notifyReadyUpdated'])
   })
 
+  test('in DeliveryRepository only findForWaitRecord mentions them (reads only, spec 0030)', () => {
+    expect([...methodsMentioning('persistence/repositories/delivery.repository.ts')]).toEqual(['findForWaitRecord'])
+  })
+
   test('no matching, pay, price or quote code reads them (AC-10)', () => {
     const payAndMatching = sourceFiles(srcRoot)
       .map(rel)

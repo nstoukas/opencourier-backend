@@ -1,6 +1,7 @@
 import { EnumDeliveryEventType } from '@prisma/types'
 import {
   DEFAULT_WAIT_RECORD_DAYS,
+  HAND_OVER_EVENTS,
   WAIT_RECORD_DAYS,
   WaitRecordDelivery,
   waitMinutesOf,
@@ -19,6 +20,14 @@ describe('wait-record domain logic (spec 0030)', () => {
 
     test('DEFAULT_WAIT_RECORD_DAYS is 30', () => {
       expect(DEFAULT_WAIT_RECORD_DAYS).toBe(30)
+    })
+
+    test('HAND_OVER_EVENTS includes REASSIGNED, RETURNED_TO_WAITING and HANDED_BACK (AC-3)', () => {
+      expect(HAND_OVER_EVENTS).toEqual([
+        EnumDeliveryEventType.REASSIGNED,
+        EnumDeliveryEventType.RETURNED_TO_WAITING,
+        EnumDeliveryEventType.HANDED_BACK,
+      ])
     })
   })
 
@@ -149,6 +158,66 @@ describe('wait-record domain logic (spec 0030)', () => {
       }
       expect(waitMinutesOf(delivery)).toBe(7)
     })
+
+    test('an arrival at exactly the last pickup time still counts (the "at or before" boundary)', () => {
+      // Arrival at +25 min, pickup at +25 min, readyAt at +15 min.
+      // The arrival occurred at the exact same moment as the pickup (at or before boundary).
+      // Wait is 25 - max(25, 15) = 0 minutes, NOT null.
+      const delivery: WaitRecordDelivery = {
+        id: 'del-arrival-exact-pickup',
+        createdAt: at(0),
+        readyAt: at(15),
+        foodReadyAt: at(15),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(25) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(25) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBe(0)
+    })
+
+    test.each([
+      ['REASSIGNED', EnumDeliveryEventType.REASSIGNED],
+      ['RETURNED_TO_WAITING', EnumDeliveryEventType.RETURNED_TO_WAITING],
+      ['HANDED_BACK', EnumDeliveryEventType.HANDED_BACK],
+    ])('an arrival before the last %s does not count: a second rider who never taps arrival returns null', (_name, eventType) => {
+      // Rider 1 arrives at +10 min, delivery has a hand-over event (%s) at +15 min.
+      // Rider 2 picks up at +35 min with no arrival tap. readyAt was +20 min.
+      // Rider 1's arrival at +10 is before the hand-over, so it must NOT be paired with Rider 2's pickup.
+      // Since Rider 2 has no arrival, waitMinutesOf returns null.
+      const delivery: WaitRecordDelivery = {
+        id: `del-handover-${_name}`,
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(10) },
+          { type: eventType, occurredAt: at(15) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(35) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBeNull()
+    })
+
+    test('an arrival after the last hand-over event counts towards the wait figure', () => {
+      // Rider 1 arrives at +10 min, REASSIGNED at +15 min.
+      // Rider 2 arrives at +25 min, picks up at +35 min. readyAt was +20 min.
+      // Rider 2's arrival (+25) is after the hand-over (+15).
+      // Wait is 35 - max(25, 20) = 10 minutes.
+      const delivery: WaitRecordDelivery = {
+        id: 'del-reassigned-with-second-arrival',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(10) },
+          { type: EnumDeliveryEventType.REASSIGNED, occurredAt: at(15) },
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(25) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(35) },
+        ],
+      }
+      expect(waitMinutesOf(delivery)).toBe(10)
+    })
   })
 
   describe('waitRecordOf: wait statistics and order counting (AC-2, AC-3)', () => {
@@ -177,6 +246,59 @@ describe('wait-record domain logic (spec 0030)', () => {
       expect(record.orderCount).toBe(2)
       expect(record.waitSamples).toBe(1)
       expect(record.averageWaitMinutes).toBe(10)
+    })
+
+    test('a delivery where a second rider never taps arrival after hand-over stays in orderCount but leaves wait figure (AC-3)', () => {
+      // Reassigned delivery where second rider never taps arrival:
+      // Rider 1 arrives at +10, REASSIGNED at +15, Rider 2 picks up at +35 with no arrival.
+      const delHandOverNoSecondArrival: WaitRecordDelivery = {
+        id: 'del-reassigned-no-arrival',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(10) },
+          { type: EnumDeliveryEventType.REASSIGNED, occurredAt: at(15) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(35) },
+        ],
+      }
+
+      // Normal delivery: arrived at +20, picked up at +26 (wait = 6 min)
+      const delNormal: WaitRecordDelivery = {
+        id: 'del-normal',
+        createdAt: at(0),
+        readyAt: at(20),
+        foodReadyAt: at(20),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(20) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(26) },
+        ],
+      }
+
+      const record = waitRecordOf([delHandOverNoSecondArrival, delNormal], 15)
+      // Both deliveries reached PICKED_UP, so orderCount is 2
+      expect(record.orderCount).toBe(2)
+      // Only delNormal has a valid arrival for the final rider, so waitSamples is 1
+      expect(record.waitSamples).toBe(1)
+      expect(record.averageWaitMinutes).toBe(6)
+    })
+
+    test('a delivery with arrival at exactly the pickup time is included in waitSamples with 0 wait minutes (AC-3)', () => {
+      const delExact: WaitRecordDelivery = {
+        id: 'del-exact',
+        createdAt: at(0),
+        readyAt: at(15),
+        foodReadyAt: at(15),
+        events: [
+          { type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, occurredAt: at(25) },
+          { type: EnumDeliveryEventType.PICKED_UP, occurredAt: at(25) },
+        ],
+      }
+
+      const record = waitRecordOf([delExact], 15)
+      expect(record.orderCount).toBe(1)
+      expect(record.waitSamples).toBe(1)
+      expect(record.averageWaitMinutes).toBe(0)
     })
 
     test('averageWaitMinutes is the mean rounded to one decimal place', () => {

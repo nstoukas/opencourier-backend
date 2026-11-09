@@ -1,6 +1,7 @@
 import { EnumDeliveryEventType } from '@prisma/types'
 import { DeliveryRepository } from './delivery.repository'
 import { PrismaService } from 'src/services/prisma/prisma.service'
+import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 
 // Spec 0030: DeliveryRepository.findForWaitRecord query structure (AC-2, AC-6, Value 5).
 describe('DeliveryRepository.findForWaitRecord (spec 0030)', () => {
@@ -61,6 +62,7 @@ describe('DeliveryRepository.findForWaitRecord (spec 0030)', () => {
                   EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
                   EnumDeliveryEventType.PICKED_UP,
                   EnumDeliveryEventType.READY_DELAYED,
+                  ...HAND_OVER_EVENTS,
                 ],
               },
             },
@@ -74,6 +76,15 @@ describe('DeliveryRepository.findForWaitRecord (spec 0030)', () => {
     const callArgs = mockPrisma.delivery.findMany.mock.calls[0][0]
     expect(callArgs.select).not.toHaveProperty('courierId')
     expect(callArgs.select.deliveryEvent.select).not.toHaveProperty('courierId')
+
+    // Ensure handover events are selected so arrivals before the last handover can be discounted (spec 0030, AC-3)
+    expect(callArgs.select.deliveryEvent.where.type.in).toEqual(
+      expect.arrayContaining([
+        EnumDeliveryEventType.REASSIGNED,
+        EnumDeliveryEventType.RETURNED_TO_WAITING,
+        EnumDeliveryEventType.HANDED_BACK,
+      ])
+    )
   })
 
   test('maps returned deliveryEvent array to events property on each delivery', async () => {
