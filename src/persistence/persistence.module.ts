@@ -22,6 +22,7 @@ import { PartnerChargeRepository } from './repositories/partner-charge.repositor
 import { DeliveryIssueRepository } from './repositories/delivery-issue.repository'
 import { DispatchBoardRepository } from './repositories/dispatch-board.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
+import { RemovalRequestRepository } from './repositories/removal-request.repository'
 
 @Global()
 @Module({
@@ -49,6 +50,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     DispatchBoardRepository,
     SavedCustomerRepository,
     SosIncidentRepository,
+    RemovalRequestRepository,
   ],
   exports: [
     ConfigRepository,
@@ -74,6 +76,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     DispatchBoardRepository,
     SavedCustomerRepository,
     SosIncidentRepository,
+    RemovalRequestRepository,
   ],
 })
 export class PersistenceModule {}

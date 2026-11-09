@@ -49,4 +49,17 @@ export class PartnerChargeRepository extends EntityRepository {
       throw error
     }
   }
+
+  // Spec 0035: one approved removal's charge, once.
+  async createRemovalChargeOnce(input: IPartnerChargeCreateInput & { removalOf: string }): Promise<PartnerCharge> {
+    try {
+      return await this.prisma.partnerCharge.create({ data: input })
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.prisma.partnerCharge.findUnique({ where: { removalOf: input.removalOf } })
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
 }

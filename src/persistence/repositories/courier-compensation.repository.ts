@@ -59,6 +59,37 @@ export class CourierCompensationRepository
     }
   }
 
+  // Writes a removal's pay once (spec 0035). A second writer gets the row that is already there.
+  async createRemovalPayOnce(input: ICourierCompensationCreateInput & { removalOf: string }): Promise<CourierCompensation> {
+    try {
+      return await this.create(input)
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.prisma.courierCompensation.findUnique({ where: { removalOf: input.removalOf } })
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
+
+  // Spec 0035: the return trip's pay for a delivery, or null.
+  async findReturnTripAward(deliveryId: string): Promise<CourierCompensation | null> {
+    return this.prisma.courierCompensation.findUnique({ where: { returnOf: deliveryId } })
+  }
+
+  // Writes one return trip's pay once (spec 0035).
+  async createReturnTripPayOnce(input: ICourierCompensationCreateInput & { returnOf: string }): Promise<CourierCompensation> {
+    try {
+      return await this.create(input)
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.findReturnTripAward(input.returnOf)
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
+
   // Spec 0033: every wait already paid on this delivery.
   async findWaitAwards(deliveryId: string): Promise<CourierCompensation[]> {
     return this.prisma.courierCompensation.findMany({

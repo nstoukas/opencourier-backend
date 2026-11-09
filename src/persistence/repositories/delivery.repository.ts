@@ -4,6 +4,7 @@ import {
   EnumCancelledBy,
   EnumCourierCompensationReason,
   EnumDeliveryEventType,
+  EnumFoodOutcome,
   EnumPartnerChargeReason,
   EnumDeliveryStatus,
   Location,
@@ -131,6 +132,25 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       where: { waitPayOwedAt: { gte: from, lte: to } },
       select: { id: true },
       orderBy: { waitPayOwedAt: 'asc' },
+      take: 200,
+    })
+    return rows.map((row) => row.id)
+  }
+
+  // Spec 0035 (AC-18): food returned between `from` and `to` still missing the trip's pay or its
+  // event. A delivery whose computed amount is 0 stays listed, and the settle step does nothing.
+  async findReturnTripsToSettle(from: Date, to: Date): Promise<string[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        foodOutcome: EnumFoodOutcome.RETURNED,
+        foodOutcomeAt: { gte: from, lte: to },
+        OR: [
+          { courierCompensations: { none: { reason: EnumCourierCompensationReason.RETURN_TRIP } } },
+          { deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP } } },
+        ],
+      },
+      select: { id: true },
+      orderBy: { foodOutcomeAt: 'asc' },
       take: 200,
     })
     return rows.map((row) => row.id)

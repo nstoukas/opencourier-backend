@@ -11,6 +11,7 @@ import { DispatchStopCourierRestApiModule } from './dispatch-stop/courier/dispat
 import { SosCourierRestApiModule } from './sos/courier/sos.courier.rest-api.module'
 import { ShiftBookingCourierRestApiModule } from './shift-booking/courier/shift-booking.courier.rest-api.module'
 import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.rest-api.module'
+import { RemovalRequestCourierRestApiModule } from './removal-request/courier/removal-request.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -28,6 +29,8 @@ import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.r
     ShiftBookingCourierRestApiModule,
     // Restaurant pickup points for the map's restaurant layer (spec 0018).
     PartnerCourierRestApiModule,
+    // Asking dispatch to take a rider off an order (spec 0035).
+    RemovalRequestCourierRestApiModule,
   ],
 })
 export class CourierRestApiModule {}

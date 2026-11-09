@@ -14,6 +14,7 @@ export const HAND_OVER_EVENTS: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.RETURNED_TO_WAITING,
   EnumDeliveryEventType.HANDED_BACK,
   EnumDeliveryEventType.WAIT_UNDISPATCHED,
+  EnumDeliveryEventType.REMOVAL_APPROVED, // spec 0035: the rider was taken off before pickup
 ]
 
 export type WaitRecordDelivery = {

@@ -107,6 +107,11 @@ export const WAIT_PAY_CENTS_PER_MINUTE_MAX = 200
 export const DEFAULT_WAIT_LIMIT_MINUTES = 10
 export const WAIT_LIMIT_MINUTES_MIN = 1
 export const WAIT_LIMIT_MINUTES_MAX = 60
+
+// Spec 0035: what share of the quote's distance fee a return trip pays. 0 stops paying it.
+export const DEFAULT_RETURN_TRIP_PAY_PERCENT = 100
+export const RETURN_TRIP_PAY_PERCENT_MIN = 0
+export const RETURN_TRIP_PAY_PERCENT_MAX = 100
 // Offers timed to food readiness (spec 0031). Off until the assembly decides; fallbacks only.
 export const DEFAULT_OFFER_TIMING_ENABLED = false
 export const DEFAULT_OFFER_LEAD_MINUTES = 3

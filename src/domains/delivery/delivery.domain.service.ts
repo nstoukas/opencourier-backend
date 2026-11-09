@@ -708,6 +708,8 @@ export class DeliveryDomainService {
       actor: EnumEventActor.ADMIN,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId: newCourierId,
+      // Spec 0035 (AC-20): the rider it is taken from, so a wait is paid to whoever actually waited.
+      droppedCourierId,
       message: awardMessage,
     }
 
@@ -732,10 +734,22 @@ export class DeliveryDomainService {
       throw error
     }
 
-    if (
-      reloadedDelivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER ||
-      reloadedDelivery.matchedCourierId !== newCourierId
-    ) {
+    // Spec 0035 (AC-23): the award stands only if this very REASSIGNED row was saved as successful.
+    // Read from the trail, not the reloaded delivery, which an accept or a later reassign can change
+    // in the moment between the two, undoing an award that was really earned.
+    let tookEffect: boolean
+    try {
+      tookEffect = await this.deliveryEventService.hasSuccessfulReassignedWithMessage(deliveryId, awardMessage)
+    } catch (error) {
+      // Could not tell: keep the award (binding value 4), and log it the way the failure above does.
+      this.logger.error(
+        formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' }),
+        (error as Error).stack
+      )
+      throw error
+    }
+
+    if (!tookEffect) {
       // The event was silently dropped (no legal transition) or the pipeline swallowed an
       // error. The dropped courier still has the delivery, so the award must not stand.
       await this.rollbackReassignmentAward(

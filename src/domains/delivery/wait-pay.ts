@@ -21,10 +21,19 @@ export type CompletedWait = {
   minutes: number
 }
 
-// The events that end a wait: the rider took the food, or left without it.
+// A move that takes a rider off the delivery (spec 0035, AC-20). It can land after the wait already
+// ended, which is why a move that closes no open arrival is not the end of a wait (below).
+const MOVE_EVENTS: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.REMOVAL_APPROVED,
+  EnumDeliveryEventType.REASSIGNED,
+  EnumDeliveryEventType.RETURNED_TO_WAITING,
+]
+
+// The events that end a wait: the rider took the food, left without it, or was moved off it.
 export const WAIT_END_EVENTS: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.PICKED_UP,
   EnumDeliveryEventType.WAIT_UNDISPATCHED,
+  ...MOVE_EVENTS,
 ]
 
 export type WaitTimes = {
@@ -95,17 +104,29 @@ export function completedWaits(
 // The wait closed by the newest end event on the trail, or null when the trail cannot show one: the
 // end or its arrival was never saved, or it earned no minutes. A wait from earlier in the delivery's
 // history is never returned, so it cannot be paid in place of the one that is owed.
+// Spec 0035 (AC-20): a move with no arrival open is skipped. An admin reassign after a pickup ended
+// nothing, and must not make the pickup's wait, which the sweep may still be retrying, look lost.
 export function latestCompletedWait(
   events: WaitEvent[],
   promisedReadyAt: Date | null,
   foodReadyAt: Date | null,
   freeMinutes: number
 ): CompletedWait | null {
-  const ends = events.filter((event) => WAIT_END_EVENTS.includes(event.type))
-  const lastEnd = ends[ends.length - 1]
+  let arrivalOpen = false
+  let newestEndId: string | null = null
+  for (const event of events) {
+    if (event.type === EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION) {
+      arrivalOpen = true
+    } else if (WAIT_END_EVENTS.includes(event.type)) {
+      if (arrivalOpen || !MOVE_EVENTS.includes(event.type)) newestEndId = event.id
+      arrivalOpen = false
+    } else if (HAND_OVER_EVENTS.includes(event.type)) {
+      arrivalOpen = false
+    }
+  }
   const waits = completedWaits(events, promisedReadyAt, foodReadyAt, freeMinutes)
   const last = waits[waits.length - 1]
-  return lastEnd && last && last.endEventId === lastEnd.id ? last : null
+  return last && last.endEventId === newestEndId ? last : null
 }
 
 export function waitOfKey(deliveryId: string, endEventId: string): string {

@@ -25,6 +25,8 @@ import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
 import { ICourierTap } from 'src/domains/delivery/interfaces/ICourierTap'
 import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
 import { ArrivedCourierInput } from './queries/arrived.courier.input'
+import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
+import { DeliveryRemovalRequest, EnumRemovalRequestStatus } from '@prisma/types'
 
 // The tap of a job step the app sent with `tapAgeMs` (spec 0009), stamped with the moment this
 // server received it; undefined for a step sent without one, whose event then happened on arrival.
@@ -40,7 +42,8 @@ export class DeliveryRestApiCourierService {
     private locationNoteDomainService: LocationNoteDomainService,
     private locationNoteReactionDomainService: LocationNoteReactionDomainService,
     private deliveryIssueDomainService: DeliveryIssueDomainService,
-    private productReportDomainService: ProductReportDomainService
+    private productReportDomainService: ProductReportDomainService,
+    private removalRequestRepository: RemovalRequestRepository
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -111,6 +114,22 @@ export class DeliveryRestApiCourierService {
       )
     })
 
+    // Spec 0035: the newest request on each job, shown only while it is open or refused.
+    const removalRequests = await this.removalRequestRepository.findNewestByCourierForDeliveries(
+      courierId,
+      deliveries.data.map((delivery) => delivery.id)
+    )
+    const newestRequestByDelivery = new Map<string, DeliveryRemovalRequest>()
+    for (const request of removalRequests) {
+      if (!newestRequestByDelivery.has(request.deliveryId)) newestRequestByDelivery.set(request.deliveryId, request)
+    }
+    const shownRequest = (deliveryId: string): DeliveryRemovalRequest | null => {
+      const newest = newestRequestByDelivery.get(deliveryId)
+      return newest && (newest.status === EnumRemovalRequestStatus.OPEN || newest.status === EnumRemovalRequestStatus.DECLINED)
+        ? newest
+        : null
+    }
+
     const deliveriesWithNotes = deliveries.data.map((delivery) => {
       const dropoffLocationNotes = locationNotesWithReactions.filter(
         (note) => note.locationId === delivery.dropoffLocationId
@@ -123,6 +142,7 @@ export class DeliveryRestApiCourierService {
         ...delivery,
         dropoffLocationNotes,
         pickupLocationNotes,
+        removalRequest: shownRequest(delivery.id),
       } as InProgressDeliveryCourier
     })
 

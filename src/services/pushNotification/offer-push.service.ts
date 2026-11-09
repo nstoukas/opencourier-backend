@@ -4,7 +4,7 @@ import { OFFER_INSIST_AFTER_SECONDS, PUSH_DEFAULT_TTL_SECONDS } from '../../cons
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
-import { JobReadyUpdatedMessage, NotificationEventType, OfferEndedMessage } from 'src/shared-types/notification'
+import { JobReadyUpdatedMessage, NotificationEventType, OfferEndedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
 import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
@@ -114,6 +114,36 @@ export class OfferPushService {
       await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_READY_UPDATED, result)
     } catch (error) {
       this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${error}`)
+    }
+  }
+
+  // A rider's removal request was answered (spec 0035, AC-11), to their own phones. Strings ('' for
+  // unknown), as for jobReadyUpdated. Fire and forget, never throws; logs ids, never the sentence.
+  removalRequestDecided(courierId: string, message: RemovalRequestDecidedMessage): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendRemovalRequestDecided(courierId, message).catch((error) =>
+      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${error}`)
+    )
+  }
+
+  async sendRemovalRequestDecided(courierId: string, message: RemovalRequestDecidedMessage): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = {
+        type: NotificationEventType.REMOVAL_REQUEST_DECIDED,
+        deliveryId: message.deliveryId,
+        outcome: message.outcome,
+        decisionNote: message.decisionNote ?? '',
+        paid: String(message.paid),
+        payAmount: message.payAmount === null ? '' : String(message.payAmount),
+        currencyCode: message.currencyCode,
+      }
+      const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
+      await this.handleSendResult(message.deliveryId, NotificationEventType.REMOVAL_REQUEST_DECIDED, result)
+    } catch (error) {
+      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${error}`)
     }
   }
 

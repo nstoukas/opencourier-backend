@@ -21,6 +21,9 @@ export class DispatchAttentionRowAdminDto {
   @ApiProperty({ type: String, nullable: true }) customerLabel: string | null
   @ApiProperty({ type: String }) detail: string
   @ApiProperty({ type: Boolean }) held: boolean
+  // Only on a REMOVAL_REQUEST row (spec 0035), null otherwise.
+  @ApiProperty({ type: String, nullable: true }) removalRequestId: string | null
+  @ApiProperty({ type: Boolean, nullable: true }) pickedUp: boolean | null
 
   constructor(row: AttentionRow) {
     this.id = row.id
@@ -38,6 +41,8 @@ export class DispatchAttentionRowAdminDto {
     this.customerLabel = row.customerLabel
     this.detail = row.detail
     this.held = row.held
+    this.removalRequestId = row.removalRequestId ?? null
+    this.pickedUp = row.pickedUp ?? null
   }
 }
 

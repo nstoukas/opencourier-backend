@@ -10,7 +10,8 @@ import {
 } from 'src/persistence/repositories/dispatch-board.repository'
 import { OpenDeliveryIssue } from 'src/persistence/repositories/delivery-issue.repository'
 import { SosIncidentWithPeople } from 'src/persistence/repositories/sos-incident.repository'
-import { DELIVERY_ISSUE_REASON_TO_HUMAN } from 'src/shared-types'
+import { OpenRemovalRequest } from 'src/persistence/repositories/removal-request.repository'
+import { DELIVERY_ISSUE_REASON_TO_HUMAN, DELIVERY_PICKED_UP_STATUSES } from 'src/shared-types'
 
 // Spec 0034. Plain functions, so each rule of the board can be tested on its own. A row's kind
 // depends only on the state of the delivery, the report or the SOS, never on how long a rider has
@@ -35,6 +36,7 @@ export const ATTENTION_KIND = {
   OFFER_UNANSWERED: 'OFFER_UNANSWERED',
   RESTAURANT_LATE: 'RESTAURANT_LATE',
   RIDER_REPORT: 'RIDER_REPORT',
+  REMOVAL_REQUEST: 'REMOVAL_REQUEST',
 } as const
 
 export type AttentionRow = {
@@ -57,6 +59,9 @@ export type AttentionRow = {
   customerLabel: string | null
   detail: string
   held: boolean
+  // Only on a REMOVAL_REQUEST row (spec 0035): the request, and whether the food is with the rider.
+  removalRequestId?: string
+  pickedUp?: boolean
 }
 
 export type DispatchBoardCards = {
@@ -263,6 +268,33 @@ export function riderReportRows(issues: OpenDeliveryIssue[]): AttentionRow[] {
       riderName,
       detail: issue.note ? `${headline}\n${issue.note}` : headline,
       held: false,
+    }
+  })
+}
+
+// Spec 0035, AC-6: an open removal request. The note is the second line. `pickedUp` comes from this
+// read, and the approve sends it back, so a stale board can never cancel an order (AC-8). Nothing
+// here counts or ranks a rider's requests (AC-22).
+export function removalRequestRows(requests: OpenRemovalRequest[]): AttentionRow[] {
+  return requests.map((request) => {
+    const riderName = `${request.courier.firstName} ${request.courier.lastName}`.trim()
+    const pickedUp = DELIVERY_PICKED_UP_STATUSES.includes(request.delivery.status)
+    const paid = request.paidToRider ? 'Paid' : 'Not paid'
+    const consequence = pickedUp ? '. Food already picked up: approving cancels the order.' : ''
+    const headline = `${riderName} asks to come off this order: ${request.label} (${paid})${consequence}`
+    return {
+      id: `${ATTENTION_KIND.REMOVAL_REQUEST}:${request.id}`,
+      kind: ATTENTION_KIND.REMOVAL_REQUEST,
+      since: request.createdAt,
+      sortAt: request.createdAt,
+      deliveryId: request.deliveryId,
+      ...NO_SOURCE_IDS,
+      ...deliveryFields(request.delivery),
+      riderName,
+      detail: request.note ? `${headline}\n${request.note}` : headline,
+      held: false,
+      removalRequestId: request.id,
+      pickedUp,
     }
   })
 }

@@ -7,7 +7,9 @@ import { FALLBACK_CANCELLATION_PAYOUT_POLICY } from 'src/shared-types/index'
 export function resolveCancellationPayout(
   menu: Record<string, number>,
   storedPolicyKey: string,
-  totalCompensation: number | null
+  totalCompensation: number | null,
+  // Spec 0035: the same resolver pays a removal, whose setting has another name.
+  settingName = 'cancellationPayoutPolicy'
 ): { policy: string; amount: number; warnings: string[] } {
   const warnings: string[] = []
 
@@ -25,11 +27,11 @@ export function resolveCancellationPayout(
     percent = usablePercent(policy)
     if (percent !== null) {
       warnings.push(
-        `cancellationPayoutPolicy '${storedPolicyKey}' is not a usable key of reassignmentPayoutPolicies; paid under '${FALLBACK_CANCELLATION_PAYOUT_POLICY}' instead`
+        `${settingName} '${storedPolicyKey}' is not a usable key of reassignmentPayoutPolicies; paid under '${FALLBACK_CANCELLATION_PAYOUT_POLICY}' instead`
       )
     } else {
       warnings.push(
-        `cancellationPayoutPolicy '${storedPolicyKey}' is not a usable key of reassignmentPayoutPolicies, and neither is '${FALLBACK_CANCELLATION_PAYOUT_POLICY}'; paid in full`
+        `${settingName} '${storedPolicyKey}' is not a usable key of reassignmentPayoutPolicies, and neither is '${FALLBACK_CANCELLATION_PAYOUT_POLICY}'; paid in full`
       )
       percent = 100
     }

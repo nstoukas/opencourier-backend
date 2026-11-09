@@ -52,7 +52,7 @@ export interface EarningsDelivery {
   total: number // compensation + tips
   // A pay that is not a drop off: a reassigned rider's payout, a cancelled job's (spec 0015), or a
   // wait at the restaurant (spec 0033).
-  kind?: 'REASSIGNMENT_COMPENSATION' | 'CANCELLATION_COMPENSATION' | 'WAITING'
+  kind?: 'REASSIGNMENT_COMPENSATION' | 'CANCELLATION_COMPENSATION' | 'WAITING' | 'REMOVAL_COMPENSATION' | 'RETURN_TRIP'
   // Spec 0033, on the detail of a delivered order only: what its wait paid, already inside `total`.
   waitingPay?: number
 }

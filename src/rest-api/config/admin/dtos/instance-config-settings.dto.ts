@@ -107,6 +107,9 @@ export class InstanceConfigSettingsDto {
   waitLimitMinutes: number
 
   @ApiProperty({ type: Number })
+  returnTripPayPercent: number
+
+  @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
   @ApiProperty({ type: Number })
@@ -170,6 +173,7 @@ export class InstanceConfigSettingsDto {
     this.waitPayFreeMinutes = data.waitPayFreeMinutes
     this.waitPayCentsPerMinute = data.waitPayCentsPerMinute
     this.waitLimitMinutes = data.waitLimitMinutes
+    this.returnTripPayPercent = data.returnTripPayPercent
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds

@@ -28,7 +28,7 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ type: String, description: 'Instance currency code, e.g. EUR' })
   currency: string
 
-  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION or WAITING' })
+  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION, WAITING, REMOVAL_COMPENSATION or RETURN_TRIP' })
   kind?: string
 
   @ApiProperty({ required: false, type: Number, description: 'What waiting at the restaurant paid on this delivered order, in integer cents, inside total' })

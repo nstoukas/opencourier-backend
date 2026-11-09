@@ -73,6 +73,9 @@ export interface DeliveryFailedEvent extends BaseDeliveryEvent {
 export interface DeliveryReassignedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.REASSIGNED
   courierId: string
+  // Spec 0035 (AC-20): the rider it was taken from, stored on the row so a wait is paid to whoever
+  // actually waited. `courierId` above stays the new rider.
+  droppedCourierId?: string | null
 }
 // Spec 0014. Dispatch stopped while `courierId` held this delivery, not yet picked up: it goes back
 // to waiting with nobody, and that rider is paid by the co-op's reassignment payout setting.
@@ -145,6 +148,47 @@ export interface DeliveryCourierPaidForWaitEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_WAIT
   courierId: string
 }
+// Spec 0035: a rider asks dispatch to take them off an order, the answer, and the money. Each is
+// written by its own path, never processed as an ordinary event, and names the rider, except
+// the restaurant's charge, which does not depend on who rode. A message names the reason's label
+// and never the rider's note.
+export interface DeliveryRemovalRequestedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REMOVAL_REQUESTED
+  courierId: string
+}
+export interface DeliveryRemovalWithdrawnEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REMOVAL_WITHDRAWN
+  courierId: string
+}
+export interface DeliveryRemovalDeclinedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REMOVAL_DECLINED
+  courierId: string
+}
+export interface DeliveryRemovalApprovedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REMOVAL_APPROVED
+  courierId: string
+}
+export interface DeliveryCourierPaidForRemovalEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL
+  courierId: string
+}
+export interface DeliveryPartnerChargedForRemovalEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL
+}
+export interface DeliveryCourierPaidForReturnTripEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP
+  courierId: string
+}
+
+export type DeliveryRemovalEvent =
+  | DeliveryRemovalRequestedEvent
+  | DeliveryRemovalWithdrawnEvent
+  | DeliveryRemovalDeclinedEvent
+  | DeliveryRemovalApprovedEvent
+  | DeliveryCourierPaidForRemovalEvent
+  | DeliveryPartnerChargedForRemovalEvent
+  | DeliveryCourierPaidForReturnTripEvent
+
 export interface DeliveryOnTheWayEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ON_THE_WAY
 }
@@ -188,6 +232,7 @@ export type DeliveryEvent =
   | DeliveryCourierPaidForWaitEvent
   | DeliveryProductReportResolvedEvent
   | DeliveryFoodReadyEvent
+  | DeliveryRemovalEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

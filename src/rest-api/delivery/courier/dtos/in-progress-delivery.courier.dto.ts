@@ -5,6 +5,7 @@ import { InProgressDeliveryCourier } from '../types/in-progress-delivery.courier
 import { LocationCourierDto } from 'src/rest-api/location/courier/dto/location.courier.dto'
 import { EnumDeliveryStatus } from '@prisma/types'
 import { CourierWaitRules, waitLeaveFrom, waitPaidFrom } from 'src/domains/delivery/wait-pay'
+import { RemovalRequestCourierDto } from 'src/rest-api/removal-request/courier/dtos/removal-request.courier.dto'
 
 export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
   @ApiProperty({ type: LocationCourierDto })
@@ -27,6 +28,10 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
   @ApiProperty({ type: Date, nullable: true })
   paidFrom: Date | null
 
+  // Spec 0035 (AC-5, AC-7): the rider's own request on this job while it is open or refused.
+  @ApiProperty({ type: RemovalRequestCourierDto, nullable: true })
+  removalRequest: RemovalRequestCourierDto | null
+
   constructor(data: InProgressDeliveryCourier, waitRules: CourierWaitRules) {
     super(data)
 
@@ -43,6 +48,8 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
             freeMinutes: waitRules.freeMinutes,
           })
         : null
+
+    this.removalRequest = data.removalRequest ? new RemovalRequestCourierDto(data.removalRequest) : null
 
     this.pickupLocation = new LocationCourierDto(data.pickupLocation)
     this.dropoffLocation = new LocationCourierDto(data.dropoffLocation)

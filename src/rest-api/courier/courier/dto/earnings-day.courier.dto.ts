@@ -29,7 +29,7 @@ export class EarningsDeliveryCourierDto {
   @ApiProperty({
     required: false,
     type: String,
-    description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION or WAITING',
+    description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION, WAITING, REMOVAL_COMPENSATION or RETURN_TRIP',
   })
   kind?: string
 

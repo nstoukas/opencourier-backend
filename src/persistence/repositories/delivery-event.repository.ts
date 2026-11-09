@@ -61,6 +61,37 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return rows.map((row) => row.message ?? '')
   }
 
+  // Spec 0035: the messages already on record for a kind of event on this delivery. The pay events of
+  // a removal name their request in the message, so a retry can tell its own row (as the waits do).
+  async findMessagesOfType(deliveryId: string, type: EnumDeliveryEventType): Promise<string[]> {
+    const rows = await this.prisma.deliveryEvent.findMany({ where: { deliveryId, type }, select: { message: true } })
+    return rows.map((row) => row.message ?? '')
+  }
+
+  // Spec 0035: whether an approval saved its REMOVAL_APPROVED on the trail, or was interrupted.
+  async hasSuccessfulRemovalApprovedSince(deliveryId: string, since: Date): Promise<boolean> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: {
+        deliveryId,
+        type: EnumDeliveryEventType.REMOVAL_APPROVED,
+        transitionSuccessful: true,
+        createdAt: { gte: since },
+      },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
+  // Spec 0035 (AC-23): whether this very reassignment's event was saved as successful. The message
+  // names the award, so another admin's reassign does not count as this one.
+  async hasSuccessfulReassignedWithMessage(deliveryId: string, message: string): Promise<boolean> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: { deliveryId, type: EnumDeliveryEventType.REASSIGNED, transitionSuccessful: true, message },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
   // When the latest successful job step of this delivery happened (its occurredAt), or null if it has
   // none yet. The floor of the next step's tap time (spec 0009, AC-7). Ordered by occurredAt, not
   // createdAt: a step that waited on the phone arrives after events that happened later.

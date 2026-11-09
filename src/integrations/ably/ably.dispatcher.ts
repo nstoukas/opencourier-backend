@@ -6,7 +6,7 @@ import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.
 import {
   EnumDeliveryStatus,
   NotificationEventType,
-  JobReadyUpdatedMessage, OfferEndedMessage,
+  JobReadyUpdatedMessage, OfferEndedMessage, RemovalRequestDecidedMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
 
@@ -61,6 +61,12 @@ export class AblyDispatcher extends WebsocketDispatcher {
   async sendJobReadyUpdated(userId: string, message: JobReadyUpdatedMessage) {
     this.logger.log(`emitting ${NotificationEventType.JOB_READY_UPDATED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.JOB_READY_UPDATED, message)
+  }
+
+  // Spec 0035. Logged by delivery id only: the message carries dispatch's sentence.
+  async sendRemovalRequestDecided(userId: string, message: RemovalRequestDecidedMessage) {
+    this.logger.log(`emitting ${NotificationEventType.REMOVAL_REQUEST_DECIDED} for delivery ${message.deliveryId}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.REMOVAL_REQUEST_DECIDED, message)
   }
 
   private async publishMessage(channelName: string, messageName: string, message: any) {

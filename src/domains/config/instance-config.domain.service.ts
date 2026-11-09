@@ -23,6 +23,9 @@ import {
   DEFAULT_WAIT_PAY_FREE_MINUTES,
   WAIT_LIMIT_MINUTES_MAX,
   WAIT_LIMIT_MINUTES_MIN,
+  DEFAULT_RETURN_TRIP_PAY_PERCENT,
+  RETURN_TRIP_PAY_PERCENT_MIN,
+  RETURN_TRIP_PAY_PERCENT_MAX,
   WAIT_PAY_CENTS_PER_MINUTE_MAX,
   WAIT_PAY_CENTS_PER_MINUTE_MIN,
   WAIT_PAY_FREE_MINUTES_MAX,
@@ -153,6 +156,14 @@ export const NUMERIC_SETTING_RULES: {
     max: WAIT_LIMIT_MINUTES_MAX,
   },
   {
+    // Spec 0035: 0 stops paying the trip back, which is a real choice of the members.
+    key: 'returnTripPayPercent',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: RETURN_TRIP_PAY_PERCENT_MIN,
+    max: RETURN_TRIP_PAY_PERCENT_MAX,
+  },
+  {
     key: 'offerLeadMinutes',
     whyZeroIsRefused: null,
     mustBeInteger: true,
@@ -267,6 +278,7 @@ export class InstanceConfigDomainService {
     const waitPayFreeMinutes = await this.getWaitPayFreeMinutes()
     const waitPayCentsPerMinute = await this.getWaitPayCentsPerMinute()
     const waitLimitMinutes = await this.getWaitLimitMinutes()
+    const returnTripPayPercent = await this.getReturnTripPayPercent()
     const offerTimingEnabled = await this.getOfferTimingEnabled()
     const offerLeadMinutes = await this.getOfferLeadMinutes()
     const offerTimingCandidates = await this.getOfferTimingCandidates()
@@ -314,6 +326,7 @@ export class InstanceConfigDomainService {
       waitPayFreeMinutes,
       waitPayCentsPerMinute,
       waitLimitMinutes,
+      returnTripPayPercent,
       offerTimingEnabled,
       offerLeadMinutes,
       offerTimingCandidates,
@@ -599,6 +612,9 @@ export class InstanceConfigDomainService {
     }
     if (data.waitLimitMinutes !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.WAIT_LIMIT_MINUTES, data.waitLimitMinutes)
+    }
+    if (data.returnTripPayPercent !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.RETURN_TRIP_PAY_PERCENT, data.returnTripPayPercent)
     }
     if (data.offerTimingEnabled !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
@@ -973,6 +989,16 @@ export class InstanceConfigDomainService {
       DEFAULT_WAIT_LIMIT_MINUTES,
       WAIT_LIMIT_MINUTES_MIN,
       WAIT_LIMIT_MINUTES_MAX
+    )
+  }
+
+  // Spec 0035: the share of the distance fee a return trip pays.
+  async getReturnTripPayPercent(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.RETURN_TRIP_PAY_PERCENT,
+      DEFAULT_RETURN_TRIP_PAY_PERCENT,
+      RETURN_TRIP_PAY_PERCENT_MIN,
+      RETURN_TRIP_PAY_PERCENT_MAX
     )
   }
 

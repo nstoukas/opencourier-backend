@@ -67,6 +67,8 @@ const COMPENSATION_KIND: Record<EnumCourierCompensationReason, NonNullable<Earni
   [EnumCourierCompensationReason.REASSIGNMENT]: 'REASSIGNMENT_COMPENSATION',
   [EnumCourierCompensationReason.CANCELLATION]: 'CANCELLATION_COMPENSATION',
   [EnumCourierCompensationReason.WAITING]: 'WAITING',
+  [EnumCourierCompensationReason.REMOVAL]: 'REMOVAL_COMPENSATION',
+  [EnumCourierCompensationReason.RETURN_TRIP]: 'RETURN_TRIP',
 }
 
 // Maps a compensation row (e.g. dropped rider payout) to EarningsDelivery.

@@ -3,23 +3,16 @@ import {
   EnumCancelledBy,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
-  EnumDeliveryStatus,
   EnumEventActor,
   EnumFoodOutcome,
 } from '@prisma/types'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
-import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
+import { DELIVERY_ONGOING_STATUSES, DELIVERY_PICKED_UP_STATUSES } from 'src/shared-types'
 import { DeliveryNotFoundException } from 'src/errors'
 import { CancelledJobCourierDto } from './dtos/cancelled-job.courier.dto'
 import { FoodOutcomeCourierInput } from './queries/food-outcome.courier.input'
 
-// The rider had the food when the job was cancelled: it goes back, and the outcome is asked for.
-const PICKED_UP_STATUSES: EnumDeliveryStatus[] = [
-  EnumDeliveryStatus.PICKED_UP,
-  EnumDeliveryStatus.ON_THE_WAY,
-  EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
-]
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 // Spec 0015: what a rider sees and does after a job they held was cancelled.
@@ -62,7 +55,8 @@ export class CancelledJobsCourierService {
     if (!delivery.cancelledAt) {
       throw new ConflictException('This job is not cancelled.')
     }
-    if (!delivery.cancelledFromStatus || !PICKED_UP_STATUSES.includes(delivery.cancelledFromStatus)) {
+    // The rider had the food when the job was cancelled: it goes back, and the outcome is asked for.
+    if (!delivery.cancelledFromStatus || !DELIVERY_PICKED_UP_STATUSES.includes(delivery.cancelledFromStatus)) {
       throw new ConflictException('Nothing to return: this job was cancelled before pickup.')
     }
 
@@ -107,6 +101,11 @@ export class CancelledJobsCourierService {
       this.logger.error(`FOOD_OUTCOME_EVENT_FAILED {"deliveryId":"${deliveryId}","courierId":"${courierId}"}: ${error}`)
     }
 
+    // Spec 0035 (AC-16): food brought back pays the trip. Never throws; the sweep completes a miss.
+    if (input.outcome === EnumFoodOutcome.RETURNED) {
+      await this.deliveryEventService.settleReturnTrip(deliveryId)
+    }
+
     // Read without the 24 hour window: an outcome recorded for an older job is saved all the same,
     // and the answer says so (row 32 review: it answered 404 after saving). This one job by its id,
     // not a search of the newest 20 (agy review).
@@ -137,7 +136,7 @@ export class CancelledJobsCourierService {
       cancelledBy: row.cancelledBy ?? EnumCancelledBy.COOP,
       // The query only returns rows with cancelledAt set.
       cancelledAt: row.cancelledAt as Date,
-      pickedUp: row.cancelledFromStatus !== null && PICKED_UP_STATUSES.includes(row.cancelledFromStatus),
+      pickedUp: row.cancelledFromStatus !== null && DELIVERY_PICKED_UP_STATUSES.includes(row.cancelledFromStatus),
       payAmount: row.courierCompensations[0]?.amount ?? null,
       currencyCode: row.currencyCode,
       foodOutcome: row.foodOutcome,

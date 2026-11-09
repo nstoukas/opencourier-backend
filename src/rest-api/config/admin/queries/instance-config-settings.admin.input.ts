@@ -141,6 +141,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   waitLimitMinutes?: number
 
+  // Spec 0035: 0 to 100 (NUMERIC_SETTING_RULES). The share of the distance fee a return trip pays.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  returnTripPayPercent?: number
+
   // Spec 0031: offers timed to food readiness. The ranges live in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

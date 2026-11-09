@@ -50,6 +50,7 @@ export type InstanceConfigSettings = {
   waitPayFreeMinutes: number
   waitPayCentsPerMinute: number
   waitLimitMinutes: number
+  returnTripPayPercent: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
@@ -137,6 +138,7 @@ export enum ConfigKey {
   WAIT_PAY_FREE_MINUTES = 'waitPayFreeMinutes',
   WAIT_PAY_CENTS_PER_MINUTE = 'waitPayCentsPerMinute',
   WAIT_LIMIT_MINUTES = 'waitLimitMinutes',
+  RETURN_TRIP_PAY_PERCENT = 'returnTripPayPercent',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',

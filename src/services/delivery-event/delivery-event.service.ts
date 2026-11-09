@@ -4,7 +4,7 @@ import type {
   DeliveryProductReportResolvedEvent,
   DeliveryReadyDelayedEvent,
 } from 'src/shared-types/delivery-events'
-import type { JobReadyUpdatedMessage } from 'src/shared-types/notification'
+import type { JobReadyUpdatedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { OnEvent } from '@nestjs/event-emitter'
@@ -18,7 +18,10 @@ import {
   EnumCancelledBy,
   EnumCourierCompensationReason,
   EnumPartnerChargeReason,
+  EnumFoodOutcome,
+  EnumRemovalRequestStatus,
   CourierCompensation,
+  DeliveryRemovalRequest,
   Prisma,
 } from '@prisma/types'
 import {
@@ -32,6 +35,11 @@ import {
   DeliveryCourierPaidForCancellationEvent,
   DeliveryCourierPaidForWaitEvent,
   DeliveryWaitUndispatchedEvent,
+  DeliveryRemovalApprovedEvent,
+  DeliveryRemovalEvent,
+  DeliveryCourierPaidForRemovalEvent,
+  DeliveryPartnerChargedForRemovalEvent,
+  DeliveryCourierPaidForReturnTripEvent,
   DeliveryFoodReturnedEvent,
   DeliveryDropoffPointCorrectedEvent,
   DeliveryFoodNotReturnedEvent,
@@ -74,6 +82,8 @@ import { PartnerChargeRepository } from 'src/persistence/repositories/partner-ch
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
 import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
 import { latestCompletedWait, paidWaitMinutes, waitOfKey } from 'src/domains/delivery/wait-pay'
+import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
+import { roundMoney } from 'src/core/utils/money'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -113,6 +123,18 @@ const EVENTS_NOT_SENT_TO_PARTNERS: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.NO_COURIER_AVAILABLE,
 ]
 
+// Spec 0035: every removal event is written by its own path, never processed as an ordinary event.
+// An admin cannot post one through the event route.
+const REMOVAL_EVENT_TYPES: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.REMOVAL_REQUESTED,
+  EnumDeliveryEventType.REMOVAL_WITHDRAWN,
+  EnumDeliveryEventType.REMOVAL_DECLINED,
+  EnumDeliveryEventType.REMOVAL_APPROVED,
+  EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL,
+  EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL,
+  EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
+]
+
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
 // STOPPED: dispatch is stopped (spec 0014); no offer is made and nothing is recorded or retried.
 type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED' | 'NOT_DUE'
@@ -147,7 +169,9 @@ export class DeliveryEventService {
     private readonly osrmRoutingService: OsrmRoutingService,
     // Spec 0015: the rider's pay and the restaurant's charge when a job is cancelled.
     private readonly courierCompensationRepository: CourierCompensationRepository,
-    private readonly partnerChargeRepository: PartnerChargeRepository
+    private readonly partnerChargeRepository: PartnerChargeRepository,
+    // Spec 0035: closes an open removal request whatever ends the rider's job.
+    private readonly removalRequestRepository: RemovalRequestRepository
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -211,6 +235,12 @@ export class DeliveryEventService {
       currentStatus = dbDelivery.status
       newStatus = STATE_MACHINE[currentStatus].on[deliveryEvent.type]
 
+      if (REMOVAL_EVENT_TYPES.includes(deliveryEvent.type)) {
+        // Spec 0035: before the check below, so an admin's post is refused on the record even where
+        // the state machine has no row for it. Thrown here, the catch saves a failed row.
+        throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by a removal request only`)
+      }
+
       if (!newStatus) {
         this.logger.warn(
           `No transition exists for delivery ${deliveryId} from status ${currentStatus} via event ${deliveryEvent.type}`
@@ -249,7 +279,13 @@ export class DeliveryEventService {
         const newCourierId = deliveryEvent.courierId
         if (!newCourierId) throw new NotFoundException('Courier ID is required for reassignment')
         const droppedCourierId = dbDelivery.courierId // capture BEFORE clearing
+        // Spec 0035 (AC-20): the saved row names the rider it was taken from.
+        deliveryEvent.droppedCourierId = droppedCourierId
         const newCourier = await this.courierRepository.findByIdOrThrow(newCourierId)
+        // Spec 0035 (AC-19): the rider who was waiting is paid to the end of this move.
+        const endedAt = new Date()
+        deliveryEvent.occurredAt = endedAt
+        const waitPayOwed = await this.isWaitPayOwedAfterMove(dbDelivery, endedAt)
 
         // Amounts for the new rider first, then the offer, so a failed calculation leaves the
         // delivery with its old rider rather than half moved (spec 0002, flow 1).
@@ -289,7 +325,13 @@ export class DeliveryEventService {
         }
 
         // Sets status via the state machine result, saves the DeliveryEvent, notifies partner.
-        const updatedDelivery = await this.updateDeliveryAndSendNotifications(deliveryEvent, newStatus, currentStatus)
+        const updatedDelivery = await this.updateDeliveryAndSendNotifications(
+          deliveryEvent,
+          newStatus,
+          currentStatus,
+          waitPayOwed ? { waitPayOwedAt: new Date() } : {}
+        )
+        if (waitPayOwed) await this.settleWaitPay(deliveryId)
 
         // The delivery no longer carries the dropped rider's id, so notifyCourier inside
         // updateDeliveryAndSendNotifications did not reach them — tell them explicitly.
@@ -952,6 +994,9 @@ export class DeliveryEventService {
       return { returned: false }
     }
     const oldStatus = delivery.status
+    // Spec 0035 (AC-19): the rider who was waiting is paid to the end of this move.
+    const endedAt = new Date()
+    const waitPayOwed = await this.isWaitPayOwedAfterMove(delivery, endedAt)
     const written = await this.deliveryRepository.updateIfMatches(
       deliveryId,
       { status: oldStatus, courierId },
@@ -964,6 +1009,7 @@ export class DeliveryEventService {
         acceptedAt: null,
         handBackUntil: null,
         arrivedAtPickupAt: null,
+        ...(waitPayOwed ? { waitPayOwedAt: new Date() } : {}),
       }
     )
     if (!written) return { returned: false }
@@ -976,6 +1022,7 @@ export class DeliveryEventService {
       actor,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
+      occurredAt: endedAt,
       message,
     }
     try {
@@ -987,6 +1034,7 @@ export class DeliveryEventService {
     } catch (error) {
       this.logger.error(`Could not record RETURNED_TO_WAITING for delivery ${deliveryId}: ${error}`)
     }
+    if (waitPayOwed) await this.settleWaitPay(deliveryId)
     try {
       const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
       if (updated.partnerId) {
@@ -1199,6 +1247,14 @@ export class DeliveryEventService {
       this.logger.error(`Could not read the delay pay settings for delivery ${delivery.id}: ${error}`)
       return false
     }
+  }
+
+  // Spec 0035 (AC-19): whether a move off this delivery ends a wait that earns pay. Only from the
+  // status where the rider was waiting: arrivedAtPickupAt can still be set after a pickup, which would
+  // stamp a wait the trail cannot show.
+  private async isWaitPayOwedAfterMove(delivery: DeliveryEntity, endedAt: Date): Promise<boolean> {
+    if (delivery.status !== EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION) return false
+    return this.isWaitPayOwed(delivery, endedAt)
   }
 
   // Spec 0033, AC-3, AC-4, AC-8. Pays the rider and charges the restaurant for a wait, whichever piece
@@ -1679,7 +1735,21 @@ export class DeliveryEventService {
       return
     }
     if (delivery.courierId) {
-      await this.awardCancellationPay(delivery, delivery.courierId)
+      // Spec 0035 (AC-14): an approval after pickup sets the pay of this cancellation, for the amount
+      // fixed at the approve; an unpaid reason pays nothing. Read first, so a failed read stops the
+      // award: the sweep tries again, rather than paying under the wrong rule.
+      let approved: DeliveryRemovalRequest | null
+      try {
+        approved = await this.removalRequestRepository.findApprovedAfterPickup(delivery.id, delivery.courierId)
+      } catch (error) {
+        this.logger.error(`REMOVAL_LOOKUP_FAILED {"deliveryId":"${delivery.id}"}: ${error}`)
+        return
+      }
+      const skipAward = approved !== null && !approved.paidToRider
+      const awardDone = skipAward || (await this.awardCancellationPay(delivery, delivery.courierId, approved))
+      if (approved && !approved.settledAt && awardDone) {
+        await this.finishRemovalSettlement(delivery, approved)
+      }
     } else {
       // Should not happen (a rider is set on accept); say so rather than leave it quietly unpaid.
       this.logger.warn(
@@ -1694,7 +1764,13 @@ export class DeliveryEventService {
   // Two halves, each written only if missing: the CourierCompensation row (unique by delivery), then
   // its COURIER_PAID_FOR_CANCELLATION event, which reads what the row paid (AC-1, AC-2). Never throws:
   // a failure is logged with ids and amount only, and the sweep completes the missing half (AC-10).
-  private async awardCancellationPay(delivery: DeliveryEntity, courierId: string): Promise<void> {
+  // `approved`, when set (spec 0035), is the removal approval whose fixed amount pays this cancellation.
+  // Returns whether the row and its event are both written.
+  private async awardCancellationPay(
+    delivery: DeliveryEntity,
+    courierId: string,
+    approved: DeliveryRemovalRequest | null = null
+  ): Promise<boolean> {
     const logContext: Record<string, string | number | null> = {
       deliveryId: delivery.id,
       courierId,
@@ -1704,24 +1780,21 @@ export class DeliveryEventService {
     try {
       let award = await this.courierCompensationRepository.findCancellationAward(delivery.id)
       if (!award) {
-        const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
-        // The rule in force at the cancellation (decision 32.18); a delivery cancelled before that
-        // column existed, or whose read failed, falls back to the rule in force now.
-        const storedPolicy =
-          delivery.cancellationPayoutPolicy ??
-          (await this.configDomainService.instanceConfig.getCancellationPayoutPolicy())
-        const { policy, amount, warnings } = resolveCancellationPayout(menu, storedPolicy, delivery.totalCompensation)
+        // Spec 0035 (AC-14): the amount and rule fixed at the approve, when there was one.
+        const { policy, amount } =
+          approved && approved.payAmount !== null && approved.payPolicy
+            ? { policy: approved.payPolicy, amount: approved.payAmount }
+            : await this.cancellationPayoutNow(delivery)
         logContext.amount = amount
         logContext.policy = policy
-        for (const warning of warnings) {
-          this.logger.warn(`Cancellation pay for delivery ${delivery.id}: ${warning}`)
-        }
         award = await this.courierCompensationRepository.createCancellationAwardOnce({
           amount,
           currencyCode: delivery.currencyCode,
           reason: EnumCourierCompensationReason.CANCELLATION,
           policy,
-          message: `Paid for a job cancelled by ${delivery.cancelledBy ?? EnumCancelledBy.COOP}`,
+          message: approved
+            ? `Paid for a job cancelled after a removal was approved (${approved.label})`
+            : `Paid for a job cancelled by ${delivery.cancelledBy ?? EnumCancelledBy.COOP}`,
           courierId,
           deliveryId: delivery.id,
           cancellationOf: delivery.id,
@@ -1749,9 +1822,26 @@ export class DeliveryEventService {
         }
         await this.recordCancellationEvent(event, delivery.status)
       }
+      return true
     } catch (error) {
       this.logger.error(`CANCELLATION_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${error}`, (error as Error).stack)
+      return false
     }
+  }
+
+  // The amount a cancellation with no removal approval behind it pays, read from the settings now.
+  private async cancellationPayoutNow(delivery: DeliveryEntity): Promise<{ policy: string; amount: number }> {
+    const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
+    // The rule in force at the cancellation (decision 32.18); a delivery cancelled before that
+    // column existed, or whose read failed, falls back to the rule in force now.
+    const storedPolicy =
+      delivery.cancellationPayoutPolicy ??
+      (await this.configDomainService.instanceConfig.getCancellationPayoutPolicy())
+    const { policy, amount, warnings } = resolveCancellationPayout(menu, storedPolicy, delivery.totalCompensation)
+    for (const warning of warnings) {
+      this.logger.warn(`Cancellation pay for delivery ${delivery.id}: ${warning}`)
+    }
+    return { policy, amount }
   }
 
   // A restaurant's own cancellation after a rider accepted is charged to it, the delivery's price
@@ -1809,6 +1899,11 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
+  // Spec 0035 (AC-23): whether this very reassignment's REASSIGNED row was saved as successful.
+  async hasSuccessfulReassignedWithMessage(deliveryId: string, message: string): Promise<boolean> {
+    return this.deliveryEventRepository.hasSuccessfulReassignedWithMessage(deliveryId, message)
+  }
+
   // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
   // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
   async recordReadyEvent(
@@ -1816,6 +1911,250 @@ export class DeliveryEventService {
     status: EnumDeliveryStatus
   ): Promise<void> {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
+  // Spec 0035: a removal event with no status change (or, `successful` false, an approval that did
+  // not take). Never through processDeliveryEvent, which refuses these. Old and new status the same.
+  async recordRemovalEvent(
+    event: DeliveryRemovalEvent,
+    status: EnumDeliveryStatus,
+    successful = true
+  ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: successful, oldStatus: status, newStatus: status })
+  }
+
+  // Spec 0035 (AC-9). Takes the rider off before pickup, as leaveWait does: the skip list first, one
+  // conditional write back to waiting with any wait pay stamped in it, the event saved outside the
+  // state machine's switch. Returns the event, or null if the delivery changed first; the caller
+  // then records the failed approval and undoes its claim. The rest (the rider's and restaurant's
+  // notices, and offering the order again) is finishRemovalBeforePickup, after the pay is written.
+  async removeRiderBeforePickup(
+    delivery: DeliveryEntity,
+    courierId: string,
+    label: string
+  ): Promise<DeliveryRemovalApprovedEvent | null> {
+    const deliveryId = delivery.id
+    const oldStatus = delivery.status
+    const endedAt = new Date()
+    const waitPayOwed = await this.isWaitPayOwedAfterMove(delivery, endedAt)
+
+    let addedToSkipList = false
+    try {
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+    }
+
+    const written = await this.deliveryRepository.updateIfMatches(
+      deliveryId,
+      { status: oldStatus, courierId },
+      {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+        offerExpiresAt: null,
+        acceptedAt: null,
+        handBackUntil: null,
+        arrivedAtPickupAt: null,
+        undispatchedAt: endedAt,
+        ...(waitPayOwed ? { waitPayOwedAt: new Date() } : {}),
+      }
+    )
+
+    if (!written) {
+      if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
+      return null
+    }
+
+    const event: DeliveryRemovalApprovedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.REMOVAL_APPROVED,
+      actor: EnumEventActor.ADMIN,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId,
+      occurredAt: endedAt,
+      message: `Removal approved: ${label}`,
+    }
+    try {
+      await this.saveDeliveryEvent(event, {
+        transitionSuccessful: true,
+        oldStatus,
+        newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
+    } catch (error) {
+      this.logger.error(`Could not record REMOVAL_APPROVED for delivery ${deliveryId}: ${error}`)
+    }
+    if (waitPayOwed) await this.settleWaitPay(deliveryId)
+    return event
+  }
+
+  // The second half of removeRiderBeforePickup, after the pay and the rider's notice: the restaurant
+  // and rider told the status changed, then the order offered again, held until the food is due.
+  // Never throws: the rider is off whatever happens here, and the backstop sweep finds the delivery.
+  async finishRemovalBeforePickup(
+    event: DeliveryRemovalApprovedEvent,
+    oldStatus: EnumDeliveryStatus
+  ): Promise<void> {
+    const { deliveryId, courierId } = event
+    try {
+      const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+      if (updated.partnerId) {
+        await this.notifyPartner(updated.partnerId, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+      }
+      // The delivery no longer carries the rider's id, so tell them explicitly.
+      await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
+    } catch (error) {
+      this.logger.error(`Could not tell the restaurant or rider that a rider came off delivery ${deliveryId}: ${error}`)
+    }
+    try {
+      await this.offerOrWait(deliveryId)
+    } catch (error) {
+      this.logger.error(`Could not start matching after a rider came off delivery ${deliveryId}: ${error}`)
+    }
+  }
+
+  // Spec 0035 (AC-13 to AC-15, AC-18). Writes an approved removal's money, whichever pieces are still
+  // missing, then marks it settled. After pickup the existing cancellation settlement does this;
+  // before pickup, a paid reason's REMOVAL row and event, then any charge. Safe to call any number of
+  // times, inline and from the minute sweep. Never throws; a failure leaves settledAt null for the sweep.
+  async settleRemoval(requestId: string): Promise<void> {
+    try {
+      const request = await this.removalRequestRepository.findById(requestId)
+      if (!request || request.status !== EnumRemovalRequestStatus.APPROVED || request.settledAt) return
+      if (request.afterPickup) {
+        await this.settleCancellation(request.deliveryId)
+        return
+      }
+      const delivery = await this.deliveryRepository.findById(request.deliveryId)
+      if (!delivery) return
+      if (request.paidToRider) await this.payRiderForRemoval(delivery, request)
+      await this.finishRemovalSettlement(delivery, request)
+    } catch (error) {
+      this.logger.error(`REMOVAL_SETTLE_FAILED ${JSON.stringify({ requestId })}: ${error}`, (error as Error).stack)
+    }
+  }
+
+  // AC-14, before pickup: one CourierCompensation (unique removalOf) and its event, for the amount
+  // fixed at the approve. Check, then write, as the cancellation award does (single worker).
+  private async payRiderForRemoval(delivery: DeliveryEntity, request: DeliveryRemovalRequest): Promise<void> {
+    await this.courierCompensationRepository.createRemovalPayOnce({
+      amount: request.payAmount ?? 0,
+      currencyCode: delivery.currencyCode,
+      reason: EnumCourierCompensationReason.REMOVAL,
+      policy: request.payPolicy ?? 'REMOVAL',
+      message: `Paid for coming off a delivery: ${request.label}`,
+      courierId: request.courierId,
+      deliveryId: delivery.id,
+      removalOf: request.id,
+    })
+
+    // The event's message carries `removal <request id>` and this check reads it: keep that part as is.
+    const paid = await this.deliveryEventRepository.findMessagesOfType(
+      delivery.id,
+      EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL
+    )
+    if (!paid.some((message) => message.includes(`removal ${request.id}`))) {
+      const event: DeliveryCourierPaidForRemovalEvent = {
+        deliveryId: delivery.id,
+        type: EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL,
+        actor: EnumEventActor.SYSTEM,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId: request.courierId,
+        message: `Courier ${request.courierId} paid ${request.payAmount ?? 0} ${delivery.currencyCode} (cents) under ${request.payPolicy}: ${request.label}; removal ${request.id}`,
+      }
+      await this.recordRemovalEvent(event, delivery.status)
+    }
+  }
+
+  // AC-15: the charge, on either path, then the request is settled. The charge is the amount fixed at
+  // the approve, written once (unique removalOf), only on a delivery with a partner, and never a
+  // delivery fee. Throws on a failure, for settleRemoval or the sweep to retry; settledAt stays null.
+  private async finishRemovalSettlement(delivery: DeliveryEntity, request: DeliveryRemovalRequest): Promise<void> {
+    if (request.chargedToRestaurant && delivery.partnerId) {
+      const amount = request.payAmount ?? 0
+      await this.partnerChargeRepository.createRemovalChargeOnce({
+        partnerId: delivery.partnerId,
+        deliveryId: delivery.id,
+        amount,
+        currencyCode: delivery.currencyCode,
+        reason: EnumPartnerChargeReason.REMOVAL,
+        removalOf: request.id,
+      })
+      const charged = await this.deliveryEventRepository.findMessagesOfType(
+        delivery.id,
+        EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL
+      )
+      if (!charged.some((message) => message.includes(`removal ${request.id}`))) {
+        const event: DeliveryPartnerChargedForRemovalEvent = {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          message: `Restaurant charged ${amount} ${delivery.currencyCode} (cents): ${request.label}; removal ${request.id}`,
+        }
+        await this.recordRemovalEvent(event, delivery.status)
+      }
+    }
+    await this.removalRequestRepository.markSettled(request.id)
+  }
+
+  // Spec 0035 (AC-16, AC-18). Pays the trip back to the restaurant when a rider recorded RETURNED on
+  // a job cancelled after pickup: the quote's distance fee times the co-op's percent. No rider
+  // position is read. A zero amount writes nothing. Safe to call any number of times. Never throws.
+  async settleReturnTrip(deliveryId: string): Promise<void> {
+    try {
+      const { delivery, quote } = await this.deliveryRepository.findByIdOrThrowWithQuote(deliveryId)
+      if (delivery.foodOutcome !== EnumFoodOutcome.RETURNED || !delivery.courierId) return
+
+      let award = await this.courierCompensationRepository.findReturnTripAward(deliveryId)
+      if (!award) {
+        const percent = await this.configDomainService.instanceConfig.getReturnTripPayPercent()
+        const amount = roundMoney((quote.distanceFee * percent) / 100)
+        if (amount <= 0) return
+        award = await this.courierCompensationRepository.createReturnTripPayOnce({
+          amount,
+          currencyCode: delivery.currencyCode,
+          reason: EnumCourierCompensationReason.RETURN_TRIP,
+          policy: 'RETURN_TRIP',
+          message: `The trip back to the restaurant, at ${percent}% of the distance fee`,
+          courierId: delivery.courierId,
+          deliveryId,
+          returnOf: deliveryId,
+        })
+      }
+
+      const paidEvent = await this.deliveryEventRepository.findLatestOfTypes(deliveryId, [
+        EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
+      ])
+      if (!paidEvent) {
+        const event: DeliveryCourierPaidForReturnTripEvent = {
+          deliveryId,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: award.courierId,
+          message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents) for the trip back to the restaurant`,
+        }
+        await this.recordRemovalEvent(event, delivery.status)
+      }
+    } catch (error) {
+      this.logger.error(`RETURN_TRIP_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${error}`, (error as Error).stack)
+    }
+  }
+
+  // Spec 0035 (AC-11): tells the rider dispatch's answer, over the live connection and by push. Never
+  // throws: the decision already happened and is on the record.
+  async notifyRemovalDecided(courierId: string, message: RemovalRequestDecidedMessage): Promise<void> {
+    try {
+      const courier = await this.courierRepository.findById(courierId)
+      if (courier?.userId) {
+        await this.websocketDispatcher.sendRemovalRequestDecided(courier.userId, message)
+      }
+    } catch (error) {
+      this.logger.error(`Could not tell the rider of delivery ${message.deliveryId} the removal outcome: ${error}`)
+    }
+    this.offerPushService.removalRequestDecided(courierId, message)
   }
 
   // Spec 0023 (AC-6): tells the rider holding this job, if any, over the live connection and by push.
@@ -2052,11 +2391,23 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.PRODUCT_REPORTED ||
       deliveryEvent.type === EnumDeliveryEventType.PICKED_UP ||
       deliveryEvent.type === EnumDeliveryEventType.WAIT_UNDISPATCHED ||
-      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_WAIT
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_WAIT ||
+      // Spec 0035: the rider of a request, its answer and the removal or return trip pay. The
+      // dispatch stop's return names a rider too, whose wait it now pays.
+      deliveryEvent.type === EnumDeliveryEventType.RETURNED_TO_WAITING ||
+      deliveryEvent.type === EnumDeliveryEventType.REMOVAL_REQUESTED ||
+      deliveryEvent.type === EnumDeliveryEventType.REMOVAL_WITHDRAWN ||
+      deliveryEvent.type === EnumDeliveryEventType.REMOVAL_DECLINED ||
+      deliveryEvent.type === EnumDeliveryEventType.REMOVAL_APPROVED ||
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL ||
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP
         ? deliveryEvent.courierId
-        : undefined
+        : // A REASSIGNED row stores the rider it was taken from (AC-20); the event's courierId is the new one.
+          deliveryEvent.type === EnumDeliveryEventType.REASSIGNED
+          ? deliveryEvent.droppedCourierId ?? undefined
+          : undefined
 
-    return await this.deliveryEventRepository.create({
+    const saved = await this.deliveryEventRepository.create({
       ...(riderId !== undefined ? { courierId: riderId } : {}),
       // A step that waited for signal keeps its tap time, on the success row and the failed row
       // alike (spec 0009, AC-7). Left out, the column default (now) records the arrival.
@@ -2070,6 +2421,22 @@ export class DeliveryEventService {
       transitionSuccessful: outcome.transitionSuccessful,
       type: deliveryEvent.type,
     })
+
+    // Spec 0035 (AC-12): whatever took the rider off or ended the delivery closes an open removal
+    // request. One rule, here, so a future path cannot forget it: `CLOSED` has no event of its own,
+    // since the event that closed it is on the trail. Guarded, so a failure never breaks this event.
+    if (
+      outcome.transitionSuccessful &&
+      outcome.newStatus &&
+      !DELIVERY_ONGOING_STATUSES.includes(outcome.newStatus)
+    ) {
+      try {
+        await this.removalRequestRepository.closeOpenForDelivery(deliveryEvent.deliveryId)
+      } catch (error) {
+        this.logger.error(`Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+    }
+    return saved
   }
 
   async schedulePickupDeliveryFulfillAndCapture(deliveryId: string) {

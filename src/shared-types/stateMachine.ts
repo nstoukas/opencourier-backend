@@ -34,6 +34,7 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
       [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
       [EnumDeliveryEventType.HANDED_BACK]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider's free hand back (spec 0020), recorded by handBack
+      [EnumDeliveryEventType.REMOVAL_APPROVED]: EnumDeliveryStatus.ASSIGNING_COURIER, // a removal approved before pickup (spec 0035), written by its own path
     },
   },
   [EnumDeliveryStatus.DISPATCHED]: {
@@ -45,11 +46,13 @@ export const STATE_MACHINE: Record<
       [EnumDeliveryEventType.REASSIGNED]: EnumDeliveryStatus.ASSIGNING_COURIER, // admin reassignment — see delivery.domain.service.reassignDelivery
       [EnumDeliveryEventType.RETURNED_TO_WAITING]: EnumDeliveryStatus.ASSIGNING_COURIER, // dispatch stopped before pickup (spec 0014)
       [EnumDeliveryEventType.HANDED_BACK]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider's free hand back (spec 0020), recorded by handBack
+      [EnumDeliveryEventType.REMOVAL_APPROVED]: EnumDeliveryStatus.ASSIGNING_COURIER, // a removal approved before pickup (spec 0035), written by its own path
     },
   },
   [EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION]: {
     on: {
       [EnumDeliveryEventType.WAIT_UNDISPATCHED]: EnumDeliveryStatus.ASSIGNING_COURIER, // a rider left after waiting (spec 0033)
+      [EnumDeliveryEventType.REMOVAL_APPROVED]: EnumDeliveryStatus.ASSIGNING_COURIER, // a removal approved before pickup (spec 0035), written by its own path
       [EnumDeliveryEventType.PICKED_UP]: EnumDeliveryStatus.PICKED_UP,
       [EnumDeliveryEventType.CANCELED]: EnumDeliveryStatus.CANCELED,
       [EnumDeliveryEventType.FAILED]: EnumDeliveryStatus.FAILED,
@@ -115,6 +118,13 @@ export const DELIVERY_ONGOING_STATUSES: EnumDeliveryStatus[] = [
   EnumDeliveryStatus.ACCEPTED,
   EnumDeliveryStatus.DISPATCHED,
   EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+  EnumDeliveryStatus.PICKED_UP,
+  EnumDeliveryStatus.ON_THE_WAY,
+  EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+]
+
+// The rider is carrying the food in these (spec 0015's cancelled jobs, spec 0035's approve).
+export const DELIVERY_PICKED_UP_STATUSES: EnumDeliveryStatus[] = [
   EnumDeliveryStatus.PICKED_UP,
   EnumDeliveryStatus.ON_THE_WAY,
   EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,

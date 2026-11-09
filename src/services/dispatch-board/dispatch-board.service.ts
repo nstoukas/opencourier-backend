@@ -4,6 +4,7 @@ import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.serv
 import { DeliveryIssueRepository } from 'src/persistence/repositories/delivery-issue.repository'
 import { DispatchBoardRepository } from 'src/persistence/repositories/dispatch-board.repository'
 import { DispatchStopService } from 'src/services/dispatch-stop/dispatch-stop.service'
+import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { SosService } from 'src/services/sos/sos.service'
 import {
   AttentionRow,
@@ -13,6 +14,7 @@ import {
   DispatchMap,
   offerUnansweredRows,
   orderAttentionRows,
+  removalRequestRows,
   restaurantLateRows,
   riderReportRows,
   sosRows,
@@ -39,12 +41,13 @@ export class DispatchBoardService {
     private readonly deliveryDomainService: DeliveryDomainService,
     private readonly sosService: SosService,
     private readonly dispatchStopService: DispatchStopService,
-    private readonly configDomainService: ConfigDomainService
+    private readonly configDomainService: ConfigDomainService,
+    private readonly removalRequestRepository: RemovalRequestRepository
   ) {}
 
   async getBoard(now: Date = new Date()): Promise<DispatchBoard> {
     const { start, end } = todayBounds(now)
-    const [live, couriers, delivered, issues, incidents, stop, offerTimingEnabled] = await Promise.all([
+    const [live, couriers, delivered, issues, incidents, stop, offerTimingEnabled, removalRequests] = await Promise.all([
       this.dispatchBoardRepository.findLiveDeliveries(),
       this.dispatchBoardRepository.findWorkingCouriers(),
       this.dispatchBoardRepository.findDroppedOffBetween(start, end),
@@ -52,6 +55,7 @@ export class DispatchBoardService {
       this.sosService.listCurrent(),
       this.dispatchStopService.adminOverview(now),
       this.configDomainService.instanceConfig.getOfferTimingEnabled(),
+      this.removalRequestRepository.findOpenForBoard(),
     ])
     const offerViews = await this.deliveryDomainService.getOfferViews(live)
 
@@ -61,6 +65,7 @@ export class DispatchBoardService {
       ...offerUnansweredRows(live, offerViews),
       ...restaurantLateRows(live, now),
       ...riderReportRows(issues),
+      ...removalRequestRows(removalRequests),
     ])
 
     return {

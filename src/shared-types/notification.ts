@@ -19,6 +19,8 @@ export enum NotificationEventType {
   JOB_CANCELLED = 'JOB_CANCELLED',
   // The restaurant moved the ready time of a job this rider holds, or marked the food ready (spec 0023).
   JOB_READY_UPDATED = 'JOB_READY_UPDATED',
+  // A rider's removal request was answered (spec 0035): the app refetches and shows the outcome.
+  REMOVAL_REQUEST_DECIDED = 'REMOVAL_REQUEST_DECIDED',
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
@@ -39,4 +41,15 @@ export interface JobReadyUpdatedMessage {
   readyAt: string | null // ISO time
   foodReadyAt: string | null // ISO time
   delayMinutes: number | null // null for "Food ready"
+}
+
+// Spec 0035 (AC-11): what the rider is told when dispatch answers their request. `payAmount` is null
+// when the reason is not paid. `decisionNote` is dispatch's own sentence: never logged.
+export interface RemovalRequestDecidedMessage {
+  deliveryId: string
+  outcome: 'APPROVED' | 'DECLINED'
+  decisionNote: string | null
+  paid: boolean
+  payAmount: number | null
+  currencyCode: string
 }

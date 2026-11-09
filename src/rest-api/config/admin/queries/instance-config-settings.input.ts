@@ -41,6 +41,7 @@ export class InstanceConfigSettingsInput {
   waitPayFreeMinutes?: number
   waitPayCentsPerMinute?: number
   waitLimitMinutes?: number
+  returnTripPayPercent?: number
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number
