@@ -33,6 +33,9 @@ model User {
 
   // SOS incidents this admin closed (spec 0022).
   sosIncidentsClosed SosIncident[]
+
+  // Rider reports this admin marked handled (spec 0034).
+  deliveryIssuesHandled DeliveryIssue[]
 }
 
 model Comment {
@@ -59,6 +62,9 @@ model Courier {
   status          EnumCourierStatus                     @default(OFFLINE)
   deliverySetting EnumCourierDeliverySetting            @default(MANUAL)
   currentLocation Unsupported("geometry(Point, 4326)")?
+  // When currentLocation was last written (spec 0034). Set in the same SQL statement as the
+  // position, used only to leave stale riders off the dispatch map, and never sent to any client.
+  currentLocationAt DateTime?
   rejectedOffers  String[]                              @default([])
 
   createdAt DateTime @default(now())
@@ -701,6 +707,10 @@ model DeliveryIssue {
   reason     EnumDeliveryIssueReason
   note       String?                 @postgres.VarChar(500)
   createdAt  DateTime                @default(now())
+  // Open until an admin marks it handled on the Dispatch board (spec 0034, AC-7). No way back.
+  handledAt       DateTime?
+  handledByUserId String?
+  handledBy       User?             @relation(fields: [handledByUserId], references: [id], onDelete: SetNull)
 
   // The admin reads a delivery's reports in time order.
   @@index([deliveryId, createdAt])

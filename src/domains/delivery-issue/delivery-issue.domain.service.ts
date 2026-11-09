@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { EnumDeliveryIssueReason } from '@prisma/types'
 import {
+  DeliveryIssueForAdmin,
   DeliveryIssueRepository,
   DeliveryIssueWithCourier,
 } from 'src/persistence/repositories/delivery-issue.repository'
@@ -22,7 +23,17 @@ export class DeliveryIssueDomainService {
     return this.deliveryIssueRepository.create({ ...input, note })
   }
 
-  async listForDelivery(deliveryId: string): Promise<DeliveryIssueWithCourier[]> {
+  async listForDelivery(deliveryId: string): Promise<DeliveryIssueForAdmin[]> {
     return this.deliveryIssueRepository.findForDelivery(deliveryId)
+  }
+
+  // Spec 0034, AC-7. No DeliveryEvent: this touches neither pay nor assignment, and handledByUserId
+  // is the record.
+  async markHandled(deliveryId: string, issueId: string, userId: string): Promise<DeliveryIssueForAdmin> {
+    const issue = await this.deliveryIssueRepository.markHandled(deliveryId, issueId, userId, new Date())
+    if (!issue) {
+      throw new NotFoundException(`Report ${issueId} not found on delivery ${deliveryId}`)
+    }
+    return issue
   }
 }

@@ -118,6 +118,24 @@ export class DeliveryAdminRestApiController {
     return issues.map((issue) => new DeliveryIssueAdminDto(issue))
   }
 
+  // Spec 0034, AC-7: the board's one click. A second click keeps the first person and still answers 200.
+  @common.Post(':deliveryId/issues/:issueId/handled')
+  // Nest answers 201 to a POST unless told otherwise; this one creates nothing.
+  @common.HttpCode(200)
+  @swagger.ApiOkResponse({ type: DeliveryIssueAdminDto })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiOperation({ summary: "Mark a rider's report handled" })
+  @Roles(EnumUserRole.ADMIN)
+  async markDeliveryIssueHandled(
+    @common.Param('deliveryId') deliveryId: string,
+    @common.Param('issueId') issueId: string,
+    @CurrentUser() user: UserEntity
+  ): Promise<DeliveryIssueAdminDto> {
+    const issue = await this.deliveryIssueDomainService.markHandled(deliveryId, issueId, user.id)
+    return new DeliveryIssueAdminDto(issue)
+  }
+
   // Spec 0032, AC-4 and AC-6: an admin takes the call, so any status is allowed.
   @common.Get(':deliveryId/product-reports')
   @swagger.ApiOkResponse({ type: [ProductReportAdminDto] })

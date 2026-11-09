@@ -95,7 +95,7 @@ function sum(values: number[]): number {
 }
 
 // With an even count, the mean of the two middle values (AC-5).
-function median(values: number[]): number {
+export function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2

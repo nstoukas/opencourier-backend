@@ -141,7 +141,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     const coord = `POINT(${longitude} ${latitude})`
     const queryRaw = Prisma.sql`
       UPDATE "Courier"
-      SET "currentLocation" = ST_GeomFromText(${coord}, 4326)
+      SET "currentLocation" = ST_GeomFromText(${coord}, 4326),
+          "currentLocationAt" = NOW() AT TIME ZONE 'UTC'
       WHERE "id" = ${courier.id}
     `
 

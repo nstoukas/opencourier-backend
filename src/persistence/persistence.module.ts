@@ -20,6 +20,7 @@ import { ShiftBookingRepository } from './repositories/shift-booking.repository'
 import { SosIncidentRepository } from './repositories/sos-incident.repository'
 import { PartnerChargeRepository } from './repositories/partner-charge.repository'
 import { DeliveryIssueRepository } from './repositories/delivery-issue.repository'
+import { DispatchBoardRepository } from './repositories/dispatch-board.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 
 @Global()
@@ -45,6 +46,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     ShiftBookingRepository,
     PartnerChargeRepository,
     DeliveryIssueRepository,
+    DispatchBoardRepository,
     SavedCustomerRepository,
     SosIncidentRepository,
   ],
@@ -69,6 +71,7 @@ import { SavedCustomerRepository } from './repositories/saved-customer.repositor
     ShiftBookingRepository,
     PartnerChargeRepository,
     DeliveryIssueRepository,
+    DispatchBoardRepository,
     SavedCustomerRepository,
     SosIncidentRepository,
   ],

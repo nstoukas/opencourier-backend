@@ -11,6 +11,7 @@ import { ProductReportAdminRestApiModule } from './product-report/admin/product-
 import { DispatchStopAdminRestApiModule } from './dispatch-stop/admin/dispatch-stop.admin.rest-api.module'
 import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin.rest-api.module'
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
+import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -27,6 +28,8 @@ import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
     DispatchStopAdminRestApiModule,
     ShiftSlotAdminRestApiModule,
     SosAdminRestApiModule,
+    // The live Dispatch board (spec 0034).
+    DispatchBoardAdminRestApiModule,
   ],
 })
 export class AdminRestApiModule {}

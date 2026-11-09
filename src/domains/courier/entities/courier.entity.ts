@@ -22,12 +22,16 @@ export class CourierEntity implements Courier {
   // entities) never gains a "searchFold" key (row 98 review, decision 98.3).
   declare searchFold: string | null
 
+  // Spec 0034: when the position was last written. Declared because the Prisma model has it, never
+  // copied from the row, like searchFold: only the dispatch board's query reads it (AC-13).
+  declare currentLocationAt: Date | null
+
   userId: string
   createdAt: Date
   updatedAt: Date
 
-  // Omit: the entity never reads searchFold (spec 0025), so callers need not have it.
-  constructor(data: Omit<Courier, 'searchFold'> & { currentLocation?: GeoPosition | null }) {
+  // Omit: the entity never reads searchFold (spec 0025) or currentLocationAt (spec 0034), so callers need not have them.
+  constructor(data: Omit<Courier, 'searchFold' | 'currentLocationAt'> & { currentLocation?: GeoPosition | null }) {
     this.id = data.id
     this.node_uri = data.node_uri
     this.firstName = data.firstName

@@ -55,7 +55,8 @@ const seedTestingCourier = async (prisma: PrismaClient) => {
   const point = `POINT(-74.005974 40.712776)`
   await prisma.$queryRaw`
       UPDATE "Courier"
-      SET "currentLocation" = ST_GeomFromText(${point}, 4326)
+      SET "currentLocation" = ST_GeomFromText(${point}, 4326),
+          "currentLocationAt" = NOW() AT TIME ZONE 'UTC'
       WHERE "id" = ${courierDB.id}
 		`
 }
@@ -105,7 +106,8 @@ const seedCouriersFromSeedFile = async (prisma: PrismaClient) => {
 
     await prisma.$queryRaw`
       UPDATE "Courier"
-      SET "currentLocation" = ST_GeomFromText(${point}, 4326)
+      SET "currentLocation" = ST_GeomFromText(${point}, 4326),
+          "currentLocationAt" = NOW() AT TIME ZONE 'UTC'
       WHERE "id" = ${courierDB.id}
 		`
     createdNr++

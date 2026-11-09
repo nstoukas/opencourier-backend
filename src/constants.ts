@@ -246,3 +246,10 @@ export const INSTANCE_TIMEZONE = 'Europe/Athens'
 
 // A stop that starts within this many hours shows in the riders' and restaurants' banners (spec 0014).
 export const DISPATCH_STOP_LOOKAHEAD_HOURS = 12
+
+// The dispatch map leaves out a rider whose last position is older than this (spec 0034, AC-12).
+// A dead phone must not look like a rider standing still.
+export const DISPATCH_MAP_POSITION_MAX_AGE_MINUTES = 5
+
+// The most rows the board's Needs attention list sends, to protect the response (spec 0034).
+export const DISPATCH_ATTENTION_ROW_LIMIT = 100

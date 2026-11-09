@@ -107,7 +107,9 @@ export class DeliveryDomainService {
   // The admin Offer column (spec 0002, AC-11), for many deliveries in two queries. Only deliveries
   // still looking for a rider get anything: an open offer gets its rider's name, a delivery nobody
   // is offered gets the start of its wait. Keyed by delivery id; every delivery gets an entry.
-  async getOfferViews(deliveries: DeliveryEntity[]): Promise<Map<string, DeliveryOfferView>> {
+  async getOfferViews(
+    deliveries: Pick<DeliveryEntity, 'id' | 'status' | 'courierId' | 'matchedCourierId'>[]
+  ): Promise<Map<string, DeliveryOfferView>> {
     const looking = deliveries.filter((d) => d.status === EnumDeliveryStatus.ASSIGNING_COURIER && !d.courierId)
     const offered = looking.filter((d) => d.matchedCourierId)
     const waiting = looking.filter((d) => !d.matchedCourierId)
