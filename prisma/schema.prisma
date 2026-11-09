@@ -36,6 +36,9 @@ model User {
 
   // Rider reports this admin marked handled (spec 0034).
   deliveryIssuesHandled DeliveryIssue[]
+
+  // Removal requests this admin approved or declined (spec 0035).
+  removalRequestsDecided DeliveryRemovalRequest[]
 }
 
 model Comment {
@@ -86,6 +89,7 @@ model Courier {
   locationNoteReactions LocationNoteReaction[]
   courierCompensations  CourierCompensation[]
   deliveryIssues        DeliveryIssue[]
+  removalRequests       DeliveryRemovalRequest[]
   // Events that name this rider (OFFERED, OFFER_EXPIRED), spec 0002. Read only on a
   // delivery's own timeline; never grouped by rider (binding value 5).
   deliveryEvents        DeliveryEvent[]
@@ -424,6 +428,7 @@ model Delivery {
   locationNote         LocationNote[]
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
+  removalRequests      DeliveryRemovalRequest[]
   partnerCharges       PartnerCharge[]
   sosIncidents         SosIncident[]
   // The admin search's folded reference, customer and restaurant (spec 0025). Written only by the
@@ -683,6 +688,15 @@ enum EnumDeliveryEventType {
   // Spec 0033: a rider left a restaurant that kept them waiting, and the pay for that wait.
   WAIT_UNDISPATCHED
   COURIER_PAID_FOR_WAIT
+  // Spec 0035: a rider asks dispatch to take them off an order, and the answer. Only
+  // REMOVAL_APPROVED before pickup changes the status; the pay events are recorded beside it.
+  REMOVAL_REQUESTED
+  REMOVAL_WITHDRAWN
+  REMOVAL_DECLINED
+  REMOVAL_APPROVED
+  COURIER_PAID_FOR_REMOVAL
+  PARTNER_CHARGED_FOR_REMOVAL
+  COURIER_PAID_FOR_RETURN_TRIP
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -753,6 +767,10 @@ enum EnumCourierCompensationReason {
   CANCELLATION
   // Paid for waiting at a restaurant past its promised time (spec 0033).
   WAITING
+  // Paid for being taken off a delivery before pickup, at the rider's request (spec 0035).
+  REMOVAL
+  // Paid for bringing the food back to the restaurant after a cancellation (spec 0035).
+  RETURN_TRIP
 }
 
 // Who cancelled a delivery (spec 0015). The partner says RESTAURANT or CUSTOMER; an admin may say COOP.
@@ -771,10 +789,74 @@ enum EnumFoodOutcome {
 enum EnumPartnerChargeReason {
   CANCELLATION
   WAITING
+  REMOVAL
 }
 
 // What a restaurant owes the co-op, recorded now and invoiced by the payments rows later
 // (spec 0015: a restaurant's own cancellation after a rider accepted, for the delivery's price).
+// Spec 0035: the co-op's list of reasons a rider can give for asking off an order. Whether each
+// one pays the rider or bills the restaurant is set by representatives in admin (value 2).
+model RemovalReason {
+  id                  String    @id @default(cuid())
+  label               String    @postgres.VarChar(60)
+  paidToRider         Boolean   @default(true)
+  chargedToRestaurant Boolean   @default(false)
+  // Whether the rider must write a note with this reason.
+  needsNote           Boolean   @default(false)
+  position            Int
+  // Set when an admin removes the reason; a request keeps its own copy, so old requests never change.
+  removedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  requests DeliveryRemovalRequest[]
+}
+
+enum EnumRemovalRequestStatus {
+  OPEN
+  APPROVED
+  DECLINED
+  WITHDRAWN
+  CLOSED
+}
+
+// Spec 0035: one rider's request to come off one delivery. A row beside the delivery: its status
+// moves only when someone decides, and the rider keeps working the order until then.
+model DeliveryRemovalRequest {
+  id                  String                   @id @default(cuid())
+  deliveryId          String
+  delivery            Delivery                 @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  courierId           String
+  courier             Courier                  @relation(fields: [courierId], references: [id])
+  reasonId            String
+  reason              RemovalReason            @relation(fields: [reasonId], references: [id])
+  // Copied from the reason when the rider sends it, so editing the reason never changes this request.
+  label               String                   @postgres.VarChar(60)
+  paidToRider         Boolean
+  chargedToRestaurant Boolean
+  // The rider's own words: never in a log, a push to anyone else, or an event message.
+  note                String?                  @postgres.VarChar(500)
+  status              EnumRemovalRequestStatus @default(OPEN)
+  // The delivery id while OPEN, null otherwise: one open request per delivery (the `cancellationOf` pattern).
+  openFor             String?                  @unique
+  createdAt           DateTime                 @default(now())
+  decidedAt           DateTime?
+  decidedByUserId     String?
+  decidedBy           User?                    @relation(fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  // The sentence an admin wrote when declining.
+  decisionNote        String?                  @postgres.VarChar(500)
+  // Fixed at the approve, in cents, because a later rider's accept recalculates the delivery's pay.
+  payAmount           Int?
+  payPolicy           String?
+  // Set at the approve: the food was already with the rider, so the order was cancelled.
+  afterPickup         Boolean                  @default(false)
+  // Set once every piece of this approval is written (the pay, the charge, their events).
+  settledAt           DateTime?
+
+  @@index([status, createdAt])
+  @@index([deliveryId, createdAt])
+}
+
 model PartnerCharge {
   id           String                  @id @default(cuid())
   partnerId    String
@@ -784,6 +866,8 @@ model PartnerCharge {
   deliveryId   String
   cancellationOf String?                 @unique
   waitOf       String?                 @unique
+  // The request's id on a REMOVAL row (spec 0035): one approved removal bills once.
+  removalOf    String?                 @unique
   delivery     Delivery                @relation(fields: [deliveryId], references: [id])
   amount       Int // cents
   currencyCode String                  @postgres.VarChar(255)
@@ -814,6 +898,10 @@ model CourierCompensation {
   // `<deliveryId>:<the event that ended the wait>` on a WAITING row, null otherwise (spec 0033):
   // one wait is paid once.
   waitOf         String?                       @unique
+  // The request's id on a REMOVAL row (spec 0035): one approved removal pays once.
+  removalOf      String?                       @unique
+  // The delivery id on a RETURN_TRIP row (spec 0035): one trip back is paid once.
+  returnOf       String?                       @unique
   createdAt      DateTime                      @default(now())
 
   // Earnings queries filter by courier + date range; DeliveryEvent's missing
