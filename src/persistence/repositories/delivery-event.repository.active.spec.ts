@@ -394,6 +394,23 @@ describe('DeliveryEventRepository', () => {
         expect(result).toBe(false)
       })
     })
+
+    describe('findMessagesOfType', () => {
+      test('queries findMany matching deliveryId and type with message selected, mapping null messages to empty string', async () => {
+        mockPrisma.deliveryEvent.findMany.mockResolvedValueOnce([{ message: 'first' }, { message: null }])
+
+        const result = await repository.findMessagesOfType('del-1', EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL)
+
+        expect(mockPrisma.deliveryEvent.findMany).toHaveBeenCalledWith({
+          where: {
+            deliveryId: 'del-1',
+            type: EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL,
+          },
+          select: { message: true },
+        })
+        expect(result).toEqual(['first', ''])
+      })
+    })
   })
 
   describe('Migration 20261031200000_add_delivery_event_occurred_at (Spec 0009, AC-4, AC-9)', () => {

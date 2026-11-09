@@ -3,6 +3,7 @@ import {
   EnumCourierCompensationReason,
   EnumDeliveryEventType,
   EnumDeliveryStatus,
+  EnumFoodOutcome,
   EnumPartnerChargeReason,
   EnumRemovalRequestStatus,
 } from '@prisma/types'
@@ -71,6 +72,44 @@ describe('Repositories for Cancellation (Spec 0015 AC-1, AC-6, AC-10)', () => {
       // Verify that 'status' is NOT in the where clause (keyed on cancelledAt, not on status, so FAILED is covered)
       const calledWhere = mockPrisma.delivery.findMany.mock.calls[0][0].where
       expect(calledWhere).not.toHaveProperty('status')
+    })
+  })
+
+  describe('DeliveryRepository.findReturnTripsToSettle (Spec 0035, AC-18)', () => {
+    let repository: DeliveryRepository
+    let mockPrisma: { delivery: { findMany: jest.Mock } }
+
+    beforeEach(() => {
+      mockPrisma = {
+        delivery: {
+          findMany: jest.fn(),
+        },
+      }
+      repository = new DeliveryRepository(mockPrisma as unknown as PrismaService)
+    })
+
+    it('queries returned food missing compensation or event, returning plain ids', async () => {
+      const from = new Date('2026-11-09T10:00:00.000Z')
+      const to = new Date('2026-11-10T10:00:00.000Z')
+
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([{ id: 'del-1' }, { id: 'del-2' }])
+
+      const result = await repository.findReturnTripsToSettle(from, to)
+
+      expect(result).toEqual(['del-1', 'del-2'])
+      expect(mockPrisma.delivery.findMany).toHaveBeenCalledWith({
+        where: {
+          foodOutcome: EnumFoodOutcome.RETURNED,
+          foodOutcomeAt: { gte: from, lte: to },
+          OR: [
+            { courierCompensations: { none: { reason: EnumCourierCompensationReason.RETURN_TRIP } } },
+            { deliveryEvent: { none: { type: EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP } } },
+          ],
+        },
+        select: { id: true },
+        orderBy: { foodOutcomeAt: 'asc' },
+        take: 200,
+      })
     })
   })
 
