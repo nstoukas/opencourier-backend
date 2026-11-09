@@ -222,6 +222,39 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return result
   }
 
+  // Spec 0030: this restaurant's deliveries in the period that reached pickup and have a ready time,
+  // with only the events the wait record reads. No courierId is selected, so no rider can leak.
+  async findForWaitRecord(partnerId: string, since: Date) {
+    const deliveries = await this.prisma.delivery.findMany({
+      where: {
+        partnerId,
+        createdAt: { gte: since },
+        readyAt: { not: null },
+        deliveryEvent: { some: { type: EnumDeliveryEventType.PICKED_UP, transitionSuccessful: true } },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        readyAt: true,
+        foodReadyAt: true,
+        deliveryEvent: {
+          where: {
+            transitionSuccessful: true,
+            type: {
+              in: [
+                EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+                EnumDeliveryEventType.PICKED_UP,
+                EnumDeliveryEventType.READY_DELAYED,
+              ],
+            },
+          },
+          select: { type: true, occurredAt: true },
+        },
+      },
+    })
+    return deliveries.map(({ deliveryEvent, ...delivery }) => ({ ...delivery, events: deliveryEvent }))
+  }
+
   async findById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
     const delivery = await this.prisma.delivery.findUnique({
       where: {

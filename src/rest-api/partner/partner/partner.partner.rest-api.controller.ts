@@ -7,6 +7,8 @@ import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
 import { Roles } from 'src/decorators/roles.decorator'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
+import { DEFAULT_WAIT_RECORD_DAYS } from 'src/domains/partner/wait-record'
+import { PartnerWaitRecordDomainService } from 'src/domains/partner/partner-wait-record.domain.service'
 import { availabilityOf } from 'src/domains/partner/partner-availability'
 import { AvailabilityActor, PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
 import * as errors from 'src/errors'
@@ -14,6 +16,8 @@ import { PartnerAvailabilityPartnerDto } from './dtos/partner-availability.partn
 import { PartnerProfileDto } from './dtos/partner-profile.partner.dto'
 import { BusyOnPartnerInput } from './queries/busy-on.partner.input'
 import { PausePartnerInput } from './queries/pause.partner.input'
+import { WaitRecordPartnerArgs } from './queries/wait-record.partner.args'
+import { WaitRecordPartnerDto } from './dtos/wait-record.partner.dto'
 
 // Only system admins can alter partner profile fields; no mutation endpoints exist in the partner namespace.
 @swagger.ApiBearerAuth()
@@ -22,7 +26,8 @@ import { PausePartnerInput } from './queries/pause.partner.input'
 export class PartnerPartnerRestApiController {
   constructor(
     private readonly locationDomainService: LocationDomainService,
-    private readonly partnerAvailabilityDomainService: PartnerAvailabilityDomainService
+    private readonly partnerAvailabilityDomainService: PartnerAvailabilityDomainService,
+    private readonly partnerWaitRecordDomainService: PartnerWaitRecordDomainService
   ) {}
 
   @common.Get('profile')
@@ -90,6 +95,24 @@ export class PartnerPartnerRestApiController {
     const now = new Date()
     const updated = await this.partnerAvailabilityDomainService.resume(partner, this.actorOf(partner), now)
     return new PartnerAvailabilityPartnerDto(availabilityOf(updated, now))
+  }
+
+  // Spec 0030, AC-1: the restaurant's own record.
+  @common.Get('wait-record')
+  @swagger.ApiResponse({ type: WaitRecordPartnerDto })
+  @swagger.ApiOperation({ summary: "The restaurant's own wait record" })
+  @ApiKeyAuth()
+  @Roles(EnumUserRole.PARTNER)
+  async getWaitRecord(
+    @common.Query() args: WaitRecordPartnerArgs,
+    @CurrentUserPartner() partner: PartnerEntity
+  ): Promise<WaitRecordPartnerDto> {
+    const record = await this.partnerWaitRecordDomainService.getWaitRecord(
+      partner,
+      args.days ?? DEFAULT_WAIT_RECORD_DAYS,
+      new Date()
+    )
+    return new WaitRecordPartnerDto(record)
   }
 
   // A partner session always carries its user; a restaurant with no sign in cannot get this far.
