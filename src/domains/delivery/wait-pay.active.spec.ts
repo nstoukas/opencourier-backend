@@ -434,6 +434,62 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
       expect(result).toHaveLength(1)
       expect(result[0]?.endEventId).toBe('evt-pickup')
     })
+
+    describe('with non-null foodReadyAt (decision 23.14)', () => {
+      it('late rider who found the food ready produces no wait', () => {
+        // Promise 10:00, free 10 min -> free until 10:10.
+        // Food marked ready at 10:05.
+        // Rider arrives late at 10:15 (after 10:10) and picks up at 10:25.
+        // Because the order was ready before the rider arrived, no wait is owed or recorded.
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 15),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-pickup',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 25),
+            courierId: 'courier-1',
+          },
+        ]
+
+        const result = completedWaits(events, at(10, 0), at(10, 5), 10)
+        expect(result).toEqual([])
+      })
+
+      it('late rider who arrived before the food was ready produces one', () => {
+        // Promise 10:00, free 10 min -> free until 10:10.
+        // Rider arrives late at 10:15.
+        // Food marked ready at 10:20 (after rider arrived).
+        // Rider picks up at 10:25 -> paid 10 minutes (10:15 to 10:25).
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 15),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-pickup',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 25),
+            courierId: 'courier-1',
+          },
+        ]
+
+        const result = completedWaits(events, at(10, 0), at(10, 20), 10)
+        expect(result).toEqual([
+          {
+            endEventId: 'evt-pickup',
+            courierId: 'courier-1',
+            minutes: 10,
+          },
+        ])
+      })
+    })
   })
 
   describe('latestCompletedWait (review fix)', () => {
@@ -555,6 +611,94 @@ describe('wait-pay domain logic (Spec 0033 AC-1, AC-2, AC-3, AC-6)', () => {
 
       expect(latestCompletedWait(events, promisedReadyAt, foodReadyAt, freeMinutes)).toBeNull()
       expect(latestCompletedWait([], promisedReadyAt, foodReadyAt, freeMinutes)).toBeNull()
+    })
+
+    describe('with non-null foodReadyAt (decision 23.14)', () => {
+      it('late rider who found the food ready produces no wait (returns null)', () => {
+        // Promise 10:00, free 10 min -> free until 10:10.
+        // Food marked ready at 10:05.
+        // Rider arrives late at 10:15 and picks up at 10:25.
+        // Order was ready before arrival, so wait earned 0 minutes -> latestCompletedWait returns null.
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 15),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-pickup',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 25),
+            courierId: 'courier-1',
+          },
+        ]
+
+        const result = latestCompletedWait(events, at(10, 0), at(10, 5), 10)
+        expect(result).toBeNull()
+      })
+
+      it('late rider who arrived before the food was ready produces one', () => {
+        // Promise 10:00, free 10 min -> free until 10:10.
+        // Rider arrives late at 10:15.
+        // Food marked ready at 10:20 (after arrival).
+        // Rider picks up at 10:25 -> paid 10 minutes.
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 15),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-pickup',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 25),
+            courierId: 'courier-1',
+          },
+        ]
+
+        const result = latestCompletedWait(events, at(10, 0), at(10, 20), 10)
+        expect(result).toEqual({
+          endEventId: 'evt-pickup',
+          courierId: 'courier-1',
+          minutes: 10,
+        })
+      })
+
+      it('returns null when newest end is a late rider who found food ready, even when an earlier wait completed', () => {
+        // Earlier wait: Rider 1 arrived at 09:58 and left at 10:15 (earned 5 min with free 10 min from 10:00)
+        // Newest wait: Rider 2 arrived late at 10:20, food was ready at 10:05, picked up at 10:30 (earned 0 min)
+        const events: WaitEvent[] = [
+          {
+            id: 'evt-arr-1',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(9, 58),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-leave-1',
+            type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
+            occurredAt: at(10, 15),
+            courierId: 'courier-1',
+          },
+          {
+            id: 'evt-arr-2',
+            type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            occurredAt: at(10, 20),
+            courierId: 'courier-2',
+          },
+          {
+            id: 'evt-pickup-2',
+            type: EnumDeliveryEventType.PICKED_UP,
+            occurredAt: at(10, 30),
+            courierId: 'courier-2',
+          },
+        ]
+
+        const result = latestCompletedWait(events, at(10, 0), at(10, 5), 10)
+        expect(result).toBeNull()
+      })
     })
   })
 })
