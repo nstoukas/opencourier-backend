@@ -75,7 +75,9 @@ export class DeliveryAdminRestApiController {
     const offerViews = await this.deliveryDomainService.getOfferViews([delivery])
     // Spec 0015, AC-13: a restaurant's cancellation charge, shown on the delivery's page.
     const partnerCharge = delivery.cancelledAt ? await this.deliveryDomainService.getPartnerCharge(delivery.id) : null
-    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id), partnerCharge)
+    // Spec 0033 (decision 23.20): what the restaurant was charged for keeping riders waiting.
+    const waitCharges = await this.deliveryDomainService.getWaitCharges(delivery.id)
+    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id), partnerCharge, waitCharges)
     return dto
   }
 

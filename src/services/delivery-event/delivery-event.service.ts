@@ -1190,6 +1190,7 @@ export class DeliveryEventService {
         paidWaitMinutes({
           arrivedAt: delivery.arrivedAtPickupAt,
           promisedReadyAt: delivery.promisedReadyAt,
+          foodReadyAt: delivery.foodReadyAt,
           freeMinutes,
           endedAt,
         }) > 0
@@ -1214,7 +1215,7 @@ export class DeliveryEventService {
       const freeMinutes = await config.getWaitPayFreeMinutes()
       const centsPerMinute = await config.getWaitPayCentsPerMinute()
       const events = await this.deliveryEventRepository.findWaitEvents(deliveryId)
-      const newest = latestCompletedWait(events, delivery.promisedReadyAt, freeMinutes)
+      const newest = latestCompletedWait(events, delivery.promisedReadyAt, delivery.foodReadyAt, freeMinutes)
 
       const awards = await this.courierCompensationRepository.findWaitAwards(deliveryId)
       // A rate set to 0 since the wait ended writes nothing (decision 23.10).

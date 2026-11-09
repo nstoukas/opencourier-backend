@@ -4,18 +4,17 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { DeliveryNotFoundException } from 'src/errors'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
-
-const MINUTE_MS = 60_000
+import { waitLeaveFrom } from 'src/domains/delivery/wait-pay'
 
 export const NOT_WAITING_MESSAGE = 'You can only leave while you are waiting at the restaurant.'
 export const ORDER_CHANGED_MESSAGE = 'This order changed. Check your jobs.'
 
 export function tooSoonMessage(limitMinutes: number): string {
-  return `You can leave ${limitMinutes} ${limitMinutes === 1 ? 'minute' : 'minutes'} after arriving.`
+  return `You can leave ${limitMinutes} ${limitMinutes === 1 ? 'minute' : 'minutes'} after the time the food was promised.`
 }
 
 // Spec 0033 (AC-6): a rider leaves a restaurant that kept them waiting past the co-op's limit. The
-// checks come in the spec's order: is it theirs, are they waiting at the restaurant, is the limit over.
+// checks come in the spec's order: is it theirs, are they waiting at the restaurant, has the time come.
 @Injectable()
 export class LeaveWaitCourierService {
   constructor(
@@ -40,8 +39,8 @@ export class LeaveWaitCourierService {
         : await this.deliveryEventService.occurredAtForCourierTap(delivery, { receivedAt: new Date(), tapAgeMs })
 
     const limitMinutes = await this.configDomainService.instanceConfig.getWaitLimitMinutes()
-    const arrivedAt = delivery.arrivedAtPickupAt?.getTime()
-    if (arrivedAt === undefined || occurredAt.getTime() - arrivedAt < limitMinutes * MINUTE_MS) {
+    // Counted from the restaurant's first promise (decision 23.15), not from the rider's arrival.
+    if (!delivery.promisedReadyAt || occurredAt < waitLeaveFrom(delivery.promisedReadyAt, limitMinutes)) {
       throw new ConflictException(tooSoonMessage(limitMinutes))
     }
 

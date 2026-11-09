@@ -98,7 +98,7 @@ export const DEFAULT_FEE_PERCENTAGE_AMOUNT = 'DEFAULT_FEE_PERCENTAGE_AMOUNT'
 export const DEFAULT_OFFER_EXPIRY_ENABLED = false
 // Restaurant delay pay (spec 0033). Off until the co-op switches it on; fallbacks only.
 export const DEFAULT_WAIT_PAY_ENABLED = false
-export const DEFAULT_WAIT_PAY_FREE_MINUTES = 5
+export const DEFAULT_WAIT_PAY_FREE_MINUTES = 10
 export const WAIT_PAY_FREE_MINUTES_MIN = 0
 export const WAIT_PAY_FREE_MINUTES_MAX = 60
 export const DEFAULT_WAIT_PAY_CENTS_PER_MINUTE = 10

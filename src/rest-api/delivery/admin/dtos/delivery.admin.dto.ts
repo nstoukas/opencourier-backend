@@ -224,13 +224,18 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Object, nullable: true })
   partnerCharge: { amount: number; currencyCode: string; createdAt: Date } | null
 
+  // Spec 0033. Only the get by id endpoint loads it; empty elsewhere and when nothing was charged.
+  @ApiProperty({ type: Object, isArray: true })
+  waitCharges: { amount: number; currencyCode: string; createdAt: Date }[]
+
   // `quote?` = optional: the list and event endpoints build this DTO without loading a quote.
   // `offerView?` = optional too: only the list and get by id endpoints look the rider name up.
   constructor(
     data: DeliveryEntity,
     quote?: DeliveryQuoteEntity,
     offerView?: DeliveryOfferView,
-    partnerCharge?: { amount: number; currencyCode: string; createdAt: Date } | null
+    partnerCharge?: { amount: number; currencyCode: string; createdAt: Date } | null,
+    waitCharges: { amount: number; currencyCode: string; createdAt: Date }[] = []
   ) {
     this.id = data.id
     this.pickupName = data.pickupName
@@ -301,5 +306,6 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.foodOutcome = data.foodOutcome ?? null
     this.foodOutcomeAt = data.foodOutcomeAt ?? null
     this.partnerCharge = partnerCharge ?? null
+    this.waitCharges = waitCharges
   }
 }

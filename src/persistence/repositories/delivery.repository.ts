@@ -136,6 +136,15 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return rows.map((row) => row.id)
   }
 
+  // Spec 0033: what the restaurant was charged for keeping riders waiting, oldest first.
+  async findWaitCharges(deliveryId: string) {
+    return this.prisma.partnerCharge.findMany({
+      where: { deliveryId, reason: EnumPartnerChargeReason.WAITING },
+      select: { amount: true, currencyCode: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    })
+  }
+
   // Spec 0015: the restaurant's charge for this delivery's cancellation, or null.
   async findPartnerCharge(deliveryId: string) {
     return this.prisma.partnerCharge.findUnique({

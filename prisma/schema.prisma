@@ -685,6 +685,8 @@ enum EnumDeliveryIssueReason {
   WRONG_ADDRESS
   NO_SIGNAL
   ORDER_HANDED
+  // The restaurant marked the food ready and it was not (spec 0033, decision 23.16).
+  FOOD_NOT_READY
   OTHER
 }
 

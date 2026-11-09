@@ -69,9 +69,9 @@ export class DeliveryRestApiCourierService {
     }
   }
 
-  // Spec 0033: how long after arriving a rider may leave a late order.
-  async getWaitLimitMinutes(): Promise<number> {
-    return this.deliveryDomainService.getWaitLimitMinutes()
+  // Spec 0033: what the rider's job card needs from the co-op's settings.
+  async getCourierWaitRules() {
+    return this.deliveryDomainService.getCourierWaitRules()
   }
 
   async getMyInProgressDeliveriesWithNotes(courierId: string, page?: number, perPage?: number) {

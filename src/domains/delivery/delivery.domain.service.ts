@@ -54,6 +54,7 @@ export function arrivalHow(detected?: boolean): string {
 
 // A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
 const DEFAULT_USUAL_PREP_MINUTES = 15
+import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 
 @Injectable()
 export class DeliveryDomainService {
@@ -138,8 +139,19 @@ export class DeliveryDomainService {
     return delivery
   }
 
-  async getWaitLimitMinutes(): Promise<number> {
-    return this.configDomainService.instanceConfig.getWaitLimitMinutes()
+  // Spec 0033: what the rider's job card needs from the co-op's settings.
+  async getCourierWaitRules(): Promise<CourierWaitRules> {
+    const config = this.configDomainService.instanceConfig
+    return {
+      leaveMinutes: await config.getWaitLimitMinutes(),
+      freeMinutes: await config.getWaitPayFreeMinutes(),
+      payOn: (await config.getWaitPayEnabled()) && (await config.getWaitPayCentsPerMinute()) > 0,
+    }
+  }
+
+  // Spec 0033: what the restaurant was charged for keeping riders waiting on this delivery.
+  async getWaitCharges(deliveryId: string) {
+    return this.deliveryRepository.findWaitCharges(deliveryId)
   }
 
   async create(input: IDeliveryCreate) {

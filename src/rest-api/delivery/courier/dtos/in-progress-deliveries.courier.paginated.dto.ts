@@ -4,6 +4,7 @@ import { Expose, Type } from 'class-transformer'
 import { PaginationDto } from '../../../../core/dtos/PaginationDto'
 import { InProgressDeliveryCourierDto } from './in-progress-delivery.courier.dto'
 import { InProgressDeliveryCourier } from '../types/in-progress-delivery.courier.type'
+import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 
 export class InProgressDeliveriesCourierPaginatedDto {
   @ApiProperty({
@@ -32,15 +33,9 @@ export class InProgressDeliveriesCourierPaginatedDto {
   @Expose()
   serverNow: Date
 
-  // Spec 0033 (AC-5): how long after arriving a rider may leave a late order; the co-op's setting.
-  @ApiProperty({ type: Number })
-  @Expose()
-  waitLimitMinutes: number
-
-  constructor(data: { data: InProgressDeliveryCourier[]; pagination?: PaginationDto }, waitLimitMinutes: number) {
-    this.data = data.data.map((order) => new InProgressDeliveryCourierDto(order))
+  constructor(data: { data: InProgressDeliveryCourier[]; pagination?: PaginationDto }, waitRules: CourierWaitRules) {
+    this.data = data.data.map((order) => new InProgressDeliveryCourierDto(order, waitRules))
     this.pagination = data.pagination
     this.serverNow = new Date()
-    this.waitLimitMinutes = waitLimitMinutes
   }
 }
