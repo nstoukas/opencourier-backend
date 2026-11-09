@@ -189,7 +189,9 @@ describe('DeliveryOrderItemInput.kind on partner delivery create (spec 0028 AC-1
         deliveryEventService as any,
         {} as any,
         {} as any,
-        {} as any
+        {} as any,
+        // Row 21: the domain service reads the restaurant's usual prep time on create.
+        { findById: jest.fn().mockResolvedValue(null) } as any
       )
       jest.spyOn(domain, 'getByDeliveryQuoteId').mockResolvedValue(null as any)
 
