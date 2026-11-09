@@ -26,7 +26,12 @@ export class PartnerAvailabilityChangeRepository extends EntityRepository {
     change: PartnerAvailabilityChangeData
   ): Promise<PartnerEntity> {
     const [partner] = await this.prisma.$transaction([
-      this.prisma.partner.update({ where: { id: partnerId }, data: partnerData }),
+      // The same relations the page's read loads, so an admin's answer keeps the email and the pickup.
+      this.prisma.partner.update({
+        where: { id: partnerId },
+        data: partnerData,
+        include: { user: { select: { email: true } }, pickupLocation: true },
+      }),
       this.prisma.partnerAvailabilityChange.create({ data: { ...change, partnerId } }),
     ])
     return new PartnerEntity(partner)

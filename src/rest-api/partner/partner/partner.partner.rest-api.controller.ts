@@ -45,6 +45,7 @@ export class PartnerPartnerRestApiController {
   @common.HttpCode(200)
   @swagger.ApiResponse({ type: PartnerAvailabilityPartnerDto })
   @swagger.ApiOperation({ summary: 'Turn busy mode on or change its extra minutes' })
+  @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
   async busyOn(
     @common.Body() input: BusyOnPartnerInput,
@@ -57,6 +58,7 @@ export class PartnerPartnerRestApiController {
   @common.Delete('availability/busy')
   @swagger.ApiResponse({ type: PartnerAvailabilityPartnerDto })
   @swagger.ApiOperation({ summary: 'Turn busy mode off' })
+  @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
   async busyOff(@CurrentUserPartner() partner: PartnerEntity): Promise<PartnerAvailabilityPartnerDto> {
     const updated = await this.partnerAvailabilityDomainService.clearBusy(partner, this.actorOf(partner))
@@ -68,6 +70,7 @@ export class PartnerPartnerRestApiController {
   @common.HttpCode(200)
   @swagger.ApiResponse({ type: PartnerAvailabilityPartnerDto })
   @swagger.ApiOperation({ summary: 'Pause ordering for a chosen time' })
+  @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
   async pause(
     @common.Body() input: PausePartnerInput,
@@ -81,6 +84,7 @@ export class PartnerPartnerRestApiController {
   @common.Delete('availability/pause')
   @swagger.ApiResponse({ type: PartnerAvailabilityPartnerDto })
   @swagger.ApiOperation({ summary: 'Resume ordering' })
+  @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
   async resume(@CurrentUserPartner() partner: PartnerEntity): Promise<PartnerAvailabilityPartnerDto> {
     const now = new Date()
