@@ -117,6 +117,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   accept. A new way to give a rider work must call it too. `SosLocationPoint` is read only by the SOS repository and its
   admin DTO; no log line or error may name a coordinate (value 5), and nothing in the SOS module touches a delivery or pay.
 
+- Restaurant delay pay (spec 0033) lives in `src/domains/delivery/wait-pay.ts`: `waitPaidFrom` and `waitLeaveFrom` are the whole rule, called by every path that pays, blocks or displays, so never restate it. `promisedReadyAt` is the first promise and is never moved. A write that takes a rider off a delivery must null `arrivedAtPickupAt` too. `waitPayOwedAt` is the marker that pay is owed: it is set in the status write and cleared only once the rider's row, the event and the charge exist, and the `cancellation-award-sweep` retries it for 24 h. `PartnerCharge` has no unique on `deliveryId`: use `cancellationOf` or `waitOf`. A rider's own taps are trusted (decision 23.19): no checks aimed at riders.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
