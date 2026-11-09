@@ -19,6 +19,7 @@ import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreate } from 'src/domains/delivery/interfaces/IDeliveryCreate'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
+import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 
 export type PrismaDeliveryWithLocations = Delivery & {
@@ -26,7 +27,6 @@ export type PrismaDeliveryWithLocations = Delivery & {
   dropoffLocation: Location | null
 }
 
-import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 @Injectable()
 export class DeliveryRepository extends EntityRepository implements IDeliveryRepository {
   constructor(prisma: PrismaService) {
