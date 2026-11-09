@@ -411,6 +411,24 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
     })
 
+    it('settleWaitPay never throws: repository failure resolves cleanly, leaves waitPayOwedAt set without clearing write, and logs error (AC-8)', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation()
+      mockCourierCompensationRepository.createWaitPayOnce.mockRejectedValue(new Error('DB failure'))
+
+      await expect(service.settleWaitPay(DELIVERY_ID)).resolves.toBeUndefined()
+
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('WAIT_PAY_SETTLE_FAILED'),
+        expect.anything()
+      )
+      // Clearing write (updateIfMatches setting waitPayOwedAt to null) was NOT called
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { waitPayOwedAt: expect.anything() },
+        { waitPayOwedAt: null }
+      )
+    })
+
     it('a wait that ended while pay was off is not paid when a later wait settles (decision 23.9)', async () => {
       // First wait ended at 10:15 (e.g. while pay was off, so not paid).
       // Second wait ended at 10:30 (when pay is on).
@@ -508,6 +526,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
         courierId: null,
         undispatchedAt: OCCURRED_AT,
       })
+      const offerOrWaitSpy = jest.spyOn(service as any, 'offerOrWait').mockResolvedValue(undefined)
 
       const result = await service.leaveWait(delivery, COURIER_ID, OCCURRED_AT)
 
@@ -560,6 +579,92 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
 
       // 5. settleWaitPay called
       expect(mockCourierCompensationRepository.createWaitPayOnce).toHaveBeenCalled()
+
+      // 6. offerOrWait must run after a successful leave (AC-6, AC-7)
+      expect(offerOrWaitSpy).toHaveBeenCalledWith(DELIVERY_ID)
+    })
+
+    it('after leaving, offerOrWait failure is logged and does not change the result true (AC-6, AC-7)', async () => {
+      const delivery = { ...baseDelivery }
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        undispatchedAt: OCCURRED_AT,
+      })
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation()
+      const offerOrWaitSpy = jest.spyOn(service as any, 'offerOrWait').mockRejectedValue(new Error('offerOrWait error'))
+
+      const result = await service.leaveWait(delivery, COURIER_ID, OCCURRED_AT)
+
+      expect(result).toBe(true)
+      expect(offerOrWaitSpy).toHaveBeenCalledWith(DELIVERY_ID)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not start matching after the rider left delivery ${DELIVERY_ID}`)
+      )
+    })
+
+    it('with delay pay off (AC-1), leaveWait past free minutes does not stamp waitPayOwedAt and writes no pay row, event, or charge', async () => {
+      mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(false)
+      const delivery = { ...baseDelivery }
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        undispatchedAt: OCCURRED_AT,
+      })
+
+      const result = await service.leaveWait(delivery, COURIER_ID, OCCURRED_AT)
+
+      expect(result).toBe(true)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        {
+          status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: COURIER_ID,
+        },
+        expect.not.objectContaining({
+          waitPayOwedAt: expect.anything(),
+        })
+      )
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT })
+      )
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
+    })
+
+    it('with wait pay rate of 0 (decision 23.10), leaveWait past free minutes does not stamp waitPayOwedAt and writes nothing', async () => {
+      mockConfigDomainService.instanceConfig.getWaitPayCentsPerMinute.mockResolvedValue(0)
+      const delivery = { ...baseDelivery }
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        ...delivery,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        undispatchedAt: OCCURRED_AT,
+      })
+
+      const result = await service.leaveWait(delivery, COURIER_ID, OCCURRED_AT)
+
+      expect(result).toBe(true)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        {
+          status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: COURIER_ID,
+        },
+        expect.not.objectContaining({
+          waitPayOwedAt: expect.anything(),
+        })
+      )
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT })
+      )
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
     })
 
     it('lost race: removes rider from skip list, saves failed WAIT_UNDISPATCHED event, notifies nobody, offerOrWait does not run, returns false', async () => {
@@ -623,10 +728,13 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       // Timed offers OFF
       mockConfigDomainService.instanceConfig.getOfferTimingEnabled.mockResolvedValue(false)
       mockConfigDomainService.instanceConfig.getOfferLeadMinutes.mockResolvedValue(3)
-      mockConfigDomainService.instanceConfig.getNoCourierRetrySeconds.mockResolvedValue(30)
+      mockConfigDomainService.instanceConfig.getNoCourierRetrySeconds.mockResolvedValue(300)
 
-      const now = Date.now()
-      const futureReadyAt = new Date(now + 10 * 60_000) // 10 min in future
+      const now = new Date('2026-11-09T10:00:00.000Z').getTime()
+      jest.useFakeTimers().setSystemTime(now)
+
+      // readyAt 5 min in future (10:05), lead 3 min -> dueInMs = (5 - 3) * 60_000 = 120_000 ms
+      const futureReadyAt = new Date(now + 5 * 60_000)
 
       const match = {
         courier: courierEntity,
@@ -650,15 +758,100 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       const outcome = await (service as any).offerToNextCourier(DELIVERY_ID)
 
       expect(outcome).toBe('NOT_DUE')
-      // Scheduled a retry
+      // Scheduled a retry with delay pinned to dueInMs = 120_000 ms (AC-7)
       expect(mockBullMQService.addJob).toHaveBeenCalledWith(
         'no-courier-retry',
         expect.objectContaining({ deliveryId: DELIVERY_ID }),
         expect.objectContaining({
-          delay: expect.any(Number),
+          delay: 120_000,
           jobId: expect.stringContaining(`no-courier-retry-${DELIVERY_ID}`),
         })
       )
+
+      jest.useRealTimers()
+    })
+
+    it('held versus offered either side of readyAt less offerLeadMinutes (AC-7)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferTimingEnabled.mockResolvedValue(false)
+      mockConfigDomainService.instanceConfig.getOfferLeadMinutes.mockResolvedValue(3)
+      mockConfigDomainService.instanceConfig.getNoCourierRetrySeconds.mockResolvedValue(300)
+
+      const now = new Date('2026-11-09T10:00:00.000Z').getTime()
+      jest.useFakeTimers().setSystemTime(now)
+
+      mockDeliveryRepository.findById.mockResolvedValue({
+        ...baseDelivery,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: null,
+        courierId: null,
+      })
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        ...baseDelivery,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: null,
+        courierId: null,
+      })
+
+      // Case 1: 4 minutes before readyAt (1 minute before lead threshold: 4 - 3 = 1 min > 0) -> HELD ('NOT_DUE')
+      const heldMatch = {
+        courier: courierEntity,
+        delivery: {
+          readyAt: new Date(now + 4 * 60_000),
+          foodReadyAt: null,
+          undispatchedAt: new Date(now - 60_000),
+        },
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+      }
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue(heldMatch as any)
+
+      const heldOutcome = await (service as any).offerToNextCourier(DELIVERY_ID)
+      expect(heldOutcome).toBe('NOT_DUE')
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'no-courier-retry',
+        expect.objectContaining({ deliveryId: DELIVERY_ID }),
+        expect.objectContaining({ delay: 60_000 })
+      )
+
+      // Case 2: 2 minutes before readyAt (1 minute past lead threshold: 2 - 3 = -1 min <= 0) -> OFFERED ('OFFERED')
+      const offeredMatch = {
+        courier: courierEntity,
+        delivery: {
+          readyAt: new Date(now + 2 * 60_000),
+          foodReadyAt: null,
+          undispatchedAt: new Date(now - 60_000),
+        },
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+      }
+      mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue(offeredMatch as any)
+
+      const offeredOutcome = await (service as any).offerToNextCourier(DELIVERY_ID)
+      expect(offeredOutcome).toBe('OFFERED')
+
+      jest.useRealTimers()
+    })
+
+    it('offerTimingOf pins dueInMs to readyAt less offerLeadMinutes when undispatchedAt is set (AC-7)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferTimingEnabled.mockResolvedValue(false)
+      mockConfigDomainService.instanceConfig.getOfferLeadMinutes.mockResolvedValue(3)
+
+      const now = new Date('2026-11-09T10:00:00.000Z').getTime()
+      jest.useFakeTimers().setSystemTime(now)
+
+      const match = {
+        courier: courierEntity,
+        delivery: {
+          readyAt: new Date(now + 10 * 60_000),
+          foodReadyAt: null,
+          undispatchedAt: new Date(now - 60_000),
+        },
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+      }
+
+      const timing = await (service as any).offerTimingOf(match)
+      // 10 min readyAt - 3 min lead = 7 min = 420_000 ms
+      expect(timing.dueInMs).toBe(7 * 60_000)
+
+      jest.useRealTimers()
     })
 
     it('order left by rider with foodReadyAt set goes out immediately (dueInMs = 0)', async () => {
@@ -777,6 +970,82 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
 
       // settleWaitPay was called
       expect(mockCourierCompensationRepository.createWaitPayOnce).toHaveBeenCalled()
+    })
+
+    it('with delay pay off (AC-1), PICKED_UP past free minutes does not stamp waitPayOwedAt and writes no pay row, event, or charge', async () => {
+      mockConfigDomainService.instanceConfig.getWaitPayEnabled.mockResolvedValue(false)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: COURIER_ID,
+          arrivedAtPickupAt: ARRIVED_AT,
+          promisedReadyAt: PROMISED_READY_AT,
+        })
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: COURIER_ID,
+        })
+
+      await service.processDeliveryEvent({
+        deliveryId: DELIVERY_ID,
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: PICKED_UP_AT,
+      })
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION },
+        expect.not.objectContaining({
+          waitPayOwedAt: expect.anything(),
+        })
+      )
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT })
+      )
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
+    })
+
+    it('with wait pay rate of 0 (decision 23.10), PICKED_UP past free minutes does not stamp waitPayOwedAt and writes nothing', async () => {
+      mockConfigDomainService.instanceConfig.getWaitPayCentsPerMinute.mockResolvedValue(0)
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: COURIER_ID,
+          arrivedAtPickupAt: ARRIVED_AT,
+          promisedReadyAt: PROMISED_READY_AT,
+        })
+        .mockResolvedValueOnce({
+          ...baseDelivery,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: COURIER_ID,
+        })
+
+      await service.processDeliveryEvent({
+        deliveryId: DELIVERY_ID,
+        type: EnumDeliveryEventType.PICKED_UP,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        occurredAt: PICKED_UP_AT,
+      })
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+        DELIVERY_ID,
+        { status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION },
+        expect.not.objectContaining({
+          waitPayOwedAt: expect.anything(),
+        })
+      )
+      expect(mockCourierCompensationRepository.createWaitPayOnce).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT })
+      )
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).not.toHaveBeenCalled()
     })
 
     it('ARRIVED_AT_PICKUP_LOCATION sets arrivedAtPickupAt to occurredAt', async () => {

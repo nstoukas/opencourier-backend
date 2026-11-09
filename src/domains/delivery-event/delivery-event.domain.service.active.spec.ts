@@ -291,6 +291,48 @@ describe('DeliveryEventDomainService', () => {
       })
     })
 
+    test('a delivered order with a REASSIGNMENT row and a WAITING row counts only the WAITING amount in waitingPay and total (decision 23.11)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-with-wait-and-reassign',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 600,
+        tips: 150,
+        pickupBusinessName: 'Ta Koutsavakia',
+        dropoffAddress: 'Iasonos 12, Volos',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-with-wait-and-reassign',
+          createdAt: new Date('2026-07-10T09:30:00Z'),
+          amount: 250, // 250 cents reassignment compensation from an earlier attempt
+          reason: EnumCourierCompensationReason.REASSIGNMENT,
+          pickupBusinessName: 'Ta Koutsavakia',
+          dropoffLocation: null,
+        },
+        {
+          deliveryId: 'del-with-wait-and-reassign',
+          createdAt: new Date('2026-07-10T09:55:00Z'),
+          amount: 100, // 100 cents waiting pay
+          reason: EnumCourierCompensationReason.WAITING,
+          pickupBusinessName: 'Ta Koutsavakia',
+          dropoffLocation: null,
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-with-wait-and-reassign')
+
+      expect(result).toEqual({
+        deliveryId: 'del-with-wait-and-reassign',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        dropoffAddress: 'Iasonos 12, Volos',
+        pickupBusinessName: 'Ta Koutsavakia',
+        compensation: 600,
+        tips: 150,
+        waitingPay: 100, // Only WAITING row (100 cents), not REASSIGNMENT row (250 cents)
+        total: 850, // 600 + 150 + 100
+      })
+    })
+
     test('returns null when delivery row is not found or not completed and no compensation rows exist', async () => {
       mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
       mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([])
