@@ -121,6 +121,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - The admin Dispatch board (spec 0034) is `GET admin/v1/dispatch/board`: one function per row kind in `src/services/dispatch-board/dispatch-board.ts`, listed in `DispatchBoardService.getBoard`; a new kind is one more of each, and its `kind` is a plain string so an older tab draws it as a plain row. Nothing there may time, count or rank a rider. Every write of `Courier.currentLocation` must set `currentLocationAt` in the same statement, or the rider drops off the map after 5 minutes; the entity `declare`s that column so it never leaves the server.
 
+- A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is in Redis for 20 minutes.
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
