@@ -68,6 +68,9 @@ export type ChatUnreadThread = {
 export const CHAT_BODY_REFUSAL = `A message must be 1 to ${CHAT_MESSAGE_MAX_LENGTH} characters`
 export const CHAT_NO_LOGIN_REFUSAL = 'This restaurant has no login, so it could never read a reply'
 export const CHAT_CLIENT_ID_TAKEN_REFUSAL = 'This clientMessageId is already used by another message'
+// The same words whether the order does not exist or belongs to someone else (AC-21 gives nothing away);
+// the rider's app shows it under the message and offers to send it without the order.
+export const CHAT_TAG_REFUSAL = 'This message cannot be linked to that order, because it is not one of your orders now'
 
 // Spec 0034 (chat): one continuing thread between dispatch and each rider and each restaurant.
 //
@@ -324,7 +327,7 @@ export class ChatDomainService {
         (sender.kind === 'COURIER' && owners.courierId === sender.courierId) ||
         (sender.kind === 'PARTNER' && owners.partnerId === sender.partnerId))
     if (!theirs) {
-      throw new NotFoundException(`Delivery ${deliveryId} not found`)
+      throw new NotFoundException(CHAT_TAG_REFUSAL)
     }
     return deliveryId
   }
