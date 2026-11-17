@@ -5,8 +5,10 @@ import { Server } from 'socket.io'
 import { ForbiddenException, UnauthorizedException } from 'src/errors'
 import { CREDENTIALS_CHANGED_MESSAGE } from 'src/domains/auth/credentials-change'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
+import { EnumUserRole } from '@prisma/types'
 import { SocketIOAdapter } from './socketio.adapter'
 import { SOCKET_GATEWAY_NAMESPACE } from './socketio.gateway'
+import { ADMIN_SOCKET_NAMESPACE } from './admin-socket.gateway'
 
 describe('SocketIOAdapter token middleware (row 57 credential leak prevention)', () => {
   let mockJwtService: { verify: jest.Mock }
@@ -326,6 +328,97 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       const socket: any = {
         handshake: {
           auth: { authorization: 'Bearer same-second-token' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await middleware(socket, next)
+
+      expect(next).toHaveBeenCalledWith()
+      expect(socket.userId).toBe('courier-user-1')
+    })
+  })
+
+  describe('admins namespace token middleware (spec 0034, AC-8 & AC-21)', () => {
+    let adminMiddleware: (socket: any, next: (err?: any) => void) => Promise<void>
+
+    beforeEach(() => {
+      const server = adapter.createIOServer(0, {} as any)
+      const adminNamespace = server.of(ADMIN_SOCKET_NAMESPACE)
+      adminMiddleware = (adminNamespace as any)._fns[0]
+    })
+
+    test('refuses a token whose STORED user lacks the ADMIN role (adminOnly)', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'rider-user-1',
+        email: 'rider@example.com',
+        role: ['COURIER'],
+      })
+      // Stored user has only COURIER role
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'rider-user-1',
+        email: 'rider@example.com',
+        role: [EnumUserRole.COURIER],
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer rider-token' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await adminMiddleware(socket, next)
+
+      expect(next).toHaveBeenCalledWith(expect.any(ForbiddenException))
+      const error = next.mock.calls[0][0]
+      expect(error.message).toBe('Admins only')
+    })
+
+    test('accepts a token whose STORED user has the ADMIN role', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'admin-user-1',
+        email: 'admin@opencourier.org',
+        role: ['ADMIN'],
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'admin-user-1',
+        email: 'admin@opencourier.org',
+        role: [EnumUserRole.ADMIN],
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer admin-token' },
+          headers: {},
+        },
+      }
+      const next = jest.fn()
+
+      await adminMiddleware(socket, next)
+
+      expect(next).toHaveBeenCalledWith()
+      expect(socket.userId).toBe('admin-user-1')
+      expect(socket.role).toEqual(['ADMIN'])
+    })
+
+    test('couriers namespace is unchanged: accepts non-admin users without requiring ADMIN role', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'courier-user-1',
+        email: 'courier@opencourier.org',
+        role: ['COURIER'],
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'courier@opencourier.org',
+        role: [EnumUserRole.COURIER],
+      })
+
+      const socket: any = {
+        handshake: {
+          auth: { authorization: 'Bearer courier-token' },
           headers: {},
         },
       }

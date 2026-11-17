@@ -1,0 +1,445 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { EnumChatSenderKind, EnumCourierStatus } from '@prisma/types'
+import { CHAT_MESSAGE_MAX_LENGTH } from 'src/constants'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import {
+  ChatMessageRow,
+  ChatRepository,
+  ChatThreadRow,
+} from 'src/persistence/repositories/chat.repository'
+import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
+import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
+import {
+  ChatDomainService,
+  CHAT_BODY_REFUSAL,
+  CHAT_NO_LOGIN_REFUSAL,
+  checkBody,
+} from './chat.domain.service'
+
+describe('ChatDomainService (spec 0034, AC-4, AC-7, AC-10, AC-11, AC-15, AC-19, AC-21)', () => {
+  let service: ChatDomainService
+  let mockChatRepo: jest.Mocked<ChatRepository>
+  let mockConfigService: jest.Mocked<ConfigDomainService>
+  let mockDispatcher: jest.Mocked<WebsocketDispatcher>
+  let mockPushService: jest.Mocked<OfferPushService>
+
+  const createCourierThread = (status: EnumCourierStatus = EnumCourierStatus.ONLINE): ChatThreadRow =>
+    ({
+      id: 'thread-c1',
+      courierId: 'courier-1',
+      partnerId: null,
+      lastMessageAt: new Date('2026-11-17T10:00:00.000Z'),
+      dispatchLastReadAt: null,
+      createdAt: new Date('2026-11-17T08:00:00.000Z'),
+      courier: {
+        id: 'courier-1',
+        userId: 'user-c1',
+        firstName: 'Nikos',
+        lastName: 'Papas',
+        phoneNumber: '+306912345678',
+        status,
+      },
+      partner: null,
+    } as unknown as ChatThreadRow)
+
+  const createPartnerThread = (): ChatThreadRow =>
+    ({
+      id: 'thread-p1',
+      courierId: null,
+      partnerId: 'partner-1',
+      lastMessageAt: new Date('2026-11-17T10:00:00.000Z'),
+      dispatchLastReadAt: null,
+      createdAt: new Date('2026-11-17T08:00:00.000Z'),
+      courier: null,
+      partner: {
+        id: 'partner-1',
+        userId: 'user-p1',
+        name: 'Volos Pizza',
+        phoneNumber: '+302421011111',
+      },
+    } as unknown as ChatThreadRow)
+
+  const createMessageRow = (
+    senderKind: EnumChatSenderKind,
+    threadId: string,
+    body = 'Hello'
+  ): ChatMessageRow =>
+    ({
+      id: 'msg-1',
+      threadId,
+      senderKind,
+      senderUserId: 'user-1',
+      body,
+      deliveryId: null,
+      clientMessageId: 'cli-1',
+      createdAt: new Date('2026-11-17T10:00:00.000Z'),
+      senderUser: { username: 'dispatch_user', email: 'dispatch@opencourier.org' },
+      delivery: null,
+    } as unknown as ChatMessageRow)
+
+  beforeEach(() => {
+    mockChatRepo = {
+      findThreadById: jest.fn(),
+      findThreadByParty: jest.fn(),
+      findOrCreateThread: jest.fn(),
+      createMessage: jest.fn(),
+      markReadByDispatch: jest.fn(),
+      findDeliveryOwners: jest.fn(),
+      findCourierForChat: jest.fn(),
+      findPartnerForChat: jest.fn(),
+      findMessages: jest.fn(),
+      findUnreadThreads: jest.fn(),
+      findThreadPage: jest.fn(),
+      findLastMessages: jest.fn(),
+      findActiveDeliveries: jest.fn(),
+      deleteMessagesOlderThan: jest.fn(),
+    } as unknown as jest.Mocked<ChatRepository>
+
+    mockConfigService = {
+      instanceConfig: {
+        getChatQuickRepliesDispatch: jest.fn().mockResolvedValue([]),
+        getChatQuickRepliesCourier: jest.fn().mockResolvedValue([]),
+        getChatRetentionDays: jest.fn().mockResolvedValue(90),
+      },
+    } as unknown as jest.Mocked<ConfigDomainService>
+
+    mockDispatcher = {
+      sendChatMessageToDispatch: jest.fn(),
+      sendChatMessageToCourier: jest.fn().mockResolvedValue(undefined),
+      sendChatReadByDispatch: jest.fn().mockResolvedValue(undefined),
+      sendChatThreadRead: jest.fn(),
+    } as unknown as jest.Mocked<WebsocketDispatcher>
+
+    mockPushService = {
+      chatMessage: jest.fn(),
+    } as unknown as jest.Mocked<OfferPushService>
+
+    service = new ChatDomainService(
+      mockChatRepo,
+      mockConfigService,
+      mockDispatcher,
+      mockPushService
+    )
+  })
+
+  describe('AC-4: message body check (trimmed, 1 to 1000 characters)', () => {
+    test('checkBody refuses empty or blank text with 400 CHAT_BODY_REFUSAL', () => {
+      expect(() => checkBody('')).toThrow(BadRequestException)
+      expect(() => checkBody('   ')).toThrow(BadRequestException)
+      expect(() => checkBody('\t\n')).toThrow(BadRequestException)
+      try {
+        checkBody('')
+      } catch (err: any) {
+        expect(err.message).toBe(CHAT_BODY_REFUSAL)
+      }
+    })
+
+    test('checkBody refuses text over 1000 characters with 400 CHAT_BODY_REFUSAL', () => {
+      const overMax = 'a'.repeat(CHAT_MESSAGE_MAX_LENGTH + 1)
+      expect(() => checkBody(overMax)).toThrow(BadRequestException)
+      try {
+        checkBody(overMax)
+      } catch (err: any) {
+        expect(err.message).toBe(CHAT_BODY_REFUSAL)
+      }
+    })
+
+    test('checkBody trims leading and trailing whitespace and accepts 1 to 1000 characters', () => {
+      expect(checkBody('   valid message   ')).toBe('valid message')
+      const exactly1000 = 'x'.repeat(1000)
+      expect(checkBody(exactly1000)).toBe(exactly1000)
+      expect(checkBody('  ' + exactly1000 + '  ')).toBe(exactly1000)
+    })
+
+    test('send refuses empty, blank, or over-long body with 400 CHAT_BODY_REFUSAL', async () => {
+      await expect(
+        service.send(
+          { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+          { body: '   ', clientMessageId: 'cli-1' }
+        )
+      ).rejects.toThrow(new BadRequestException(CHAT_BODY_REFUSAL))
+
+      await expect(
+        service.send(
+          { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+          { body: 'x'.repeat(1001), clientMessageId: 'cli-1' }
+        )
+      ).rejects.toThrow(new BadRequestException(CHAT_BODY_REFUSAL))
+    })
+  })
+
+  describe('AC-10 & AC-11: push decisions (offline rider, online rider, message kinds)', () => {
+    test('DISPATCH message to an OFFLINE rider sends NO push', async () => {
+      const thread = createCourierThread(EnumCourierStatus.OFFLINE)
+      const message = createMessageRow(EnumChatSenderKind.DISPATCH, thread.id)
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      await service.send(
+        { kind: 'DISPATCH', userId: 'user-admin', threadId: thread.id },
+        { body: 'Are you available?', clientMessageId: 'cli-1' }
+      )
+
+      expect(mockPushService.chatMessage).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatMessageToDispatch).toHaveBeenCalledTimes(1)
+      expect(mockDispatcher.sendChatMessageToCourier).toHaveBeenCalledTimes(1)
+    })
+
+    test('DISPATCH message to an ONLINE rider calls offerPushService.chatMessage with courierId and threadId', async () => {
+      const thread = createCourierThread(EnumCourierStatus.ONLINE)
+      const message = createMessageRow(EnumChatSenderKind.DISPATCH, thread.id)
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      await service.send(
+        { kind: 'DISPATCH', userId: 'user-admin', threadId: thread.id },
+        { body: 'Order ready at Nosh', clientMessageId: 'cli-1' }
+      )
+
+      expect(mockPushService.chatMessage).toHaveBeenCalledWith('courier-1', 'thread-c1')
+    })
+
+    test('DISPATCH message to a LAST_CALL rider calls offerPushService.chatMessage', async () => {
+      const thread = createCourierThread(EnumCourierStatus.LAST_CALL)
+      const message = createMessageRow(EnumChatSenderKind.DISPATCH, thread.id)
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      await service.send(
+        { kind: 'DISPATCH', userId: 'user-admin', threadId: thread.id },
+        { body: 'Last order of the shift', clientMessageId: 'cli-1' }
+      )
+
+      expect(mockPushService.chatMessage).toHaveBeenCalledWith('courier-1', 'thread-c1')
+    })
+
+    test('COURIER, PARTNER, and SYSTEM messages NEVER trigger a push', async () => {
+      // 1. Courier sender
+      const courierThread = createCourierThread(EnumCourierStatus.ONLINE)
+      const courierMsg = createMessageRow(EnumChatSenderKind.COURIER, courierThread.id)
+      mockChatRepo.findOrCreateThread.mockResolvedValue(courierThread)
+      mockChatRepo.createMessage.mockResolvedValue({ message: courierMsg, created: true })
+
+      await service.send(
+        { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+        { body: 'At the restaurant', clientMessageId: 'cli-c' }
+      )
+      expect(mockPushService.chatMessage).not.toHaveBeenCalled()
+
+      // 2. Partner sender
+      const partnerThread = createPartnerThread()
+      const partnerMsg = createMessageRow(EnumChatSenderKind.PARTNER, partnerThread.id)
+      mockChatRepo.findOrCreateThread.mockResolvedValue(partnerThread)
+      mockChatRepo.createMessage.mockResolvedValue({ message: partnerMsg, created: true })
+
+      await service.send(
+        { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+        { body: 'Food will take 5 more minutes', clientMessageId: 'cli-p' }
+      )
+      expect(mockPushService.chatMessage).not.toHaveBeenCalled()
+
+      // 3. System line
+      mockChatRepo.findOrCreateThread.mockResolvedValue(courierThread)
+      mockChatRepo.createMessage.mockResolvedValue({
+        message: createMessageRow(EnumChatSenderKind.SYSTEM, courierThread.id),
+        created: true,
+      })
+      await service.addSystemLine('courier-1', 'del-1', 'Reported: Food not ready')
+      expect(mockPushService.chatMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('AC-15: openThread validation (no login restaurant, unknown IDs)', () => {
+    test('openThread throws 400 CHAT_NO_LOGIN_REFUSAL for restaurant with userId null', async () => {
+      mockChatRepo.findPartnerForChat.mockResolvedValue({ id: 'partner-no-login', userId: null })
+
+      await expect(service.openThread({ partnerId: 'partner-no-login' })).rejects.toThrow(
+        new BadRequestException(CHAT_NO_LOGIN_REFUSAL)
+      )
+    })
+
+    test('openThread throws 404 for unknown partnerId', async () => {
+      mockChatRepo.findPartnerForChat.mockResolvedValue(null)
+
+      await expect(service.openThread({ partnerId: 'unknown-p' })).rejects.toThrow(
+        NotFoundException
+      )
+    })
+
+    test('openThread throws 404 for unknown courierId', async () => {
+      mockChatRepo.findCourierForChat.mockResolvedValue(null)
+
+      await expect(service.openThread({ courierId: 'unknown-c' })).rejects.toThrow(
+        NotFoundException
+      )
+    })
+
+    test('openThread succeeds and creates thread for valid courier or partner', async () => {
+      mockChatRepo.findCourierForChat.mockResolvedValue({ id: 'courier-1' })
+      const thread = createCourierThread()
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+
+      const result = await service.openThread({ courierId: 'courier-1' })
+      expect(result).toBe(thread)
+    })
+  })
+
+  describe('AC-19: clientMessageId duplicate handling (idempotency)', () => {
+    test('a retry with same clientMessageId returns stored message with created false, and publishes NOTHING', async () => {
+      const thread = createCourierThread(EnumCourierStatus.ONLINE)
+      const storedMessage = createMessageRow(EnumChatSenderKind.COURIER, thread.id)
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.createMessage.mockResolvedValue({ message: storedMessage, created: false })
+
+      const result = await service.send(
+        { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+        { body: 'At the restaurant', clientMessageId: 'cli-dup-1' }
+      )
+
+      expect(result).toEqual({ thread, message: storedMessage })
+      expect(mockDispatcher.sendChatMessageToDispatch).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatMessageToCourier).not.toHaveBeenCalled()
+      expect(mockPushService.chatMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('AC-21: delivery tagging authorization', () => {
+    test('rider tagging a delivery that belongs to another courier gets 404', async () => {
+      const thread = createCourierThread()
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-other',
+        partnerId: 'partner-other',
+      })
+
+      await expect(
+        service.send(
+          { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+          { body: 'Wrong address', deliveryId: 'del-other', clientMessageId: 'cli-1' }
+        )
+      ).rejects.toThrow(new NotFoundException('Delivery del-other not found'))
+    })
+
+    test('restaurant tagging a delivery that belongs to another restaurant gets 404', async () => {
+      const thread = createPartnerThread()
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-other',
+      })
+
+      await expect(
+        service.send(
+          { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+          { body: 'Delay on order', deliveryId: 'del-other', clientMessageId: 'cli-1' }
+        )
+      ).rejects.toThrow(new NotFoundException('Delivery del-other not found'))
+    })
+
+    test('tagging a non-existent delivery gets 404', async () => {
+      const thread = createCourierThread()
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue(null)
+
+      await expect(
+        service.send(
+          { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+          { body: 'Note', deliveryId: 'del-nonexistent', clientMessageId: 'cli-1' }
+        )
+      ).rejects.toThrow(new NotFoundException('Delivery del-nonexistent not found'))
+    })
+
+    test('admin may tag any existing delivery', async () => {
+      const thread = createCourierThread()
+      const message = createMessageRow(EnumChatSenderKind.DISPATCH, thread.id)
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-someone-else',
+        partnerId: 'partner-someone-else',
+      })
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'DISPATCH', userId: 'user-admin', threadId: thread.id },
+        { body: 'Checking order', deliveryId: 'del-existing', clientMessageId: 'cli-1' }
+      )
+
+      expect(result.message).toBe(message)
+    })
+
+    test('rider tagging their own delivery succeeds', async () => {
+      const thread = createCourierThread()
+      const message = createMessageRow(EnumChatSenderKind.COURIER, thread.id)
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-1',
+      })
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+        { body: 'At door', deliveryId: 'del-mine', clientMessageId: 'cli-1' }
+      )
+
+      expect(result.message).toBe(message)
+    })
+
+    test('restaurant tagging their own delivery succeeds', async () => {
+      const thread = createPartnerThread()
+      const message = createMessageRow(EnumChatSenderKind.PARTNER, thread.id)
+      mockChatRepo.findOrCreateThread.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-1',
+      })
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+        { body: 'Order delayed', deliveryId: 'del-partner-order', clientMessageId: 'cli-1' }
+      )
+
+      expect(result.message).toBe(message)
+    })
+  })
+
+  describe('AC-7: markReadByDispatch live event emission', () => {
+    test('when markReadByDispatch moved: true, emits CHAT_THREAD_READ to dispatch and CHAT_READ_BY_DISPATCH to courier', async () => {
+      const thread = createCourierThread()
+      const readAt = new Date('2026-11-17T12:00:00.000Z')
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.markReadByDispatch.mockResolvedValue({
+        dispatchLastReadAt: readAt,
+        moved: true,
+      })
+
+      const result = await service.markReadByDispatch(thread.id)
+
+      expect(result).toBe(readAt)
+      expect(mockDispatcher.sendChatThreadRead).toHaveBeenCalledWith({
+        threadId: thread.id,
+        dispatchLastReadAt: readAt.toISOString(),
+      })
+      expect(mockDispatcher.sendChatReadByDispatch).toHaveBeenCalledWith('user-c1', {
+        dispatchLastReadAt: readAt.toISOString(),
+      })
+    })
+
+    test('when markReadByDispatch moved: false, emits NO live events', async () => {
+      const thread = createCourierThread()
+      const readAt = new Date('2026-11-17T12:00:00.000Z')
+      mockChatRepo.findThreadById.mockResolvedValue(thread)
+      mockChatRepo.markReadByDispatch.mockResolvedValue({
+        dispatchLastReadAt: readAt,
+        moved: false,
+      })
+
+      const result = await service.markReadByDispatch(thread.id)
+
+      expect(result).toBe(readAt)
+      expect(mockDispatcher.sendChatThreadRead).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatReadByDispatch).not.toHaveBeenCalled()
+    })
+  })
+})

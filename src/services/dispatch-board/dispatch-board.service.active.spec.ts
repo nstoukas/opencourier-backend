@@ -17,6 +17,7 @@ describe('DispatchBoardService (spec 0034)', () => {
   let mockDispatchStopService: jest.Mocked<DispatchStopService>
   let mockConfigDomainService: jest.Mocked<ConfigDomainService>
   let mockRemovalRequestRepo: any
+  let mockChatDomainService: any
 
   const NOW = new Date('2026-11-09T14:00:00.000Z')
 
@@ -53,6 +54,10 @@ describe('DispatchBoardService (spec 0034)', () => {
       findOpenForBoard: jest.fn().mockResolvedValue([]),
     }
 
+    mockChatDomainService = {
+      unreadThreadsForBoard: jest.fn().mockResolvedValue([]),
+    }
+
     service = new DispatchBoardService(
       mockDispatchBoardRepo,
       mockDeliveryIssueRepo,
@@ -60,7 +65,8 @@ describe('DispatchBoardService (spec 0034)', () => {
       mockSosService,
       mockDispatchStopService,
       mockConfigDomainService,
-      mockRemovalRequestRepo
+      mockRemovalRequestRepo,
+      mockChatDomainService as any
     )
   })
 
@@ -289,6 +295,53 @@ describe('DispatchBoardService (spec 0034)', () => {
       expect(lateRow).toBeDefined()
       expect(lateRow?.deliveryId).toBe('del-late')
       expect(lateRow?.detail).toContain('food was due 15:40')
+    })
+
+    test('getBoard returns an UNREAD_MESSAGE row when chatDomainService.unreadThreadsForBoard returns an unread thread (spec 0034, AC-17)', async () => {
+      const mockUnreadThread = {
+        threadId: 'thread-rider-1',
+        oldestUnreadAt: new Date('2026-11-09T13:45:00.000Z'),
+        courierId: 'c-rider-1',
+        name: 'Vasilis Papageorgiou',
+        lastMessageBody: 'I am waiting outside the shop',
+      }
+      mockChatDomainService.unreadThreadsForBoard.mockResolvedValue([mockUnreadThread])
+
+      const board = await service.getBoard(NOW)
+
+      expect(mockChatDomainService.unreadThreadsForBoard).toHaveBeenCalledTimes(1)
+      const chatRow = board.attention.find((r) => r.kind === ATTENTION_KIND.UNREAD_MESSAGE)
+      expect(chatRow).toBeDefined()
+      expect(chatRow?.kind).toBe(ATTENTION_KIND.UNREAD_MESSAGE)
+      expect(chatRow?.threadId).toBe('thread-rider-1')
+      expect(chatRow?.courierId).toBe('c-rider-1')
+      expect(chatRow?.riderName).toBe('Vasilis Papageorgiou')
+      expect(chatRow?.restaurantName).toBeNull()
+      expect(chatRow?.since).toEqual(mockUnreadThread.oldestUnreadAt)
+      expect(chatRow?.detail).toBe('Vasilis Papageorgiou: I am waiting outside the shop')
+    })
+
+    test('getBoard returns an UNREAD_MESSAGE row for a restaurant unread thread with restaurantName set (spec 0034, AC-17)', async () => {
+      const mockRestaurantThread = {
+        threadId: 'thread-partner-1',
+        oldestUnreadAt: new Date('2026-11-09T13:50:00.000Z'),
+        courierId: null,
+        name: 'Souvlaki Tou Nikou',
+        lastMessageBody: 'Order #12 is running 5 minutes late',
+      }
+      mockChatDomainService.unreadThreadsForBoard.mockResolvedValue([mockRestaurantThread])
+
+      const board = await service.getBoard(NOW)
+
+      const chatRow = board.attention.find((r) => r.kind === ATTENTION_KIND.UNREAD_MESSAGE)
+      expect(chatRow).toBeDefined()
+      expect(chatRow?.kind).toBe(ATTENTION_KIND.UNREAD_MESSAGE)
+      expect(chatRow?.threadId).toBe('thread-partner-1')
+      expect(chatRow?.courierId).toBeNull()
+      expect(chatRow?.restaurantName).toBe('Souvlaki Tou Nikou')
+      expect(chatRow?.riderName).toBeNull()
+      expect(chatRow?.since).toEqual(mockRestaurantThread.oldestUnreadAt)
+      expect(chatRow?.detail).toBe('Souvlaki Tou Nikou: Order #12 is running 5 minutes late')
     })
   })
 

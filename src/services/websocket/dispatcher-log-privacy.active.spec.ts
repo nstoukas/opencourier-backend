@@ -138,7 +138,8 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
         disconnect: jest.fn(),
       }
       socketIOService.handleConnection(riderSocket as unknown as SocketWithAuth)
-      dispatcher = new SocketIODispatcher(socketIOService)
+      const adminSocketGateway = { emitToDispatch: jest.fn() }
+      dispatcher = new SocketIODispatcher(socketIOService, adminSocketGateway as any)
     })
 
     test('an offer logs no contact details, and the rider receives the whole delivery', async () => {
@@ -178,6 +179,49 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
       expectNoDetailsLogged()
       // The statuses are what the line is for.
       expect(allLogs()).toContain(`${EnumDeliveryStatus.ASSIGNING_COURIER} -> ${EnumDeliveryStatus.ACCEPTED}`)
+    })
+
+    test('chat methods log ids only and never the message body (spec 0034)', async () => {
+      const SECRET_BODY = 'CONFIDENTIAL_DISPATCHER_CHAT_BODY_12345'
+      await dispatcher.sendChatMessageToCourier(USER_ID, {
+        message: {
+          id: 'msg-chat-1',
+          threadId: 'th-chat-1',
+          senderKind: 'DISPATCH',
+          senderName: 'Dispatch',
+          body: SECRET_BODY,
+          createdAt: new Date().toISOString(),
+          deliveryId: null,
+          clientMessageId: 'cli-1',
+        },
+      })
+      dispatcher.sendChatMessageToDispatch({
+        threadId: 'th-chat-1',
+        message: {
+          id: 'msg-chat-2',
+          threadId: 'th-chat-1',
+          senderKind: 'COURIER',
+          senderName: 'Nikos',
+          senderUserId: 'user-nikos',
+          body: SECRET_BODY,
+          createdAt: new Date().toISOString(),
+          deliveryId: null,
+          clientMessageId: 'cli-2',
+          readByDispatch: false,
+        },
+      })
+      await dispatcher.sendChatReadByDispatch(USER_ID, {
+        dispatchLastReadAt: new Date().toISOString(),
+      })
+      dispatcher.sendChatThreadRead({
+        threadId: 'th-chat-1',
+        dispatchLastReadAt: new Date().toISOString(),
+      })
+
+      const logs = allLogs()
+      expect(logs).not.toContain(SECRET_BODY)
+      expect(logs).toContain('msg-chat-1')
+      expect(logs).toContain('th-chat-1')
     })
   })
 
@@ -228,6 +272,29 @@ describe('Websocket dispatchers log no contact details (row 95)', () => {
       expect(data.newStatus).toBe(EnumDeliveryStatus.PICKED_UP)
       expectFullDelivery(data.delivery)
       expectNoDetailsLogged()
+    })
+
+    test('chat methods log ids only and never the message body (spec 0034)', async () => {
+      const SECRET_BODY = 'CONFIDENTIAL_ABLY_CHAT_BODY_67890'
+      await dispatcher.sendChatMessageToCourier(USER_ID, {
+        message: {
+          id: 'msg-ably-1',
+          threadId: 'th-ably-1',
+          senderKind: 'DISPATCH',
+          senderName: 'Dispatch',
+          body: SECRET_BODY,
+          createdAt: new Date().toISOString(),
+          deliveryId: null,
+          clientMessageId: 'cli-1',
+        },
+      })
+      await dispatcher.sendChatReadByDispatch(USER_ID, {
+        dispatchLastReadAt: new Date().toISOString(),
+      })
+
+      const logs = allLogs()
+      expect(logs).not.toContain(SECRET_BODY)
+      expect(logs).toContain('msg-ably-1')
     })
   })
 })

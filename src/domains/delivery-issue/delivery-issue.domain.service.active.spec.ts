@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { EnumDeliveryIssueReason } from '@prisma/types'
 import { DeliveryIssueDomainService } from './delivery-issue.domain.service'
+import { ChatDomainService } from 'src/domains/chat/chat.domain.service'
 import {
   DeliveryIssueForAdmin,
   DeliveryIssueRepository,
@@ -10,6 +11,7 @@ import {
 describe('DeliveryIssueDomainService (clause 3)', () => {
   let service: DeliveryIssueDomainService
   let mockRepository: jest.Mocked<DeliveryIssueRepository>
+  let mockChatDomainService: jest.Mocked<ChatDomainService>
 
   const mockCreatedIssue: DeliveryIssueWithCourier = {
     id: 'issue-101',
@@ -31,7 +33,11 @@ describe('DeliveryIssueDomainService (clause 3)', () => {
       markHandled: jest.fn(),
     } as unknown as jest.Mocked<DeliveryIssueRepository>
 
-    service = new DeliveryIssueDomainService(mockRepository)
+    mockChatDomainService = {
+      addSystemLine: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ChatDomainService>
+
+    service = new DeliveryIssueDomainService(mockRepository, mockChatDomainService)
   })
 
   describe('report', () => {
@@ -79,6 +85,54 @@ describe('DeliveryIssueDomainService (clause 3)', () => {
         courierId: 'courier-202',
         reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
         note: 'Customer is at second entrance',
+      })
+
+      expect(result).toBe(mockCreatedIssue)
+    })
+
+    test('AC-16: adds a SYSTEM line "Reported: <reason words>" with note on its own line', async () => {
+      await service.report({
+        deliveryId: 'del-101',
+        courierId: 'courier-202',
+        reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
+        note: 'Customer is at second entrance',
+      })
+
+      expect(mockChatDomainService.addSystemLine).toHaveBeenCalledWith(
+        'courier-202',
+        'del-101',
+        'Reported: Wrong address\nCustomer is at second entrance'
+      )
+    })
+
+    test('AC-16: adds a SYSTEM line without note when note is null or empty', async () => {
+      mockRepository.create.mockResolvedValueOnce({
+        ...mockCreatedIssue,
+        reason: EnumDeliveryIssueReason.FOOD_NOT_READY,
+        note: null,
+      })
+
+      await service.report({
+        deliveryId: 'del-101',
+        courierId: 'courier-202',
+        reason: EnumDeliveryIssueReason.FOOD_NOT_READY,
+      })
+
+      expect(mockChatDomainService.addSystemLine).toHaveBeenCalledWith(
+        'courier-202',
+        'del-101',
+        'Reported: Marked ready but not ready'
+      )
+    })
+
+    test('AC-16: if addSystemLine throws, the report still succeeds', async () => {
+      mockChatDomainService.addSystemLine.mockRejectedValueOnce(new Error('chat db failed'))
+
+      const result = await service.report({
+        deliveryId: 'del-101',
+        courierId: 'courier-202',
+        reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
+        note: 'Some note',
       })
 
       expect(result).toBe(mockCreatedIssue)

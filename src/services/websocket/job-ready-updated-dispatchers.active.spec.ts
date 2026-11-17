@@ -40,7 +40,8 @@ describe('sendJobReadyUpdated on both dispatchers (spec 0023, AC-6)', () => {
 
   test('Socket.IO publishes JOB_READY_UPDATED with the message on COURIER:<userId>, logging the delivery id only', async () => {
     const socketIOService = { publishMessage: jest.fn().mockResolvedValue(undefined) }
-    const dispatcher = new SocketIODispatcher(socketIOService as any)
+    const adminSocketGateway = { emitToDispatch: jest.fn() }
+    const dispatcher = new SocketIODispatcher(socketIOService as any, adminSocketGateway as any)
 
     await dispatcher.sendJobReadyUpdated('user-courier-1', message)
 

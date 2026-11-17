@@ -246,6 +246,7 @@ describe('search-fold (spec 0025)', () => {
       'domains/delivery/entities/delivery.entity.ts',
       'domains/delivery/entities/delivery-with-locations.entity.ts',
       'domains/courier/entities/courier.entity.ts',
+      'persistence/repositories/chat.repository.ts',
     ])
 
     function tsFilesUnder(directory: string): string[] {

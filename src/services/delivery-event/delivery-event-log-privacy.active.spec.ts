@@ -109,6 +109,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
   const ongoing = (status: EnumDeliveryStatus) => deliveryAt(status, { courierId: COURIER_ID })
 
   let service: DeliveryEventService
+  let dispatcher: SocketIODispatcher
   // The repository methods this service calls, each a jest mock the tests can steer.
   type MockOf<K extends string> = { [Key in K]: jest.Mock }
   let deliveryRepository: MockOf<
@@ -142,7 +143,8 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       disconnect: jest.fn(),
     }
     socketIOService.handleConnection(courierSocket as unknown as SocketWithAuth)
-    const dispatcher = new SocketIODispatcher(socketIOService)
+    const adminSocketGateway = { emitToDispatch: jest.fn() }
+    dispatcher = new SocketIODispatcher(socketIOService, adminSocketGateway as any)
 
     deliveryRepository = {
       findByIdOrThrow: jest.fn(),
@@ -487,6 +489,52 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
 
       expect(deliveryEventRepository.create).toHaveBeenCalledWith(expect.objectContaining({ transitionSuccessful: false }))
       expectNoDetailsLogged()
+    })
+  })
+
+  // Spec 0034 (chat): chat methods log ids only, never the message body
+  describe('chat dispatcher log privacy (spec 0034)', () => {
+    test('chat methods log ids only and never the message body', async () => {
+      const SECRET_BODY = 'CONFIDENTIAL_CHAT_BODY_12345'
+      await dispatcher.sendChatMessageToCourier(COURIER_USER_ID, {
+        message: {
+          id: 'msg-chat-1',
+          threadId: 'th-chat-1',
+          senderKind: 'DISPATCH',
+          senderName: 'Dispatch',
+          body: SECRET_BODY,
+          createdAt: new Date().toISOString(),
+          deliveryId: null,
+          clientMessageId: 'cli-1',
+        },
+      })
+      dispatcher.sendChatMessageToDispatch({
+        threadId: 'th-chat-1',
+        message: {
+          id: 'msg-chat-2',
+          threadId: 'th-chat-1',
+          senderKind: 'COURIER',
+          senderName: 'Nikos',
+          senderUserId: 'user-nikos',
+          body: SECRET_BODY,
+          createdAt: new Date().toISOString(),
+          deliveryId: null,
+          clientMessageId: 'cli-2',
+          readByDispatch: false,
+        },
+      })
+      await dispatcher.sendChatReadByDispatch(COURIER_USER_ID, {
+        dispatchLastReadAt: new Date().toISOString(),
+      })
+      dispatcher.sendChatThreadRead({
+        threadId: 'th-chat-1',
+        dispatchLastReadAt: new Date().toISOString(),
+      })
+
+      const logs = allLogs()
+      expect(logs).not.toContain(SECRET_BODY)
+      expect(logs).toContain('msg-chat-1')
+      expect(logs).toContain('th-chat-1')
     })
   })
 })

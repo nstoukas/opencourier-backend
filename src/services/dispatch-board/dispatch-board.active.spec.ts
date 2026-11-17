@@ -21,6 +21,8 @@ import {
   sosRows,
   todayBounds,
   waitingForRiderRows,
+  unreadMessageRows,
+  UNREAD_MESSAGE_PREVIEW_LENGTH,
 } from './dispatch-board'
 
 describe('Dispatch Board pure functions (spec 0034)', () => {
@@ -917,6 +919,101 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
         { deliveryId: 'del-carried', orderReference: 'ORD-CARRIED', offered: false },
         { deliveryId: 'del-offered', orderReference: 'ORD-OFFERED', offered: true },
       ])
+    })
+  })
+
+  // Spec 0034 (chat), AC-17: unreadMessageRows
+  describe('unreadMessageRows (spec 0034, AC-17)', () => {
+    test('makes one UNREAD_MESSAGE row per unread thread with correct since, threadId, names, and preview', () => {
+      const oldestUnreadAt = new Date('2026-11-09T13:30:00.000Z')
+      const riderThread = {
+        threadId: 'thread-rider-1',
+        oldestUnreadAt,
+        courierId: 'courier-1',
+        name: 'Dimitris Rider',
+        lastMessageBody: 'Customer not answering doorbell',
+      }
+      const restaurantThread = {
+        threadId: 'thread-partner-1',
+        oldestUnreadAt,
+        courierId: null,
+        name: 'Souvlaki Tou Nikou',
+        lastMessageBody: 'Food is ready for pickup',
+      }
+
+      const rows = unreadMessageRows([riderThread, restaurantThread])
+
+      expect(rows).toHaveLength(2)
+
+      // Rider thread
+      expect(rows[0]).toEqual({
+        id: `${ATTENTION_KIND.UNREAD_MESSAGE}:thread-rider-1`,
+        kind: ATTENTION_KIND.UNREAD_MESSAGE,
+        since: oldestUnreadAt,
+        sortAt: oldestUnreadAt,
+        deliveryId: null,
+        sosId: null,
+        issueId: null,
+        threadId: 'thread-rider-1',
+        status: null,
+        courierId: 'courier-1',
+        orderReference: null,
+        restaurantName: null,
+        riderName: 'Dimitris Rider',
+        customerLabel: null,
+        detail: 'Dimitris Rider: Customer not answering doorbell',
+        held: false,
+      })
+
+      // Restaurant thread
+      expect(rows[1]).toEqual({
+        id: `${ATTENTION_KIND.UNREAD_MESSAGE}:thread-partner-1`,
+        kind: ATTENTION_KIND.UNREAD_MESSAGE,
+        since: oldestUnreadAt,
+        sortAt: oldestUnreadAt,
+        deliveryId: null,
+        sosId: null,
+        issueId: null,
+        threadId: 'thread-partner-1',
+        status: null,
+        courierId: null,
+        orderReference: null,
+        restaurantName: 'Souvlaki Tou Nikou',
+        riderName: null,
+        customerLabel: null,
+        detail: 'Souvlaki Tou Nikou: Food is ready for pickup',
+        held: false,
+      })
+    })
+
+    test('truncates message bodies longer than 140 characters at 140 with ellipsis', () => {
+      const longBody = 'A'.repeat(200)
+      const thread = {
+        threadId: 'thread-long',
+        oldestUnreadAt: new Date(),
+        courierId: 'courier-1',
+        name: 'Nikos',
+        lastMessageBody: longBody,
+      }
+
+      const rows = unreadMessageRows([thread])
+      expect(rows).toHaveLength(1)
+      expect(UNREAD_MESSAGE_PREVIEW_LENGTH).toBe(140)
+      expect(rows[0]?.detail).toBe(`Nikos: ${'A'.repeat(140)}…`)
+    })
+
+    test('handles null or empty body by falling back to thread name', () => {
+      const thread = {
+        threadId: 'thread-empty',
+        oldestUnreadAt: new Date(),
+        courierId: null,
+        name: 'Pizza House',
+        lastMessageBody: null,
+      }
+
+      const rows = unreadMessageRows([thread])
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.detail).toBe('Pizza House')
     })
   })
 })

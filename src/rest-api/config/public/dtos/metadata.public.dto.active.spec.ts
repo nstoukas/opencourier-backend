@@ -55,6 +55,9 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
     returnTripPayPercent: 100,
+    chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
+    chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
+    chatRetentionDays: 90,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0
@@ -132,5 +135,14 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
       expect((dto.config as any)[key]).toBeUndefined()
     }
     expect(JSON.stringify(dto)).not.toMatch(/shift/i)
+  })
+
+  // Spec 0034: chat settings are not public metadata
+  it('does NOT include chatQuickRepliesDispatch, chatQuickRepliesCourier or chatRetentionDays on public metadata (spec 0034)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    for (const key of ['chatQuickRepliesDispatch', 'chatQuickRepliesCourier', 'chatRetentionDays']) {
+      expect((dto as any)[key]).toBeUndefined()
+      expect((dto.config as any)[key]).toBeUndefined()
+    }
   })
 })

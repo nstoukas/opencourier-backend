@@ -11,7 +11,7 @@ import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { IOsrmRouteInput } from 'src/services/osrm/interfaces/IOsrmRouteInput'
 import { NotificationEventType } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS } from 'src/domains/delivery/offer-card-payload'
-import { PUSH_DEFAULT_TTL_SECONDS, OFFER_INSIST_AFTER_SECONDS } from '../../constants'
+import { PUSH_DEFAULT_TTL_SECONDS, OFFER_INSIST_AFTER_SECONDS, CHAT_PUSH_TTL_SECONDS } from '../../constants'
 
 describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Insistent Re-send', () => {
   let service: OfferPushService
@@ -953,6 +953,60 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
         expect(mockOsrmRoutingService.getRoute).toHaveBeenCalled()
         expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
       })
+    })
+  })
+
+  describe('chatMessage & sendChatMessage (spec 0034, AC-11)', () => {
+    test('sendChatMessage sends data { type: "CHAT_MESSAGE", threadId } with 3600 s TTL and no message text', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue(['device-token-1'])
+      mockPushNotificationService.sendData.mockResolvedValue({ deadTokens: [], failureCodes: [] })
+
+      await service.sendChatMessage('courier-1', 'thread-101')
+
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledTimes(1)
+      const [tokens, data, ttl] = mockPushNotificationService.sendData.mock.calls[0]!
+      expect(tokens).toEqual(['device-token-1'])
+      expect(data).toEqual({
+        type: NotificationEventType.CHAT_MESSAGE,
+        threadId: 'thread-101',
+      })
+      expect(ttl).toBe(CHAT_PUSH_TTL_SECONDS)
+      expect(ttl).toBe(3600)
+      // Check no message text or body is in the data payload
+      expect(Object.keys(data)).toEqual(['type', 'threadId'])
+    })
+
+    test('sendChatMessage sends nothing when pushNotificationService is disabled', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      await service.sendChatMessage('courier-1', 'thread-101')
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('sendChatMessage sends nothing when courier has no device tokens', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue([])
+
+      await service.sendChatMessage('courier-1', 'thread-101')
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('chatMessage is fire-and-forget: does not throw even if sendChatMessage fails', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Firebase network error'))
+
+      expect(() => service.chatMessage('courier-1', 'thread-101')).not.toThrow()
+    })
+
+    test('chatMessage does nothing and does not throw when push is disabled', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      expect(() => service.chatMessage('courier-1', 'thread-101')).not.toThrow()
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
     })
   })
 })

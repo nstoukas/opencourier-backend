@@ -56,6 +56,9 @@ describe('InstanceConfigSettingsDto', () => {
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
     returnTripPayPercent: 100,
+    chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
+    chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
+    chatRetentionDays: 90,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {
@@ -179,5 +182,13 @@ describe('InstanceConfigSettingsDto', () => {
     const off = new InstanceConfigSettingsDto({ ...baseConfigData, shiftsEnabled: false, shiftDropNoticeHours: 0 })
     expect(off.shiftsEnabled).toBe(false)
     expect(off.shiftDropNoticeHours).toBe(0)
+  })
+
+  // Spec 0034 (chat, AC-13 & AC-18): InstanceConfigSettingsDto exposes chat settings
+  it('exposes chatQuickRepliesDispatch, chatQuickRepliesCourier, and chatRetentionDays (spec 0034)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.chatQuickRepliesDispatch).toEqual(['Περίμενε 5 λεπτά ακόμα'])
+    expect(dto.chatQuickRepliesCourier).toEqual(['Θα αργήσω λίγο'])
+    expect(dto.chatRetentionDays).toBe(90)
   })
 })
