@@ -14,15 +14,23 @@ const SENSITIVE_PATH_PATTERNS: { pattern: RegExp; replacement: string }[] = [
   { pattern: /([?&]search=)[^&#]*/g, replacement: '$1[redacted]' },
 ]
 
-// Saved customers (spec 0005, AC-9): a search's query string is part of a customer's name or phone,
-// so for any `/customers` path (partner and admin) the query string is not logged at all.
-const QUERY_STRING_DROPPED_PATH = /\/customers(\/|\?|#|$)/
+// Paths whose query string is never logged at all, only the path.
+const QUERY_STRING_DROPPED_PATHS: RegExp[] = [
+  // Saved customers (spec 0005, AC-9): a search's query string is part of a customer's name or phone,
+  // so for any `/customers` path (partner and admin) the query string is not logged.
+  /\/customers(\/|\?|#|$)/,
+  // Chat (spec 0034, AC-6): `?after=<message id>` says up to which message a rider's or restaurant's
+  // device already had, at a logged time, which would be a read receipt. Dropped for all three
+  // audiences: `/chat/messages` (courier, partner) and `/chat/threads/:id/messages` (admin). A bare
+  // `GET .../chat/messages` line per fetch remains, as for every other request.
+  /\/chat\/(threads\/[^/?#]+\/)?messages(\/|\?|#|$)/,
+]
 
 // Exported so it can be tested on its own, without a request.
 export function redactSensitivePath(url: string): string {
   // `?? url`: split always returns at least one part, but TypeScript cannot know that.
   const path = url.split('?')[0] ?? url
-  const logged = QUERY_STRING_DROPPED_PATH.test(path) ? path : url
+  const logged = QUERY_STRING_DROPPED_PATHS.some((pattern) => pattern.test(path)) ? path : url
   return SENSITIVE_PATH_PATTERNS.reduce(
     (redacted, { pattern, replacement }) => redacted.replace(pattern, replacement),
     logged

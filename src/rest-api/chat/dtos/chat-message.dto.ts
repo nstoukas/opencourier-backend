@@ -16,6 +16,9 @@ export class ChatMessageAdminDto {
   @ApiProperty() body: string
   @ApiProperty({ type: String, nullable: true }) deliveryId: string | null
   @ApiProperty({ type: String, nullable: true }) orderReference: string | null
+  // The sender's own id for the message (AC-19), so the admin page can match a send whose answer was
+  // lost to the stored message and not show it twice. Null on a SYSTEM line.
+  @ApiProperty({ type: String, nullable: true }) clientMessageId: string | null
   @ApiProperty() createdAt: Date
 
   // `partyName` is the rider's or restaurant's name, read from the thread.
@@ -27,6 +30,7 @@ export class ChatMessageAdminDto {
     this.body = message.body
     this.deliveryId = message.deliveryId
     this.orderReference = message.delivery?.orderReference ?? null
+    this.clientMessageId = message.clientMessageId
     this.createdAt = message.createdAt
   }
 }

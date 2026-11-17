@@ -23,8 +23,11 @@ export class SocketIODispatcher extends WebsocketDispatcher {
     super()
   }
 
+  // Riders' connections and admin pages alike (spec 0013): the chat's admins namespace carries every
+  // rider's and restaurant's messages, so a cut off login must lose it at once too.
   disconnectUser(userId: string) {
     this.socketIOService.disconnectUser(userId)
+    this.adminSocketGateway.disconnectUser(userId)
   }
 
   async sendOfferToCourier(userId: string, delivery: DeliveryCourierDto) {

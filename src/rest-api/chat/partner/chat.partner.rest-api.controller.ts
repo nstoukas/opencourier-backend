@@ -12,8 +12,10 @@ import { ChatMessagePartyDto, ChatMessagesPartyDto } from '../dtos/chat-message.
 import { ChatMessagesArgs, ChatSendInputDto } from '../dtos/chat.inputs'
 
 // Spec 0034 (chat), AC-14: a restaurant's one thread with dispatch, reached through the restaurant app's
-// server side proxy. Only a signed in restaurant: no @ApiKeyAuth(), so a restaurant's ordering API key
-// cannot read its chat. The thread comes from the login, never from the request (AC-21).
+// server side proxy. Only a signed in restaurant: no @ApiKeyAuth(), so an ordering API key on its own
+// is refused here. Not proven yet: sent beside some other valid login, the key may still decide which
+// restaurant this is (AuthMiddleware prefers the key), a mechanism older than chat, to be checked live
+// and fixed as its own row (2026-11-18 review). The thread comes from the login, never from the request (AC-21).
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('chat')
 @common.Controller(`${PARTNER_API_V1_PREFIX}/chat`)
@@ -42,6 +44,7 @@ export class ChatPartnerRestApiController {
   @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiUnauthorizedResponse({ type: errors.UnauthorizedException })
+  @swagger.ApiConflictResponse({ description: 'The clientMessageId is already used by another sender' })
   @swagger.ApiOperation({ summary: 'Write to dispatch' })
   @Roles(EnumUserRole.PARTNER)
   async send(@CurrentUserPartner() partner: PartnerEntity, @common.Body() input: ChatSendInputDto): Promise<ChatMessagePartyDto> {

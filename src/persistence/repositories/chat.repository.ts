@@ -112,7 +112,9 @@ export class ChatRepository extends EntityRepository {
     }
   }
 
-  private async findByClientMessageId(threadId: string, clientMessageId: string): Promise<ChatMessageRow | null> {
+  // The message a sender already stored under this id in this thread, if any (AC-19). The send path asks
+  // this first, so a retry gets its stored message back before anything else is checked.
+  async findByClientMessageId(threadId: string, clientMessageId: string): Promise<ChatMessageRow | null> {
     return this.prisma.chatMessage.findUnique({
       where: { threadId_clientMessageId: { threadId, clientMessageId } },
       include: CHAT_MESSAGE_INCLUDE,
@@ -195,7 +197,7 @@ export class ChatRepository extends EntityRepository {
   // The threads whose rider's name or phone, restaurant's name, or any tagged order matches every folded
   // word (AC-2). Riders and orders match their trigger written `searchFold`; a restaurant has no such
   // column, so its name is folded here with spec 0025's `oc_search_fold`, as the restaurants list does
-  // (decision 106.1). Each word is folded and LIKE escaped by the caller's rule before it arrives here,
+  // (decision 106.1). Each word arrives folded by the caller; its LIKE wildcards are escaped just below,
   // and Prisma's tagged template sends it as a parameter, never as SQL text.
   async findThreadIdsMatching(foldedWords: string[]): Promise<string[]> {
     const conditions = foldedWords.map((word) => {
@@ -239,29 +241,63 @@ export class ChatRepository extends EntityRepository {
     return { threads, total }
   }
 
+  // The threads with these ids, however many there are (the board's unread rows, AC-17). Unlike
+  // `findThreadPage`, no page size, so no unread thread is ever left off.
+  async findThreadsByIds(threadIds: string[]): Promise<ChatThreadRow[]> {
+    if (threadIds.length === 0) return []
+    return this.prisma.chatThread.findMany({ where: { id: { in: threadIds } }, include: THREAD_INCLUDE })
+  }
+
   // The newest message of each thread, and the newest one tagged with a delivery (the row's linked order).
+  // Postgres picks those few ids, then only they are read with their includes. Prisma's own `distinct`
+  // (on this Prisma version) would read every message of every thread and drop the rest in memory.
   async findLastMessages(
     threadIds: string[]
   ): Promise<{ last: Map<string, ChatMessageRow>; lastTagged: Map<string, ChatMessageRow> }> {
     if (threadIds.length === 0) return { last: new Map(), lastTagged: new Map() }
-    const [last, lastTagged] = await Promise.all([
-      this.prisma.chatMessage.findMany({
-        where: { threadId: { in: threadIds } },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        distinct: ['threadId'],
-        include: CHAT_MESSAGE_INCLUDE,
-      }),
-      this.prisma.chatMessage.findMany({
-        where: { threadId: { in: threadIds }, deliveryId: { not: null } },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        distinct: ['threadId'],
-        include: CHAT_MESSAGE_INCLUDE,
-      }),
+    const [lastIds, lastTaggedIds] = await Promise.all([
+      this.findNewestMessageIds(threadIds, false),
+      this.findNewestMessageIds(threadIds, true),
     ])
+    const messages = await this.prisma.chatMessage.findMany({
+      where: { id: { in: [...lastIds, ...lastTaggedIds] } },
+      include: CHAT_MESSAGE_INCLUDE,
+    })
+    const lastIdSet = new Set(lastIds)
+    const lastTaggedIdSet = new Set(lastTaggedIds)
     return {
-      last: new Map(last.map((message) => [message.threadId, message])),
-      lastTagged: new Map(lastTagged.map((message) => [message.threadId, message])),
+      last: new Map(messages.filter((m) => lastIdSet.has(m.id)).map((m) => [m.threadId, m])),
+      lastTagged: new Map(messages.filter((m) => lastTaggedIdSet.has(m.id)).map((m) => [m.threadId, m])),
     }
+  }
+
+  // The id of each thread's newest message (only tagged ones when `taggedOnly`). DISTINCT ON keeps the
+  // first row of each thread in the ORDER BY order, which is the newest; the (threadId, createdAt)
+  // index serves it. `Prisma.join` sends each id as a parameter; `Prisma.empty` adds nothing to the SQL.
+  private async findNewestMessageIds(threadIds: string[], taggedOnly: boolean): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT DISTINCT ON ("threadId") "id"
+      FROM "ChatMessage"
+      WHERE "threadId" IN (${Prisma.join(threadIds)})
+        ${taggedOnly ? Prisma.sql`AND "deliveryId" IS NOT NULL` : Prisma.empty}
+      ORDER BY "threadId", "createdAt" DESC, "id" DESC`
+    return rows.map((row) => row.id)
+  }
+
+  // The board's preview (AC-17): per thread, the body of the newest unread message the rider or
+  // restaurant wrote. Never a dispatch reply or a SYSTEM line, which the row would show under their name.
+  // Bodies only: the board needs no sender or delivery.
+  async findNewestUnreadBodies(threadIds: string[]): Promise<Map<string, string>> {
+    if (threadIds.length === 0) return new Map()
+    const rows = await this.prisma.$queryRaw<{ threadId: string; body: string }[]>`
+      SELECT DISTINCT ON (m."threadId") m."threadId", m."body"
+      FROM "ChatMessage" m
+      JOIN "ChatThread" t ON t."id" = m."threadId"
+      WHERE m."threadId" IN (${Prisma.join(threadIds)})
+        AND m."senderKind"::text IN (${Prisma.join(CHAT_UNREAD_SENDER_KINDS)})
+        AND (t."dispatchLastReadAt" IS NULL OR m."createdAt" > t."dispatchLastReadAt")
+      ORDER BY m."threadId", m."createdAt" DESC, m."id" DESC`
+    return new Map(rows.map((row) => [row.threadId, row.body]))
   }
 
   // The deliveries a rider or restaurant has going now (AC-3): the first 5 by age, and how many in all.

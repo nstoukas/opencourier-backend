@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { EnumChatSenderKind, EnumCourierStatus, EnumDeliveryStatus } from '@prisma/types'
 import { CHAT_MESSAGE_MAX_LENGTH } from 'src/constants'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -61,11 +61,13 @@ export type ChatUnreadThread = {
   oldestUnreadAt: Date
   courierId: string | null
   name: string
+  // The newest unread message the rider or restaurant wrote (never dispatch's or a SYSTEM line).
   lastMessageBody: string | null
 }
 
 export const CHAT_BODY_REFUSAL = `A message must be 1 to ${CHAT_MESSAGE_MAX_LENGTH} characters`
 export const CHAT_NO_LOGIN_REFUSAL = 'This restaurant has no login, so it could never read a reply'
+export const CHAT_CLIENT_ID_TAKEN_REFUSAL = 'This clientMessageId is already used by another message'
 
 // Spec 0034 (chat): one continuing thread between dispatch and each rider and each restaurant.
 //
@@ -87,6 +89,19 @@ export class ChatDomainService {
   async send(sender: ChatSender, input: ChatSendInput): Promise<{ thread: ChatThreadRow; message: ChatMessageRow }> {
     const body = checkBody(input.body)
     const thread = await this.threadFor(sender)
+
+    // AC-19: a retry of a message already stored gets that message back, before the delivery tag is
+    // checked. By the time a phone with bad signal retries, the delivery may have ended or gone to
+    // another rider, and the message was saved anyway: the retry must not answer 404.
+    const stored = await this.chatRepository.findByClientMessageId(thread.id, input.clientMessageId)
+    if (stored) {
+      // Only the same sender's message counts as theirs; anyone else's under the same id is refused.
+      if (stored.senderKind !== EnumChatSenderKind[sender.kind] || stored.senderUserId !== sender.userId) {
+        throw new ConflictException(CHAT_CLIENT_ID_TAKEN_REFUSAL)
+      }
+      return { thread, message: stored }
+    }
+
     const deliveryId = await this.checkDeliveryTag(sender, input.deliveryId ?? null)
 
     const { message, created } = await this.chatRepository.createMessage({
@@ -178,14 +193,13 @@ export class ChatDomainService {
   async unreadThreadsForBoard(): Promise<ChatUnreadThread[]> {
     const unread = await this.chatRepository.findUnreadThreads()
     if (unread.length === 0) return []
-    const { threads } = await this.chatRepository.findThreadPage({
-      courierOnly: false,
-      partnerOnly: false,
-      ids: unread.map((row) => row.threadId),
-      page: 1,
-    })
+    // Every unread thread, not a list page of 50: the board's own limit decides what is shown.
+    const ids = unread.map((row) => row.threadId)
+    const [threads, previews] = await Promise.all([
+      this.chatRepository.findThreadsByIds(ids),
+      this.chatRepository.findNewestUnreadBodies(ids),
+    ])
     const byId = new Map(threads.map((thread) => [thread.id, thread]))
-    const { last } = await this.chatRepository.findLastMessages(threads.map((thread) => thread.id))
     return unread.flatMap((row) => {
       const thread = byId.get(row.threadId)
       if (!thread) return []
@@ -195,7 +209,7 @@ export class ChatDomainService {
           oldestUnreadAt: row.oldestUnreadAt,
           courierId: thread.courierId,
           name: partyName(thread),
-          lastMessageBody: last.get(row.threadId)?.body ?? null,
+          lastMessageBody: previews.get(row.threadId) ?? null,
         },
       ]
     })

@@ -48,6 +48,7 @@ export class ChatCourierRestApiController {
   @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiUnauthorizedResponse({ type: errors.UnauthorizedException })
+  @swagger.ApiConflictResponse({ description: 'The clientMessageId is already used by another sender' })
   @swagger.ApiOperation({ summary: 'Write to dispatch' })
   @Roles(EnumUserRole.COURIER)
   async send(@CurrentUserCourier() courier: CourierEntity, @common.Body() input: ChatSendInputDto): Promise<ChatMessagePartyDto> {

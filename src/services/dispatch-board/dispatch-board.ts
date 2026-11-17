@@ -305,7 +305,8 @@ export function removalRequestRows(requests: OpenRemovalRequest[]): AttentionRow
 export const UNREAD_MESSAGE_PREVIEW_LENGTH = 140
 
 // Spec 0034 (chat), AC-17: a thread with a message dispatch has not read. `since` is the oldest unread
-// message. The row shows who wrote and the newest message; nothing here counts or times a rider's messages.
+// message. The row shows the rider or restaurant and the newest unread message they wrote (never a
+// dispatch reply or a SYSTEM line under their name); nothing here counts or times a rider's messages.
 export function unreadMessageRows(threads: ChatUnreadThread[]): AttentionRow[] {
   return threads.map((thread) => {
     const body = thread.lastMessageBody ?? ''

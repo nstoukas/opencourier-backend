@@ -71,7 +71,8 @@ const createTokenMiddleware =
       if (isIssuedBeforeCredentialsChange(payload.iat, user.credentialsChangedAt)) {
         return next(new UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE))
       }
-      // The roles stored on the user, not the token's claim, decide: a role taken away counts at once.
+      // The roles stored on the user, not the token's claim, decide: a role taken away counts at the next
+      // connection. A socket already open keeps going until it drops, or until disconnectUser closes it.
       if (options.adminOnly && !user.role.includes(EnumUserRole.ADMIN)) {
         return next(new ForbiddenException('Admins only'))
       }

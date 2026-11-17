@@ -97,6 +97,7 @@ export class ChatAdminRestApiController {
   @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiConflictResponse({ description: 'The clientMessageId is already used by another sender' })
   @swagger.ApiOperation({ summary: 'Write to a rider or restaurant as dispatch' })
   @Roles(EnumUserRole.ADMIN)
   async send(

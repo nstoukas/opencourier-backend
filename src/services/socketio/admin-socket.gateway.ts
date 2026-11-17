@@ -32,4 +32,20 @@ export class AdminSocketGateway implements OnGatewayConnection {
     }
     this.namespace.to(DISPATCH_ROOM).emit(eventName, payload)
   }
+
+  // Spec 0013: closes every admin page this user has open on this server (their password was reset).
+  // These sockets are not in SocketIOService's list, which only the riders' namespace fills, so the
+  // dispatcher's disconnectUser calls this too. Returns how many were closed.
+  disconnectUser(userId: string): number {
+    if (!this.namespace) return 0
+    let closed = 0
+    this.namespace.sockets.forEach((socket) => {
+      // The handshake middleware put userId on the socket; Socket.IO's own type does not know it.
+      if ((socket as SocketWithAuth).userId === userId) {
+        socket.disconnect(true)
+        closed += 1
+      }
+    })
+    return closed
+  }
 }
