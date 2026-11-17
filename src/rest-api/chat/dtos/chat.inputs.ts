@@ -13,10 +13,11 @@ export class ChatSendInputDto {
   body: string
 
   // The delivery this message is about. A rider or restaurant can tag only their own (AC-21).
+  // Null means no tag: the rider's app sends it when the chat was opened from the side menu.
   @ApiProperty({ type: String, required: false, nullable: true })
   @IsOptional()
   @IsString()
-  @RefuseIfNotSentAsString()
+  @RefuseIfNotSentAsString({ allowNull: true })
   deliveryId?: string | null
 
   // The sender's own id for this message. A retry with the same id never makes a second message (AC-19).
