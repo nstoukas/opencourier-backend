@@ -12,6 +12,7 @@ import { SosCourierRestApiModule } from './sos/courier/sos.courier.rest-api.modu
 import { ShiftBookingCourierRestApiModule } from './shift-booking/courier/shift-booking.courier.rest-api.module'
 import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.rest-api.module'
 import { RemovalRequestCourierRestApiModule } from './removal-request/courier/removal-request.courier.rest-api.module'
+import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -31,6 +32,8 @@ import { RemovalRequestCourierRestApiModule } from './removal-request/courier/re
     PartnerCourierRestApiModule,
     // Asking dispatch to take a rider off an order (spec 0035).
     RemovalRequestCourierRestApiModule,
+    // A rider's chat with dispatch (spec 0034).
+    ChatCourierRestApiModule,
   ],
 })
 export class CourierRestApiModule {}

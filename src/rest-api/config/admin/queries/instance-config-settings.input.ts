@@ -51,4 +51,7 @@ export class InstanceConfigSettingsInput {
   shiftDropNoticeHours?: number
   dispatchPhoneNumber?: string
   cancellationPayoutPolicy?: string
+  chatQuickRepliesDispatch?: string[]
+  chatQuickRepliesCourier?: string[]
+  chatRetentionDays?: number
 }

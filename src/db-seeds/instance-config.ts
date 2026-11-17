@@ -30,6 +30,9 @@ import {
   DEFAULT_ARRIVAL_RADIUS_METRES,
   DEFAULT_SHIFTS_ENABLED,
   DEFAULT_SHIFT_DROP_NOTICE_HOURS,
+  DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
+  DEFAULT_CHAT_QUICK_REPLIES_COURIER,
+  DEFAULT_CHAT_RETENTION_DAYS,
 } from 'src/constants'
 import { SEEDED_QUOTE_RATE_PER_DISTANCE_UNIT, SEEDED_QUOTE_BASE_FEE } from './instance-pay-defaults'
 
@@ -95,6 +98,10 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     shiftDropNoticeHours: DEFAULT_SHIFT_DROP_NOTICE_HOURS,
     // No dispatch line until a representative types one on Instance configuration (row 72).
     dispatchPhoneNumber: '',
+    // Chat (spec 0034): the presets and how long messages are kept.
+    chatQuickRepliesDispatch: DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
+    chatQuickRepliesCourier: DEFAULT_CHAT_QUICK_REPLIES_COURIER,
+    chatRetentionDays: DEFAULT_CHAT_RETENTION_DAYS,
   }
 
   for (const [key, value] of Object.entries(initialConfigsData)) {

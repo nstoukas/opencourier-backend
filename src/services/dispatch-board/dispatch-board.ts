@@ -1,3 +1,4 @@
+import type { ChatUnreadThread } from 'src/domains/chat/chat.domain.service'
 import { EnumCourierStatus, EnumDeliveryIssueReason, EnumDeliveryStatus } from '@prisma/types'
 import { DISPATCH_ATTENTION_ROW_LIMIT, INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
@@ -37,6 +38,7 @@ export const ATTENTION_KIND = {
   RESTAURANT_LATE: 'RESTAURANT_LATE',
   RIDER_REPORT: 'RIDER_REPORT',
   REMOVAL_REQUEST: 'REMOVAL_REQUEST',
+  UNREAD_MESSAGE: 'UNREAD_MESSAGE',
 } as const
 
 export type AttentionRow = {
@@ -295,6 +297,37 @@ export function removalRequestRows(requests: OpenRemovalRequest[]): AttentionRow
       held: false,
       removalRequestId: request.id,
       pickedUp,
+    }
+  })
+}
+
+// The longest piece of a chat message a board row repeats; the rest is one click away.
+export const UNREAD_MESSAGE_PREVIEW_LENGTH = 140
+
+// Spec 0034 (chat), AC-17: a thread with a message dispatch has not read. `since` is the oldest unread
+// message. The row shows who wrote and the newest message; nothing here counts or times a rider's messages.
+export function unreadMessageRows(threads: ChatUnreadThread[]): AttentionRow[] {
+  return threads.map((thread) => {
+    const body = thread.lastMessageBody ?? ''
+    const preview = body.length > UNREAD_MESSAGE_PREVIEW_LENGTH ? `${body.slice(0, UNREAD_MESSAGE_PREVIEW_LENGTH)}…` : body
+    const isRider = thread.courierId !== null
+    return {
+      id: `${ATTENTION_KIND.UNREAD_MESSAGE}:${thread.threadId}`,
+      kind: ATTENTION_KIND.UNREAD_MESSAGE,
+      since: thread.oldestUnreadAt,
+      sortAt: thread.oldestUnreadAt,
+      deliveryId: null,
+      sosId: null,
+      issueId: null,
+      threadId: thread.threadId,
+      status: null,
+      courierId: thread.courierId,
+      orderReference: null,
+      restaurantName: isRider ? null : thread.name,
+      riderName: isRider ? thread.name : null,
+      customerLabel: null,
+      detail: preview ? `${thread.name}: ${preview}` : thread.name,
+      held: false,
     }
   })
 }

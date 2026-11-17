@@ -39,6 +39,9 @@ model User {
 
   // Removal requests this admin approved or declined (spec 0035).
   removalRequestsDecided DeliveryRemovalRequest[]
+
+  // Chat messages this user wrote, as dispatch, a rider or a restaurant (spec 0034, chat).
+  chatMessagesSent ChatMessage[]
 }
 
 model Comment {
@@ -99,6 +102,8 @@ model Courier {
   sosIncidents          SosIncident[]
   // This rider's shift bookings (spec 0027). Never counted per rider anywhere (binding value 5).
   shiftBookings         ShiftBooking[]
+  // This rider's one conversation with dispatch (spec 0034, chat).
+  chatThread            ChatThread?
   // The admin search's folded names and phone (spec 0025). Written only by the database trigger
   // `courier_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
   searchFold            String?
@@ -191,6 +196,8 @@ model Partner {
   savedCustomers SavedCustomer[]
   charges        PartnerCharge[]
   availabilityChanges PartnerAvailabilityChange[]
+  // This restaurant's one conversation with dispatch (spec 0034, chat).
+  chatThread     ChatThread?
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -431,6 +438,8 @@ model Delivery {
   removalRequests      DeliveryRemovalRequest[]
   partnerCharges       PartnerCharge[]
   sosIncidents         SosIncident[]
+  // Chat messages tagged with this delivery (spec 0034, chat).
+  chatMessages         ChatMessage[]
   // The admin search's folded reference, customer and restaurant (spec 0025). Written only by the
   // database trigger `delivery_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
   searchFold           String?
@@ -1208,4 +1217,54 @@ model ShiftBookingEvent {
   createdAt      DateTime                  @default(now())
 
   @@index([shiftBookingId, createdAt])
+}
+
+// Spec 0034, chat. Who wrote a chat message. SYSTEM is a line the server writes (a rider report).
+enum EnumChatSenderKind {
+  DISPATCH
+  COURIER
+  PARTNER
+  SYSTEM
+}
+
+// Spec 0034, chat. One continuing conversation between dispatch and one rider or one restaurant.
+// Exactly one of courierId and partnerId is set (a raw SQL CHECK in the migration; Prisma can't say it).
+model ChatThread {
+  id        String   @id @default(cuid())
+  courierId String?  @unique
+  courier   Courier? @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  partnerId String?  @unique
+  partner   Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  // The newest message's time; null when retention removed every message (AC-18), which hides the thread.
+  lastMessageAt      DateTime?
+  // Shared by every admin: the thread is read up to here. Only ever moves forward (AC-7).
+  // Nothing records when a rider or restaurant read anything (AC-6).
+  dispatchLastReadAt DateTime?
+  createdAt          DateTime  @default(now())
+
+  messages ChatMessage[]
+
+  @@index([lastMessageAt])
+}
+
+// Spec 0034, chat. One line in a thread. Never edited or deleted, except by the retention job (AC-4, AC-18).
+model ChatMessage {
+  id           String             @id @default(cuid())
+  threadId     String
+  thread       ChatThread         @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderKind   EnumChatSenderKind
+  // Empty for SYSTEM lines, and when the writer's account is deleted.
+  senderUserId String?
+  senderUser   User?              @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  body         String             @postgres.VarChar(1000)
+  // The delivery this message is about, if any.
+  deliveryId   String?
+  delivery     Delivery?          @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  // The sender's own id for this message, so a retry after bad signal never makes a second one (AC-19).
+  clientMessageId String?
+  createdAt       DateTime @default(now())
+
+  @@unique([threadId, clientMessageId])
+  @@index([threadId, createdAt])
+  @@index([createdAt])
 }

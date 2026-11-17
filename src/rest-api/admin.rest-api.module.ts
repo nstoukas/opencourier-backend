@@ -13,6 +13,7 @@ import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 import { RemovalRequestAdminRestApiModule } from './removal-request/admin/removal-request.admin.rest-api.module'
+import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -33,6 +34,8 @@ import { RemovalRequestAdminRestApiModule } from './removal-request/admin/remova
     DispatchBoardAdminRestApiModule,
     // A rider's request to come off an order (spec 0035).
     RemovalRequestAdminRestApiModule,
+    // Dispatch's chat inbox (spec 0034).
+    ChatAdminRestApiModule,
   ],
 })
 export class AdminRestApiModule {}

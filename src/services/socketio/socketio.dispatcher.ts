@@ -3,10 +3,12 @@ import { Injectable, Logger } from '@nestjs/common'
 import { WebsocketDispatcher } from '../../services/websocket/models/WebsocketDispatcher'
 import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.courier.dto'
 import { SocketIOService } from './socketio.service'
+import { AdminSocketGateway } from './admin-socket.gateway'
 import {
   EnumDeliveryStatus,
   NotificationEventType,
   JobReadyUpdatedMessage, OfferEndedMessage, RemovalRequestDecidedMessage,
+  ChatMessageToCourier, ChatMessageToDispatch, ChatReadByDispatchMessage, ChatThreadReadMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
 
@@ -14,7 +16,10 @@ import {
 export class SocketIODispatcher extends WebsocketDispatcher {
   private readonly logger = new Logger(SocketIODispatcher.name)
 
-  constructor(private readonly socketIOService: SocketIOService) {
+  constructor(
+    private readonly socketIOService: SocketIOService,
+    private readonly adminSocketGateway: AdminSocketGateway
+  ) {
     super()
   }
 
@@ -71,6 +76,26 @@ export class SocketIODispatcher extends WebsocketDispatcher {
   async sendRemovalRequestDecided(userId: string, message: RemovalRequestDecidedMessage) {
     this.logger.log(`emitting ${NotificationEventType.REMOVAL_REQUEST_DECIDED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.REMOVAL_REQUEST_DECIDED, message)
+  }
+
+  // Spec 0034 (chat). Logged by message id only: the message carries what someone wrote.
+  async sendChatMessageToCourier(userId: string, message: ChatMessageToCourier) {
+    this.logger.log(`emitting ${NotificationEventType.CHAT_MESSAGE}, message ${message.message.id}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.CHAT_MESSAGE, message)
+  }
+
+  async sendChatReadByDispatch(userId: string, message: ChatReadByDispatchMessage) {
+    this.logger.log(`emitting ${NotificationEventType.CHAT_READ_BY_DISPATCH}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.CHAT_READ_BY_DISPATCH, message)
+  }
+
+  sendChatMessageToDispatch(message: ChatMessageToDispatch) {
+    this.logger.log(`emitting ${NotificationEventType.CHAT_MESSAGE} to dispatch, thread ${message.threadId}`)
+    this.adminSocketGateway.emitToDispatch(NotificationEventType.CHAT_MESSAGE, message)
+  }
+
+  sendChatThreadRead(message: ChatThreadReadMessage) {
+    this.adminSocketGateway.emitToDispatch(NotificationEventType.CHAT_THREAD_READ, message)
   }
 
   private async publishMessage(channelName: string, messageName: string, message: any) {

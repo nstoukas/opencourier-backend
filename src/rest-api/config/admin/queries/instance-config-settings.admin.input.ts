@@ -234,6 +234,25 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsString()
   cancellationPayoutPolicy?: string
 
+  // Chat (spec 0034, AC-13): the one tap presets, one list for dispatch and one for riders. The
+  // limits (at most 8, each 1 to 100 characters) are checked by name in the domain service.
+  @ApiProperty({ type: String, required: false, isArray: true })
+  @IsOptional()
+  @IsArray()
+  chatQuickRepliesDispatch?: string[]
+
+  @ApiProperty({ type: String, required: false, isArray: true })
+  @IsOptional()
+  @IsArray()
+  chatQuickRepliesCourier?: string[]
+
+  // Chat (spec 0034, AC-18). Whole days; the 7 to 365 range lives in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  chatRetentionDays?: number
+
   // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

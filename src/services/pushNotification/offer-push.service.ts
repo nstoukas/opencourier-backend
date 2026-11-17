@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { EnumDeliveryStatus } from '@prisma/types'
-import { OFFER_INSIST_AFTER_SECONDS, PUSH_DEFAULT_TTL_SECONDS } from '../../constants'
+import { CHAT_PUSH_TTL_SECONDS, OFFER_INSIST_AFTER_SECONDS, PUSH_DEFAULT_TTL_SECONDS } from '../../constants'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
@@ -144,6 +144,30 @@ export class OfferPushService {
       await this.handleSendResult(message.deliveryId, NotificationEventType.REMOVAL_REQUEST_DECIDED, result)
     } catch (error) {
       this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${error}`)
+    }
+  }
+
+  // Spec 0034 (chat), AC-11: dispatch wrote to this rider. Data only, with the thread id and no message
+  // text, so nothing a rider or dispatch wrote passes through Google; the phone draws "New message from
+  // Dispatch" itself. The caller decides whether to send (never to an Offline rider, AC-10). Fire and
+  // forget, never throws; logs the thread id only.
+  chatMessage(courierId: string, threadId: string): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendChatMessage(courierId, threadId).catch((error) =>
+      this.logger.error(`Chat push for thread ${threadId} failed: ${error}`)
+    )
+  }
+
+  async sendChatMessage(courierId: string, threadId: string): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = { type: NotificationEventType.CHAT_MESSAGE, threadId }
+      const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
+      await this.handleSendResult(`chat thread ${threadId}`, NotificationEventType.CHAT_MESSAGE, result)
+    } catch (error) {
+      this.logger.error(`Chat push for thread ${threadId} failed: ${error}`)
     }
   }
 

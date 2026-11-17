@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import { ForbiddenException, UnauthorizedException } from 'src/errors'
 import { SOCKET_GATEWAY_NAMESPACE } from './socketio.gateway'
+import { ADMIN_SOCKET_NAMESPACE } from './admin-socket.gateway'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
 import { EnumUserRole } from '@prisma/types'
 import { ExtendedError } from 'socket.io/dist/namespace'
@@ -35,13 +36,17 @@ export class SocketIOAdapter extends IoAdapter {
     const server: Server = super.createIOServer(port, optionsWithCors)
 
     server.of(SOCKET_GATEWAY_NAMESPACE).use(createTokenMiddleware(jwtService, userRepository, this.logger))
+    // Spec 0034 (chat), AC-21: the same token check, and the stored user must be an admin.
+    server
+      .of(ADMIN_SOCKET_NAMESPACE)
+      .use(createTokenMiddleware(jwtService, userRepository, this.logger, { adminOnly: true }))
 
     return server
   }
 }
 
 const createTokenMiddleware =
-  (jwtService: JwtService, userRepository: UserRepository, logger: Logger) =>
+  (jwtService: JwtService, userRepository: UserRepository, logger: Logger, options: { adminOnly?: boolean } = {}) =>
   async (socket: any, next: (err?: ExtendedError | undefined) => void) => {
     const authHeader = socket.handshake.auth.authorization || socket.handshake.headers['authorization']
 
@@ -65,6 +70,10 @@ const createTokenMiddleware =
       // Spec 0013: a token from before an admin set a new password cannot open a connection.
       if (isIssuedBeforeCredentialsChange(payload.iat, user.credentialsChangedAt)) {
         return next(new UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE))
+      }
+      // The roles stored on the user, not the token's claim, decide: a role taken away counts at once.
+      if (options.adminOnly && !user.role.includes(EnumUserRole.ADMIN)) {
+        return next(new ForbiddenException('Admins only'))
       }
 
       socket.userId = payload.sub

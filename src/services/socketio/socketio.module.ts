@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common'
 import { SocketGateway } from './socketio.gateway'
 import { SocketIOService } from './socketio.service'
+import { AdminSocketGateway } from './admin-socket.gateway'
 import { SocketIODispatcher } from './socketio.dispatcher'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
 import { useProvideClass } from 'src/core/utils/provider'
@@ -10,7 +11,7 @@ import { useProvideClass } from 'src/core/utils/provider'
 // app.module chose without importing it.
 @Global()
 @Module({
-  providers: [useProvideClass(WebsocketDispatcher, SocketIODispatcher), SocketGateway, SocketIOService],
+  providers: [useProvideClass(WebsocketDispatcher, SocketIODispatcher), SocketGateway, AdminSocketGateway, SocketIOService],
   exports: [SocketIOService, WebsocketDispatcher],
 })
 export class SocketIOModule {}

@@ -6,6 +6,7 @@ import { DispatchBoardRepository } from 'src/persistence/repositories/dispatch-b
 import { DispatchStopService } from 'src/services/dispatch-stop/dispatch-stop.service'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { SosService } from 'src/services/sos/sos.service'
+import { ChatDomainService } from 'src/domains/chat/chat.domain.service'
 import {
   AttentionRow,
   buildCards,
@@ -19,6 +20,7 @@ import {
   riderReportRows,
   sosRows,
   todayBounds,
+  unreadMessageRows,
   waitingForRiderRows,
 } from './dispatch-board'
 
@@ -42,12 +44,13 @@ export class DispatchBoardService {
     private readonly sosService: SosService,
     private readonly dispatchStopService: DispatchStopService,
     private readonly configDomainService: ConfigDomainService,
-    private readonly removalRequestRepository: RemovalRequestRepository
+    private readonly removalRequestRepository: RemovalRequestRepository,
+    private readonly chatDomainService: ChatDomainService
   ) {}
 
   async getBoard(now: Date = new Date()): Promise<DispatchBoard> {
     const { start, end } = todayBounds(now)
-    const [live, couriers, delivered, issues, incidents, stop, offerTimingEnabled, removalRequests] = await Promise.all([
+    const [live, couriers, delivered, issues, incidents, stop, offerTimingEnabled, removalRequests, unreadThreads] = await Promise.all([
       this.dispatchBoardRepository.findLiveDeliveries(),
       this.dispatchBoardRepository.findWorkingCouriers(),
       this.dispatchBoardRepository.findDroppedOffBetween(start, end),
@@ -56,6 +59,7 @@ export class DispatchBoardService {
       this.dispatchStopService.adminOverview(now),
       this.configDomainService.instanceConfig.getOfferTimingEnabled(),
       this.removalRequestRepository.findOpenForBoard(),
+      this.chatDomainService.unreadThreadsForBoard(),
     ])
     const offerViews = await this.deliveryDomainService.getOfferViews(live)
 
@@ -66,6 +70,7 @@ export class DispatchBoardService {
       ...restaurantLateRows(live, now),
       ...riderReportRows(issues),
       ...removalRequestRows(removalRequests),
+      ...unreadMessageRows(unreadThreads),
     ])
 
     return {

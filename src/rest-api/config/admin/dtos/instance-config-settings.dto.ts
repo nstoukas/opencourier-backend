@@ -137,6 +137,15 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: String })
   cancellationPayoutPolicy: string
 
+  @ApiProperty({ type: String, isArray: true })
+  chatQuickRepliesDispatch: string[]
+
+  @ApiProperty({ type: String, isArray: true })
+  chatQuickRepliesCourier: string[]
+
+  @ApiProperty({ type: Number })
+  chatRetentionDays: number
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -183,5 +192,8 @@ export class InstanceConfigSettingsDto {
     this.shiftDropNoticeHours = data.shiftDropNoticeHours
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.cancellationPayoutPolicy = data.cancellationPayoutPolicy
+    this.chatQuickRepliesDispatch = data.chatQuickRepliesDispatch
+    this.chatQuickRepliesCourier = data.chatQuickRepliesCourier
+    this.chatRetentionDays = data.chatRetentionDays
   }
 }

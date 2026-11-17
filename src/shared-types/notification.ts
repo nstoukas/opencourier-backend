@@ -21,6 +21,13 @@ export enum NotificationEventType {
   JOB_READY_UPDATED = 'JOB_READY_UPDATED',
   // A rider's removal request was answered (spec 0035): the app refetches and shows the outcome.
   REMOVAL_REQUEST_DECIDED = 'REMOVAL_REQUEST_DECIDED',
+  // Chat (spec 0034): a new message in a thread. To a rider it carries their message; to admins
+  // (room `dispatch` on the `admins` namespace) the thread id and the message.
+  CHAT_MESSAGE = 'CHAT_MESSAGE',
+  // Chat (spec 0034, AC-6): dispatch read the rider's thread up to this time, so their own messages show "read".
+  CHAT_READ_BY_DISPATCH = 'CHAT_READ_BY_DISPATCH',
+  // Chat (spec 0034, AC-7): an admin read a thread, so every admin's unread mark for it clears.
+  CHAT_THREAD_READ = 'CHAT_THREAD_READ',
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
@@ -52,4 +59,27 @@ export interface RemovalRequestDecidedMessage {
   paid: boolean
   payAmount: number | null
   currencyCode: string
+}
+
+// Spec 0034 (chat). What a rider's phone gets over its live connection. `message` is the rider's own
+// DTO shape (ChatMessageCourierDto); typed loosely here so this file stays free of DTO imports.
+export interface ChatMessageToCourier {
+  message: { id: string; [field: string]: unknown }
+}
+
+// Spec 0034 (chat), AC-6: the time dispatch has read the rider's thread up to, as ISO text. Nothing is
+// ever sent the other way: dispatch never learns whether a rider read anything.
+export interface ChatReadByDispatchMessage {
+  dispatchLastReadAt: string
+}
+
+// Spec 0034 (chat): what admins get on the `admins` namespace, room `dispatch`.
+export interface ChatMessageToDispatch {
+  threadId: string
+  message: { id: string; [field: string]: unknown }
+}
+
+export interface ChatThreadReadMessage {
+  threadId: string
+  dispatchLastReadAt: string
 }

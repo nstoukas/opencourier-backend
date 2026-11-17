@@ -68,6 +68,10 @@ export type InstanceConfigSettings = {
   // Spec 0015: the payout policy (a key of reassignmentPayoutPolicies) that pays a rider whose
   // job is cancelled after they accepted it. The stored key, or the fallback when none is stored.
   cancellationPayoutPolicy: string
+  // Chat (spec 0034): the one tap presets for dispatch and for riders, and how many days messages are kept.
+  chatQuickRepliesDispatch: string[]
+  chatQuickRepliesCourier: string[]
+  chatRetentionDays: number
 }
 
 export type InstanceDetails = {
@@ -148,6 +152,9 @@ export enum ConfigKey {
   SHIFT_DROP_NOTICE_HOURS = 'shiftDropNoticeHours',
   DISPATCH_PHONE_NUMBER = 'dispatchPhoneNumber',
   CANCELLATION_PAYOUT_POLICY = 'cancellationPayoutPolicy',
+  CHAT_QUICK_REPLIES_DISPATCH = 'chatQuickRepliesDispatch',
+  CHAT_QUICK_REPLIES_COURIER = 'chatQuickRepliesCourier',
+  CHAT_RETENTION_DAYS = 'chatRetentionDays',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).

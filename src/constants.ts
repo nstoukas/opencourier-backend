@@ -139,6 +139,31 @@ export const DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS = 12
 export const SAVED_CUSTOMER_RETENTION_MONTHS_MIN = 1
 export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
 
+// Chat (spec 0034, chat). A message is deleted once it is this many days old (AC-18). The operative value
+// is the co-op setting chatRetentionDays; this is its fallback when the Config row is missing, and its range.
+export const DEFAULT_CHAT_RETENTION_DAYS = 90
+export const CHAT_RETENTION_DAYS_MIN = 7
+export const CHAT_RETENTION_DAYS_MAX = 365
+// The one tap presets (AC-13): at most this many, each this many characters at most.
+export const CHAT_QUICK_REPLIES_MAX_ENTRIES = 8
+export const CHAT_QUICK_REPLY_MAX_LENGTH = 100
+// Fallbacks when the Config row is missing, in Greek like the riders' and dispatchers' own words.
+// No photo wording: the courier app takes no photos (row 18).
+export const DEFAULT_CHAT_QUICK_REPLIES_DISPATCH = [
+  'Περίμενε 5 λεπτά ακόμα',
+  'Άφησέ το στην πόρτα',
+  'Πήγαινέ το πίσω στο κατάστημα',
+]
+export const DEFAULT_CHAT_QUICK_REPLIES_COURIER = [
+  'Είμαι στην πόρτα, δεν απαντούν',
+  'Το φαγητό δεν είναι έτοιμο',
+  'Θα αργήσω λίγο',
+]
+// A chat message is text only, 1 to this many characters after trimming (AC-4).
+export const CHAT_MESSAGE_MAX_LENGTH = 1000
+// How long Firebase keeps trying to deliver a chat push (AC-11). A network allowance, not a co-op number.
+export const CHAT_PUSH_TTL_SECONDS = 3600
+
 // Order history (spec 0017). A restaurant sees its deliveries from this many days back (rolling, 24 h days),
 // plus any still open. The operative value is the co-op setting restaurantHistoryDays; this is its fallback
 // when the Config row is missing, and the range it must stay in.

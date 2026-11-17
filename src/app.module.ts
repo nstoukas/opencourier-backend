@@ -53,6 +53,7 @@ import { LocationNoteReactionDomainModule } from './domains/location-note-reacti
 import { LocationNoteDomainModule } from './domains/location-note/location-note.domain.module'
 import { PartnerDomainModule } from './domains/partner/partner.domain.module'
 import { PayoutDomainModule } from './domains/payout/partner.domain.module'
+import { ChatDomainModule } from './domains/chat/chat.domain.module'
 import { SavedCustomerDomainModule } from './domains/saved-customer/saved-customer.domain.module'
 import { UserDomainModule } from './domains/user/user.domain.module'
 import { AuthApiKeyGuard } from './guards/auth-api-key.guard'
@@ -80,6 +81,8 @@ const DOMAIN_MODULES: ModuleMetadata['imports'] = [
   DeliveryEventDomainModule,
   PayoutDomainModule,
   SavedCustomerDomainModule,
+  // Spec 0034 (chat): imported here too so its daily retention job is scheduled at startup.
+  ChatDomainModule,
 ]
 
 const REST_API_MODULES: ModuleMetadata['imports'] = [

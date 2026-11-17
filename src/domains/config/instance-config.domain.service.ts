@@ -46,6 +46,11 @@ import {
   DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
   SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
   SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
+  DEFAULT_CHAT_RETENTION_DAYS,
+  CHAT_RETENTION_DAYS_MIN,
+  CHAT_RETENTION_DAYS_MAX,
+  DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
+  DEFAULT_CHAT_QUICK_REPLIES_COURIER,
   DEFAULT_RESTAURANT_HISTORY_DAYS,
   RESTAURANT_HISTORY_DAYS_MIN,
   RESTAURANT_HISTORY_DAYS_MAX,
@@ -85,6 +90,7 @@ import { ConfigService } from '@nestjs/config'
 import { ConfigKey } from 'src/shared-types/index'
 import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 import { DISPATCH_PHONE_NUMBER_REFUSAL, normalizeDispatchPhoneNumber } from './dispatch-phone-number'
+import { checkChatQuickReplies, storedChatQuickReplies } from './chat-quick-replies'
 
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
@@ -192,6 +198,14 @@ export const NUMERIC_SETTING_RULES: {
     min: SAVED_CUSTOMER_RETENTION_MONTHS_MIN,
     max: SAVED_CUSTOMER_RETENTION_MONTHS_MAX,
   },
+  // Chat (spec 0034, AC-18): how long chat messages are kept.
+  {
+    key: 'chatRetentionDays',
+    whyZeroIsRefused: 'every chat message would be deleted the day it was written',
+    mustBeInteger: true,
+    min: CHAT_RETENTION_DAYS_MIN,
+    max: CHAT_RETENTION_DAYS_MAX,
+  },
   // Order history (spec 0017): how far back a restaurant sees its own orders.
   {
     key: 'restaurantHistoryDays',
@@ -291,6 +305,9 @@ export class InstanceConfigDomainService {
     const shiftDropNoticeHours = await this.getShiftDropNoticeHours()
     const dispatchPhoneNumber = await this.getDispatchPhoneNumber()
     const cancellationPayoutPolicy = await this.getCancellationPayoutPolicy()
+    const chatQuickRepliesDispatch = await this.getChatQuickRepliesDispatch()
+    const chatQuickRepliesCourier = await this.getChatQuickRepliesCourier()
+    const chatRetentionDays = await this.getChatRetentionDays()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -339,6 +356,9 @@ export class InstanceConfigDomainService {
       shiftDropNoticeHours,
       dispatchPhoneNumber,
       cancellationPayoutPolicy,
+      chatQuickRepliesDispatch,
+      chatQuickRepliesCourier,
+      chatRetentionDays,
     }
   }
 
@@ -513,6 +533,24 @@ export class InstanceConfigDomainService {
       dispatchPhoneNumber = normalized
     }
 
+    // Chat presets (spec 0034, AC-13), trimmed here so the save below writes what was checked.
+    let chatQuickRepliesDispatch: string[] | undefined
+    if (data.chatQuickRepliesDispatch !== undefined) {
+      const checked = checkChatQuickReplies('chatQuickRepliesDispatch', data.chatQuickRepliesDispatch)
+      if ('refusal' in checked) {
+        throw new BadRequestException(checked.refusal)
+      }
+      chatQuickRepliesDispatch = checked.replies
+    }
+    let chatQuickRepliesCourier: string[] | undefined
+    if (data.chatQuickRepliesCourier !== undefined) {
+      const checked = checkChatQuickReplies('chatQuickRepliesCourier', data.chatQuickRepliesCourier)
+      if ('refusal' in checked) {
+        throw new BadRequestException(checked.refusal)
+      }
+      chatQuickRepliesCourier = checked.replies
+    }
+
     // Phase 2 — write validated settings to the database repository.
     // Numeric settings use !== undefined, never `if (data.x)`: see NUMERIC_SETTING_RULES.
     if (data.courierMatcherType) {
@@ -658,6 +696,17 @@ export class InstanceConfigDomainService {
     // !== undefined, never a truthy check: '' is how a representative clears the number.
     if (dispatchPhoneNumber !== undefined) {
       await this.configRepository.saveByKey(ConfigKey.DISPATCH_PHONE_NUMBER, dispatchPhoneNumber)
+    }
+
+    // Chat (spec 0034). An empty list is a real choice (no presets), so !== undefined.
+    if (chatQuickRepliesDispatch !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.CHAT_QUICK_REPLIES_DISPATCH, chatQuickRepliesDispatch)
+    }
+    if (chatQuickRepliesCourier !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.CHAT_QUICK_REPLIES_COURIER, chatQuickRepliesCourier)
+    }
+    if (data.chatRetentionDays !== undefined) {
+      await this.configRepository.saveByKey(ConfigKey.CHAT_RETENTION_DAYS, data.chatRetentionDays)
     }
 
     // Update the updated_at timestamp whenever config is changed
@@ -1158,6 +1207,47 @@ export class InstanceConfigDomainService {
       `Invalid ${ConfigKey.SOS_LOCATION_RETENTION_DAYS} in config (${String(value)}), using the default ${DEFAULT_SOS_LOCATION_RETENTION_DAYS}`
     )
     return DEFAULT_SOS_LOCATION_RETENTION_DAYS
+  }
+
+  // Chat (spec 0034, AC-18): days a chat message is kept.
+  async getChatRetentionDays(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.CHAT_RETENTION_DAYS,
+      DEFAULT_CHAT_RETENTION_DAYS,
+      CHAT_RETENTION_DAYS_MIN,
+      CHAT_RETENTION_DAYS_MAX
+    )
+  }
+
+  // Chat (spec 0034, AC-13): the presets dispatch sees above its message box.
+  async getChatQuickRepliesDispatch(): Promise<string[]> {
+    return this.getChatQuickReplies(ConfigKey.CHAT_QUICK_REPLIES_DISPATCH, DEFAULT_CHAT_QUICK_REPLIES_DISPATCH)
+  }
+
+  // Chat (spec 0034, AC-13): the presets a rider sees above their message box.
+  async getChatQuickRepliesCourier(): Promise<string[]> {
+    return this.getChatQuickReplies(ConfigKey.CHAT_QUICK_REPLIES_COURIER, DEFAULT_CHAT_QUICK_REPLIES_COURIER)
+  }
+
+  // A missing row (an instance set up before row 111) reads quietly as the defaults, like the dispatch
+  // line: riders read the presets every time they open the chat. A stored list that breaks the rule
+  // can only come from a hand edit of the table, so it also falls back, with a warning.
+  private async getChatQuickReplies(key: ConfigKey, fallback: string[]): Promise<string[]> {
+    let value: unknown
+    try {
+      value = (await this.configRepository.getByKey(key)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return [...fallback]
+      }
+      throw error
+    }
+    const replies = storedChatQuickReplies(value)
+    if (replies === null) {
+      this.logger.warn(`Invalid ${key} in config, using the default presets`)
+      return [...fallback]
+    }
+    return replies
   }
 
   // The co-op's dispatch line (row 72), or null when none is set. Saving already refuses

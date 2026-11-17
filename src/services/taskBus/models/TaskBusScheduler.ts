@@ -16,6 +16,8 @@ export type TaskName =
   | 'cancellation-award-sweep'
   // Spec 0022: every day, deletes the SOS position points older than sosLocationRetentionDays.
   | 'sos-location-retention'
+  // Spec 0034 (chat): every day, deletes chat messages older than chatRetentionDays.
+  | 'chat-retention'
 
 export abstract class TaskBusScheduler {
   abstract scheduleTask<T>(taskName: TaskName, scheduleAt: Date, payload: T): Promise<void>

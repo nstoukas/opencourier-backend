@@ -7,6 +7,7 @@ import {
   EnumDeliveryStatus,
   NotificationEventType,
   JobReadyUpdatedMessage, OfferEndedMessage, RemovalRequestDecidedMessage,
+  ChatMessageToCourier, ChatReadByDispatchMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
 
@@ -68,6 +69,22 @@ export class AblyDispatcher extends WebsocketDispatcher {
     this.logger.log(`emitting ${NotificationEventType.REMOVAL_REQUEST_DECIDED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.REMOVAL_REQUEST_DECIDED, message)
   }
+
+  // Spec 0034 (chat). Logged by message id only: the message carries what someone wrote.
+  async sendChatMessageToCourier(userId: string, message: ChatMessageToCourier) {
+    this.logger.log(`emitting ${NotificationEventType.CHAT_MESSAGE}, message ${message.message.id}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.CHAT_MESSAGE, message)
+  }
+
+  async sendChatReadByDispatch(userId: string, message: ChatReadByDispatchMessage) {
+    this.logger.log(`emitting ${NotificationEventType.CHAT_READ_BY_DISPATCH}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.CHAT_READ_BY_DISPATCH, message)
+  }
+
+  // No admin live path with Ably: the admin's open conversation and sidebar count poll (AC-8).
+  sendChatMessageToDispatch() {}
+
+  sendChatThreadRead() {}
 
   private async publishMessage(channelName: string, messageName: string, message: any) {
     try {
