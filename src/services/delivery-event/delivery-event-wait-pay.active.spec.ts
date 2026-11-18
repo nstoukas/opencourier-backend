@@ -259,6 +259,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
         reason: EnumCourierCompensationReason.WAITING,
         policy: 'WAIT_PAY',
         message: 'Waited 10 min at 10 cents a minute',
+        waitMinutes: 10,
         courierId: COURIER_ID,
         deliveryId: DELIVERY_ID,
         waitOf: expectedWaitOf,
@@ -288,6 +289,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
         currencyCode: 'EUR',
         reason: EnumPartnerChargeReason.WAITING,
         waitOf: expectedWaitOf,
+        waitMinutes: 10,
       })
 
       // 4. waitPayOwedAt cleared via conditional write matching the read timestamp
@@ -366,6 +368,36 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       )
       expect(mockPartnerChargeRepository.createWaitChargeOnce).toHaveBeenCalledWith(
         expect.objectContaining({ waitOf: expectedWaitOf, amount: 100 })
+      )
+    })
+
+    // Spec 0036, AC-12: waitMinutes is copied from award to partner charge; null stays null
+    it('AC-12: finishWaitPayment copies null waitMinutes from award to charge when award has no waitMinutes', async () => {
+      const expectedWaitOf = waitOfKey(DELIVERY_ID, 'evt-pickup-1')
+      const awardWithoutWaitMinutes = {
+        id: 'comp-wait-legacy',
+        amount: 100,
+        currencyCode: 'EUR',
+        reason: EnumCourierCompensationReason.WAITING,
+        policy: 'WAIT_PAY',
+        message: 'Legacy wait award without waitMinutes column',
+        courierId: COURIER_ID,
+        deliveryId: DELIVERY_ID,
+        waitOf: expectedWaitOf,
+        waitMinutes: null,
+      } as any
+
+      mockCourierCompensationRepository.findWaitAwards.mockResolvedValueOnce([awardWithoutWaitMinutes])
+      mockDeliveryEventRepository.findWaitPaidMessages.mockResolvedValueOnce([])
+
+      await service.settleWaitPay(DELIVERY_ID)
+
+      expect(mockPartnerChargeRepository.createWaitChargeOnce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          waitOf: expectedWaitOf,
+          amount: 100,
+          waitMinutes: null,
+        })
       )
     })
 

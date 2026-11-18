@@ -45,6 +45,64 @@ describe('ResponseFormatMiddleware (AC-4, AC-9, Decision 26.2)', () => {
     expect(responseBody.result[0].extraSecretData).toBeUndefined()
   })
 
+  // Spec 0036, AC-6 wire: ResponseFormatMiddleware keeps alreadyBilled (an array) on an error body
+  it('passes alreadyBilled array through on an error body', () => {
+    const req = {} as Request
+    let responseBody: any
+    const res = {
+      statusCode: 409,
+      json: function (body: any) {
+        responseBody = body
+      },
+    } as unknown as Response
+
+    const next = jest.fn()
+    middleware.use(req, res, next)
+    expect(next).toHaveBeenCalled()
+
+    res.json({
+      code: 'UNIQUE_CONSTRAINT',
+      message: 'Some of these charges are already billed.',
+      alreadyBilled: ['charge-1', 'charge-2'],
+      extraSecretData: 'do-not-leak',
+    })
+
+    expect(responseBody).toEqual({
+      error: true,
+      result: [
+        {
+          code: 'UNIQUE_CONSTRAINT',
+          message: 'Some of these charges are already billed.',
+          statusCode: 409,
+          alreadyBilled: ['charge-1', 'charge-2'],
+        },
+      ],
+    })
+    expect(responseBody.result[0].extraSecretData).toBeUndefined()
+  })
+
+  it('does not add alreadyBilled when absent or not an array', () => {
+    const req = {} as Request
+    let responseBody: any
+    const res = {
+      statusCode: 409,
+      json: function (body: any) {
+        responseBody = body
+      },
+    } as unknown as Response
+
+    middleware.use(req, res, () => {})
+
+    // Non-array alreadyBilled should not be passed through
+    res.json({
+      code: 'UNIQUE_CONSTRAINT',
+      message: 'Error without array alreadyBilled',
+      alreadyBilled: 'not-an-array',
+    })
+
+    expect(responseBody.result[0].alreadyBilled).toBeUndefined()
+  })
+
   it('does not add conflictingCustomerId or extra fields when error does not have conflictingCustomerId', () => {
     const req = {} as Request
     let responseBody: any
