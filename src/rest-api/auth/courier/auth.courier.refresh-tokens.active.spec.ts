@@ -19,7 +19,8 @@ describe('AuthCourierRestApiController', () => {
     id: 'user-courier-123',
     email: 'courier@volos.gr',
     password: '$2b$10$verysecretpasswordhashthatmustneverleak',
-    apiKey: 'courier-super-secret-api-key-999',
+    apiKeyHash: 'courier-super-secret-hash-999',
+    apiKeyCreatedAt: new Date('2026-01-01T10:00:00Z'),
     role: [EnumUserRole.COURIER],
     username: 'couriervolos',
     createdAt: new Date('2026-01-01T10:00:00Z'),
@@ -33,7 +34,8 @@ describe('AuthCourierRestApiController', () => {
     id: 'user-partner-456',
     email: 'partner@volos.gr',
     password: 'hashed-password',
-    apiKey: 'partner-key',
+    apiKeyHash: 'partner-hash',
+    apiKeyCreatedAt: null,
     role: [EnumUserRole.PARTNER],
     username: 'partnervolos',
     createdAt: new Date('2026-01-01T10:00:00Z'),
@@ -127,9 +129,10 @@ describe('AuthCourierRestApiController', () => {
 
       // Verify secrets and entity internals never appear anywhere in the serialized JSON
       expect(serialized).not.toContain(mockCourierUser.password)
-      expect(serialized).not.toContain(mockCourierUser.apiKey)
+      expect(serialized).not.toContain('courier-super-secret-hash-999')
       expect(serialized).not.toContain('password')
       expect(serialized).not.toContain('apiKey')
+      expect(serialized).not.toContain('apiKeyHash')
       expect(serialized).not.toContain('username')
       expect(serialized).not.toContain('createdAt')
       expect(serialized).not.toContain('updatedAt')
@@ -138,6 +141,7 @@ describe('AuthCourierRestApiController', () => {
       const anyResult = result as unknown as Record<string, unknown>
       expect(anyResult.password).toBeUndefined()
       expect(anyResult.apiKey).toBeUndefined()
+      expect(anyResult.apiKeyHash).toBeUndefined()
       expect(anyResult.username).toBeUndefined()
       expect(anyResult.createdAt).toBeUndefined()
       expect(anyResult.updatedAt).toBeUndefined()

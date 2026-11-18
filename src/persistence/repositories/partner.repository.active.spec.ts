@@ -95,8 +95,15 @@ describe('PartnerRepository usualPrepMinutes (spec 0023, AC-9)', () => {
     repository = new PartnerRepository(mockPrisma as unknown as PrismaService)
   })
 
-  const login = { email: 'r73@volos.gr', hashedPassword: 'hash', apiKey: 'key' }
+  const login = { email: 'r73@volos.gr', hashedPassword: 'hash' }
   const partnerCreateData = () => mockPrisma.user.create.mock.calls[0][0].data.partner.create
+  const userCreateData = () => mockPrisma.user.create.mock.calls[0][0].data
+
+  test('createWithLogin writes no apiKey or apiKeyHash (spec 0037, AC-8)', async () => {
+    await repository.createWithLogin({ name: 'R73', login })
+    expect(userCreateData()).not.toHaveProperty('apiKey')
+    expect(userCreateData()).not.toHaveProperty('apiKeyHash')
+  })
 
   test('createWithLogin writes the usual prep time it was given, 0 included', async () => {
     await repository.createWithLogin({ name: 'R73', usualPrepMinutes: 0, login })
@@ -279,5 +286,42 @@ describe('PartnerRepository.findManyPaginated search (scope row 106)', () => {
       }
       expect(query.values.join(' ')).toContain('zqxmarker')
     })
+  })
+})
+
+describe('PartnerRepository (Spec 0037, AC-5)', () => {
+  let repository: PartnerRepository
+  let mockPrisma: any
+
+  beforeEach(() => {
+    mockPrisma = {
+      partner: {
+        findUniqueOrThrow: jest.fn(),
+      },
+    }
+    repository = new PartnerRepository(mockPrisma as unknown as PrismaService)
+  })
+
+  test('selects user email and apiKeyCreatedAt in findByIdOrThrow', async () => {
+    const row = {
+      id: 'partner-1',
+      name: 'R73',
+      usualPrepMinutes: 15,
+      userId: 'user-1',
+      user: { email: 'r73@volos.gr', apiKeyCreatedAt: new Date('2026-11-18T10:00:00Z') },
+      pickupLocation: null,
+    }
+    mockPrisma.partner.findUniqueOrThrow.mockResolvedValue(row)
+
+    const result = await repository.findByIdOrThrow('partner-1')
+
+    expect(mockPrisma.partner.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: 'partner-1' },
+      include: {
+        user: { select: { email: true, apiKeyCreatedAt: true } },
+        pickupLocation: true,
+      },
+    })
+    expect(result.userApiKeyCreatedAt).toEqual(new Date('2026-11-18T10:00:00Z'))
   })
 })

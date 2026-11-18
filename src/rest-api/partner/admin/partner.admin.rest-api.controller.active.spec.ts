@@ -57,6 +57,8 @@ describe('PartnerAdminRestApiController', () => {
       createRestaurant: jest.fn(),
       updateRestaurant: jest.fn(),
       rotatePassword: jest.fn(),
+      createApiKey: jest.fn(),
+      removeApiKey: jest.fn(),
     } as unknown as jest.Mocked<PartnerAdminRestApiService>
 
     mockPartnerAvailabilityDomainService = {
@@ -166,20 +168,22 @@ describe('PartnerAdminRestApiController', () => {
     })
   })
 
-  describe('rotatePartnerPassword', () => {
-    test('passes admin ID from @CurrentUser to rotatePassword and returns undefined (204 No Content) (AC-10)', async () => {
-      mockPartnerAdminRestApiService.rotatePassword.mockResolvedValue(undefined)
-      const mockAdmin = new UserEntity({
-        id: 'admin-user-42',
-        email: 'admin@coop.gr',
-        password: 'hashed-admin-pw',
-        role: [EnumUserRole.ADMIN],
-        username: null,
-        apiKey: null,
-        credentialsChangedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
+  describe('rotatePartnerPassword (Spec 0037, AC-1)', () => {
+    const mockAdmin = new UserEntity({
+      id: 'admin-user-42',
+      email: 'admin@coop.gr',
+      password: 'hashed-admin-pw',
+      role: [EnumUserRole.ADMIN],
+      username: null,
+      apiKeyHash: null,
+      apiKeyCreatedAt: null,
+      credentialsChangedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    test('returns 200 PartnerRotatePasswordAdminDto with new apiKey when restaurant had a key (AC-1)', async () => {
+      mockPartnerAdminRestApiService.rotatePassword.mockResolvedValue('ock_new_replaced_key_123')
 
       const result = await controller.rotatePartnerPassword(
         'partner-100',
@@ -192,6 +196,74 @@ describe('PartnerAdminRestApiController', () => {
         'newSecurePassword123',
         'admin-user-42',
       )
+      expect(result.apiKey).toBe('ock_new_replaced_key_123')
+    })
+
+    test('returns 200 PartnerRotatePasswordAdminDto with apiKey: null when restaurant had no key (AC-1)', async () => {
+      mockPartnerAdminRestApiService.rotatePassword.mockResolvedValue(null)
+
+      const result = await controller.rotatePartnerPassword(
+        'partner-100',
+        { password: 'newSecurePassword123' },
+        mockAdmin,
+      )
+
+      expect(mockPartnerAdminRestApiService.rotatePassword).toHaveBeenCalledWith(
+        'partner-100',
+        'newSecurePassword123',
+        'admin-user-42',
+      )
+      expect(result.apiKey).toBeNull()
+    })
+  })
+
+  describe('createPartnerApiKey (Spec 0037, AC-3)', () => {
+    test('calls createApiKey on service and returns 201 PartnerApiKeyAdminDto with key and created date', async () => {
+      const mockAdmin = new UserEntity({
+        id: 'admin-user-42',
+        email: 'admin@coop.gr',
+        password: 'hash',
+        role: [EnumUserRole.ADMIN],
+        username: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
+        credentialsChangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      const createdAt = new Date('2026-11-18T12:00:00Z')
+      mockPartnerAdminRestApiService.createApiKey.mockResolvedValue({
+        apiKey: 'ock_new_admin_key_789',
+        apiKeyCreatedAt: createdAt,
+      })
+
+      const result = await controller.createPartnerApiKey('partner-100', mockAdmin)
+
+      expect(mockPartnerAdminRestApiService.createApiKey).toHaveBeenCalledWith('partner-100', 'admin-user-42')
+      expect(result.apiKey).toBe('ock_new_admin_key_789')
+      expect(result.apiKeyCreatedAt).toBe(createdAt)
+    })
+  })
+
+  describe('removePartnerApiKey (Spec 0037, AC-4)', () => {
+    test('calls removeApiKey on service and returns undefined (204 No Content)', async () => {
+      const mockAdmin = new UserEntity({
+        id: 'admin-user-42',
+        email: 'admin@coop.gr',
+        password: 'hash',
+        role: [EnumUserRole.ADMIN],
+        username: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
+        credentialsChangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      mockPartnerAdminRestApiService.removeApiKey.mockResolvedValue(undefined)
+
+      const result = await controller.removePartnerApiKey('partner-100', mockAdmin)
+
+      expect(mockPartnerAdminRestApiService.removeApiKey).toHaveBeenCalledWith('partner-100', 'admin-user-42')
       expect(result).toBeUndefined()
     })
   })

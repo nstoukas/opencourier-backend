@@ -1,6 +1,7 @@
 import { EnumCountryCode } from '@prisma/types'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { PartnerAdminDto } from './partner.admin.dto'
+import { PartnerApiKeyAdminDto, PartnerRotatePasswordAdminDto } from './partner-api-key.admin.dto'
 
 describe('PartnerAdminDto', () => {
   const createdAt = new Date('2026-07-01T10:00:00Z')
@@ -67,10 +68,11 @@ describe('PartnerAdminDto', () => {
       }),
     )
 
-    // Verify sensitive keys are strictly absent from DTO
+    // Verify sensitive keys are strictly absent from DTO (AC-5)
     const keys = Object.keys(dto)
     expect(keys).not.toContain('password')
     expect(keys).not.toContain('apiKey')
+    expect(keys).not.toContain('apiKeyHash')
     expect(keys).not.toContain('hashedPassword')
   })
 
@@ -101,6 +103,77 @@ describe('PartnerAdminDto', () => {
     // email and pickupAddress must default to null rather than undefined
     expect(dto.email).toBeNull()
     expect(dto.pickupAddress).toBeNull()
+    expect(dto.apiKeyCreatedAt).toBeNull()
+  })
+
+  describe('Spec 0037: apiKeyCreatedAt and admin key DTOs (AC-5)', () => {
+    test('PartnerAdminDto.apiKeyCreatedAt reflects userApiKeyCreatedAt when present', () => {
+      const keyDate = new Date('2026-11-18T10:00:00Z')
+      const entityWithKey = new PartnerEntity({
+        id: 'partner-key-test',
+        name: 'Keyed Restaurant',
+        logo: null,
+        phoneNumber: null,
+        webhookUrl: null,
+        usualPrepMinutes: 15,
+        busyExtraMinutes: null,
+        pausedUntil: null,
+        disabledAt: null,
+        disabledReason: null,
+        userId: 'user-with-key',
+        pickupLocationId: null,
+        createdAt,
+        updatedAt,
+        user: { email: 'keyed@volos.gr', apiKeyCreatedAt: keyDate },
+      })
+
+      const dto = new PartnerAdminDto(entityWithKey)
+
+      expect(dto.apiKeyCreatedAt).toEqual(keyDate)
+      expect(Object.keys(dto)).not.toContain('apiKeyHash')
+      expect(Object.keys(dto)).not.toContain('apiKey')
+    })
+
+    test('PartnerAdminDto.apiKeyCreatedAt is null when user has null apiKeyCreatedAt', () => {
+      const entityWithoutKey = new PartnerEntity({
+        id: 'partner-nokey-test',
+        name: 'Unkeyed Restaurant',
+        logo: null,
+        phoneNumber: null,
+        webhookUrl: null,
+        usualPrepMinutes: 15,
+        busyExtraMinutes: null,
+        pausedUntil: null,
+        disabledAt: null,
+        disabledReason: null,
+        userId: 'user-without-key',
+        pickupLocationId: null,
+        createdAt,
+        updatedAt,
+        user: { email: 'unkeyed@volos.gr', apiKeyCreatedAt: null },
+      })
+
+      const dto = new PartnerAdminDto(entityWithoutKey)
+
+      expect(dto.apiKeyCreatedAt).toBeNull()
+    })
+
+    test('PartnerApiKeyAdminDto carries plain apiKey and apiKeyCreatedAt', () => {
+      const keyDate = new Date('2026-11-18T10:00:00Z')
+      const dto = new PartnerApiKeyAdminDto('ock_test_key_123', keyDate)
+
+      expect(dto.apiKey).toBe('ock_test_key_123')
+      expect(dto.apiKeyCreatedAt).toBe(keyDate)
+      expect(Object.keys(dto)).not.toContain('apiKeyHash')
+    })
+
+    test('PartnerRotatePasswordAdminDto carries apiKey (string or null)', () => {
+      const dtoWithKey = new PartnerRotatePasswordAdminDto('ock_rotated_key_456')
+      expect(dtoWithKey.apiKey).toBe('ock_rotated_key_456')
+
+      const dtoWithoutKey = new PartnerRotatePasswordAdminDto(null)
+      expect(dtoWithoutKey.apiKey).toBeNull()
+    })
   })
 
   // Spec 0023, AC-9: the admin restaurant DTO carries the usual prep time.

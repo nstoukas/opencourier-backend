@@ -1,6 +1,7 @@
 import { EnumUserRole } from '@prisma/types'
 import { AuthDomainService } from './auth.domain.service'
 import { CREDENTIALS_CHANGED_MESSAGE } from './credentials-change'
+import { API_KEY_DOES_NOT_WORK_MESSAGE, hashApiKey } from './api-key'
 import { UserEntity } from '../user/entities/user.entity'
 import * as errors from '../../errors'
 
@@ -20,7 +21,8 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       password: 'hashed-password-123',
       role: [EnumUserRole.COURIER],
       username: null,
-      apiKey: null,
+      apiKeyHash: null,
+      apiKeyCreatedAt: null,
       credentialsChangedAt: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -31,6 +33,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
     mockUserDomainService = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
+      findByApiKeyHash: jest.fn(),
       findUserWithEmail: jest.fn().mockResolvedValue(null),
     }
     mockCourierDomainService = {
@@ -411,6 +414,87 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
   describe('AC-7: registerCourier removal', () => {
     test('AuthDomainService has no registerCourier method', () => {
       expect((service as any).registerCourier).toBeUndefined()
+    })
+  })
+
+  describe('Spec 0037: userForApiKey (AC-6, AC-10)', () => {
+    test('hashes sent key with SHA-256 and looks up user by hash', async () => {
+      const partnerUser = makeUser({
+        id: 'user-partner-1',
+        role: [EnumUserRole.PARTNER],
+        apiKeyHash: hashApiKey('ock_valid_key_123'),
+      })
+      mockUserDomainService.findByApiKeyHash.mockResolvedValue(partnerUser)
+
+      const result = await service.userForApiKey('ock_valid_key_123')
+
+      expect(mockUserDomainService.findByApiKeyHash).toHaveBeenCalledTimes(1)
+      expect(mockUserDomainService.findByApiKeyHash).toHaveBeenCalledWith(hashApiKey('ock_valid_key_123'))
+      expect(result).toBe(partnerUser)
+    })
+
+    test('throws 401 UnauthorizedException with API_KEY_DOES_NOT_WORK_MESSAGE when key is unknown (AC-10)', async () => {
+      mockUserDomainService.findByApiKeyHash.mockResolvedValue(null)
+
+      const call = service.userForApiKey('ock_unknown_key_999')
+
+      await expect(call).rejects.toThrow(errors.UnauthorizedException)
+      await expect(call).rejects.toThrow(API_KEY_DOES_NOT_WORK_MESSAGE)
+      expect(mockUserDomainService.findByApiKeyHash).toHaveBeenCalledWith(hashApiKey('ock_unknown_key_999'))
+    })
+
+    test('default empty string key hashes empty string and throws 401 if not found', async () => {
+      mockUserDomainService.findByApiKeyHash.mockResolvedValue(null)
+
+      const call = service.userForApiKey()
+
+      await expect(call).rejects.toThrow(errors.UnauthorizedException)
+      await expect(call).rejects.toThrow(API_KEY_DOES_NOT_WORK_MESSAGE)
+      expect(mockUserDomainService.findByApiKeyHash).toHaveBeenCalledWith(hashApiKey(''))
+    })
+  })
+
+  describe('Spec 0037: loginPartnerWithUsername (AC-2, AC-8)', () => {
+    test('successful partner login creates session without generating or storing an API key', async () => {
+      const partnerUser = makeUser({
+        id: 'user-partner-1',
+        email: 'partner@volos.gr',
+        role: [EnumUserRole.PARTNER],
+      })
+      mockUserDomainService.findByEmail.mockResolvedValue(partnerUser)
+      mockPasswordService.compare.mockResolvedValue(true)
+      mockTokenService.createEmailAuthSession.mockResolvedValue({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      })
+
+      const result = await service.loginPartnerWithUsername({
+        email: 'partner@volos.gr',
+        password: 'valid-password',
+      })
+
+      expect(result.user).toBe(partnerUser)
+      expect(result.session).toBeDefined()
+      // ensurePartnerApiKey or generateApiKey are not called / do not exist
+      expect((service as any).ensurePartnerApiKey).toBeUndefined()
+      expect((service as any).generateApiKey).toBeUndefined()
+    })
+
+    test('throws ForbiddenException when user does not have PARTNER role', async () => {
+      const courierUser = makeUser({
+        id: 'user-courier-1',
+        role: [EnumUserRole.COURIER],
+      })
+      mockUserDomainService.findByEmail.mockResolvedValue(courierUser)
+      mockPasswordService.compare.mockResolvedValue(true)
+
+      const call = service.loginPartnerWithUsername({
+        email: 'rider@volos.gr',
+        password: 'valid-password',
+      })
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('You are not allowed to login as partner')
     })
   })
 })

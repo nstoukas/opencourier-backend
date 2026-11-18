@@ -3,7 +3,6 @@ import { PartnerAdminRestApiService } from './partner.admin.rest-api.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { UserDomainService } from 'src/domains/user/user.domain.service'
-import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
@@ -15,7 +14,6 @@ describe('PartnerAdminRestApiService', () => {
   let mockPartnerDomainService: jest.Mocked<PartnerDomainService>
   let mockLocationDomainService: jest.Mocked<LocationDomainService>
   let mockUserDomainService: jest.Mocked<UserDomainService>
-  let mockAuthDomainService: jest.Mocked<AuthDomainService>
   let mockPasswordService: jest.Mocked<PasswordService>
   let loggerLogSpy: jest.SpyInstance
 
@@ -93,11 +91,10 @@ describe('PartnerAdminRestApiService', () => {
       findUserWithEmail: jest.fn(),
       update: jest.fn(),
       findById: jest.fn(),
+      replaceApiKeyHash: jest.fn(),
+      removeApiKey: jest.fn(),
+      setPasswordAndReplaceApiKey: jest.fn(),
     } as unknown as jest.Mocked<UserDomainService>
-
-    mockAuthDomainService = {
-      generateApiKey: jest.fn().mockReturnValue('generated-api-key-123'),
-    } as unknown as jest.Mocked<AuthDomainService>
 
     mockPasswordService = {
       hash: jest.fn().mockResolvedValue('hashed!password123'),
@@ -107,7 +104,6 @@ describe('PartnerAdminRestApiService', () => {
       mockPartnerDomainService,
       mockLocationDomainService,
       mockUserDomainService,
-      mockAuthDomainService,
       mockPasswordService,
     )
 
@@ -155,7 +151,7 @@ describe('PartnerAdminRestApiService', () => {
       // Verify password hashing was called with original plaintext
       expect(mockPasswordService.hash).toHaveBeenCalledWith('mySecretPassword123')
 
-      // Assert createWithLogin received normalized email and hash, and plaintext password appears nowhere
+      // Assert createWithLogin received normalized email and hash, no apiKey (AC-8), and plaintext password appears nowhere
       expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith({
         name: 'Taverna Volos',
         phoneNumber: null,
@@ -163,7 +159,6 @@ describe('PartnerAdminRestApiService', () => {
         login: {
           email: 'taverna@volos.gr',
           hashedPassword: 'hashed!password123',
-          apiKey: 'generated-api-key-123',
         },
       })
     })
@@ -472,46 +467,72 @@ describe('PartnerAdminRestApiService', () => {
     })
   })
 
-  describe('rotatePassword', () => {
-    test('7a. hashes new password, updates user with credentialsChangedAt, and logs admin and partner IDs without password (AC-9, AC-10)', async () => {
+  describe('rotatePassword (Spec 0037, AC-1, AC-11, AC-12)', () => {
+    const mockUser = new UserEntity({
+      id: 'user-200',
+      email: 'taverna@volos.gr',
+      password: 'old-hashed-password',
+      role: [EnumUserRole.PARTNER],
+      username: null,
+      apiKeyHash: 'existing-hash',
+      apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
+      credentialsChangedAt: null,
+      createdAt: new Date('2026-07-01T10:00:00Z'),
+      updatedAt: new Date('2026-07-01T10:00:00Z'),
+    })
+
+    test('replaces key when restaurant had one: returns new plain key, calls setPasswordAndReplaceApiKey, and logs replacement (AC-1, AC-12)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
-      const mockUser = new UserEntity({
-        id: 'user-200',
-        email: 'taverna@volos.gr',
-        password: 'old-hashed-password',
-        role: [EnumUserRole.PARTNER],
-        username: null,
-        apiKey: null,
-        credentialsChangedAt: null,
-        createdAt: new Date('2026-07-01T10:00:00Z'),
-        updatedAt: new Date('2026-07-01T10:00:00Z'),
-      })
       mockUserDomainService.findById.mockResolvedValue(mockUser)
+      mockUserDomainService.setPasswordAndReplaceApiKey.mockResolvedValue({ apiKeyReplaced: true })
 
       const before = new Date()
-      await service.rotatePassword('partner-100', 'newSuperSecret888', 'admin-user-77')
+      const returnedKey = await service.rotatePassword('partner-100', 'newSuperSecret888', 'admin-user-77')
       const after = new Date()
 
       expect(mockUserDomainService.findById).toHaveBeenCalledWith('user-200')
       expect(mockPasswordService.hash).toHaveBeenCalledWith('newSuperSecret888')
-      expect(mockUserDomainService.update).toHaveBeenCalledWith('user-200', {
-        password: 'hashed!password123',
-        credentialsChangedAt: expect.any(Date),
-      })
+      expect(mockUserDomainService.setPasswordAndReplaceApiKey).toHaveBeenCalledWith(
+        'user-200',
+        'hashed!password123',
+        expect.any(Date),
+        expect.any(String) // SHA-256 hash
+      )
 
-      const updateCall = mockUserDomainService.update.mock.calls[0]?.[1]
-      expect(updateCall?.credentialsChangedAt).toBeInstanceOf(Date)
-      expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeGreaterThanOrEqual(before.getTime())
-      expect((updateCall?.credentialsChangedAt as Date).getTime()).toBeLessThanOrEqual(after.getTime())
+      const setCall = mockUserDomainService.setPasswordAndReplaceApiKey.mock.calls[0]
+      const credentialsChangedAt = setCall?.[2] as Date
+      expect(credentialsChangedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
+      expect(credentialsChangedAt.getTime()).toBeLessThanOrEqual(after.getTime())
 
-      // AC-10: logs one line naming admin id and partner id, never the password
-      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 set a new password for partner partner-100')
+      // Returns the newly generated plain key (which starts with ock_)
+      expect(typeof returnedKey).toBe('string')
+      expect(returnedKey).toMatch(/^ock_[A-Za-z0-9_-]{43}$/)
+
+      // AC-12: "Admin <id> set a new password for partner <id> and replaced its API key"
+      expect(loggerLogSpy).toHaveBeenCalledWith(
+        'Admin admin-user-77 set a new password for partner partner-100 and replaced its API key'
+      )
       const loggedText = loggerLogSpy.mock.calls.map((c) => c.join(' ')).join(' ')
       expect(loggedText).not.toContain('newSuperSecret888')
       expect(loggedText).not.toContain('hashed!password123')
+      expect(loggedText).not.toContain(returnedKey!)
     })
 
-    test('7b. throws ForbiddenException "This login also belongs to an admin." and updates nothing when partner user has ADMIN role (AC-10)', async () => {
+    test('when restaurant had no key: returns null and logs password change only (AC-1, AC-12)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.findById.mockResolvedValue(mockUser)
+      mockUserDomainService.setPasswordAndReplaceApiKey.mockResolvedValue({ apiKeyReplaced: false })
+
+      const returnedKey = await service.rotatePassword('partner-100', 'newSuperSecret888', 'admin-user-77')
+
+      expect(returnedKey).toBeNull()
+      // AC-12: without key replaced suffix
+      expect(loggerLogSpy).toHaveBeenCalledWith(
+        'Admin admin-user-77 set a new password for partner partner-100'
+      )
+    })
+
+    test('throws ForbiddenException "This login also belongs to an admin." when login user has ADMIN role (AC-11)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
       const adminPartnerUser = new UserEntity({
         id: 'user-200',
@@ -519,7 +540,8 @@ describe('PartnerAdminRestApiService', () => {
         password: 'admin-hashed-pw',
         role: [EnumUserRole.PARTNER, EnumUserRole.ADMIN],
         username: null,
-        apiKey: null,
+        apiKeyHash: 'hash-abc',
+        apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
         credentialsChangedAt: null,
         createdAt: new Date('2026-07-01T10:00:00Z'),
         updatedAt: new Date('2026-07-01T10:00:00Z'),
@@ -533,11 +555,11 @@ describe('PartnerAdminRestApiService', () => {
 
       // Nothing updated, hashed, or logged
       expect(mockPasswordService.hash).not.toHaveBeenCalled()
-      expect(mockUserDomainService.update).not.toHaveBeenCalled()
+      expect(mockUserDomainService.setPasswordAndReplaceApiKey).not.toHaveBeenCalled()
       expect(loggerLogSpy).not.toHaveBeenCalled()
     })
 
-    test('7c. throws NotFoundException when partner has no userId and updates nothing', async () => {
+    test('throws NotFoundException when partner has no userId (AC-11)', async () => {
       const partnerWithoutUser = new PartnerEntity({
         ...mockPartnerEntity,
         userId: null,
@@ -551,8 +573,144 @@ describe('PartnerAdminRestApiService', () => {
         'This partner has no login user',
       )
       expect(mockUserDomainService.findById).not.toHaveBeenCalled()
-      expect(mockUserDomainService.update).not.toHaveBeenCalled()
+      expect(mockUserDomainService.setPasswordAndReplaceApiKey).not.toHaveBeenCalled()
       expect(loggerLogSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('createApiKey (Spec 0037, AC-3, AC-11, AC-12)', () => {
+    const mockUser = new UserEntity({
+      id: 'user-200',
+      email: 'taverna@volos.gr',
+      password: 'hashed-password',
+      role: [EnumUserRole.PARTNER],
+      username: null,
+      apiKeyHash: null,
+      apiKeyCreatedAt: null,
+      credentialsChangedAt: null,
+      createdAt: new Date('2026-07-01T10:00:00Z'),
+      updatedAt: new Date('2026-07-01T10:00:00Z'),
+    })
+
+    test('creates new key when restaurant had no key before: logs made sentence and returns plain key once (AC-3, AC-12)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.findById.mockResolvedValue(mockUser)
+      mockUserDomainService.replaceApiKeyHash.mockResolvedValue({ replaced: false })
+
+      const before = new Date()
+      const result = await service.createApiKey('partner-100', 'admin-user-77')
+      const after = new Date()
+
+      expect(mockUserDomainService.replaceApiKeyHash).toHaveBeenCalledWith(
+        'user-200',
+        expect.any(String), // SHA-256 hash
+        expect.any(Date)
+      )
+      expect(result.apiKey).toMatch(/^ock_[A-Za-z0-9_-]{43}$/)
+      expect(result.apiKeyCreatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
+      expect(result.apiKeyCreatedAt.getTime()).toBeLessThanOrEqual(after.getTime())
+
+      // AC-12: "Admin <id> made a new API key for partner <id>" (no key before)
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 made a new API key for partner partner-100')
+      const loggedText = loggerLogSpy.mock.calls.map((c) => c.join(' ')).join(' ')
+      expect(loggedText).not.toContain(result.apiKey)
+    })
+
+    test('replaces key when restaurant had a key before: logs replaced sentence (AC-3, AC-12)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.findById.mockResolvedValue(mockUser)
+      mockUserDomainService.replaceApiKeyHash.mockResolvedValue({ replaced: true })
+
+      const result = await service.createApiKey('partner-100', 'admin-user-77')
+
+      expect(result.apiKey).toMatch(/^ock_[A-Za-z0-9_-]{43}$/)
+      // AC-12: "Admin <id> replaced the API key of partner <id>" (a key before)
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 replaced the API key of partner partner-100')
+    })
+
+    test('throws 403 ForbiddenException when login user has ADMIN role (AC-11)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      const adminPartnerUser = new UserEntity({
+        id: 'user-200',
+        email: 'taverna-admin@volos.gr',
+        password: 'admin-hashed-pw',
+        role: [EnumUserRole.PARTNER, EnumUserRole.ADMIN],
+        username: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
+        credentialsChangedAt: null,
+        createdAt: new Date('2026-07-01T10:00:00Z'),
+        updatedAt: new Date('2026-07-01T10:00:00Z'),
+      })
+      mockUserDomainService.findById.mockResolvedValue(adminPartnerUser)
+
+      const call = service.createApiKey('partner-100', 'admin-user-77')
+
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('This login also belongs to an admin.')
+      expect(mockUserDomainService.replaceApiKeyHash).not.toHaveBeenCalled()
+      expect(loggerLogSpy).not.toHaveBeenCalled()
+    })
+
+    test('throws 404 NotFoundException when partner has no userId (AC-11)', async () => {
+      const partnerWithoutUser = new PartnerEntity({
+        ...mockPartnerEntity,
+        userId: null,
+      })
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
+
+      await expect(service.createApiKey('partner-100', 'admin-user-77')).rejects.toThrow(
+        errors.NotFoundException
+      )
+      expect(mockUserDomainService.replaceApiKeyHash).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('removeApiKey (Spec 0037, AC-4, AC-11, AC-12)', () => {
+    test('removes key and logs removal sentence when there was a key (AC-4, AC-12)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.removeApiKey.mockResolvedValue({ removed: true })
+
+      await service.removeApiKey('partner-100', 'admin-user-77')
+
+      expect(mockUserDomainService.removeApiKey).toHaveBeenCalledWith('user-200')
+      // AC-12: "Admin <id> removed the API key of partner <id>" (only when there was one)
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 removed the API key of partner partner-100')
+    })
+
+    test('logs nothing when there was no key to remove (AC-12)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.removeApiKey.mockResolvedValue({ removed: false })
+
+      await service.removeApiKey('partner-100', 'admin-user-77')
+
+      expect(mockUserDomainService.removeApiKey).toHaveBeenCalledWith('user-200')
+      // AC-12: a removal with no key logs nothing
+      expect(loggerLogSpy).not.toHaveBeenCalled()
+    })
+
+    test('allows removing key even when partner user has ADMIN role (AC-11)', async () => {
+      // Removing a key signs nobody out and must always be allowed
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.removeApiKey.mockResolvedValue({ removed: true })
+
+      await service.removeApiKey('partner-100', 'admin-user-77')
+
+      expect(mockUserDomainService.removeApiKey).toHaveBeenCalledWith('user-200')
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 removed the API key of partner partner-100')
+    })
+
+    test('throws 404 NotFoundException when partner has no userId (AC-11)', async () => {
+      const partnerWithoutUser = new PartnerEntity({
+        ...mockPartnerEntity,
+        userId: null,
+      })
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
+
+      await expect(service.removeApiKey('partner-100', 'admin-user-77')).rejects.toThrow(
+        errors.NotFoundException
+      )
+      expect(mockUserDomainService.removeApiKey).not.toHaveBeenCalled()
     })
   })
 })

@@ -1,5 +1,6 @@
 import { AuthMiddleware, BEARER_SCHEME, MIXED_CREDENTIALS_MESSAGE } from './AuthMiddleware'
 import { CREDENTIALS_CHANGED_MESSAGE } from '../domains/auth/credentials-change'
+import { API_KEY_IN_URL_MESSAGE } from '../domains/auth/api-key'
 import { UnauthorizedException } from '../errors'
 import { EnumUserRole } from '@prisma/types'
 import { UserEntity } from '../domains/user/entities/user.entity'
@@ -18,7 +19,8 @@ describe('AuthMiddleware', () => {
     password: 'hash',
     role: [EnumUserRole.PARTNER],
     username: 'nosh',
-    apiKey: 'nosh-api-key-123',
+    apiKeyHash: 'hash-nosh-123',
+    apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
     credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
@@ -30,7 +32,8 @@ describe('AuthMiddleware', () => {
     password: 'hash',
     role: [EnumUserRole.COURIER],
     username: 'rider1',
-    apiKey: null,
+    apiKeyHash: null,
+    apiKeyCreatedAt: null,
     credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
@@ -117,7 +120,8 @@ describe('AuthMiddleware', () => {
         password: 'hash',
         role: [EnumUserRole.ADMIN],
         username: null,
-        apiKey: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
         credentialsChangedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -174,7 +178,7 @@ describe('AuthMiddleware', () => {
       expect(req.currentCourier).toBeUndefined()
     })
 
-    test('?api_key query + Bearer: next called with 401 UnauthorizedException(MIXED_CREDENTIALS_MESSAGE), no lookups performed, req.currentUser unset', async () => {
+    test('?api_key query + Bearer: refused first with 401 UnauthorizedException(API_KEY_IN_URL_MESSAGE) (address sentence wins over mixed credentials), no lookups performed, req.currentUser unset', async () => {
       const req: any = {
         headers: {
           authorization: 'Bearer valid-jwt-token',
@@ -192,7 +196,7 @@ describe('AuthMiddleware', () => {
       const passedError = next.mock.calls[0][0]
       expect(passedError).toBeInstanceOf(UnauthorizedException)
       expect(passedError.getStatus()).toBe(401)
-      expect(passedError.message).toBe(MIXED_CREDENTIALS_MESSAGE)
+      expect(passedError.message).toBe(API_KEY_IN_URL_MESSAGE)
 
       expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
       expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
@@ -225,7 +229,7 @@ describe('AuthMiddleware', () => {
       expect(req.currentUser).toBeUndefined()
     })
 
-    test('?api_key query + x-refresh-token: next called with 401 UnauthorizedException(MIXED_CREDENTIALS_MESSAGE), no lookups performed, req.currentUser unset', async () => {
+    test('?api_key query + x-refresh-token: refused first with 401 UnauthorizedException(API_KEY_IN_URL_MESSAGE) (address sentence wins over mixed credentials), no lookups performed, req.currentUser unset', async () => {
       const req: any = {
         headers: {
           'x-refresh-token': 'valid-refresh-token-value',
@@ -243,7 +247,7 @@ describe('AuthMiddleware', () => {
       const passedError = next.mock.calls[0][0]
       expect(passedError).toBeInstanceOf(UnauthorizedException)
       expect(passedError.getStatus()).toBe(401)
-      expect(passedError.message).toBe(MIXED_CREDENTIALS_MESSAGE)
+      expect(passedError.message).toBe(API_KEY_IN_URL_MESSAGE)
 
       expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
       expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
@@ -304,10 +308,7 @@ describe('AuthMiddleware', () => {
       expect(next).toHaveBeenCalledWith()
     })
 
-    test('API key alone in ?api_key query: userForApiKey is called and req.currentUser / currentPartner are set as before (no refusal)', async () => {
-      mockAuthService.userForApiKey.mockResolvedValue(mockPartnerUser)
-      mockPartnerDomainService.getByUserId.mockResolvedValue(mockPartnerEntity)
-
+    test('API key alone in ?api_key query: refused with 401 API_KEY_IN_URL_MESSAGE (AC-9: address sentence, no lookup, req.currentUser unset)', async () => {
       const req: any = {
         headers: {},
         query: {
@@ -319,14 +320,19 @@ describe('AuthMiddleware', () => {
 
       await middleware.use(req, res, next)
 
-      expect(mockAuthService.userForApiKey).toHaveBeenCalledTimes(1)
-      expect(mockAuthService.userForApiKey).toHaveBeenCalledWith('nosh-query-key-456')
+      expect(next).toHaveBeenCalledTimes(1)
+      const passedError = next.mock.calls[0][0]
+      expect(passedError).toBeInstanceOf(UnauthorizedException)
+      expect(passedError.getStatus()).toBe(401)
+      expect(passedError.message).toBe(API_KEY_IN_URL_MESSAGE)
+
+      expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
       expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
       expect(mockAuthService.userForRefreshToken).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.getByUserId).not.toHaveBeenCalled()
 
-      expect(req.currentUser).toBe(mockPartnerUser)
-      expect(req.currentPartner).toBe(mockPartnerEntity)
-      expect(next).toHaveBeenCalledWith()
+      expect(req.currentUser).toBeUndefined()
+      expect(req.currentPartner).toBeUndefined()
     })
 
     test('Bearer alone: as before (userForAuthorizationHeader called, req.currentUser / currentCourier set, no refusal)', async () => {
@@ -445,7 +451,7 @@ describe('AuthMiddleware', () => {
           expect(req.currentCourier).toBeUndefined()
         })
 
-        test(`?api_key query beside ${desc}: 401 with MIXED_CREDENTIALS_MESSAGE, no lookup called, req.currentUser unset`, async () => {
+        test(`?api_key query beside ${desc}: 401 with API_KEY_IN_URL_MESSAGE (refused first in URL check), no lookup called, req.currentUser unset`, async () => {
           const req: any = {
             headers: {
               authorization: header,
@@ -463,7 +469,7 @@ describe('AuthMiddleware', () => {
           const passedError = next.mock.calls[0][0]
           expect(passedError).toBeInstanceOf(UnauthorizedException)
           expect(passedError.getStatus()).toBe(401)
-          expect(passedError.message).toBe(MIXED_CREDENTIALS_MESSAGE)
+          expect(passedError.message).toBe(API_KEY_IN_URL_MESSAGE)
 
           expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
           expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
@@ -513,10 +519,7 @@ describe('AuthMiddleware', () => {
           expect(next).toHaveBeenCalledWith()
         })
 
-        test(`?api_key query beside whitespace authorization (${desc}): key path runs as normal`, async () => {
-          mockAuthService.userForApiKey.mockResolvedValue(mockPartnerUser)
-          mockPartnerDomainService.getByUserId.mockResolvedValue(mockPartnerEntity)
-
+        test(`?api_key query beside whitespace authorization (${desc}): refused with 401 API_KEY_IN_URL_MESSAGE (AC-9)`, async () => {
           const req: any = {
             headers: {
               authorization: header,
@@ -530,15 +533,19 @@ describe('AuthMiddleware', () => {
 
           await middleware.use(req, res, next)
 
-          expect(mockAuthService.userForApiKey).toHaveBeenCalledTimes(1)
-          expect(mockAuthService.userForApiKey).toHaveBeenCalledWith('nosh-query-key-456')
+          expect(next).toHaveBeenCalledTimes(1)
+          const passedError = next.mock.calls[0][0]
+          expect(passedError).toBeInstanceOf(UnauthorizedException)
+          expect(passedError.getStatus()).toBe(401)
+          expect(passedError.message).toBe(API_KEY_IN_URL_MESSAGE)
+
+          expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
           expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
           expect(mockAuthService.userForRefreshToken).not.toHaveBeenCalled()
-          expect(mockPartnerDomainService.getByUserId).toHaveBeenCalledWith(mockPartnerUser.id)
+          expect(mockPartnerDomainService.getByUserId).not.toHaveBeenCalled()
 
-          expect(req.currentUser).toBe(mockPartnerUser)
-          expect(req.currentPartner).toBe(mockPartnerEntity)
-          expect(next).toHaveBeenCalledWith()
+          expect(req.currentUser).toBeUndefined()
+          expect(req.currentPartner).toBeUndefined()
         })
       })
     })
@@ -628,6 +635,141 @@ describe('AuthMiddleware', () => {
             expect(extractedToken).toBeNull()
           }
         }
+      })
+    })
+  })
+
+  describe('Spec 0037: Restaurant API Key in URL Refusal & Header Auth (AC-9, AC-10, AC-14)', () => {
+    describe('AC-9: Query string api_key refusal on any route and in any shape', () => {
+      const queryShapes = [
+        { query: { api_key: 'valid-or-invalid-key' }, desc: 'string value' },
+        { query: { api_key: '' }, desc: 'empty string value' },
+        { query: { api_key: ['k1', 'k2'] }, desc: 'array value (from api_key[]=)' },
+        { query: { api_key: { nested: 'val' } }, desc: 'object value' },
+        { query: { api_key: null }, desc: 'null value' },
+      ]
+
+      queryShapes.forEach(({ query, desc }) => {
+        test(`refuses request with 401 API_KEY_IN_URL_MESSAGE when query has api_key as ${desc}`, async () => {
+          const req: any = {
+            headers: {},
+            query,
+            originalUrl: '/api/partner/v1/deliveries',
+          }
+          const res: any = {}
+          const next = jest.fn()
+
+          await middleware.use(req, res, next)
+
+          expect(next).toHaveBeenCalledTimes(1)
+          const err = next.mock.calls[0][0]
+          expect(err).toBeInstanceOf(UnauthorizedException)
+          expect(err.getStatus()).toBe(401)
+          expect(err.message).toBe(API_KEY_IN_URL_MESSAGE)
+
+          expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
+          expect(mockAuthService.userForAuthorizationHeader).not.toHaveBeenCalled()
+          expect(mockAuthService.userForRefreshToken).not.toHaveBeenCalled()
+          expect(req.currentUser).toBeUndefined()
+        })
+      })
+
+      test('refuses request on public route when query has api_key (first check before any handler)', async () => {
+        const req: any = {
+          headers: {},
+          query: { api_key: 'some-key' },
+          originalUrl: '/api/public/v1/metadata',
+        }
+        const res: any = {}
+        const next = jest.fn()
+
+        await middleware.use(req, res, next)
+
+        expect(next).toHaveBeenCalledTimes(1)
+        const err = next.mock.calls[0][0]
+        expect(err).toBeInstanceOf(UnauthorizedException)
+        expect(err.message).toBe(API_KEY_IN_URL_MESSAGE)
+        expect(req.currentUser).toBeUndefined()
+      })
+
+      test('API_KEY_IN_URL_MESSAGE wins over MIXED_CREDENTIALS_MESSAGE when query has api_key AND Bearer token sent', async () => {
+        const req: any = {
+          headers: {
+            authorization: 'Bearer valid-token',
+          },
+          query: { api_key: 'some-key' },
+        }
+        const res: any = {}
+        const next = jest.fn()
+
+        await middleware.use(req, res, next)
+
+        expect(next).toHaveBeenCalledTimes(1)
+        const err = next.mock.calls[0][0]
+        expect(err).toBeInstanceOf(UnauthorizedException)
+        expect(err.message).toBe(API_KEY_IN_URL_MESSAGE)
+      })
+    })
+
+    describe('AC-10 & AC-14: Header-only API key resolution', () => {
+      test('AC-14: valid key in x-api-key header sets req.currentUser and req.currentPartner', async () => {
+        mockAuthService.userForApiKey.mockResolvedValue(mockPartnerUser)
+        mockPartnerDomainService.getByUserId.mockResolvedValue(mockPartnerEntity)
+
+        const req: any = {
+          headers: {
+            'x-api-key': 'ock_valid_partner_key',
+          },
+          query: {},
+        }
+        const res: any = {}
+        const next = jest.fn()
+
+        await middleware.use(req, res, next)
+
+        expect(mockAuthService.userForApiKey).toHaveBeenCalledWith('ock_valid_partner_key')
+        expect(mockPartnerDomainService.getByUserId).toHaveBeenCalledWith(mockPartnerUser.id)
+        expect(req.currentUser).toBe(mockPartnerUser)
+        expect(req.currentPartner).toBe(mockPartnerEntity)
+        expect(next).toHaveBeenCalledWith()
+      })
+
+      test('empty x-api-key header counts as no key and calls next() with no user', async () => {
+        const req: any = {
+          headers: {
+            'x-api-key': '',
+          },
+          query: {},
+        }
+        const res: any = {}
+        const next = jest.fn()
+
+        await middleware.use(req, res, next)
+
+        expect(mockAuthService.userForApiKey).not.toHaveBeenCalled()
+        expect(next).toHaveBeenCalledWith()
+        expect(req.currentUser).toBeUndefined()
+      })
+
+      test('AC-10: unknown/removed/replaced key throws 401 which middleware passes to next()', async () => {
+        const notFoundErr = new UnauthorizedException('This API key does not work. Ask the co-op for a new one.')
+        mockAuthService.userForApiKey.mockRejectedValue(notFoundErr)
+
+        const req: any = {
+          headers: {
+            'x-api-key': 'ock_unknown_or_removed_key',
+          },
+          query: {},
+        }
+        const res: any = {}
+        const next = jest.fn()
+
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+
+        await middleware.use(req, res, next)
+
+        expect(next).toHaveBeenCalledWith(notFoundErr)
+        expect(req.currentUser).toBeUndefined()
       })
     })
   })

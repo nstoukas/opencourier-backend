@@ -301,5 +301,60 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
 
       expect(loggerLogSpy).toHaveBeenCalledWith('GET /api/admin/v1/chat/threads/unread-count?poll=30 200 16 - AdminWeb 127.0.0.1')
     })
+
+    describe('Spec 0037 AC-9: drops query string when query has api_key', () => {
+      test('redactSensitivePath drops entire query string when dropQueryString is true', () => {
+        expect(redactSensitivePath('/api/partner/v1/deliveries?api_key=ock_123', true)).toBe('/api/partner/v1/deliveries')
+        expect(redactSensitivePath('/api/partner/v1/deliveries?api%5Fkey=ock_123', true)).toBe('/api/partner/v1/deliveries')
+        expect(redactSensitivePath('/api/partner/v1/deliveries?api_key[]=ock_123', true)).toBe('/api/partner/v1/deliveries')
+        expect(redactSensitivePath('/api/public/v1/metadata?foo=bar&api_key=ock_123', true)).toBe('/api/public/v1/metadata')
+      })
+
+      test('HttpLoggerMiddleware logs path only without query string when request has api_key in query (AC-9)', () => {
+        const testCases = [
+          {
+            originalUrl: '/api/partner/v1/deliveries?api_key=ock_secret_key_1',
+            query: { api_key: 'ock_secret_key_1' },
+          },
+          {
+            originalUrl: '/api/partner/v1/deliveries?api%5Fkey=ock_secret_key_2',
+            query: { api_key: 'ock_secret_key_2' },
+          },
+          {
+            originalUrl: '/api/partner/v1/deliveries?api_key[]=ock_secret_key_3',
+            query: { api_key: ['ock_secret_key_3'] },
+          },
+        ]
+
+        for (const { originalUrl, query } of testCases) {
+          loggerLogSpy.mockClear()
+          let closeHandler: (() => void) | undefined
+          const mockRequest = {
+            method: 'GET',
+            originalUrl,
+            query,
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('TestAgent'),
+          } as unknown as Request
+          const mockResponse = {
+            statusCode: 401,
+            get: jest.fn().mockReturnValue('32'),
+            on: jest.fn().mockImplementation((event: string, handler: () => void) => {
+              if (event === 'close') closeHandler = handler
+            }),
+          } as unknown as Response
+
+          middleware.use(mockRequest, mockResponse, jest.fn())
+          closeHandler!()
+
+          expect(loggerLogSpy).toHaveBeenCalledTimes(1)
+          const logged = loggerLogSpy.mock.calls[0]![0] as string
+          expect(logged).toBe('GET /api/partner/v1/deliveries 401 32 - TestAgent 127.0.0.1')
+          expect(logged).not.toContain('api_key')
+          expect(logged).not.toContain('ock_secret_key')
+          expect(logged).not.toContain('?')
+        }
+      })
+    })
   })
 })

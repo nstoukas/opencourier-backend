@@ -20,7 +20,8 @@ describe('AuthPartnerRestApiController', () => {
     password: 'hashed-password',
     role: [EnumUserRole.PARTNER],
     username: 'tavernavolos',
-    apiKey: 'partner-key-100',
+    apiKeyHash: 'partner-hash-100',
+    apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
     credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
@@ -32,7 +33,8 @@ describe('AuthPartnerRestApiController', () => {
     password: 'hashed-password',
     role: [EnumUserRole.COURIER],
     username: 'couriervolos',
-    apiKey: 'courier-key-200',
+    apiKeyHash: null,
+    apiKeyCreatedAt: null,
     credentialsChangedAt: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
@@ -84,9 +86,9 @@ describe('AuthPartnerRestApiController', () => {
   })
 
   describe('login handler', () => {
-    test('returns UserInfoPartnerDto when user has PARTNER role', async () => {
+    test('returns UserInfoPartnerDto without apiKey property when user has PARTNER role (AC-2)', async () => {
       mockAuthDomainService.loginPartnerWithUsername.mockResolvedValue({
-        user: mockPartnerUser as UserEntity & { apiKey: string },
+        user: mockPartnerUser,
         session: mockSession,
       })
 
@@ -96,14 +98,17 @@ describe('AuthPartnerRestApiController', () => {
       expect(mockAuthDomainService.loginPartnerWithUsername).toHaveBeenCalledWith(input)
       expect(result.id).toBe('user-partner-100')
       expect(result.email).toBe('taverna@volos.gr')
-      expect(result.apiKey).toBe('partner-key-100')
+      // Spec 0037 AC-2: UserInfoPartnerDto has no apiKey property
+      expect((result as any).apiKey).toBeUndefined()
+      expect(Object.keys(result)).not.toContain('apiKey')
+      expect(Object.keys(result)).not.toContain('apiKeyHash')
       expect(result.session?.accessToken).toBe('access-token-123')
     })
 
     test('throws ForbiddenException when user attempting login does not have PARTNER role', async () => {
       // e.g. Courier credentials submitted to partner login endpoint
       mockAuthDomainService.loginPartnerWithUsername.mockResolvedValue({
-        user: mockCourierUser as UserEntity & { apiKey: string },
+        user: mockCourierUser,
         session: mockSession,
       })
 

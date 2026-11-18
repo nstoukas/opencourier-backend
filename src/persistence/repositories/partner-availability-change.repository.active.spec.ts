@@ -47,8 +47,8 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
     pickupLocationId: 'loc-1',
     createdAt: NOW,
     updatedAt: NOW,
-    // Included relations (spec 0029, AC-10, agy bug 1 fix)
-    user: { email: 'kitchen@volos.gr' },
+    // Included relations (spec 0029, AC-10; spec 0037, AC-5)
+    user: { email: 'kitchen@volos.gr', apiKeyCreatedAt: null },
     pickupLocation: sampleLocationDbRow,
   }
 
@@ -90,7 +90,7 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
       expect(mockPrisma.partner.update).toHaveBeenCalledWith({
         where: { id: 'partner-1' },
         data: partnerData,
-        include: { user: { select: { email: true } }, pickupLocation: true },
+        include: { user: { select: { email: true, apiKeyCreatedAt: true } }, pickupLocation: true },
       })
       expect(mockPrisma.partnerAvailabilityChange.create).toHaveBeenCalledWith({
         data: {
