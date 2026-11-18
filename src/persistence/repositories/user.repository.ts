@@ -45,6 +45,8 @@ export class UserRepository extends EntityRepository implements IUserRepository 
   // An admin's New API key (spec 0037): the hash and its time are always written together. Answers
   // whether a key was there before, for the log line. The first write only matches a login that has a
   // key; if it matched nothing, the second gives the login its first key. No read before the write.
+  // A Remove landing between the two writes is overwritten by the new key: the last admin action wins,
+  // as spec 0037 accepts (the admin did ask for a new key).
   async replaceApiKeyHash(userId: string, apiKeyHash: string, apiKeyCreatedAt: Date): Promise<{ replaced: boolean }> {
     const replaced = await this.prisma.user.updateMany({
       where: { id: userId, apiKeyHash: { not: null } },

@@ -204,7 +204,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
 
   private toDomain(
     data: Partner & {
-      user?: { email: string | null } | null
+      user?: { email: string | null; apiKeyCreatedAt: Date | null } | null
       pickupLocation?: Location | null
     },
   ) {
@@ -213,7 +213,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
 
   private toDomainMany(
     data: (Partner & {
-      user?: { email: string | null } | null
+      user?: { email: string | null; apiKeyCreatedAt: Date | null } | null
       pickupLocation?: Location | null
     })[],
   ) {
