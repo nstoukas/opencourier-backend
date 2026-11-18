@@ -23,6 +23,9 @@ export class ResponseFormatMiddleware implements NestMiddleware {
               // customer by id, so the restaurant's page can show it (spec 0005, AC-4). Named here
               // rather than copying every field, so no other error starts sending more than before.
               ...(data.conflictingCustomerId !== undefined && { conflictingCustomerId: data.conflictingCustomerId }),
+              // A bill that names charges another bill already covers lists their ids, so the admin's
+              // page can say which (spec 0036, AC-6). Charge ids only, nothing about a customer.
+              ...(Array.isArray(data.alreadyBilled) && { alreadyBilled: data.alreadyBilled }),
             },
           ],
         }

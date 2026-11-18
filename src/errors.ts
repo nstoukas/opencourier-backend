@@ -329,6 +329,26 @@ export class SavedCustomerPhoneClashException extends common.ConflictException {
   }
 }
 
+// Spec 0036, AC-6: a bill that names a charge another bill already covers. The page reloads its
+// lines and names these ones, so the 409 carries their ids.
+export class PartnerChargesAlreadyBilledException extends common.ConflictException {
+  constructor(alreadyBilled: string[]) {
+    super({
+      code: ErrorCode.UNIQUE_CONSTRAINT,
+      message: 'Some of these charges are already billed.',
+      statusCode: 409,
+      alreadyBilled,
+    })
+  }
+}
+
+// Spec 0036, AC-7: undoing a bill that is already undone changes nothing.
+export class PartnerBillAlreadyUndoneException extends common.ConflictException {
+  constructor() {
+    super({ code: ErrorCode.NOT_ALLOWED, message: 'This bill is already undone.', statusCode: 409 })
+  }
+}
+
 export class GenericException extends ApiException {
   constructor(code: ErrorCode, message: string, options?: HttpExceptionOptions) {
     super(code, message, DEFAULT_HTTP_CODE, options)

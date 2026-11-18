@@ -13,6 +13,8 @@ export interface ICourierCompensationCreateInput {
   cancellationOf?: string
   // Set only on a WAITING row (spec 0033): one wait is paid once.
   waitOf?: string
+  // Set only on a WAITING row (spec 0036): the minutes paid for.
+  waitMinutes?: number
   // Set only on a REMOVAL row (spec 0035): the request's id.
   removalOf?: string
   // Set only on a RETURN_TRIP row (spec 0035): the delivery id.

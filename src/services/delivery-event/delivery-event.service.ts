@@ -1284,6 +1284,8 @@ export class DeliveryEventService {
               reason: EnumCourierCompensationReason.WAITING,
               policy: 'WAIT_PAY',
               message: `Waited ${newest.minutes} min at ${centsPerMinute} cents a minute`,
+              // Spec 0036: the same minutes as a number, so a restaurant's charge can say them.
+              waitMinutes: newest.minutes,
               courierId: newest.courierId,
               deliveryId,
               waitOf: waitOfKey(deliveryId, newest.endEventId),
@@ -1348,6 +1350,8 @@ export class DeliveryEventService {
         currencyCode: award.currencyCode,
         reason: EnumPartnerChargeReason.WAITING,
         waitOf,
+        // Spec 0036: copied from the award, like the amount.
+        waitMinutes: award.waitMinutes,
       })
     }
   }

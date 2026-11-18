@@ -10,6 +10,8 @@ export interface IPartnerChargeCreateInput {
   amount: number // cents
   currencyCode: string
   reason: EnumPartnerChargeReason
+  // On a WAITING row (spec 0036): the paid minutes, copied from the rider's award.
+  waitMinutes?: number | null
 }
 
 // What restaurants owe the co-op (spec 0015). Written here, invoiced later by the payments rows.

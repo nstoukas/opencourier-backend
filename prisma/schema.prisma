@@ -42,6 +42,10 @@ model User {
 
   // Chat messages this user wrote, as dispatch, a rider or a restaurant (spec 0034, chat).
   chatMessagesSent ChatMessage[]
+
+  // Bills of restaurant charges this admin made or undid (spec 0036).
+  partnerBillsMade   PartnerBill[] @relation(name: "partnerBillBilledBy")
+  partnerBillsUndone PartnerBill[] @relation(name: "partnerBillUndoneBy")
 }
 
 model Comment {
@@ -195,6 +199,8 @@ model Partner {
   deliveryQuotes DeliveryQuote[]
   savedCustomers SavedCustomer[]
   charges        PartnerCharge[]
+  // Charges an admin billed by hand (spec 0036).
+  bills          PartnerBill[]
   availabilityChanges PartnerAvailabilityChange[]
   // This restaurant's one conversation with dispatch (spec 0034, chat).
   chatThread     ChatThread?
@@ -884,8 +890,57 @@ model PartnerCharge {
   createdAt    DateTime                @default(now())
   // null until a payments row invoices it.
   invoicedAt   DateTime?
+  // The open bill an admin put this charge in (spec 0036); null = not billed yet. Cleared only
+  // when that bill is undone. The payments rows must treat a charge with a billId as billed.
+  billId       String?
+  bill         PartnerBill?            @relation(fields: [billId], references: [id], onDelete: Restrict)
+  // On a WAITING row: the paid minutes, copied from the rider's award (spec 0036). Null otherwise,
+  // and on an old row whose award message could not be read.
+  waitMinutes  Int?
+  // Every bill that ever covered this charge, undone ones included.
+  billLines    PartnerBillLine[]
 
   @@index([partnerId, createdAt])
+  @@index([billId])
+}
+
+// One bill of a restaurant's charges for one month, made by hand by an admin (spec 0036).
+// Never deleted: a mistake is undone with a reason, and the lines stay.
+model PartnerBill {
+  id             String            @id @default(cuid())
+  partnerId      String
+  partner        Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  // The Athens calendar month every line belongs to, as YYYY-MM.
+  month          String            @postgres.VarChar(7)
+  // The invoice number the admin typed, if any.
+  reference      String?           @postgres.VarChar(60)
+  billedByUserId String?
+  billedBy       User?             @relation(name: "partnerBillBilledBy", fields: [billedByUserId], references: [id], onDelete: SetNull)
+  // A copy of the admin's email, else username, else id, so the record reads after a user delete.
+  billedByLabel  String            @postgres.VarChar(255)
+  createdAt      DateTime          @default(now())
+  undoneAt       DateTime?
+  undoneByUserId String?
+  undoneBy       User?             @relation(name: "partnerBillUndoneBy", fields: [undoneByUserId], references: [id], onDelete: SetNull)
+  undoneByLabel  String?           @postgres.VarChar(255)
+  undoReason     String?           @postgres.VarChar(300)
+  lines          PartnerBillLine[]
+  // The charges this bill covers while it is open.
+  charges        PartnerCharge[]
+
+  @@index([partnerId, month])
+}
+
+// Which charges a bill covered when it was made. Never changed or deleted.
+model PartnerBillLine {
+  id       String        @id @default(cuid())
+  billId   String
+  bill     PartnerBill   @relation(fields: [billId], references: [id], onDelete: Restrict)
+  chargeId String
+  charge   PartnerCharge @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+
+  @@unique([billId, chargeId])
+  @@index([chargeId])
 }
 
 // A payment owed to a courier that is NOT attached to a DROPPED_OFF event —
@@ -911,6 +966,9 @@ model CourierCompensation {
   removalOf      String?                       @unique
   // The delivery id on a RETURN_TRIP row (spec 0035): one trip back is paid once.
   returnOf       String?                       @unique
+  // On a WAITING row: the minutes paid for (spec 0036). Null otherwise, and on an old row whose
+  // message could not be read.
+  waitMinutes    Int?
   createdAt      DateTime                      @default(now())
 
   // Earnings queries filter by courier + date range; DeliveryEvent's missing

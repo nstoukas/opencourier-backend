@@ -14,6 +14,7 @@ import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 import { RemovalRequestAdminRestApiModule } from './removal-request/admin/removal-request.admin.rest-api.module'
 import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
+import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-charge.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -36,6 +37,8 @@ import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
     RemovalRequestAdminRestApiModule,
     // Dispatch's chat inbox (spec 0034).
     ChatAdminRestApiModule,
+    // What each restaurant owes, and bills made by hand (spec 0036).
+    PartnerChargeAdminRestApiModule,
   ],
 })
 export class AdminRestApiModule {}

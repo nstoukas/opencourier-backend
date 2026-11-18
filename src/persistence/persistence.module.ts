@@ -23,6 +23,7 @@ import { DeliveryIssueRepository } from './repositories/delivery-issue.repositor
 import { DispatchBoardRepository } from './repositories/dispatch-board.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 import { RemovalRequestRepository } from './repositories/removal-request.repository'
+import { PartnerBillingRepository } from './repositories/partner-billing.repository'
 import { ChatRepository } from './repositories/chat.repository'
 
 @Global()
@@ -53,6 +54,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SosIncidentRepository,
     RemovalRequestRepository,
     ChatRepository,
+    PartnerBillingRepository,
   ],
   exports: [
     ConfigRepository,
@@ -80,6 +82,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SosIncidentRepository,
     RemovalRequestRepository,
     ChatRepository,
+    PartnerBillingRepository,
   ],
 })
 export class PersistenceModule {}
