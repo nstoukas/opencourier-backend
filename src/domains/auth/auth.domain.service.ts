@@ -148,7 +148,8 @@ export class AuthDomainService {
 
   async userForAuthorizationHeader(authorization = '') {
     try {
-      const bearer = authorization.replace(/^Bearer\s/, '')
+      // The scheme in any case with any spacing, as passport-jwt reads it (row 113 review).
+      const bearer = authorization.replace(/^\s*bearer\s+/i, '')
       const payload = this.tokenService.decodeToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)
@@ -166,7 +167,8 @@ export class AuthDomainService {
 
   async userForRefreshToken(authorization = '') {
     try {
-      const bearer = authorization.replace(/^Bearer\s/, '')
+      // The scheme in any case with any spacing, as passport-jwt reads it (row 113 review).
+      const bearer = authorization.replace(/^\s*bearer\s+/i, '')
       const payload = this.tokenService.decodeRefreshToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)

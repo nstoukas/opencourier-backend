@@ -13,6 +13,9 @@ import { PartnerDomainService } from 'src/domains/partner/partner.domain.service
 // The 401's sentence when a request carries an API key and a login token together (row 113).
 export const MIXED_CREDENTIALS_MESSAGE = 'Send either an API key or a login token, not both'
 
+// "Bearer <token>" as passport-jwt reads it: the word in any case, then any whitespace (row 113 review).
+export const BEARER_SCHEME = /^\s*bearer\s+/i
+
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
   constructor(
@@ -26,14 +29,20 @@ export class AuthMiddleware implements NestMiddleware {
     const refreshToken = req.headers['x-refresh-token']?.toString() ?? ''
     const apiKey = req.headers['x-api-key']?.toString() ?? req.query.api_key?.toString() ?? ''
 
-    if (!authHeader.startsWith('Bearer ') && !refreshToken && !apiKey) {
+    // The route's JWT guard (passport-jwt) reads the scheme in any case with any spacing ("bearer",
+    // "BEARER", a tab), so this reads it the same way: a token passport would accept is always looked
+    // up here too, with its checks (spec 0013), never skipped for its spelling (row 113 review).
+    const hasBearer = BEARER_SCHEME.test(authHeader)
+
+    if (!hasBearer && !refreshToken && !apiKey) {
       return next()
     }
 
-    // Row 113: an API key sent beside a login token is refused, whatever the route. The key would win
-    // below, while the route's JWT guard only checks that some valid token came, so any login plus a
-    // restaurant's key acted as that restaurant. One credential per request: never guess which one.
-    if (apiKey && (authHeader.startsWith('Bearer ') || refreshToken)) {
+    // Row 113: an API key sent beside any Authorization header or a refresh token is refused, whatever
+    // the route. The key would win below, while the route's JWT guard only checks that some valid token
+    // came, so any login plus a restaurant's key acted as that restaurant. One credential per request:
+    // never guess which one.
+    if (apiKey && (authHeader.trim() !== '' || refreshToken)) {
       next(new UnauthorizedException(MIXED_CREDENTIALS_MESSAGE))
       return
     }
