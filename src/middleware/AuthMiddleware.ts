@@ -10,6 +10,9 @@ import { CourierDomainService } from 'src/domains/courier/courier.domain.service
 import { EnumUserRole } from '@prisma/types'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 
+// The 401's sentence when a request carries an API key and a login token together (row 113).
+export const MIXED_CREDENTIALS_MESSAGE = 'Send either an API key or a login token, not both'
+
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
   constructor(
@@ -25,6 +28,14 @@ export class AuthMiddleware implements NestMiddleware {
 
     if (!authHeader.startsWith('Bearer ') && !refreshToken && !apiKey) {
       return next()
+    }
+
+    // Row 113: an API key sent beside a login token is refused, whatever the route. The key would win
+    // below, while the route's JWT guard only checks that some valid token came, so any login plus a
+    // restaurant's key acted as that restaurant. One credential per request: never guess which one.
+    if (apiKey && (authHeader.startsWith('Bearer ') || refreshToken)) {
+      next(new UnauthorizedException(MIXED_CREDENTIALS_MESSAGE))
+      return
     }
 
     try {
