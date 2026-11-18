@@ -123,6 +123,14 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is in Redis for 20 minutes.
 
+- Chat (spec 0034) lives in `src/domains/chat/` and `ChatRepository`. The courier and partner routes take no thread id (the
+  session finds it), admins listen on the `admins` Socket.IO namespace (`AdminSocketGateway`), and `disconnectUser` closes a
+  user's sockets on both namespaces. The server keeps no record of a rider or restaurant reading: `HttpLoggerMiddleware` drops
+  the query string of the chat message routes (`QUERY_STRING_DROPPED_PATHS`), so a new route paging by message id goes there too.
+- Prisma 5.3.1's `distinct` is done in memory: it reads every matching row and drops duplicates in Node. For "the newest row
+  per group", use `$queryRaw` with `SELECT DISTINCT ON (...) id ... ORDER BY ...` and `Prisma.join` for the values, then
+  `findMany` by those ids (`ChatRepository.findNewestMessageIds`).
+
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
