@@ -61,12 +61,14 @@ describe('SocketIOService (Spec 0016 AC-12, Decision 31.18: publishMessage logs 
   let service: SocketIOService
   let loggerLogSpy: jest.SpyInstance
   let loggerErrorSpy: jest.SpyInstance
+  let loggerDebugSpy: jest.SpyInstance
   let mockSocket: Partial<SocketWithAuth>
 
   beforeEach(() => {
     // Intercept Nest Logger to verify log lines contain ids only and no personal customer data
     loggerLogSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
     loggerErrorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    loggerDebugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => {})
 
     service = new SocketIOService()
 
@@ -84,10 +86,11 @@ describe('SocketIOService (Spec 0016 AC-12, Decision 31.18: publishMessage logs 
   afterEach(() => {
     loggerLogSpy.mockRestore()
     loggerErrorSpy.mockRestore()
+    loggerDebugSpy.mockRestore()
   })
 
   function getAllLogs(): string {
-    return [...loggerLogSpy.mock.calls, ...loggerErrorSpy.mock.calls]
+    return [...loggerLogSpy.mock.calls, ...loggerErrorSpy.mock.calls, ...loggerDebugSpy.mock.calls]
       .flat()
       .map((arg) => (typeof arg === 'object' && arg !== null ? JSON.stringify(arg) : String(arg)))
       .join('\n')
@@ -184,12 +187,13 @@ describe('SocketIOService (Spec 0016 AC-12, Decision 31.18: publishMessage logs 
     )
   })
 
-  test('logs error and skips emit when channel is not found', () => {
+  test('the missing channel line is logged below error level: logs at debug and never calls logger.error when channel is not found (row 115)', () => {
     const message = { deliveryId: 'del-303' }
 
     service.publishMessage('NON_EXISTENT_CHANNEL', 'SOME_EVENT', message)
 
-    expect(loggerErrorSpy).toHaveBeenCalledWith('Channel NON_EXISTENT_CHANNEL not found')
+    expect(loggerDebugSpy).toHaveBeenCalledWith('Channel NON_EXISTENT_CHANNEL not found')
+    expect(loggerErrorSpy).not.toHaveBeenCalled()
     expect(mockSocket.emit).not.toHaveBeenCalled()
   })
 })
