@@ -10,6 +10,21 @@ export const TASK_RUNNER_REFUSAL = 'Only the task runner may call this'
 // A shorter configured secret counts as unset (closed), so a placeholder like "x" is never a working credential.
 export const TASK_RUNNER_SECRET_MIN_LENGTH = 32
 
+// The configured secret as the guard uses it: trimmed (a header never carries surrounding spaces), and ''
+// (closed) when unset or shorter than the minimum. Shared with the scheduler and the startup check.
+export function usableTaskRunnerSecret(configured: string | undefined): string {
+  const value = (configured ?? '').trim()
+  return value.length < TASK_RUNNER_SECRET_MIN_LENGTH ? '' : value
+}
+
+// Says once, at startup, when a secret is set but too short, so the closed route is never a surprise.
+export function warnIfTaskRunnerSecretTooShort(configured: string | undefined, logger: Logger): void {
+  const value = (configured ?? '').trim()
+  if (value !== '' && value.length < TASK_RUNNER_SECRET_MIN_LENGTH) {
+    logger.warn(`${TASK_RUNNER_SECRET} is shorter than ${TASK_RUNNER_SECRET_MIN_LENGTH} characters: the tasks endpoint stays closed`)
+  }
+}
+
 // Row 94: `POST api/tasks/v1/execute` runs any registered job handler by name (offer expiry, matching
 // retries), so only the task runner may call it. It proves itself with a shared secret from the
 // environment. No secret set means nobody may call it: closed by default, which is the co-op's case,

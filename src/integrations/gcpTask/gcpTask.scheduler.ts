@@ -2,7 +2,7 @@ import { CloudTasksClient, protos } from '@google-cloud/tasks'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GCP_LOCATION, GCP_PROJECT_NAME, PUBLIC_API_URL, TASK_RUNNER_SECRET } from '../../constants'
-import { TASK_RUNNER_SECRET_HEADER } from '../../services/taskBus/task-runner-secret.guard'
+import { TASK_RUNNER_SECRET_HEADER, usableTaskRunnerSecret } from '../../services/taskBus/task-runner-secret.guard'
 import { TaskBusScheduler } from '../../services/taskBus/models/TaskBusScheduler'
 
 export const WEBHOOK_PATH = 'api/tasks/v1'
@@ -30,7 +30,8 @@ export class GcpTaskScheduler extends TaskBusScheduler {
         headers: {
           'Content-Type': 'application/json', // Set content type to ensure compatibility your application's request parsing
           // Row 94: the execute route refuses any call without the shared secret.
-          [TASK_RUNNER_SECRET_HEADER]: this.configService.get<string>(TASK_RUNNER_SECRET) ?? '',
+          // Trimmed like the guard reads it, so a secret mounted with a trailing newline still matches (agy review).
+          [TASK_RUNNER_SECRET_HEADER]: usableTaskRunnerSecret(this.configService.get<string>(TASK_RUNNER_SECRET)),
         },
         httpMethod: 'POST',
         url,
