@@ -176,6 +176,60 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
     })
   })
 
+  describe('Scope row 113 review fix (commit 7b20088): strips "bearer ", "BEARER " and "Bearer\\t" and decodes the bare token', () => {
+    describe('userForAuthorizationHeader', () => {
+      const spellings = [
+        { header: 'bearer token-lower-123', bareToken: 'token-lower-123', desc: 'lowercase "bearer "' },
+        { header: 'BEARER token-upper-456', bareToken: 'token-upper-456', desc: 'uppercase "BEARER "' },
+        { header: 'Bearer\ttoken-tab-789', bareToken: 'token-tab-789', desc: 'tab separated "Bearer\\t"' },
+      ]
+
+      spellings.forEach(({ header, bareToken, desc }) => {
+        test(`strips ${desc} and passes the bare token to decodeToken`, async () => {
+          const user = makeUser()
+          mockTokenService.decodeToken.mockReturnValue({
+            sub: user.id,
+            email: user.email,
+            iat: 123456,
+          })
+          mockUserDomainService.findById.mockResolvedValue(user)
+
+          const result = await service.userForAuthorizationHeader(header)
+
+          expect(mockTokenService.decodeToken).toHaveBeenCalledTimes(1)
+          expect(mockTokenService.decodeToken).toHaveBeenCalledWith(bareToken)
+          expect(result).toBe(user)
+        })
+      })
+    })
+
+    describe('userForRefreshToken', () => {
+      const spellings = [
+        { header: 'bearer refresh-lower-123', bareToken: 'refresh-lower-123', desc: 'lowercase "bearer "' },
+        { header: 'BEARER refresh-upper-456', bareToken: 'refresh-upper-456', desc: 'uppercase "BEARER "' },
+        { header: 'Bearer\trefresh-tab-789', bareToken: 'refresh-tab-789', desc: 'tab separated "Bearer\\t"' },
+      ]
+
+      spellings.forEach(({ header, bareToken, desc }) => {
+        test(`strips ${desc} and passes the bare token to decodeRefreshToken`, async () => {
+          const user = makeUser()
+          mockTokenService.decodeRefreshToken.mockReturnValue({
+            sub: user.id,
+            email: user.email,
+            iat: 123456,
+          })
+          mockUserDomainService.findById.mockResolvedValue(user)
+
+          const result = await service.userForRefreshToken(header)
+
+          expect(mockTokenService.decodeRefreshToken).toHaveBeenCalledTimes(1)
+          expect(mockTokenService.decodeRefreshToken).toHaveBeenCalledWith(bareToken)
+          expect(result).toBe(user)
+        })
+      })
+    })
+  })
+
   describe('AC-8: loginWithEmail (case fallback and payload email)', () => {
     test('finds user by email exactly as typed and signs token with user.email', async () => {
       const user = makeUser({ email: 'Courier@Domain.com' })
