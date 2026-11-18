@@ -91,21 +91,25 @@ export class ChatDomainService {
   // AC-1, AC-4, AC-19: saves one message (or finds the one a retry already saved) and tells everyone live.
   async send(sender: ChatSender, input: ChatSendInput): Promise<{ thread: ChatThreadRow; message: ChatMessageRow }> {
     const body = checkBody(input.body)
-    const thread = await this.threadFor(sender)
+    // The thread is only looked up here, not made: a first message whose tag is refused must leave
+    // no empty thread behind (row 115). With no thread yet, no retry can have been stored either.
+    const existing = await this.existingThreadFor(sender)
 
     // AC-19: a retry of a message already stored gets that message back, before the delivery tag is
     // checked. By the time a phone with bad signal retries, the delivery may have ended or gone to
     // another rider, and the message was saved anyway: the retry must not answer 404.
-    const stored = await this.chatRepository.findByClientMessageId(thread.id, input.clientMessageId)
-    if (stored) {
+    const stored = existing ? await this.chatRepository.findByClientMessageId(existing.id, input.clientMessageId) : null
+    if (existing && stored) {
       // Only the same sender's message counts as theirs; anyone else's under the same id is refused.
       if (stored.senderKind !== EnumChatSenderKind[sender.kind] || stored.senderUserId !== sender.userId) {
         throw new ConflictException(CHAT_CLIENT_ID_TAKEN_REFUSAL)
       }
-      return { thread, message: stored }
+      return { thread: existing, message: stored }
     }
 
     const deliveryId = await this.checkDeliveryTag(sender, input.deliveryId ?? null)
+    // Only now, with the message allowed, is a rider's or restaurant's first thread made (AC-1).
+    const thread = existing ?? (await this.threadFor(sender))
 
     const { message, created } = await this.chatRepository.createMessage({
       threadId: thread.id,
@@ -305,6 +309,19 @@ export class ChatDomainService {
         return this.chatRepository.findOrCreateThread({ courierId: sender.courierId })
       case 'PARTNER':
         return this.chatRepository.findOrCreateThread({ partnerId: sender.partnerId })
+    }
+  }
+
+  // The sender's thread if it exists, without making one. Dispatch writes only into an existing
+  // thread, so a missing one is refused here as before.
+  private async existingThreadFor(sender: ChatSender): Promise<ChatThreadRow | null> {
+    switch (sender.kind) {
+      case 'DISPATCH':
+        return this.requireThread(sender.threadId)
+      case 'COURIER':
+        return this.chatRepository.findThreadByParty({ courierId: sender.courierId })
+      case 'PARTNER':
+        return this.chatRepository.findThreadByParty({ partnerId: sender.partnerId })
     }
   }
 
