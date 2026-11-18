@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/types'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
+import { isTransactionConflictError } from 'src/prisma.util'
 
 // Spec 0036: what each restaurant owes, and the bills admins make of it by hand.
 
@@ -124,7 +125,9 @@ export class PartnerBillingRepository extends EntityRepository {
   // transaction. The charges are claimed with one conditional update (only those still unbilled):
   // if another bill took any of them first, the update counts short, everything rolls back and
   // this answers null. Postgres makes the second of two racing updates wait for the first and
-  // check `billId is null` again, so a charge can only ever land in one open bill.
+  // check `billId is null` again, so a charge can only ever land in one open bill. Two bills claiming
+  // overlapping charges in a different order can deadlock instead: Postgres aborts one transaction
+  // (Prisma's P2034), nothing of it is written, and it is answered like a lost race (decision 109.6).
   async createBillIfAllUnbilled(input: {
     partnerId: string
     month: string
@@ -153,7 +156,7 @@ export class PartnerBillingRepository extends EntityRepository {
         return tx.partnerBill.findUniqueOrThrow({ where: { id: bill.id }, include: BILL_INCLUDE })
       })
     } catch (error) {
-      if (error instanceof ChargesAlreadyBilledError) return null
+      if (error instanceof ChargesAlreadyBilledError || isTransactionConflictError(error)) return null
       throw error
     }
   }
