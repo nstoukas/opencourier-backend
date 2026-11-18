@@ -731,6 +731,175 @@ describe('ChatDomainService (spec 0034, AC-4, AC-7, AC-10, AC-11, AC-15, AC-19, 
     })
   })
 
+  describe('row 115: ordinary send into an existing thread (AC-1, review minor 2)', () => {
+    test('rider (COURIER) with existing thread and no tag: uses existing thread, does not call findOrCreateThread, creates message and publishes', async () => {
+      // Existing thread for the courier already found by findThreadByParty
+      const thread = createCourierThread()
+      const message = createMessageRow(EnumChatSenderKind.COURIER, thread.id, 'Running 5 mins late')
+
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findByClientMessageId.mockResolvedValue(null)
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+        { body: 'Running 5 mins late', clientMessageId: 'cli-c1' }
+      )
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.findDeliveryOwners).not.toHaveBeenCalled()
+      expect(mockChatRepo.createMessage).toHaveBeenCalledWith({
+        threadId: thread.id,
+        senderKind: EnumChatSenderKind.COURIER,
+        senderUserId: 'user-c1',
+        body: 'Running 5 mins late',
+        deliveryId: null,
+        clientMessageId: 'cli-c1',
+      })
+      expect(mockDispatcher.sendChatMessageToDispatch).toHaveBeenCalledTimes(1)
+      expect(mockDispatcher.sendChatMessageToCourier).toHaveBeenCalledTimes(1)
+      expect(result).toEqual({ thread, message })
+    })
+
+    test('rider (COURIER) with existing thread and allowed delivery tag: uses existing thread, does not call findOrCreateThread, creates message and publishes', async () => {
+      // Existing thread for the courier with delivery owned by the sender
+      const thread = createCourierThread()
+      const message = createMessageRow(EnumChatSenderKind.COURIER, thread.id, 'At pickup counter')
+      message.deliveryId = 'del-mine'
+
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findByClientMessageId.mockResolvedValue(null)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-1',
+      })
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+        { body: 'At pickup counter', deliveryId: 'del-mine', clientMessageId: 'cli-c2' }
+      )
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.findDeliveryOwners).toHaveBeenCalledWith('del-mine')
+      expect(mockChatRepo.createMessage).toHaveBeenCalledWith({
+        threadId: thread.id,
+        senderKind: EnumChatSenderKind.COURIER,
+        senderUserId: 'user-c1',
+        body: 'At pickup counter',
+        deliveryId: 'del-mine',
+        clientMessageId: 'cli-c2',
+      })
+      expect(mockDispatcher.sendChatMessageToDispatch).toHaveBeenCalledTimes(1)
+      expect(mockDispatcher.sendChatMessageToCourier).toHaveBeenCalledTimes(1)
+      expect(result).toEqual({ thread, message })
+    })
+
+    test('restaurant (PARTNER) with existing thread and no tag: uses existing thread, does not call findOrCreateThread, creates message and publishes', async () => {
+      // Existing thread for the partner already found by findThreadByParty
+      const thread = createPartnerThread()
+      const message = createMessageRow(EnumChatSenderKind.PARTNER, thread.id, 'Kitchen is busy today')
+
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findByClientMessageId.mockResolvedValue(null)
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+        { body: 'Kitchen is busy today', clientMessageId: 'cli-p1' }
+      )
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.findDeliveryOwners).not.toHaveBeenCalled()
+      expect(mockChatRepo.createMessage).toHaveBeenCalledWith({
+        threadId: thread.id,
+        senderKind: EnumChatSenderKind.PARTNER,
+        senderUserId: 'user-p1',
+        body: 'Kitchen is busy today',
+        deliveryId: null,
+        clientMessageId: 'cli-p1',
+      })
+      expect(mockDispatcher.sendChatMessageToDispatch).toHaveBeenCalledTimes(1)
+      expect(mockDispatcher.sendChatMessageToCourier).not.toHaveBeenCalled()
+      expect(result).toEqual({ thread, message })
+    })
+
+    test('restaurant (PARTNER) with existing thread and allowed delivery tag: uses existing thread, does not call findOrCreateThread, creates message and publishes', async () => {
+      // Existing thread for the partner with delivery owned by the sender
+      const thread = createPartnerThread()
+      const message = createMessageRow(EnumChatSenderKind.PARTNER, thread.id, 'Food is packed and ready')
+      message.deliveryId = 'del-mine'
+
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findByClientMessageId.mockResolvedValue(null)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-1',
+      })
+      mockChatRepo.createMessage.mockResolvedValue({ message, created: true })
+
+      const result = await service.send(
+        { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+        { body: 'Food is packed and ready', deliveryId: 'del-mine', clientMessageId: 'cli-p2' }
+      )
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.findDeliveryOwners).toHaveBeenCalledWith('del-mine')
+      expect(mockChatRepo.createMessage).toHaveBeenCalledWith({
+        threadId: thread.id,
+        senderKind: EnumChatSenderKind.PARTNER,
+        senderUserId: 'user-p1',
+        body: 'Food is packed and ready',
+        deliveryId: 'del-mine',
+        clientMessageId: 'cli-p2',
+      })
+      expect(mockDispatcher.sendChatMessageToDispatch).toHaveBeenCalledTimes(1)
+      expect(mockDispatcher.sendChatMessageToCourier).not.toHaveBeenCalled()
+      expect(result).toEqual({ thread, message })
+    })
+
+    test('refused tag on existing thread: rider sending foreign delivery tag gets 404, findOrCreateThread not called, createMessage not called', async () => {
+      const thread = createCourierThread()
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-other',
+        partnerId: 'partner-other',
+      })
+
+      await expect(
+        service.send(
+          { kind: 'COURIER', userId: 'user-c1', courierId: 'courier-1' },
+          { body: 'Question', deliveryId: 'del-foreign', clientMessageId: 'cli-c3' }
+        )
+      ).rejects.toThrow(new NotFoundException(CHAT_TAG_REFUSAL))
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.createMessage).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatMessageToDispatch).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatMessageToCourier).not.toHaveBeenCalled()
+    })
+
+    test('refused tag on existing thread: restaurant sending foreign delivery tag gets 404, findOrCreateThread not called, createMessage not called', async () => {
+      const thread = createPartnerThread()
+      mockChatRepo.findThreadByParty.mockResolvedValue(thread)
+      mockChatRepo.findDeliveryOwners.mockResolvedValue({
+        courierId: 'courier-1',
+        partnerId: 'partner-other',
+      })
+
+      await expect(
+        service.send(
+          { kind: 'PARTNER', userId: 'user-p1', partnerId: 'partner-1' },
+          { body: 'Question', deliveryId: 'del-foreign', clientMessageId: 'cli-p3' }
+        )
+      ).rejects.toThrow(new NotFoundException(CHAT_TAG_REFUSAL))
+
+      expect(mockChatRepo.findOrCreateThread).not.toHaveBeenCalled()
+      expect(mockChatRepo.createMessage).not.toHaveBeenCalled()
+      expect(mockDispatcher.sendChatMessageToDispatch).not.toHaveBeenCalled()
+    })
+  })
+
   describe('AC-7: markReadByDispatch live event emission', () => {
     test('when markReadByDispatch moved: true, emits CHAT_THREAD_READ to dispatch and CHAT_READ_BY_DISPATCH to courier', async () => {
       const thread = createCourierThread()
