@@ -84,7 +84,9 @@ export class EarningsDayCourierDto {
 
     const totals = deliveries.reduce(
       (acc, delivery) => {
-        acc.deliveryCount += 1
+        // Row 112: only a drop off counts as a delivery. A line with a `kind` (a wait, a removal, a return
+        // trip, a cancelled or reassigned job) is pay without one, as the summary already counts it.
+        if (!delivery.kind) acc.deliveryCount += 1
         acc.compensation += delivery.compensation
         acc.tips += delivery.tips
         acc.total += delivery.total
