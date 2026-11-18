@@ -25,8 +25,10 @@ export class SocketIOService {
     const channel = this.getClientFromChannel(channelName)
 
     if (!channel) {
-      // Normal, not an error: the rider or restaurant is simply not connected right now (an app in
-      // the background, a phone with no signal). Push or the next fetch brings the news (row 115).
+      // Normal, not an error: the rider is simply not connected right now (an app in the background,
+      // a phone with no signal). Push or the next fetch brings the news (row 115). Debug lines are not
+      // printed while the logger's level is 'info' (src/services/logger/index.ts), so this is hidden
+      // unless that level is lowered (decision 115.2).
       this.logger.debug(`Channel ${channelName} not found`)
       return
       // throw new Error(`Channel ${channelName} not found`);
