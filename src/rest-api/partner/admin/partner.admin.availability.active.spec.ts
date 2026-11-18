@@ -42,7 +42,7 @@ describe('PartnerAdminRestApiController availability endpoints (spec 0029)', () 
       pickupLocationId: 'loc-300',
       createdAt: new Date('2026-07-01T10:00:00Z'),
       updatedAt: new Date('2026-07-01T10:00:00Z'),
-      user: { email: 'taverna@volos.gr' },
+      user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null },
       pickupLocation: null,
       ...overrides,
     })

@@ -1,4 +1,6 @@
 import { EnumCountryCode, EnumUserRole } from '@prisma/types'
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants'
+import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { PartnerAdminRestApiController } from './partner.admin.rest-api.controller'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
@@ -27,7 +29,7 @@ describe('PartnerAdminRestApiController', () => {
     pickupLocationId: 'loc-300',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
-    user: { email: 'taverna@volos.gr' },
+    user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null },
     pickupLocation: {
       id: 'loc-300',
       addressLine1: null,
@@ -265,6 +267,27 @@ describe('PartnerAdminRestApiController', () => {
 
       expect(mockPartnerAdminRestApiService.removeApiKey).toHaveBeenCalledWith('partner-100', 'admin-user-42')
       expect(result).toBeUndefined()
+    })
+  })
+
+  describe('routing and security metadata (Spec 0037 AC-11)', () => {
+    test('createPartnerApiKey handler carries @Roles([ADMIN])', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.createPartnerApiKey)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+    })
+
+    test('removePartnerApiKey handler carries @Roles([ADMIN]) and HTTP code 204', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.removePartnerApiKey)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+      const httpCode = Reflect.getMetadata(HTTP_CODE_METADATA, controller.removePartnerApiKey)
+      expect(httpCode).toBe(204)
+    })
+
+    test('rotatePartnerPassword handler carries @Roles([ADMIN]) and HTTP code 200', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, controller.rotatePartnerPassword)
+      expect(roles).toEqual([EnumUserRole.ADMIN])
+      const httpCode = Reflect.getMetadata(HTTP_CODE_METADATA, controller.rotatePartnerPassword)
+      expect(httpCode).toBe(200)
     })
   })
 })

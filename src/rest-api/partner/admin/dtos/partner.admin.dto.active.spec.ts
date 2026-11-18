@@ -23,7 +23,7 @@ describe('PartnerAdminDto', () => {
       pickupLocationId: 'loc-300',
       createdAt,
       updatedAt,
-      user: { email: 'taverna@volos.gr' },
+      user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null },
       pickupLocation: {
         id: 'loc-300',
         addressLine1: null,

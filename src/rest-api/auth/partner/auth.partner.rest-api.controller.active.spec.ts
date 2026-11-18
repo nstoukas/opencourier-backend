@@ -120,7 +120,7 @@ describe('AuthPartnerRestApiController', () => {
   })
 
   describe('getMe handler', () => {
-    test('returns UserPartnerDto for current partner user', async () => {
+    test('returns UserPartnerDto for current partner user without apiKey (AC-2)', async () => {
       mockAuthDomainService.getMe.mockResolvedValue(mockPartnerUser)
 
       const result = await controller.getMe(mockPartnerUser)
@@ -129,6 +129,10 @@ describe('AuthPartnerRestApiController', () => {
       expect(result.id).toBe('user-partner-100')
       expect(result.email).toBe('taverna@volos.gr')
       expect(result.role).toEqual([EnumUserRole.PARTNER])
+      // Spec 0037 AC-2: getMe answer never carries an API key
+      expect((result as any).apiKey).toBeUndefined()
+      expect(Object.keys(result)).not.toContain('apiKey')
+      expect(Object.keys(result)).not.toContain('apiKeyHash')
     })
 
     // Spec 0023, AC-9: auth/me carries the restaurant's usual prep time, found by Partner.userId.

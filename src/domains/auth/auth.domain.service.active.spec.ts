@@ -35,6 +35,9 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       findByEmail: jest.fn(),
       findByApiKeyHash: jest.fn(),
       findUserWithEmail: jest.fn().mockResolvedValue(null),
+      update: jest.fn(),
+      updateMe: jest.fn(),
+      replaceApiKeyHash: jest.fn(),
     }
     mockCourierDomainService = {
       getByUserId: jest.fn(),
@@ -478,6 +481,10 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       // ensurePartnerApiKey or generateApiKey are not called / do not exist
       expect((service as any).ensurePartnerApiKey).toBeUndefined()
       expect((service as any).generateApiKey).toBeUndefined()
+      // Spec 0037, AC-8: signing in makes no user write (no update, updateMe, or replaceApiKeyHash)
+      expect(mockUserDomainService.update).not.toHaveBeenCalled()
+      expect(mockUserDomainService.updateMe).not.toHaveBeenCalled()
+      expect(mockUserDomainService.replaceApiKeyHash).not.toHaveBeenCalled()
     })
 
     test('throws ForbiddenException when user does not have PARTNER role', async () => {

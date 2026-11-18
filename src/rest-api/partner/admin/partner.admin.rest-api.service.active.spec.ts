@@ -4,6 +4,7 @@ import { PartnerDomainService } from 'src/domains/partner/partner.domain.service
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { UserDomainService } from 'src/domains/user/user.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
+import { hashApiKey } from 'src/domains/auth/api-key'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
@@ -33,7 +34,7 @@ describe('PartnerAdminRestApiService', () => {
     pickupLocationId: 'loc-300',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
-    user: { email: 'taverna@volos.gr' },
+    user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null },
     pickupLocation: {
       id: 'loc-300',
       addressLine1: null,
@@ -496,10 +497,13 @@ describe('PartnerAdminRestApiService', () => {
         'user-200',
         'hashed!password123',
         expect.any(Date),
-        expect.any(String) // SHA-256 hash
+        hashApiKey(returnedKey!)
       )
 
       const setCall = mockUserDomainService.setPasswordAndReplaceApiKey.mock.calls[0]
+      const passedHash = setCall?.[3]
+      expect(passedHash).toBe(hashApiKey(returnedKey!))
+      expect(passedHash).not.toBe(returnedKey)
       const credentialsChangedAt = setCall?.[2] as Date
       expect(credentialsChangedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
       expect(credentialsChangedAt.getTime()).toBeLessThanOrEqual(after.getTime())
@@ -603,9 +607,13 @@ describe('PartnerAdminRestApiService', () => {
 
       expect(mockUserDomainService.replaceApiKeyHash).toHaveBeenCalledWith(
         'user-200',
-        expect.any(String), // SHA-256 hash
+        hashApiKey(result.apiKey),
         expect.any(Date)
       )
+      const replaceCall = mockUserDomainService.replaceApiKeyHash.mock.calls[0]
+      const passedHash = replaceCall?.[1]
+      expect(passedHash).toBe(hashApiKey(result.apiKey))
+      expect(passedHash).not.toBe(result.apiKey)
       expect(result.apiKey).toMatch(/^ock_[A-Za-z0-9_-]{43}$/)
       expect(result.apiKeyCreatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
       expect(result.apiKeyCreatedAt.getTime()).toBeLessThanOrEqual(after.getTime())
@@ -622,6 +630,16 @@ describe('PartnerAdminRestApiService', () => {
       mockUserDomainService.replaceApiKeyHash.mockResolvedValue({ replaced: true })
 
       const result = await service.createApiKey('partner-100', 'admin-user-77')
+
+      expect(mockUserDomainService.replaceApiKeyHash).toHaveBeenCalledWith(
+        'user-200',
+        hashApiKey(result.apiKey),
+        expect.any(Date)
+      )
+      const replaceCall = mockUserDomainService.replaceApiKeyHash.mock.calls[0]
+      const passedHash = replaceCall?.[1]
+      expect(passedHash).toBe(hashApiKey(result.apiKey))
+      expect(passedHash).not.toBe(result.apiKey)
 
       expect(result.apiKey).toMatch(/^ock_[A-Za-z0-9_-]{43}$/)
       // AC-12: "Admin <id> replaced the API key of partner <id>" (a key before)
@@ -690,8 +708,21 @@ describe('PartnerAdminRestApiService', () => {
     })
 
     test('allows removing key even when partner user has ADMIN role (AC-11)', async () => {
-      // Removing a key signs nobody out and must always be allowed
+      // Removing a key signs nobody out and must always be allowed, even for a login that also has ADMIN role
+      const adminPartnerUser = new UserEntity({
+        id: 'user-200',
+        email: 'taverna-admin@volos.gr',
+        password: 'hash',
+        role: [EnumUserRole.PARTNER, EnumUserRole.ADMIN],
+        username: null,
+        apiKeyHash: 'hash-abc',
+        apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
+        credentialsChangedAt: null,
+        createdAt: new Date('2026-07-01T10:00:00Z'),
+        updatedAt: new Date('2026-07-01T10:00:00Z'),
+      })
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockUserDomainService.findById.mockResolvedValue(adminPartnerUser)
       mockUserDomainService.removeApiKey.mockResolvedValue({ removed: true })
 
       await service.removeApiKey('partner-100', 'admin-user-77')
