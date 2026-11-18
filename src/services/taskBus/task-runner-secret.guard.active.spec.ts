@@ -7,6 +7,8 @@ import {
   TASK_RUNNER_SECRET_HEADER,
   TASK_RUNNER_REFUSAL,
   TASK_RUNNER_SECRET_MIN_LENGTH,
+  usableTaskRunnerSecret,
+  warnIfTaskRunnerSecretTooShort,
 } from './task-runner-secret.guard'
 
 describe('TaskRunnerSecretGuard (Row 94, Decision 94.1)', () => {
@@ -379,6 +381,108 @@ describe('TaskRunnerSecretGuard (Row 94, Decision 94.1)', () => {
       // Third call: also does not warn again
       expect(() => guard.canActivate(context1)).toThrow(UnauthorizedException)
       expect(warnSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('usableTaskRunnerSecret helper (Row 94, PIN)', () => {
+    it('returns empty string when configured secret is undefined', () => {
+      expect(usableTaskRunnerSecret(undefined)).toBe('')
+    })
+
+    it('returns empty string when configured secret is empty string', () => {
+      expect(usableTaskRunnerSecret('')).toBe('')
+    })
+
+    it('returns empty string when configured secret is only whitespace', () => {
+      expect(usableTaskRunnerSecret('   ')).toBe('')
+      expect(usableTaskRunnerSecret('\t\r\n  \n')).toBe('')
+    })
+
+    it('returns empty string when configured secret is under 32 characters', () => {
+      expect(usableTaskRunnerSecret('x')).toBe('')
+      expect(usableTaskRunnerSecret('short-secret')).toBe('')
+      expect(usableTaskRunnerSecret('1234567890123456789012345678901')).toBe('') // 31 characters
+    })
+
+    it('returns empty string when configured secret has raw length >= 32 but trimmed length < 32', () => {
+      // 20 characters surrounded by 6 spaces on each side = 32 raw chars, but trimmed is 20
+      const paddedShort = '      fake-short-secret-20      '
+      expect(paddedShort.length).toBe(32)
+      expect(usableTaskRunnerSecret(paddedShort)).toBe('')
+    })
+
+    it('returns trimmed secret when 32+ characters with surrounding spaces, tabs, or a trailing newline', () => {
+      const validSecret = 'fake-task-secret-value-32-chars!'
+      expect(validSecret.length).toBe(32)
+
+      // Surrounding spaces and trailing newline
+      expect(usableTaskRunnerSecret(`   ${validSecret}   \n`)).toBe(validSecret)
+      // Surrounding tabs and carriage returns
+      expect(usableTaskRunnerSecret(`\t\r\n  ${validSecret}  \r\n\t`)).toBe(validSecret)
+      // Trailing newline only
+      expect(usableTaskRunnerSecret(`${validSecret}\n`)).toBe(validSecret)
+      // Longer valid secret with whitespace
+      const longerSecret = 'fake-task-runner-secret-key-xyz-longer-than-32-chars'
+      expect(usableTaskRunnerSecret(`  ${longerSecret}  \n`)).toBe(longerSecret)
+    })
+
+    it('returns secret as-is when already trimmed and at least 32 characters', () => {
+      const validSecret = 'fake-task-secret-value-32-chars!'
+      expect(usableTaskRunnerSecret(validSecret)).toBe(validSecret)
+    })
+  })
+
+  describe('warnIfTaskRunnerSecretTooShort helper (Row 94, PIN)', () => {
+    let mockLogger: {
+      warn: jest.Mock
+    }
+
+    beforeEach(() => {
+      mockLogger = {
+        warn: jest.fn(),
+      }
+    })
+
+    it('warns once naming TASK_RUNNER_SECRET and never the value for a set but short secret', () => {
+      const shortSecret = 'fake-short-secret'
+      warnIfTaskRunnerSecretTooShort(shortSecret, mockLogger as unknown as Logger)
+
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+      const message = mockLogger.warn.mock.calls[0][0]
+
+      expect(typeof message).toBe('string')
+      expect(message).toContain(TASK_RUNNER_SECRET)
+      expect(message).toContain(TASK_RUNNER_SECRET_MIN_LENGTH.toString())
+      expect(message).not.toContain(shortSecret)
+    })
+
+    it('says nothing when secret is undefined', () => {
+      warnIfTaskRunnerSecretTooShort(undefined, mockLogger as unknown as Logger)
+      expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
+    it('says nothing when secret is empty string', () => {
+      warnIfTaskRunnerSecretTooShort('', mockLogger as unknown as Logger)
+      expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
+    it('says nothing when secret is only whitespace', () => {
+      warnIfTaskRunnerSecretTooShort('   \t\r\n  ', mockLogger as unknown as Logger)
+      expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
+    it('says nothing when secret is long enough (32+ characters)', () => {
+      const validSecret = 'fake-valid-task-secret-value-32chars!'
+      expect(validSecret.length).toBeGreaterThanOrEqual(TASK_RUNNER_SECRET_MIN_LENGTH)
+
+      warnIfTaskRunnerSecretTooShort(validSecret, mockLogger as unknown as Logger)
+      expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
+    it('says nothing when secret is long enough with surrounding whitespace', () => {
+      const validSecret = '   fake-valid-task-secret-value-32chars!   \n'
+      warnIfTaskRunnerSecretTooShort(validSecret, mockLogger as unknown as Logger)
+      expect(mockLogger.warn).not.toHaveBeenCalled()
     })
   })
 })

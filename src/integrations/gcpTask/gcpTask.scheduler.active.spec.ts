@@ -104,6 +104,48 @@ describe('GcpTaskScheduler (Row 94, Decision 94.1)', () => {
       expect(headers).toHaveProperty(TASK_RUNNER_SECRET_HEADER)
       expect(headers[TASK_RUNNER_SECRET_HEADER]).toBe('')
     })
+
+    it('sends trimmed secret in x-task-secret header when configured secret has a trailing newline or surrounding whitespace (PIN)', async () => {
+      const cleanSecret = 'fake-gcp-runner-secret-key-xyz-789'
+      const secretWithWhitespace = `   ${cleanSecret}   \n`
+
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === TASK_RUNNER_SECRET) return secretWithWhitespace
+        return FAKE_CONFIG[key]
+      })
+
+      const scheduleTime = new Date('2026-11-18T10:00:00.000Z')
+      await scheduler.scheduleTask('offer-expiry', scheduleTime, { id: 'test' })
+
+      expect(mockCreateTask).toHaveBeenCalledTimes(1)
+      const passedRequest = mockCreateTask.mock.calls[0][0]
+      const headers = passedRequest.task.httpRequest.headers
+
+      expect(headers).toHaveProperty(TASK_RUNNER_SECRET_HEADER)
+      // Must be trimmed, trailing newline stripped
+      expect(headers[TASK_RUNNER_SECRET_HEADER]).toBe(cleanSecret)
+    })
+
+    it('sends empty string in x-task-secret header when configured secret is too short (< 32 characters) (PIN)', async () => {
+      const shortSecret = 'fake-short-secret-under-32'
+      expect(shortSecret.length).toBeLessThan(32)
+
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === TASK_RUNNER_SECRET) return shortSecret
+        return FAKE_CONFIG[key]
+      })
+
+      const scheduleTime = new Date('2026-11-18T10:00:00.000Z')
+      await scheduler.scheduleTask('offer-expiry', scheduleTime, { id: 'test' })
+
+      expect(mockCreateTask).toHaveBeenCalledTimes(1)
+      const passedRequest = mockCreateTask.mock.calls[0][0]
+      const headers = passedRequest.task.httpRequest.headers
+
+      expect(headers).toHaveProperty(TASK_RUNNER_SECRET_HEADER)
+      // Must be empty string when too short (closed/unset credential)
+      expect(headers[TASK_RUNNER_SECRET_HEADER]).toBe('')
+    })
   })
 
   describe('Logging privacy: never logs secret, headers, or payload (Decision 94.1 & PIN)', () => {
