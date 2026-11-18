@@ -1,4 +1,8 @@
-import { isRecordNotFoundError, isUniqueConstraintError } from './prisma.util'
+import {
+  isRecordNotFoundError,
+  isTransactionConflictError,
+  isUniqueConstraintError,
+} from './prisma.util'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 
 describe('isRecordNotFoundError', () => {
@@ -56,5 +60,57 @@ describe('isUniqueConstraintError (AC-4, Decision 26.2)', () => {
 
   test('returns false for generic errors', () => {
     expect(isUniqueConstraintError(new Error('Standard unexpected error'))).toBe(false)
+  })
+})
+
+describe('isTransactionConflictError (Spec 0036, Decision 109.6)', () => {
+  test('returns true for real runtime PrismaClientKnownRequestError with P2034', () => {
+    const err = new PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict or a deadlock',
+      {
+        code: 'P2034',
+        clientVersion: '5.3.1',
+      }
+    )
+    expect(isTransactionConflictError(err)).toBe(true)
+  })
+
+  test('returns true for generated client shaped P2034 (matched by name and code, not runtime class instance)', () => {
+    const err = Object.assign(
+      new Error('Transaction failed due to a write conflict or a deadlock'),
+      {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2034',
+      }
+    )
+    expect(isTransactionConflictError(err)).toBe(true)
+  })
+
+  test('returns false for PrismaClientKnownRequestError with code other than P2034 (e.g. P2002)', () => {
+    const err = new PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '5.3.1',
+    })
+    expect(isTransactionConflictError(err)).toBe(false)
+  })
+
+  test('returns false for generated client error with code other than P2034 (e.g. P2002)', () => {
+    const err = Object.assign(new Error('Unique constraint failed'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2002',
+    })
+    expect(isTransactionConflictError(err)).toBe(false)
+  })
+
+  test('returns false for a plain Error', () => {
+    expect(isTransactionConflictError(new Error('Standard unexpected error'))).toBe(false)
+  })
+
+  test('returns false for undefined', () => {
+    expect(isTransactionConflictError(undefined)).toBe(false)
+  })
+
+  test('returns false for a string', () => {
+    expect(isTransactionConflictError('P2034')).toBe(false)
   })
 })

@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PrismaService } from 'src/services/prisma/prisma.service'
 import {
   BILL_INCLUDE,
@@ -264,6 +265,40 @@ describe('PartnerBillingRepository (Spec 0036, AC-5, AC-6, AC-7, AC-8, AC-9)', (
 
       expect(result).toBeNull()
       expect(mockTx.partnerBill.findUniqueOrThrow).not.toHaveBeenCalled()
+    })
+
+    it('when $transaction rejects with a P2034 conflict error by name and code, returns null', async () => {
+      const error = Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2034',
+      })
+      mockPrisma.$transaction.mockRejectedValueOnce(error)
+
+      const result = await repository.createBillIfAllUnbilled(input)
+
+      expect(result).toBeNull()
+    })
+
+    it('when $transaction rejects with a real PrismaClientKnownRequestError with code P2034, returns null', async () => {
+      const error = new PrismaClientKnownRequestError(
+        'Transaction failed due to a write conflict or a deadlock',
+        { code: 'P2034', clientVersion: '5.3.1' }
+      )
+      mockPrisma.$transaction.mockRejectedValueOnce(error)
+
+      const result = await repository.createBillIfAllUnbilled(input)
+
+      expect(result).toBeNull()
+    })
+
+    it('re-throws other Prisma errors (such as P2002) from transaction', async () => {
+      const p2002Error = new PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.3.1',
+      })
+      mockPrisma.$transaction.mockRejectedValueOnce(p2002Error)
+
+      await expect(repository.createBillIfAllUnbilled(input)).rejects.toThrow(p2002Error)
     })
 
     it('re-throws unexpected errors from transaction', async () => {

@@ -380,6 +380,28 @@ describe('PartnerBillingService (Spec 0036, AC-1 to AC-14)', () => {
       }
     })
 
+    it('when the repository returns null after a conflict and the reread shows a charge now billed, createBill throws PartnerChargesAlreadyBilledException with that id', async () => {
+      mockRepo.findPartner.mockResolvedValue(mockPartner)
+      mockRepo.findChargesByIds
+        .mockResolvedValueOnce([
+          { id: 'c-1', partnerId: PARTNER_ID, createdAt: new Date('2026-11-10T10:00:00Z'), billId: null },
+          { id: 'c-2', partnerId: PARTNER_ID, createdAt: new Date('2026-11-10T10:00:00Z'), billId: null },
+        ])
+        .mockResolvedValueOnce([
+          { id: 'c-1', partnerId: PARTNER_ID, createdAt: new Date('2026-11-10T10:00:00Z'), billId: 'other-bill' },
+          { id: 'c-2', partnerId: PARTNER_ID, createdAt: new Date('2026-11-10T10:00:00Z'), billId: null },
+        ])
+      mockRepo.createBillIfAllUnbilled.mockResolvedValue(null)
+
+      try {
+        await service.createBill(validArgs, ADMIN)
+        fail('Should have thrown PartnerChargesAlreadyBilledException')
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(errors.PartnerChargesAlreadyBilledException)
+        expect(err.getResponse().alreadyBilled).toEqual(['c-1'])
+      }
+    })
+
     it('AC-5, AC-14: happy path writes bill with billedByLabel = email ?? username ?? id and logs info line', async () => {
       mockRepo.findPartner.mockResolvedValue(mockPartner)
       mockRepo.findChargesByIds.mockResolvedValue([
