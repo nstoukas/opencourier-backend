@@ -18,6 +18,7 @@ REST and GraphQL. Every other component talks to it.
 | `src/services/delivery-calculation/delivery-calculation.service.ts` | Customer price and rider pay, built from the quote's stored `baseFee` + `distanceFee` (spec 0001) |
 | `src/services/pushNotification/` (`OfferPushService`), `src/domains/delivery/offer-card-payload.ts` | Offers pushed to riders' phones through `firebase-admin`; the payload is an allow list that carries no more customer detail than the offer card (spec 0003) |
 | `src/domains/saved-customer/` | A restaurant's saved customers and the daily retention job (`saved-customer-retention`, 04:00 Europe/Athens) (spec 0005) |
+| `src/services/partner-billing/`, `src/domains/partner-billing/billing-month.ts` | What each restaurant owes: charges by Athens month, bills marked by hand (spec 0036) |
 | `src/rest-api/` | Controllers for the six API namespaces |
 | `prisma/schema.prisma` | Schema; changes need operator approval and a new migration |
 | `src/db-seeds/`, `scripts/` | Seeds and dev logins; Volos instance setup |
@@ -128,6 +129,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   user's sockets on both namespaces. The server keeps no record of a rider or restaurant reading: `HttpLoggerMiddleware` drops
   the query string of the chat message routes (`QUERY_STRING_DROPPED_PATHS`), so a new route paging by message id goes there too.
 - The Winston logger is fixed at `level: 'info'` (`src/services/logger/index.ts`), so a `logger.debug` line is never printed. Use debug only for what may stay silent (row 115 moved `Channel … not found` there on purpose, decision 115.2); anything someone must see goes to `log` or higher.
+- Restaurant billing (spec 0036): a charge's month is the Athens calendar month of its `createdAt` (`billing-month.ts`), which never moves, so a billed month never gains or loses a charge. A charge is in at most one open bill (`PartnerCharge.billId`); a `PartnerBillLine` row links a bill to each charge it covered and is kept forever, even after an undo (`onDelete: Restrict`). `createBillIfAllUnbilled` claims every charge in one conditional write and writes nothing on a short claim or a Prisma `P2034` (deadlock between two bills), and the service rereads and answers 409 with `alreadyBilled` ids (passed through `ResponseFormatMiddleware`, charge ids only). Every new wait award must store `waitMinutes`, and its charge copies it, or the statement loses the minutes.
 - Prisma 5.3.1's `distinct` is done in memory: it reads every matching row and drops duplicates in Node. For "the newest row
   per group", use `$queryRaw` with `SELECT DISTINCT ON (...) id ... ORDER BY ...` and `Prisma.join` for the values, then
   `findMany` by those ids (`ChatRepository.findNewestMessageIds`).
