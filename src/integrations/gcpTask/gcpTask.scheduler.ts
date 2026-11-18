@@ -1,7 +1,8 @@
 import { CloudTasksClient, protos } from '@google-cloud/tasks'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { GCP_LOCATION, GCP_PROJECT_NAME, PUBLIC_API_URL } from '../../constants'
+import { GCP_LOCATION, GCP_PROJECT_NAME, PUBLIC_API_URL, TASK_RUNNER_SECRET } from '../../constants'
+import { TASK_RUNNER_SECRET_HEADER } from '../../services/taskBus/task-runner-secret.guard'
 import { TaskBusScheduler } from '../../services/taskBus/models/TaskBusScheduler'
 
 export const WEBHOOK_PATH = 'api/tasks/v1'
@@ -28,6 +29,8 @@ export class GcpTaskScheduler extends TaskBusScheduler {
       httpRequest: {
         headers: {
           'Content-Type': 'application/json', // Set content type to ensure compatibility your application's request parsing
+          // Row 94: the execute route refuses any call without the shared secret.
+          [TASK_RUNNER_SECRET_HEADER]: this.configService.get<string>(TASK_RUNNER_SECRET) ?? '',
         },
         httpMethod: 'POST',
         url,
@@ -41,11 +44,12 @@ export class GcpTaskScheduler extends TaskBusScheduler {
     const parent = this.cloudTasksClient.queuePath(project, location, taskName)
     const request = { parent: parent, task: task }
 
-    this.logger.log(`Submitting new task ${JSON.stringify(request)}`)
+    // Never log the request: its headers carry the task runner's secret (row 94), its body a payload.
+    this.logger.log(`Submitting task ${taskName} for ${scheduleAt.toISOString()}`)
     try {
       await this.cloudTasksClient.createTask(request)
     } catch (error) {
-      this.logger.error(`Failed to schedule task ${JSON.stringify(request)}`, error)
+      this.logger.error(`Failed to schedule task ${taskName} for ${scheduleAt.toISOString()}`, error)
       throw error
     }
   }

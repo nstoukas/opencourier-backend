@@ -21,6 +21,9 @@ export const GCP_PROJECT_NAME = 'GCP_PROJECT_NAME'
 export const GCP_BUCKET_NAME = 'GCP_BUCKET_NAME'
 export const GCP_LOCATION = 'GCP_LOCATION'
 
+// Row 94: the shared secret an outside task runner sends to `api/tasks/v1/execute`. Unset: the route refuses everyone.
+export const TASK_RUNNER_SECRET = 'TASK_RUNNER_SECRET'
+
 // Minio specific
 export const MINIO_USER = 'MINIO_USER'
 export const MINIO_PASSWORD = 'MINIO_PASSWORD'
