@@ -79,6 +79,28 @@ describe('ChatMessage DTOs (spec 0034, AC-5 & AC-6)', () => {
       expect(new ChatMessageAdminDto(partnerRow, 'Volos Pizza').senderName).toBe('Volos Pizza')
     })
 
+    test('ChatMessageAdminDto has exact expected keys including clientMessageId (adminweb minor 2)', () => {
+      const row = createMessageRow({
+        clientMessageId: 'cli-test-1',
+        deliveryId: 'del-1',
+        delivery: { orderReference: 'ORD-1' } as any,
+      })
+      const dto = new ChatMessageAdminDto(row, 'Rider Nikos')
+
+      expect(Object.keys(dto).sort()).toEqual([
+        'body',
+        'clientMessageId',
+        'createdAt',
+        'deliveryId',
+        'id',
+        'orderReference',
+        'senderKind',
+        'senderName',
+        'threadId',
+      ].sort())
+      expect(dto.clientMessageId).toBe('cli-test-1')
+    })
+
     test('ChatMessageAdminDto shows null for SYSTEM line', () => {
       const systemRow = createMessageRow({
         senderKind: EnumChatSenderKind.SYSTEM,

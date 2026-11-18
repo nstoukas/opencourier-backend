@@ -34,6 +34,27 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
       expect(redactSensitivePath('/customers/cust-123?force=true')).toBe('/customers/cust-123')
     })
 
+    test('drops query string for chat read routes to prevent leaking message ids as read receipts (spec 0034, AC-6)', () => {
+      // Courier: GET /api/courier/v1/chat/messages?after=msg-123
+      expect(redactSensitivePath('/api/courier/v1/chat/messages?after=msg-123')).toBe('/api/courier/v1/chat/messages')
+      // Partner: GET /api/partner/v1/chat/messages?after=msg-456
+      expect(redactSensitivePath('/api/partner/v1/chat/messages?after=msg-456')).toBe('/api/partner/v1/chat/messages')
+      // Admin: GET /api/admin/v1/chat/threads/thread-1/messages?before=msg-789
+      expect(redactSensitivePath('/api/admin/v1/chat/threads/thread-1/messages?before=msg-789')).toBe(
+        '/api/admin/v1/chat/threads/thread-1/messages'
+      )
+    })
+
+    test('keeps query string for unread-count and other chat/unrelated paths (spec 0034)', () => {
+      expect(redactSensitivePath('/api/admin/v1/chat/threads/unread-count?check=1')).toBe(
+        '/api/admin/v1/chat/threads/unread-count?check=1'
+      )
+      expect(redactSensitivePath('/api/admin/v1/chat/threads?tab=UNREAD&page=1')).toBe(
+        '/api/admin/v1/chat/threads?tab=UNREAD&page=1'
+      )
+      expect(redactSensitivePath('/api/admin/v1/deliveries?page=2')).toBe('/api/admin/v1/deliveries?page=2')
+    })
+
     test('keeps query string for paths that start with customers but are not /customers (AC-9)', () => {
       expect(redactSensitivePath('/customersfoo?q=1')).toBe('/customersfoo?q=1')
     })
@@ -214,6 +235,71 @@ describe('HttpLoggingMiddleware - Spec 0003 R1 Sensitive Path Redaction in Logs'
 
       expect(logMessage).toContain('/api/admin/v1/deliveries?perPage=1&search=[redacted]&state=active')
       expect(logMessage).not.toContain('kitchen')
+    })
+
+    test('HttpLoggerMiddleware drops query string of chat read routes so after/before cursor is never logged (AC-6)', () => {
+      const chatUrls = [
+        '/api/courier/v1/chat/messages?after=msg-rider-cursor-1',
+        '/api/partner/v1/chat/messages?after=msg-partner-cursor-2',
+        '/api/admin/v1/chat/threads/thread-abc/messages?before=msg-admin-cursor-3',
+      ]
+
+      for (const originalUrl of chatUrls) {
+        let closeHandler: (() => void) | undefined
+        const mockRequest = {
+          method: 'GET',
+          originalUrl,
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('TestAgent'),
+        } as unknown as Request
+        const mockResponse = {
+          statusCode: 200,
+          get: jest.fn().mockReturnValue('64'),
+          on: jest.fn().mockImplementation((event: string, handler: () => void) => {
+            if (event === 'close') closeHandler = handler
+          }),
+        } as unknown as Response
+
+        middleware.use(mockRequest, mockResponse, jest.fn())
+        closeHandler!()
+      }
+
+      expect(loggerLogSpy).toHaveBeenCalledTimes(3)
+      const logs = loggerLogSpy.mock.calls.map((c) => c[0] as string)
+
+      expect(logs[0]).toBe('GET /api/courier/v1/chat/messages 200 64 - TestAgent 127.0.0.1')
+      expect(logs[0]).not.toContain('after=')
+      expect(logs[0]).not.toContain('msg-rider-cursor-1')
+
+      expect(logs[1]).toBe('GET /api/partner/v1/chat/messages 200 64 - TestAgent 127.0.0.1')
+      expect(logs[1]).not.toContain('after=')
+      expect(logs[1]).not.toContain('msg-partner-cursor-2')
+
+      expect(logs[2]).toBe('GET /api/admin/v1/chat/threads/thread-abc/messages 200 64 - TestAgent 127.0.0.1')
+      expect(logs[2]).not.toContain('before=')
+      expect(logs[2]).not.toContain('msg-admin-cursor-3')
+    })
+
+    test('HttpLoggerMiddleware preserves query string on unread-count and unrelated paths', () => {
+      let closeHandler: (() => void) | undefined
+      const mockRequest = {
+        method: 'GET',
+        originalUrl: '/api/admin/v1/chat/threads/unread-count?poll=30',
+        ip: '127.0.0.1',
+        get: jest.fn().mockReturnValue('AdminWeb'),
+      } as unknown as Request
+      const mockResponse = {
+        statusCode: 200,
+        get: jest.fn().mockReturnValue('16'),
+        on: jest.fn().mockImplementation((event: string, handler: () => void) => {
+          if (event === 'close') closeHandler = handler
+        }),
+      } as unknown as Response
+
+      middleware.use(mockRequest, mockResponse, jest.fn())
+      closeHandler!()
+
+      expect(loggerLogSpy).toHaveBeenCalledWith('GET /api/admin/v1/chat/threads/unread-count?poll=30 200 16 - AdminWeb 127.0.0.1')
     })
   })
 })

@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { EnumChatSenderKind } from '@prisma/types'
+import { EnumChatSenderKind, Prisma } from '@prisma/types'
 import { PRISMA_UNIQUE_CONSTRAINT_ERROR } from 'src/prisma.util'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import {
@@ -321,9 +321,190 @@ describe('ChatRepository (spec 0034, AC-1, AC-7, AC-18, AC-19, AC-20)', () => {
     })
   })
 
-  describe('findMessages cursor handling (decision 111.5)', () => {
-    test('an unknown message cursor returns the newest page instead of throwing', async () => {
-      // cursorId not found in thread
+  describe('findByClientMessageId (AC-19)', () => {
+    test('looks up message by compound unique threadId_clientMessageId', async () => {
+      mockPrisma.chatMessage.findUnique.mockResolvedValue(sampleMessage)
+
+      const result = await repository.findByClientMessageId('thread-1', 'cli-123')
+
+      expect(mockPrisma.chatMessage.findUnique).toHaveBeenCalledWith({
+        where: { threadId_clientMessageId: { threadId: 'thread-1', clientMessageId: 'cli-123' } },
+        include: expect.any(Object),
+      })
+      expect(result).toBe(sampleMessage)
+    })
+  })
+
+  describe('findLastMessages (review Major 1)', () => {
+    test('empty threadIds input returns empty maps and makes NO queries', async () => {
+      const result = await repository.findLastMessages([])
+
+      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled()
+      expect(mockPrisma.chatMessage.findMany).not.toHaveBeenCalled()
+      expect(result.last.size).toBe(0)
+      expect(result.lastTagged.size).toBe(0)
+    })
+
+    test('picks newest message and newest tagged message per thread via $queryRaw DISTINCT ON, then reads messages by those ids', async () => {
+      mockPrisma.$queryRaw
+        .mockResolvedValueOnce([{ id: 'msg-new-1' }, { id: 'msg-new-2' }])
+        .mockResolvedValueOnce([{ id: 'msg-tagged-1' }])
+
+      const msgNew1 = { ...sampleMessage, id: 'msg-new-1', threadId: 'thread-1', deliveryId: null }
+      const msgNew2 = { ...sampleMessage, id: 'msg-new-2', threadId: 'thread-2', deliveryId: null }
+      const msgTagged1 = { ...sampleMessage, id: 'msg-tagged-1', threadId: 'thread-1', deliveryId: 'del-1' }
+
+      mockPrisma.chatMessage.findMany.mockResolvedValueOnce([msgNew1, msgNew2, msgTagged1])
+
+      const result = await repository.findLastMessages(['thread-1', 'thread-2'])
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2)
+
+      // Untagged query
+      const [untaggedStrings, ...untaggedVals] = mockPrisma.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+      const untaggedSql = Prisma.sql(untaggedStrings, ...untaggedVals)
+      expect(untaggedSql.text).toContain('SELECT DISTINCT ON ("threadId") "id"')
+      expect(untaggedSql.text).toContain('ORDER BY "threadId", "createdAt" DESC, "id" DESC')
+      expect(untaggedSql.text).not.toContain('"deliveryId" IS NOT NULL')
+
+      // Tagged query
+      const [taggedStrings, ...taggedVals] = mockPrisma.$queryRaw.mock.calls[1] as [TemplateStringsArray, ...unknown[]]
+      const taggedSql = Prisma.sql(taggedStrings, ...taggedVals)
+      expect(taggedSql.text).toContain('SELECT DISTINCT ON ("threadId") "id"')
+      expect(taggedSql.text).toContain('ORDER BY "threadId", "createdAt" DESC, "id" DESC')
+      expect(taggedSql.text).toContain('"deliveryId" IS NOT NULL')
+
+      // findMany by collected ids
+      expect(mockPrisma.chatMessage.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['msg-new-1', 'msg-new-2', 'msg-tagged-1'] } },
+        include: expect.any(Object),
+      })
+
+      // Maps correctly keyed by threadId
+      expect(result.last.get('thread-1')).toBe(msgNew1)
+      expect(result.last.get('thread-2')).toBe(msgNew2)
+      expect(result.lastTagged.get('thread-1')).toBe(msgTagged1)
+      expect(result.lastTagged.get('thread-2')).toBeUndefined()
+    })
+  })
+
+  describe('findThreadsByIds (AC-17 board support)', () => {
+    test('empty threadIds input returns empty array without querying', async () => {
+      const result = await repository.findThreadsByIds([])
+      expect(mockPrisma.chatThread.findMany).not.toHaveBeenCalled()
+      expect(result).toEqual([])
+    })
+
+    test('reads all specified threads by id without page limit', async () => {
+      const threads = [sampleThread, { ...sampleThread, id: 'thread-2' }]
+      mockPrisma.chatThread.findMany.mockResolvedValue(threads)
+
+      const result = await repository.findThreadsByIds(['thread-1', 'thread-2'])
+
+      expect(mockPrisma.chatThread.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['thread-1', 'thread-2'] } },
+        include: expect.any(Object),
+      })
+      expect(result).toBe(threads)
+    })
+  })
+
+  describe('findNewestUnreadBodies (AC-17 board preview)', () => {
+    test('empty threadIds returns empty map without querying', async () => {
+      const result = await repository.findNewestUnreadBodies([])
+      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled()
+      expect(result.size).toBe(0)
+    })
+
+    test('queries DISTINCT ON newest unread body per thread filtering out DISPATCH and SYSTEM', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([
+        { threadId: 'thread-1', body: 'Customer door code 1234' },
+        { threadId: 'thread-2', body: 'Order delayed 10 mins' },
+      ])
+
+      const result = await repository.findNewestUnreadBodies(['thread-1', 'thread-2'])
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const [strings, ...vals] = mockPrisma.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+      const sql = Prisma.sql(strings, ...vals)
+
+      // Load-bearing SQL clauses
+      expect(sql.text).toContain('SELECT DISTINCT ON (m."threadId") m."threadId", m."body"')
+      expect(sql.text).toContain('FROM "ChatMessage" m')
+      expect(sql.text).toContain('JOIN "ChatThread" t ON t."id" = m."threadId"')
+      expect(sql.text).toContain('m."senderKind"::text IN (')
+      expect(sql.text).toContain('(t."dispatchLastReadAt" IS NULL OR m."createdAt" > t."dispatchLastReadAt")')
+      expect(sql.text).toContain('ORDER BY m."threadId", m."createdAt" DESC, m."id" DESC')
+
+      // Check values include unread sender kinds (COURIER, PARTNER)
+      expect(sql.values).toEqual(expect.arrayContaining(['thread-1', 'thread-2', 'COURIER', 'PARTNER']))
+      expect(sql.values).not.toContain('DISPATCH')
+      expect(sql.values).not.toContain('SYSTEM')
+
+      expect(result.get('thread-1')).toBe('Customer door code 1234')
+      expect(result.get('thread-2')).toBe('Order delayed 10 mins')
+    })
+  })
+
+  describe('findMessages before and after paging branches (review Major 3, decision 111.5)', () => {
+    const cursorDate = new Date('2026-11-17T10:00:00.000Z')
+
+    test('after branch: queries messages newer than cursor with gt and orders asc', async () => {
+      mockPrisma.chatMessage.findFirst.mockResolvedValue({ id: 'cursor-msg', createdAt: cursorDate })
+      const m1 = { ...sampleMessage, id: 'msg-after-1' }
+      const m2 = { ...sampleMessage, id: 'msg-after-2' }
+      mockPrisma.chatMessage.findMany.mockResolvedValue([m1, m2])
+
+      const result = await repository.findMessages('thread-1', { after: 'cursor-msg' })
+
+      expect(mockPrisma.chatMessage.findFirst).toHaveBeenCalledWith({
+        where: { id: 'cursor-msg', threadId: 'thread-1' },
+        select: { id: true, createdAt: true },
+      })
+      expect(mockPrisma.chatMessage.findMany).toHaveBeenCalledWith({
+        where: {
+          threadId: 'thread-1',
+          OR: [
+            { createdAt: { gt: cursorDate } },
+            { createdAt: cursorDate, id: { gt: 'cursor-msg' } },
+          ],
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: CHAT_PAGE_SIZE,
+        include: expect.any(Object),
+      })
+      expect(result).toEqual([m1, m2])
+    })
+
+    test('before branch: queries messages older than cursor with lt, orders desc, and returns reversed (oldest first)', async () => {
+      mockPrisma.chatMessage.findFirst.mockResolvedValue({ id: 'cursor-msg', createdAt: cursorDate })
+      const older1 = { ...sampleMessage, id: 'msg-older-1', createdAt: new Date('2026-11-17T09:59:00.000Z') }
+      const older2 = { ...sampleMessage, id: 'msg-older-2', createdAt: new Date('2026-11-17T09:58:00.000Z') }
+      mockPrisma.chatMessage.findMany.mockResolvedValue([older1, older2])
+
+      const result = await repository.findMessages('thread-1', { before: 'cursor-msg' })
+
+      expect(mockPrisma.chatMessage.findFirst).toHaveBeenCalledWith({
+        where: { id: 'cursor-msg', threadId: 'thread-1' },
+        select: { id: true, createdAt: true },
+      })
+      expect(mockPrisma.chatMessage.findMany).toHaveBeenCalledWith({
+        where: {
+          threadId: 'thread-1',
+          OR: [
+            { createdAt: { lt: cursorDate } },
+            { createdAt: cursorDate, id: { lt: 'cursor-msg' } },
+          ],
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: CHAT_PAGE_SIZE,
+        include: expect.any(Object),
+      })
+      // Should be reversed so oldest is first
+      expect(result).toEqual([older2, older1])
+    })
+
+    test('an unknown message cursor returns the newest page instead of throwing (decision 111.5)', async () => {
       mockPrisma.chatMessage.findFirst.mockResolvedValue(null)
       mockPrisma.chatMessage.findMany.mockResolvedValue([sampleMessage])
 
@@ -333,7 +514,6 @@ describe('ChatRepository (spec 0034, AC-1, AC-7, AC-18, AC-19, AC-20)', () => {
         where: { id: 'unknown-id', threadId: 'thread-1' },
         select: { id: true, createdAt: true },
       })
-      // When cursor is null, findMany query does not filter on cursor and returns newest
       expect(mockPrisma.chatMessage.findMany).toHaveBeenCalledWith({
         where: { threadId: 'thread-1' },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -341,6 +521,45 @@ describe('ChatRepository (spec 0034, AC-1, AC-7, AC-18, AC-19, AC-20)', () => {
         include: expect.any(Object),
       })
       expect(messages).toEqual([sampleMessage])
+    })
+  })
+
+  describe('Raw SQL queries load-bearing clauses (review Major 3)', () => {
+    test('findUnreadThreads SQL text pins: lastMessageAt IS NOT NULL, sender kinds, and createdAt > dispatchLastReadAt', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findUnreadThreads()
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const [strings, ...vals] = mockPrisma.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+      const sql = Prisma.sql(strings, ...vals)
+
+      expect(sql.text).toContain('t."lastMessageAt" IS NOT NULL')
+      expect(sql.text).toContain('m."senderKind"::text IN (')
+      expect(sql.text).toContain('(t."dispatchLastReadAt" IS NULL OR m."createdAt" > t."dispatchLastReadAt")')
+      expect(sql.values).toEqual(expect.arrayContaining(['COURIER', 'PARTNER']))
+      expect(sql.values).not.toContain('DISPATCH')
+      expect(sql.values).not.toContain('SYSTEM')
+    })
+
+    test('findThreadIdsMatching SQL text pins: lastMessageAt IS NOT NULL, LIKE escaping for searchFold and name', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 'thread-match-1' }])
+
+      const result = await repository.findThreadIdsMatching(['pizza', '100%_special'])
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const [strings, ...vals] = mockPrisma.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+      const sql = Prisma.sql(strings, ...vals)
+
+      expect(sql.text).toContain('t."lastMessageAt" IS NOT NULL')
+      expect(sql.text).toContain('c."searchFold" LIKE')
+      expect(sql.text).toContain('oc_search_fold(p."name") LIKE')
+      expect(sql.text).toContain('d."searchFold" LIKE')
+
+      // Wildcards % and _ must be escaped by escapeLikeText: % -> \% and _ -> \_
+      expect(sql.values).toContain('%pizza%')
+      expect(sql.values).toContain('%100\\%\\_special%')
+      expect(result).toEqual(['thread-match-1'])
     })
   })
 })
