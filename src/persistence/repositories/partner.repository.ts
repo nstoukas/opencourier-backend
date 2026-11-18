@@ -37,7 +37,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         id: partnerId,
       },
       include: {
-        user: { select: { email: true } },
+        user: { select: { email: true, apiKeyCreatedAt: true } },
         pickupLocation: true,
       },
     })
@@ -100,7 +100,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         where,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { email: true } },
+          user: { select: { email: true, apiKeyCreatedAt: true } },
           pickupLocation: true,
         },
       },
@@ -140,7 +140,6 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         email: data.login.email,
         password: data.login.hashedPassword,
         role: [EnumUserRole.PARTNER],
-        apiKey: data.login.apiKey,
         partner: {
           create: {
             name: data.name,
@@ -154,7 +153,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
       include: {
         partner: {
           include: {
-            user: { select: { email: true } },
+            user: { select: { email: true, apiKeyCreatedAt: true } },
             pickupLocation: true,
           },
         },
@@ -180,7 +179,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         ...(data.usualPrepMinutes !== undefined && { usualPrepMinutes: data.usualPrepMinutes }),
       },
       include: {
-        user: { select: { email: true } },
+        user: { select: { email: true, apiKeyCreatedAt: true } },
         pickupLocation: true,
       },
     })

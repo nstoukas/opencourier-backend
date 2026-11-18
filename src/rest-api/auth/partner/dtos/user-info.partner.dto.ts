@@ -15,16 +15,11 @@ export class UserInfoPartnerDto extends UserPartnerDto {
   @Type(() => UserSessionPartnerDto)
   session?: UserSessionPartnerDto
 
-  @ApiProperty({
-    required: false,
-    type: String,
-    nullable: true,
-  })
-  apiKey?: string | null
+  // No `apiKey` field (spec 0037, AC-2): signing in no longer hands out the restaurant's API key, so
+  // the password does not unlock it. Only an admin makes a key, and sees it once.
 
   constructor(data: { session: UserSessionEntity; user: UserEntity }) {
     super(data.user)
     this.session = new UserSessionPartnerDto(data.session)
-    this.apiKey = data.user.apiKey
   }
 }

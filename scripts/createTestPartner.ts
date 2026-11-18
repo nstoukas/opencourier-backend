@@ -1,7 +1,6 @@
 import { config as loadEnv } from 'dotenv'
 loadEnv()
 
-import { randomBytes } from 'crypto'
 import { EnumUserRole, PrismaClient } from '@prisma/types'
 import { hash } from 'bcryptjs'
 
@@ -21,19 +20,15 @@ async function main() {
   if (existing) {
     const partner = await prisma.partner.findFirst({ where: { userId: existing.id } })
     console.log(`Partner user ${PARTNER_EMAIL} already exists (partner: ${partner?.name}).`)
-    console.log(`Existing API key: ${existing.apiKey}`)
     return
   }
 
-  // Fresh, unique API key for this test partner.
-  const apiKey = randomBytes(48).toString('base64url')
-
+  // No API key (spec 0037): an admin makes one on the restaurant's page when needed, seen once.
   const user = await prisma.user.create({
     data: {
       email: PARTNER_EMAIL,
       password: await hash(PARTNER_PASSWORD, rounds),
       role: [EnumUserRole.PARTNER],
-      apiKey,
     },
   })
 
@@ -51,7 +46,6 @@ async function main() {
   console.log(`  name:     ${partner.name}`)
   console.log(`  email:    ${user.email}`)
   console.log(`  password: ${PARTNER_PASSWORD}`)
-  console.log(`  API key:  ${apiKey}`)
 }
 
 main()

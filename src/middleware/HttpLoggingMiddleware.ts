@@ -1,6 +1,7 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common'
 
 import { Request, Response, NextFunction } from 'express'
+import { queryHasApiKey } from 'src/domains/auth/api-key'
 
 // Paths that carry a secret in the URL itself. Before a request line is logged, the matched
 // segment is replaced by a placeholder, so the secret never reaches the log file. Add a route here
@@ -26,11 +27,13 @@ const QUERY_STRING_DROPPED_PATHS: RegExp[] = [
   /\/chat\/(threads\/[^/?#]+\/)?messages(\/|\?|#|$)/,
 ]
 
-// Exported so it can be tested on its own, without a request.
-export function redactSensitivePath(url: string): string {
+// Exported so it can be tested on its own, without a request. `dropQueryString` is true when the
+// request's parsed query carries an API key (spec 0037, AC-9): its whole query string is left out,
+// because the key can be spelled in the address in ways no pattern on the raw text would match.
+export function redactSensitivePath(url: string, dropQueryString = false): string {
   // `?? url`: split always returns at least one part, but TypeScript cannot know that.
   const path = url.split('?')[0] ?? url
-  const logged = QUERY_STRING_DROPPED_PATHS.some((pattern) => pattern.test(path)) ? path : url
+  const logged = dropQueryString || QUERY_STRING_DROPPED_PATHS.some((pattern) => pattern.test(path)) ? path : url
   return SENSITIVE_PATH_PATTERNS.reduce(
     (redacted, { pattern, replacement }) => redacted.replace(pattern, replacement),
     logged
@@ -43,7 +46,7 @@ export class HttpLoggerMiddleware implements NestMiddleware {
 
   use(request: Request, response: Response, next: NextFunction): void {
     const { ip, method } = request
-    const url = redactSensitivePath(request.originalUrl)
+    const url = redactSensitivePath(request.originalUrl, queryHasApiKey(request.query))
     const userAgent = request.get('user-agent') || ''
 
     response.on('close', () => {

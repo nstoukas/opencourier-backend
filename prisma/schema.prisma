@@ -19,7 +19,12 @@ model User {
 
   username String? @unique
 
-  apiKey String? @unique
+  // A restaurant's API key, stored only as its SHA-256 hash (lower case hex), so a database copy
+  // gives no working key. An admin makes it and sees it once (spec 0037). Null: no key.
+  apiKeyHash      String?   @unique
+  // When the current key was made, shown on the restaurant's admin page. Null exactly when
+  // apiKeyHash is null; both are always written together (spec 0037).
+  apiKeyCreatedAt DateTime?
 
   // When the password was last set by an admin (spec 0013). Every token issued before it is
   // refused, so a changed password signs the old phone out. Null: never changed.

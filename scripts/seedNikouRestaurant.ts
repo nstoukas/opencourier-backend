@@ -1,7 +1,6 @@
 import { config as loadEnv } from 'dotenv'
 loadEnv()
 
-import { randomBytes } from 'crypto'
 import { EnumCountryCode, EnumUserRole, PrismaClient } from '@prisma/types'
 import { hash } from 'bcryptjs'
 
@@ -12,7 +11,7 @@ const prisma = new PrismaClient()
  * It was first made by hand through the admin API (2026-07-26), so `yarn db:fresh` lost it
  * with nothing to rebuild it. The values below are copied from that hand made record.
  *
- * Idempotent: an existing login keeps its password and API key, so re-running never logs
+ * Idempotent: an existing login keeps its password, so re-running never logs
  * anyone out; only a missing partner or pickup address is created, and the address is
  * corrected in place if it drifted.
  *
@@ -52,9 +51,7 @@ async function main() {
         email: PARTNER_EMAIL,
         password: await hash(PARTNER_PASSWORD, rounds),
         role: [EnumUserRole.PARTNER],
-        // Same shape as the admin API gives a new restaurant. Dev logins use email and
-        // password, so the key is never printed.
-        apiKey: randomBytes(48).toString('base64url'),
+        // No API key, as for a restaurant the admin API adds (spec 0037).
       },
     }))
 

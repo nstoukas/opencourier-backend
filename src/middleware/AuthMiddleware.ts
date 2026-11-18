@@ -9,6 +9,7 @@ import { TokenExpiredError } from 'jsonwebtoken'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { EnumUserRole } from '@prisma/types'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
+import { API_KEY_IN_URL_MESSAGE, queryHasApiKey } from 'src/domains/auth/api-key'
 
 // The 401's sentence when a request carries an API key and a login token together (row 113).
 export const MIXED_CREDENTIALS_MESSAGE = 'Send either an API key or a login token, not both'
@@ -25,9 +26,19 @@ export class AuthMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: AuthedRequest, res: Response, next: NextFunction) {
+    // Spec 0037, AC-9: a key in the address is refused first, on every route, whether it is valid or
+    // not, and before row 113's check below (this sentence wins). An address is written to logs,
+    // browser history and proxies, so a key never belongs in one.
+    if (queryHasApiKey(req.query)) {
+      next(new UnauthorizedException(API_KEY_IN_URL_MESSAGE))
+      return
+    }
+
     const authHeader = req.headers.authorization ?? ''
     const refreshToken = req.headers['x-refresh-token']?.toString() ?? ''
-    const apiKey = req.headers['x-api-key']?.toString() ?? req.query.api_key?.toString() ?? ''
+    // The header only (spec 0037). An empty header counts as no key; a repeated one, which Node joins
+    // with a comma, simply matches no key (AC-10).
+    const apiKey = req.headers['x-api-key']?.toString() ?? ''
 
     // The route's JWT guard (passport-jwt) reads the scheme in any case with any spacing ("bearer",
     // "BEARER", a tab), so this reads it the same way: a token passport would accept is always looked

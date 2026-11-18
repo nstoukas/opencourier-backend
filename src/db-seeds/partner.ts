@@ -1,19 +1,10 @@
 import { EnumUserRole, PrismaClient } from '@prisma/types'
 import { hash } from 'bcryptjs'
-import { createHash, randomBytes } from 'crypto'
 import { parseSalt } from 'src/domains/auth/password.service'
 
-// Upstream seeded every instance with one fixed API key, and that key is public in
-// upstream's git history. We keep only its SHA-256 so a re-seed can spot and replace it.
-const LEAKED_PARTNER_API_KEY_SHA256 =
-  '13f8d6ae170cceb068ac2a2c614445868b089b69fb0958d19e5166b7552b699b'
-
-// A fresh key per seed. Dev logins use email and password, so nothing needs to know it.
-const newPartnerApiKey = () => randomBytes(48).toString('base64url')
-
-const isLeakedKey = (apiKey: string | null) =>
-  apiKey !== null &&
-  createHash('sha256').update(apiKey).digest('hex') === LEAKED_PARTNER_API_KEY_SHA256
+// No API key is seeded (spec 0037): an admin makes one when a restaurant needs it, and sees it once.
+// Upstream's fixed seed key (public in its git history) cannot survive here: the spec 0037 migration
+// dropped every stored key, and only hashes of admin made keys are stored since.
 
 export async function seedPartnerUser(prisma: PrismaClient) {
   if (!process.env.BCRYPT_SALT) {
@@ -35,14 +26,6 @@ export async function seedPartnerUser(prisma: PrismaClient) {
   if (existingUser) {
     console.log(`User with email ${email} already exists. Skipping...`)
 
-    if (isLeakedKey(existingUser.apiKey)) {
-      await prisma.user.update({
-        where: { id: existingUser.id },
-        data: { apiKey: newPartnerApiKey() },
-      })
-      console.log(`Replaced the leaked upstream API key for ${email}.`)
-    }
-
     const existsInPartnerDB = await prisma.partner.findFirst({
       where: {
         userId: existingUser.id,
@@ -60,7 +43,6 @@ export async function seedPartnerUser(prisma: PrismaClient) {
       email,
       password: await hash(pwd, userSalt),
       role: [EnumUserRole.PARTNER],
-      apiKey: newPartnerApiKey(),
     },
   })
 

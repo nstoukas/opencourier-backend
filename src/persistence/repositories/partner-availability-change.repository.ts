@@ -30,7 +30,7 @@ export class PartnerAvailabilityChangeRepository extends EntityRepository {
       this.prisma.partner.update({
         where: { id: partnerId },
         data: partnerData,
-        include: { user: { select: { email: true } }, pickupLocation: true },
+        include: { user: { select: { email: true, apiKeyCreatedAt: true } }, pickupLocation: true },
       }),
       this.prisma.partnerAvailabilityChange.create({ data: { ...change, partnerId } }),
     ])

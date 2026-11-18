@@ -21,6 +21,8 @@ export class PartnerEntity implements Partner {
 
   // Hydrated fields are populated only when the database query explicitly includes the relation.
   userEmail?: string | null
+  // When the restaurant's current API key was made; null: no key (spec 0037). Never the key's hash.
+  userApiKeyCreatedAt?: Date | null
   pickupLocation?: LocationEntity | null
 
   createdAt: Date
@@ -28,7 +30,7 @@ export class PartnerEntity implements Partner {
 
   constructor(
     data: Partner & {
-      user?: { email: string | null } | null
+      user?: { email: string | null; apiKeyCreatedAt?: Date | null } | null
       pickupLocation?: Location | null
     },
   ) {
@@ -48,6 +50,7 @@ export class PartnerEntity implements Partner {
     this.pickupLocationId = data.pickupLocationId
 
     this.userEmail = data.user ? data.user.email : undefined
+    this.userApiKeyCreatedAt = data.user ? data.user.apiKeyCreatedAt ?? null : undefined
 
     // undefined = relation not loaded; null = loaded, partner has no pickup location
     if (data.pickupLocation) {

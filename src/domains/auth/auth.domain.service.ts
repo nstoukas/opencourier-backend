@@ -12,7 +12,7 @@ import { UserDomainService } from '../user/user.domain.service'
 import { IEmailLogin } from './interfaces/IEmailLogin'
 import { PasswordService } from './password.service'
 import { TokenService } from './token.service'
-import { randomBytes } from 'crypto'
+import { API_KEY_DOES_NOT_WORK_MESSAGE, hashApiKey } from './api-key'
 import { CREDENTIALS_CHANGED_MESSAGE, isIssuedBeforeCredentialsChange } from './credentials-change'
 
 @Injectable()
@@ -82,8 +82,8 @@ export class AuthDomainService {
       throw new errors.ForbiddenException('You are not allowed to login as partner')
     }
 
-    const apiKey = await this.ensurePartnerApiKey(user)
-
+    // Spec 0037, AC-2 and AC-8: signing in never makes or returns an API key. Only an admin makes one,
+    // seen once, so the password no longer unlocks the key.
     const session = await this.tokenService.createEmailAuthSession({
       sub: user.id,
       email: user.email || '',
@@ -92,7 +92,7 @@ export class AuthDomainService {
 
     return assign({
       session,
-      user: assign(user, { apiKey }),
+      user,
     })
   }
 
@@ -193,11 +193,13 @@ export class AuthDomainService {
     }
   }
 
+  // Spec 0037: the sent key is hashed, then looked up; the database holds only hashes. An unknown,
+  // replaced or removed key is refused with 401 (AC-10).
   async userForApiKey(apiKey = '') {
-    const user = await this.userDomainService.findByApiKey(apiKey)
+    const user = await this.userDomainService.findByApiKeyHash(hashApiKey(apiKey))
 
     if (!user) {
-      throw new errors.ForbiddenException('User not found from apiKey')
+      throw new errors.UnauthorizedException(API_KEY_DOES_NOT_WORK_MESSAGE)
     }
 
     return user
@@ -234,17 +236,5 @@ export class AuthDomainService {
     }
 
     return null
-  }
-
-  private async ensurePartnerApiKey(user: UserEntity) {
-    if (user.apiKey) return user.apiKey
-
-    const apiKey = this.generateApiKey()
-    const updatedUser = await this.userDomainService.updateMe(user, { apiKey })
-    return updatedUser.apiKey || apiKey
-  }
-
-  generateApiKey() {
-    return randomBytes(96).toString('hex')
   }
 }

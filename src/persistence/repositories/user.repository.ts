@@ -33,13 +33,63 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     return this.toDomain(result)
   }
 
-  async findByApiKey(apiKey: string) {
-    const result = await this.prisma.user.findFirst({
-      where: {
-        apiKey: apiKey,
-      },
+  // The one key lookup (spec 0037): by the hash of the sent key, never the key itself. The column is
+  // unique, so `findUnique` reads at most one row through its index.
+  async findByApiKeyHash(apiKeyHash: string) {
+    const result = await this.prisma.user.findUnique({
+      where: { apiKeyHash },
     })
     return result ? this.toDomain(result) : null
+  }
+
+  // An admin's New API key (spec 0037): the hash and its time are always written together. Answers
+  // whether a key was there before, for the log line. The first write only matches a login that has a
+  // key; if it matched nothing, the second gives the login its first key. No read before the write.
+  async replaceApiKeyHash(userId: string, apiKeyHash: string, apiKeyCreatedAt: Date): Promise<{ replaced: boolean }> {
+    const replaced = await this.prisma.user.updateMany({
+      where: { id: userId, apiKeyHash: { not: null } },
+      data: { apiKeyHash, apiKeyCreatedAt },
+    })
+    if (replaced.count > 0) {
+      return { replaced: true }
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { apiKeyHash, apiKeyCreatedAt },
+    })
+    return { replaced: false }
+  }
+
+  // An admin's Remove key (spec 0037). Answers whether there was a key to remove, for the log line.
+  async removeApiKey(userId: string): Promise<{ removed: boolean }> {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, apiKeyHash: { not: null } },
+      data: { apiKeyHash: null, apiKeyCreatedAt: null },
+    })
+    return { removed: result.count > 0 }
+  }
+
+  // An admin's Set New Password (specs 0013 and 0037). One database transaction (both writes land or
+  // neither does): the password and its time, then the key replaced only where one exists. So the new
+  // password never works beside the old key, and a Remove made at the same moment is never undone:
+  // whichever lands second sees the other's result. Answers whether the new key was stored.
+  async setPasswordAndReplaceApiKey(
+    userId: string,
+    password: string,
+    credentialsChangedAt: Date,
+    apiKeyHash: string
+  ): Promise<{ apiKeyReplaced: boolean }> {
+    const [, keyWrite] = await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { password, credentialsChangedAt },
+      }),
+      this.prisma.user.updateMany({
+        where: { id: userId, apiKeyHash: { not: null } },
+        data: { apiKeyHash, apiKeyCreatedAt: credentialsChangedAt },
+      }),
+    ])
+    return { apiKeyReplaced: keyWrite.count > 0 }
   }
 
   async findByIdWithCourier(userId: string) {

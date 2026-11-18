@@ -27,7 +27,6 @@ export interface IPartnerCreateWithLogin {
   login: {
     email: string
     hashedPassword: string
-    apiKey: string
   }
 }
 

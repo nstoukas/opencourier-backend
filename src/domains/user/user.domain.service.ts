@@ -17,8 +17,21 @@ export class UserDomainService {
     return await this.userRepository.findById(userId)
   }
 
-  async findByApiKey(userId: string) {
-    return await this.userRepository.findByApiKey(userId)
+  // Spec 0037: lookups and writes of a restaurant's API key go by its hash only (see api-key.ts).
+  async findByApiKeyHash(apiKeyHash: string) {
+    return await this.userRepository.findByApiKeyHash(apiKeyHash)
+  }
+
+  async replaceApiKeyHash(userId: string, apiKeyHash: string, apiKeyCreatedAt: Date) {
+    return this.userRepository.replaceApiKeyHash(userId, apiKeyHash, apiKeyCreatedAt)
+  }
+
+  async removeApiKey(userId: string) {
+    return this.userRepository.removeApiKey(userId)
+  }
+
+  async setPasswordAndReplaceApiKey(userId: string, password: string, credentialsChangedAt: Date, apiKeyHash: string) {
+    return this.userRepository.setPasswordAndReplaceApiKey(userId, password, credentialsChangedAt, apiKeyHash)
   }
 
   async findByIdWithCourier(userId: string) {

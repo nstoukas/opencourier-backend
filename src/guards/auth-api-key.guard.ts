@@ -2,13 +2,12 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { IS_API_KEY_AUTH } from 'src/decorators/api-key-auth.decorator'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
-import { UserRepository } from 'src/persistence/repositories/user.repository'
 
 @Injectable()
 export class AuthApiKeyGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector, private readonly userRepository: UserRepository) {}
+  constructor(private readonly reflector: Reflector) {}
 
-  async canActivate(context: ExecutionContext) {
+  canActivate(context: ExecutionContext): boolean {
     const isApiKey = this.reflector.get<boolean>(IS_API_KEY_AUTH, context.getHandler())
 
     if (!isApiKey) {
@@ -23,23 +22,9 @@ export class AuthApiKeyGuard implements CanActivate {
     // THIS route. We use `instanceof UserEntity` so this guard agrees exactly with
     // RolesGuard, which makes the same check.
     // Note: This includes bearer, API-key, and refresh-token credentials as set by AuthMiddleware.
-    if (req.currentUser instanceof UserEntity) {
-      return true
-    }
-
-    const key = req.headers['x-api-key'] ?? req.query.api_key
-
-    if (!key) {
-      return false
-    }
-
-    const user = await this.userRepository.findByApiKey(key)
-
-    if (!user) {
-      return false
-    }
-
-    req.currentUser = user
-    return true
+    // Spec 0037: AuthMiddleware is the one place a key is looked up (hashed first). It runs on every
+    // route before any guard and refuses an unknown key with 401, so with no user here nothing else
+    // can find one: the request is simply not signed in.
+    return req.currentUser instanceof UserEntity
   }
 }

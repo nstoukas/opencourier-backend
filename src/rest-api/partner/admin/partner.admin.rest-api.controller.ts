@@ -9,6 +9,7 @@ import { PartnerDomainService } from 'src/domains/partner/partner.domain.service
 import { AvailabilityActor, PartnerAvailabilityDomainService } from 'src/domains/partner/partner-availability.domain.service'
 import * as errors from 'src/errors'
 import { PartnerAdminDto } from './dtos/partner.admin.dto'
+import { PartnerApiKeyAdminDto, PartnerRotatePasswordAdminDto } from './dtos/partner-api-key.admin.dto'
 import { PartnerAvailabilityChangeAdminDto } from './dtos/partner-availability.admin.dto'
 import { PartnerWaitRecordAdminDto } from './dtos/partner-wait-record.admin.dto'
 import { PartnerWaitRecordAdminArgs } from './queries/partner-wait-record.admin.args'
@@ -83,18 +84,48 @@ export class PartnerAdminRestApiController {
 
   @common.Post(':id/rotate-password')
   @swagger.ApiBody({ type: PartnerRotatePasswordAdminInput })
-  @swagger.ApiResponse({ status: 204, description: 'Password rotated successfully' })
+  // Spec 0037, AC-1: answers 200 with the restaurant's new API key (shown once) when it had one, else
+  // `apiKey: null`. Was 204 with no body before spec 0037.
+  @swagger.ApiResponse({ status: 200, type: PartnerRotatePasswordAdminDto })
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiOperation({ summary: 'Rotate partner password' })
-  @common.HttpCode(204)
+  @common.HttpCode(200)
   @Roles(EnumUserRole.ADMIN)
   async rotatePartnerPassword(
     @common.Param('id') id: string,
     @common.Body() body: PartnerRotatePasswordAdminInput,
     @CurrentUser() admin: UserEntity,
-  ): Promise<void> {
-    await this.partnerAdminRestApiService.rotatePassword(id, body.password, admin.id)
+  ): Promise<PartnerRotatePasswordAdminDto> {
+    const apiKey = await this.partnerAdminRestApiService.rotatePassword(id, body.password, admin.id)
+    return new PartnerRotatePasswordAdminDto(apiKey)
+  }
+
+  // Spec 0037, AC-3: a new API key for the restaurant, replacing any earlier one. The key is in this
+  // answer only; the server keeps its hash.
+  @common.Post(':id/api-key')
+  @swagger.ApiResponse({ status: 201, type: PartnerApiKeyAdminDto })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: "Make a new API key for a restaurant (shown once)" })
+  @Roles(EnumUserRole.ADMIN)
+  async createPartnerApiKey(
+    @common.Param('id') id: string,
+    @CurrentUser() admin: UserEntity,
+  ): Promise<PartnerApiKeyAdminDto> {
+    const { apiKey, apiKeyCreatedAt } = await this.partnerAdminRestApiService.createApiKey(id, admin.id)
+    return new PartnerApiKeyAdminDto(apiKey, apiKeyCreatedAt)
+  }
+
+  // Spec 0037, AC-4: the restaurant's API key stops working. 204 also when it had none.
+  @common.Delete(':id/api-key')
+  @common.HttpCode(204)
+  @swagger.ApiResponse({ status: 204, description: 'The API key is removed' })
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: "Remove a restaurant's API key" })
+  @Roles(EnumUserRole.ADMIN)
+  async removePartnerApiKey(@common.Param('id') id: string, @CurrentUser() admin: UserEntity): Promise<void> {
+    await this.partnerAdminRestApiService.removeApiKey(id, admin.id)
   }
 
   // Spec 0029, AC-5: an admin disables a restaurant, with a reason.

@@ -34,6 +34,11 @@ export class PartnerAdminDto {
   @ApiProperty({ type: String, nullable: true })
   email: string | null
 
+  // Spec 0037, AC-5: when the restaurant's current API key was made; null when it has none. The key
+  // and its hash are never sent.
+  @ApiProperty({ type: Date, nullable: true })
+  apiKeyCreatedAt: Date | null
+
   @ApiProperty({ type: LocationAdminDto, nullable: true })
   pickupAddress: LocationAdminDto | null
 
@@ -53,6 +58,7 @@ export class PartnerAdminDto {
     this.availability = new PartnerAvailabilityAdminDto(availabilityOf(data, now))
     this.userId = data.userId
     this.email = data.userEmail ?? null
+    this.apiKeyCreatedAt = data.userApiKeyCreatedAt ?? null
     this.pickupAddress = data.pickupLocation ? new LocationAdminDto(data.pickupLocation) : null
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

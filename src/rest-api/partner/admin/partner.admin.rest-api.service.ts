@@ -1,7 +1,7 @@
 import { EnumUserRole } from '@prisma/types'
 import { Injectable, Logger } from '@nestjs/common'
 import * as errors from 'src/errors'
-import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
+import { hashApiKey, makeApiKey } from 'src/domains/auth/api-key'
 import { PasswordService } from 'src/domains/auth/password.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { ILocationCreate } from 'src/domains/location/interfaces/ILocationCreate'
@@ -22,7 +22,6 @@ export class PartnerAdminRestApiService {
     private partnerDomainService: PartnerDomainService,
     private locationDomainService: LocationDomainService,
     private userDomainService: UserDomainService,
-    private authDomainService: AuthDomainService,
     private passwordService: PasswordService,
   ) {}
 
@@ -34,7 +33,7 @@ export class PartnerAdminRestApiService {
     }
 
     const hashedPassword = await this.passwordService.hash(input.password)
-    const apiKey = this.authDomainService.generateApiKey()
+    // Spec 0037, AC-8: a new restaurant has no API key until an admin makes one.
 
     let locationId: string | null = null
     if (input.pickupAddress) {
@@ -51,7 +50,6 @@ export class PartnerAdminRestApiService {
       login: {
         email,
         hashedPassword,
-        apiKey,
       },
     })
   }
@@ -83,24 +81,72 @@ export class PartnerAdminRestApiService {
     return this.partnerDomainService.getByIdOrThrow(partnerId)
   }
 
-  async rotatePassword(partnerId: string, newPassword: string, adminUserId: string): Promise<void> {
+  // Answers the restaurant's new API key when it had one, else null (spec 0037, AC-1).
+  async rotatePassword(partnerId: string, newPassword: string, adminUserId: string): Promise<string | null> {
+    const userId = await this.restaurantLoginNotAdmin(partnerId)
+
+    const hashedPassword = await this.passwordService.hash(newPassword)
+    // Spec 0037: a password change also replaces the restaurant's API key, if it has one, so whoever
+    // had the old password loses the key too. The key is made first and kept only if it was stored.
+    const apiKey = makeApiKey()
+    // The time is set with the password, so every older restaurant session is refused (spec 0013,
+    // AC-9). `new Date()` is Node's clock, the one that signs each token's issue time.
+    const { apiKeyReplaced } = await this.userDomainService.setPasswordAndReplaceApiKey(
+      userId,
+      hashedPassword,
+      new Date(),
+      hashApiKey(apiKey)
+    )
+    // Ids only, never the password or the key (spec 0013, AC-10; spec 0037, AC-12).
+    this.logger.log(
+      `Admin ${adminUserId} set a new password for partner ${partnerId}${apiKeyReplaced ? ' and replaced its API key' : ''}`
+    )
+    return apiKeyReplaced ? apiKey : null
+  }
+
+  // An admin's New API key (spec 0037, AC-3): a new key, shown once in the answer; any earlier key of
+  // this restaurant stops working in the same write.
+  async createApiKey(partnerId: string, adminUserId: string): Promise<{ apiKey: string; apiKeyCreatedAt: Date }> {
+    const userId = await this.restaurantLoginNotAdmin(partnerId)
+    const apiKey = makeApiKey()
+    const apiKeyCreatedAt = new Date()
+    const { replaced } = await this.userDomainService.replaceApiKeyHash(userId, hashApiKey(apiKey), apiKeyCreatedAt)
+    // Ids only, never the key or its hash (AC-12).
+    this.logger.log(
+      replaced
+        ? `Admin ${adminUserId} replaced the API key of partner ${partnerId}`
+        : `Admin ${adminUserId} made a new API key for partner ${partnerId}`
+    )
+    return { apiKey, apiKeyCreatedAt }
+  }
+
+  // An admin's Remove key (spec 0037, AC-4). Allowed for any login, even one that is also an admin:
+  // removing a key signs nobody out, and a key must always be removable (AC-11).
+  async removeApiKey(partnerId: string, adminUserId: string): Promise<void> {
+    const partner = await this.partnerDomainService.getByIdOrThrow(partnerId)
+    if (!partner.userId) {
+      throw new errors.NotFoundException('This partner has no login user')
+    }
+    const { removed } = await this.userDomainService.removeApiKey(partner.userId)
+    // Only when there was a key; a removal with nothing to remove logs nothing (AC-12).
+    if (removed) {
+      this.logger.log(`Admin ${adminUserId} removed the API key of partner ${partnerId}`)
+    }
+  }
+
+  // The restaurant's login id, refusing a restaurant with no login (404) and a login that is also an
+  // admin (403). A password change ends every older session (spec 0013) and these routes never sign
+  // an admin out (AC-10); a key is never made for an admin login either (spec 0037, AC-11).
+  private async restaurantLoginNotAdmin(partnerId: string): Promise<string> {
     const partner = await this.partnerDomainService.getByIdOrThrow(partnerId)
     if (!partner.userId) {
       throw new errors.NotFoundException('This partner has no login user')
     }
     const user = await this.userDomainService.findById(partner.userId)
     if (user.role.includes(EnumUserRole.ADMIN)) {
-      // A password change now ends every older session (spec 0013), and these routes never sign an
-      // admin out (AC-10). A login that is both restaurant and admin is changed some other way.
       throw new errors.ForbiddenException('This login also belongs to an admin.')
     }
-
-    const hashedPassword = await this.passwordService.hash(newPassword)
-    // The time is set with the password, so every older restaurant session is refused (spec 0013,
-    // AC-9). `new Date()` is Node's clock, the one that signs each token's issue time.
-    await this.userDomainService.update(partner.userId, { password: hashedPassword, credentialsChangedAt: new Date() })
-    // Ids only, never the password (spec 0013, AC-10).
-    this.logger.log(`Admin ${adminUserId} set a new password for partner ${partnerId}`)
+    return partner.userId
   }
 
   // AIFLOW-NOTE: countryCode is included in formattedAddress for multi-country compatibility across the backend
