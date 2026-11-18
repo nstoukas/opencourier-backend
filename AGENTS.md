@@ -127,6 +127,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   session finds it), admins listen on the `admins` Socket.IO namespace (`AdminSocketGateway`), and `disconnectUser` closes a
   user's sockets on both namespaces. The server keeps no record of a rider or restaurant reading: `HttpLoggerMiddleware` drops
   the query string of the chat message routes (`QUERY_STRING_DROPPED_PATHS`), so a new route paging by message id goes there too.
+- The Winston logger is fixed at `level: 'info'` (`src/services/logger/index.ts`), so a `logger.debug` line is never printed. Use debug only for what may stay silent (row 115 moved `Channel … not found` there on purpose, decision 115.2); anything someone must see goes to `log` or higher.
 - Prisma 5.3.1's `distinct` is done in memory: it reads every matching row and drops duplicates in Node. For "the newest row
   per group", use `$queryRaw` with `SELECT DISTINCT ON (...) id ... ORDER BY ...` and `Prisma.join` for the values, then
   `findMany` by those ids (`ChatRepository.findNewestMessageIds`).
