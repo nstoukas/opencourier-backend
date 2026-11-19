@@ -51,6 +51,11 @@ model User {
   // Bills of restaurant charges this admin made or undid (spec 0036).
   partnerBillsMade   PartnerBill[] @relation(name: "partnerBillBilledBy")
   partnerBillsUndone PartnerBill[] @relation(name: "partnerBillUndoneBy")
+
+  // Review requests this admin answered (spec 0038).
+  reviewRequestsAnswered ReviewRequest[]
+  // Settings changes this admin saved (spec 0038).
+  settingChanges         SettingChange[]
 }
 
 model Comment {
@@ -113,6 +118,8 @@ model Courier {
   shiftBookings         ShiftBooking[]
   // This rider's one conversation with dispatch (spec 0034, chat).
   chatThread            ChatThread?
+  // This rider's review requests (spec 0038). Never counted per rider anywhere (binding value 5).
+  reviewRequests        ReviewRequest[]
   // The admin search's folded names and phone (spec 0025). Written only by the database trigger
   // `courier_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
   searchFold            String?
@@ -447,6 +454,8 @@ model Delivery {
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
   removalRequests      DeliveryRemovalRequest[]
+  // Review requests about this delivery (spec 0038).
+  reviewRequests       ReviewRequest[]
   partnerCharges       PartnerCharge[]
   sosIncidents         SosIncident[]
   // Chat messages tagged with this delivery (spec 0034, chat).
@@ -473,7 +482,9 @@ model DeliveryEvent {
   delivery   Delivery @relation(fields: [deliveryId], references: [id])
   deliveryId String
 
-  // The rider an OFFERED or OFFER_EXPIRED event is about; null on every other event (spec 0002).
+  // The rider the event is about, on the types listed in COURIER_ID_EVENT_TYPES
+  // (delivery-event.service.ts): offers, removals, pay events and, since spec 0038, the review
+  // events. Null on every other event (spec 0002).
   courier   Courier? @relation(fields: [courierId], references: [id])
   courierId String?
 
@@ -717,6 +728,11 @@ enum EnumDeliveryEventType {
   COURIER_PAID_FOR_REMOVAL
   PARTNER_CHARGED_FOR_REMOVAL
   COURIER_PAID_FOR_RETURN_TRIP
+  // Spec 0038: a rider asked a person to review a decision about this delivery, the answer, and
+  // a pay correction the answer added. Saved with null statuses, never in STATE_MACHINE.
+  REVIEW_REQUESTED
+  REVIEW_ANSWERED
+  COURIER_PAID_FOR_REVIEW
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its
@@ -791,6 +807,8 @@ enum EnumCourierCompensationReason {
   REMOVAL
   // Paid for bringing the food back to the restaurant after a cancellation (spec 0035).
   RETURN_TRIP
+  // A pay correction an admin added when answering a review request (spec 0038). Only adds.
+  REVIEW
 }
 
 // Who cancelled a delivery (spec 0015). The partner says RESTAURANT or CUSTOMER; an admin may say COOP.
@@ -971,6 +989,8 @@ model CourierCompensation {
   removalOf      String?                       @unique
   // The delivery id on a RETURN_TRIP row (spec 0035): one trip back is paid once.
   returnOf       String?                       @unique
+  // The review request's id on a REVIEW row (spec 0038): one review pays at most once.
+  reviewOf       String?                       @unique
   // On a WAITING row: the minutes paid for (spec 0036). Null otherwise, and on an old row whose
   // message could not be read.
   waitMinutes    Int?
@@ -1330,4 +1350,75 @@ model ChatMessage {
   @@unique([threadId, clientMessageId])
   @@index([threadId, createdAt])
   @@index([createdAt])
+}
+
+enum EnumReviewTopic {
+  OFFER
+  PAY
+  OTHER
+}
+
+enum EnumReviewRequestStatus {
+  OPEN
+  ANSWERED
+  WITHDRAWN
+}
+
+enum EnumReviewOutcome {
+  // The decision was right.
+  STANDS
+  // The decision was wrong and was put right.
+  CHANGED
+}
+
+// Spec 0038: a rider asks a person to review a decision the app took about their work. Only an
+// admin's answer or the rider's own withdrawal moves it out of OPEN; nothing answers it on its own.
+// The note and the answer are personal data: never in a log line, an event message or a push.
+model ReviewRequest {
+  id          String                  @id @default(cuid())
+  topic       EnumReviewTopic
+  // The rider's words.
+  note        String                  @postgres.VarChar(1000)
+  status      EnumReviewRequestStatus @default(OPEN)
+  createdAt   DateTime                @default(now())
+  // Fixed when sent (send time + reviewAnswerDays x 24 h); never moved afterwards.
+  dueAt       DateTime
+  // `<courierId>:<deliveryId>` while OPEN on a delivery, null otherwise: one open request per
+  // rider per delivery (the openFor pattern of spec 0035).
+  openFor     String?                 @unique
+  answeredAt  DateTime?
+  outcome     EnumReviewOutcome?
+  answer      String?                 @postgres.VarChar(2000)
+  withdrawnAt DateTime?
+
+  courierId        String
+  courier          Courier   @relation(fields: [courierId], references: [id])
+  // Null for a general request.
+  deliveryId       String?
+  delivery         Delivery? @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+  answeredByUserId String?
+  answeredBy       User?     @relation(fields: [answeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, dueAt])
+  @@index([courierId, createdAt])
+}
+
+// Spec 0038 (AC-12): one row per setting whose effective value a save changed, written in the
+// value's transaction. Riders read the rider facing keys, credited to "a representative".
+model SettingChange {
+  id              String   @id @default(cuid())
+  // A ConfigKey value, `removalReason` or `shiftSlot`.
+  key             String   @postgres.VarChar(100)
+  // The removal reason's or the shift slot's id; null for a Config key.
+  subject         String?  @postgres.VarChar(100)
+  // Null on a create.
+  oldValue        Json?
+  // Null on a removal.
+  newValue        Json?
+  createdAt       DateTime @default(now())
+  changedByUserId String?
+  changedBy       User?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([key, createdAt])
 }

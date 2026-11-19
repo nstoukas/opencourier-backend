@@ -135,6 +135,14 @@ const REMOVAL_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP,
 ]
 
+// Spec 0038: the review events are written by the review request's own transaction, with null
+// statuses. An admin cannot post one through the event route either.
+const REVIEW_EVENT_TYPES: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.REVIEW_REQUESTED,
+  EnumDeliveryEventType.REVIEW_ANSWERED,
+  EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW,
+]
+
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
 // STOPPED: dispatch is stopped (spec 0014); no offer is made and nothing is recorded or retried.
 type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED' | 'NOT_DUE'
@@ -239,6 +247,9 @@ export class DeliveryEventService {
         // Spec 0035: before the check below, so an admin's post is refused on the record even where
         // the state machine has no row for it. Thrown here, the catch saves a failed row.
         throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by a removal request only`)
+      }
+      if (REVIEW_EVENT_TYPES.includes(deliveryEvent.type)) {
+        throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by a review request only`)
       }
 
       if (!newStatus) {
@@ -660,6 +671,13 @@ export class DeliveryEventService {
   async handleCourierStatusChanged(courierId: string, status: EnumCourierStatus): Promise<void> {
     if (status === EnumCourierStatus.OFFLINE) {
       await this.endOpenOffersForCourier(courierId)
+      // Spec 0038 (AC-15): an open offer kept the rider busy when the Offline statement ran, so their
+      // position stayed; with the offers ended, erase it now if they hold no job.
+      try {
+        await this.courierRepository.clearLocationIfOfflineAndFree(courierId)
+      } catch (error) {
+        this.logger.error(`Could not erase the position of Offline courier ${courierId}: ${error}`)
+      }
     } else {
       await this.matchWaitingDeliveries()
     }
@@ -2410,7 +2428,12 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.REMOVAL_DECLINED ||
       deliveryEvent.type === EnumDeliveryEventType.REMOVAL_APPROVED ||
       deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL ||
-      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_RETURN_TRIP ||
+      // Spec 0038: the rider who asked for a review. These rows are normally written by the review
+      // request's transaction; listed here so any path that saves one keeps the rider.
+      deliveryEvent.type === EnumDeliveryEventType.REVIEW_REQUESTED ||
+      deliveryEvent.type === EnumDeliveryEventType.REVIEW_ANSWERED ||
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW
         ? deliveryEvent.courierId
         : // A REASSIGNED row stores the rider it was taken from (AC-20); the event's courierId is the new one.
           deliveryEvent.type === EnumDeliveryEventType.REASSIGNED
@@ -2444,6 +2467,19 @@ export class DeliveryEventService {
         await this.removalRequestRepository.closeOpenForDelivery(deliveryEvent.deliveryId)
       } catch (error) {
         this.logger.error(`Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+    }
+
+    // Spec 0038 (AC-15): a step that moved a delivery (a drop off, a cancellation, a removal, a
+    // reassignment, a return to waiting, a hand back, leaving a wait, an offer ending) may have left an
+    // Offline rider with no job: their stored position is erased now. One rule, here, so a future path
+    // cannot forget it. The review events, saved with null statuses, never get here. Guarded, so a
+    // failure never breaks this event.
+    if (outcome.transitionSuccessful && outcome.oldStatus && outcome.newStatus) {
+      try {
+        await this.courierRepository.clearLocationIfOfflineAndFree()
+      } catch (error) {
+        this.logger.error(`Could not erase positions after an event on delivery ${deliveryEvent.deliveryId}: ${error}`)
       }
     }
     return saved

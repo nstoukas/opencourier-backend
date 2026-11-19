@@ -13,6 +13,8 @@ import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 import { RemovalRequestAdminRestApiModule } from './removal-request/admin/removal-request.admin.rest-api.module'
+import { ReviewRequestAdminRestApiModule } from './review-request/admin/review-request.admin.rest-api.module'
+import { SettingChangeAdminRestApiModule } from './setting-change/admin/setting-change.admin.rest-api.module'
 import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
 import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-charge.admin.rest-api.module'
 
@@ -35,6 +37,8 @@ import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-
     DispatchBoardAdminRestApiModule,
     // A rider's request to come off an order (spec 0035).
     RemovalRequestAdminRestApiModule,
+    ReviewRequestAdminRestApiModule,
+    SettingChangeAdminRestApiModule,
     // Dispatch's chat inbox (spec 0034).
     ChatAdminRestApiModule,
     // What each restaurant owes, and bills made by hand (spec 0036).

@@ -438,11 +438,15 @@ export class RemovalRequestService {
     return this.removalRequestRepository.findActiveReasons()
   }
 
-  async createReason(input: RemovalReasonInput): Promise<RemovalReason> {
-    return this.removalRequestRepository.createReason({
-      ...this.editableReasonFields(input),
-      label: this.cleanLabel(input.label),
-    })
+  // `changedByUserId`: the admin, for the settings record (spec 0038, AC-12).
+  async createReason(input: RemovalReasonInput, changedByUserId: string | null = null): Promise<RemovalReason> {
+    return this.removalRequestRepository.createReason(
+      {
+        ...this.editableReasonFields(input),
+        label: this.cleanLabel(input.label),
+      },
+      changedByUserId
+    )
   }
 
   // The global validation pipe keeps body fields it has no rule for, so name the ones a reason may
@@ -452,22 +456,26 @@ export class RemovalRequestService {
     return { label, paidToRider, chargedToRestaurant, needsNote, position }
   }
 
-  async updateReason(id: string, input: Partial<RemovalReasonInput>): Promise<RemovalReason> {
+  async updateReason(
+    id: string,
+    input: Partial<RemovalReasonInput>,
+    changedByUserId: string | null = null
+  ): Promise<RemovalReason> {
     const fields = this.editableReasonFields(input)
     const data = fields.label === undefined ? fields : { ...fields, label: this.cleanLabel(fields.label) }
-    const reason = await this.removalRequestRepository.updateActiveReason(id, data)
+    const reason = await this.removalRequestRepository.updateActiveReason(id, data, changedByUserId)
     if (!reason) throw new NotFoundException('Removal reason not found')
     return reason
   }
 
   // AC-2: the app always shows at least one reason, so the last one cannot go.
-  async removeReason(id: string): Promise<RemovalReason> {
+  async removeReason(id: string, changedByUserId: string | null = null): Promise<RemovalReason> {
     const reason = await this.removalRequestRepository.findReasonById(id)
     if (!reason || reason.removedAt) throw new NotFoundException('Removal reason not found')
     if ((await this.removalRequestRepository.countActiveReasons()) <= 1) {
       throw new ConflictException(LAST_REASON_MESSAGE)
     }
-    const removed = await this.removalRequestRepository.removeActiveReason(id)
+    const removed = await this.removalRequestRepository.removeActiveReason(id, changedByUserId)
     if (!removed) throw new NotFoundException('Removal reason not found')
     return removed
   }

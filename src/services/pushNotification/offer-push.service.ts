@@ -171,6 +171,29 @@ export class OfferPushService {
     }
   }
 
+  // Spec 0038, AC-9: a person answered this rider's review request. Data only, with the request id and
+  // never the answer, sent with the chat push's settings to every phone the rider is logged in on. The
+  // caller decides whether to send (never to an Offline rider). Fire and forget, never throws.
+  reviewAnswered(courierId: string, requestId: string): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendReviewAnswered(courierId, requestId).catch((error) =>
+      this.logger.error(`Review answered push for request ${requestId} failed: ${error}`)
+    )
+  }
+
+  async sendReviewAnswered(courierId: string, requestId: string): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = { type: NotificationEventType.REVIEW_ANSWERED, requestId }
+      const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
+      await this.handleSendResult(`review request ${requestId}`, NotificationEventType.REVIEW_ANSWERED, result)
+    } catch (error) {
+      this.logger.error(`Review answered push for request ${requestId} failed: ${error}`)
+    }
+  }
+
   async sendJobCancelled(courierId: string, deliveryId: string): Promise<void> {
     if (!this.pushNotificationService.isEnabled()) return
     try {

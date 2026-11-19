@@ -84,8 +84,12 @@ export class RemovalRequestAdminRestApiController {
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @swagger.ApiOperation({ summary: 'Add a removal reason' })
   @Roles(EnumUserRole.ADMIN)
-  async createReason(@common.Body() input: RemovalReasonCreateAdminInput): Promise<RemovalReasonAdminDto> {
-    return new RemovalReasonAdminDto(await this.removalRequestService.createReason(input))
+  // The three reason writes take the admin for the settings record (spec 0038, AC-12).
+  async createReason(
+    @common.Body() input: RemovalReasonCreateAdminInput,
+    @CurrentUser() admin: UserEntity
+  ): Promise<RemovalReasonAdminDto> {
+    return new RemovalReasonAdminDto(await this.removalRequestService.createReason(input, admin.id))
   }
 
   @common.Patch('removal-reasons/:id')
@@ -97,9 +101,10 @@ export class RemovalRequestAdminRestApiController {
   @Roles(EnumUserRole.ADMIN)
   async updateReason(
     @common.Param('id') id: string,
-    @common.Body() input: RemovalReasonUpdateAdminInput
+    @common.Body() input: RemovalReasonUpdateAdminInput,
+    @CurrentUser() admin: UserEntity
   ): Promise<RemovalReasonAdminDto> {
-    return new RemovalReasonAdminDto(await this.removalRequestService.updateReason(id, input))
+    return new RemovalReasonAdminDto(await this.removalRequestService.updateReason(id, input, admin.id))
   }
 
   @common.Delete('removal-reasons/:id')
@@ -109,7 +114,10 @@ export class RemovalRequestAdminRestApiController {
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @swagger.ApiOperation({ summary: 'Remove a removal reason' })
   @Roles(EnumUserRole.ADMIN)
-  async removeReason(@common.Param('id') id: string): Promise<RemovalReasonAdminDto> {
-    return new RemovalReasonAdminDto(await this.removalRequestService.removeReason(id))
+  async removeReason(
+    @common.Param('id') id: string,
+    @CurrentUser() admin: UserEntity
+  ): Promise<RemovalReasonAdminDto> {
+    return new RemovalReasonAdminDto(await this.removalRequestService.removeReason(id, admin.id))
   }
 }

@@ -19,7 +19,9 @@ export interface ICourierRepository {
   updateById(courierId: string, data: ICourierUpdate): Promise<CourierEntity>
   updateStatus(courierId: string, status: EnumCourierStatus): Promise<void>
   updateDeliverySetting(courierId: string, deliverySetting: EnumCourierDeliverySetting): Promise<void>
-  updateCurrentLocationById(courierId: string, data: ICourierUpdateLocation): Promise<void>
+  updateCurrentLocationById(courierId: string, data: ICourierUpdateLocation): Promise<boolean>
+  setOfflineAndClearLocationIfFree(courierId: string): Promise<void>
+  clearLocationIfOfflineAndFree(courierId?: string): Promise<void>
   findById(courierId: string): Promise<CourierEntity | null>
   findByIdOrThrow(courierId: string): Promise<CourierEntity>
   findManyPaginated(where: Prisma.CourierWhereInput, page?: number, perPage?: number): Promise<PaginatedResult<CourierEntity>>

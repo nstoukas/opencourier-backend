@@ -63,11 +63,15 @@ export class DeliveryEventDomainService {
       // removal (spec 0035): a rider taken off an order can be offered it again and deliver it.
       const waitingPay = sumOfReason(EnumCourierCompensationReason.WAITING)
       const removalPay = sumOfReason(EnumCourierCompensationReason.REMOVAL)
+      // Spec 0038 (AC-7): a review correction shows as its own amount too. The drop off itself is
+      // still counted once: the correction is a compensation row, never a second drop off.
+      const reviewPay = sumOfReason(EnumCourierCompensationReason.REVIEW)
       return {
         ...entry,
-        total: entry.total + waitingPay + removalPay,
+        total: entry.total + waitingPay + removalPay + reviewPay,
         ...(waitingPay > 0 ? { waitingPay } : {}),
         ...(removalPay > 0 ? { removalPay } : {}),
+        ...(reviewPay > 0 ? { reviewPay } : {}),
       }
     }
 
@@ -87,9 +91,10 @@ export class DeliveryEventDomainService {
     const waitingPay = lineOf(EnumCourierCompensationReason.WAITING)
     const removalPay = lineOf(EnumCourierCompensationReason.REMOVAL)
     const returnTripPay = lineOf(EnumCourierCompensationReason.RETURN_TRIP)
+    const reviewPay = lineOf(EnumCourierCompensationReason.REVIEW)
     const entry = compensationToEarningsDelivery({
       deliveryId: first.deliveryId,
-      amount: totalAmount - waitingPay - removalPay - returnTripPay,
+      amount: totalAmount - waitingPay - removalPay - returnTripPay - reviewPay,
       reason: namingReason,
       createdAt: first.createdAt,
       pickupBusinessName: first.pickupBusinessName,
@@ -101,6 +106,7 @@ export class DeliveryEventDomainService {
       ...(waitingPay > 0 ? { waitingPay } : {}),
       ...(removalPay > 0 ? { removalPay } : {}),
       ...(returnTripPay > 0 ? { returnTripPay } : {}),
+      ...(reviewPay > 0 ? { reviewPay } : {}),
     }
   }
 }

@@ -253,6 +253,20 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   chatRetentionDays?: number
 
+  // Review requests (spec 0038, AC-3): whole days, 1 to 14 (NUMERIC_SETTING_RULES).
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  reviewAnswerDays?: number
+
+  // Review requests (spec 0038, AC-7): the largest pay correction, in whole cents.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  reviewCorrectionMaxCents?: number
+
   // The first on/off setting. It needs @RefuseIfNotSentAsBoolean(): without it the text "false" saves as true.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

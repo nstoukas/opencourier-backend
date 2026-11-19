@@ -72,6 +72,9 @@ export type InstanceConfigSettings = {
   chatQuickRepliesDispatch: string[]
   chatQuickRepliesCourier: string[]
   chatRetentionDays: number
+  // Review requests (spec 0038): whole days a person has to answer, and the largest pay correction in cents.
+  reviewAnswerDays: number
+  reviewCorrectionMaxCents: number
 }
 
 export type InstanceDetails = {
@@ -155,6 +158,8 @@ export enum ConfigKey {
   CHAT_QUICK_REPLIES_DISPATCH = 'chatQuickRepliesDispatch',
   CHAT_QUICK_REPLIES_COURIER = 'chatQuickRepliesCourier',
   CHAT_RETENTION_DAYS = 'chatRetentionDays',
+  REVIEW_ANSWER_DAYS = 'reviewAnswerDays',
+  REVIEW_CORRECTION_MAX_CENTS = 'reviewCorrectionMaxCents',
 }
 
 // Fallbacks used ONLY when the Config row is missing (same role as DEFAULT_CURRENCY).

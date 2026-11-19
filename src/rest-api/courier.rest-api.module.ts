@@ -12,6 +12,8 @@ import { SosCourierRestApiModule } from './sos/courier/sos.courier.rest-api.modu
 import { ShiftBookingCourierRestApiModule } from './shift-booking/courier/shift-booking.courier.rest-api.module'
 import { PartnerCourierRestApiModule } from './partner/courier/partner.courier.rest-api.module'
 import { RemovalRequestCourierRestApiModule } from './removal-request/courier/removal-request.courier.rest-api.module'
+import { ReviewRequestCourierRestApiModule } from './review-request/courier/review-request.courier.rest-api.module'
+import { SettingChangeCourierRestApiModule } from './setting-change/courier/setting-change.courier.rest-api.module'
 import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.module'
 
 @Module({
@@ -32,6 +34,8 @@ import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.m
     PartnerCourierRestApiModule,
     // Asking dispatch to take a rider off an order (spec 0035).
     RemovalRequestCourierRestApiModule,
+    ReviewRequestCourierRestApiModule,
+    SettingChangeCourierRestApiModule,
     // A rider's chat with dispatch (spec 0034).
     ChatCourierRestApiModule,
   ],

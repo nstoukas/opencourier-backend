@@ -180,6 +180,28 @@ export interface DeliveryCourierPaidForReturnTripEvent extends BaseDeliveryEvent
   courierId: string
 }
 
+// Spec 0038: a rider asked a person to review a decision about this delivery, the answer, and a pay
+// correction. Written by the review request's own transaction (ReviewRequestRepository) with null
+// statuses, never processed as ordinary events. A message names the topic or the outcome, never the
+// rider's note or the admin's answer.
+export interface DeliveryReviewRequestedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REVIEW_REQUESTED
+  courierId: string
+}
+export interface DeliveryReviewAnsweredEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.REVIEW_ANSWERED
+  courierId: string
+}
+export interface DeliveryCourierPaidForReviewEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW
+  courierId: string
+}
+
+export type DeliveryReviewEvent =
+  | DeliveryReviewRequestedEvent
+  | DeliveryReviewAnsweredEvent
+  | DeliveryCourierPaidForReviewEvent
+
 export type DeliveryRemovalEvent =
   | DeliveryRemovalRequestedEvent
   | DeliveryRemovalWithdrawnEvent
@@ -233,6 +255,7 @@ export type DeliveryEvent =
   | DeliveryProductReportResolvedEvent
   | DeliveryFoodReadyEvent
   | DeliveryRemovalEvent
+  | DeliveryReviewEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

@@ -129,24 +129,52 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return this.toDomain(result)
   }
 
-  async updateCurrentLocationById(courierId: string, data: ICourierUpdateLocation) {
-    const courier = await this.prisma.courier.findUniqueOrThrow({
-      where: {
-        id: courierId,
-      },
-    })
-
+  // Spec 0038 (AC-14): the position is stored only while the rider is not Offline, or holds an active
+  // delivery (the busy rule: an ongoing job or an open offer). One conditional statement, so a fix sent
+  // in the same instant as the rider's Offline switch can never land after it. Returns whether it was
+  // stored; false means the rider is Offline with no job, and nothing was written.
+  async updateCurrentLocationById(courierId: string, data: ICourierUpdateLocation): Promise<boolean> {
     const { latitude, longitude } = data
 
     const coord = `POINT(${longitude} ${latitude})`
-    const queryRaw = Prisma.sql`
+    const updated = await this.prisma.$executeRaw`
       UPDATE "Courier"
       SET "currentLocation" = ST_GeomFromText(${coord}, 4326),
           "currentLocationAt" = NOW() AT TIME ZONE 'UTC'
-      WHERE "id" = ${courier.id}
+      WHERE "id" = ${courierId}
+        AND ("status"::text <> ${EnumCourierStatus.OFFLINE} OR EXISTS (${busyCourierDeliverySubQuery()}))
     `
+    return updated === 1
+  }
 
-    await this.prisma.$queryRaw(queryRaw)
+  // Spec 0038 (AC-15): a rider going Offline. The same statement that sets the status erases the stored
+  // position and its time when they hold no active delivery (a Last Call rider still on a job keeps it
+  // until the job ends). Used by the rider's own switch and the admin's; never by the Last Call accept,
+  // which sets Offline while the rider now holds that delivery.
+  async setOfflineAndClearLocationIfFree(courierId: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "Courier"
+      SET "status" = CAST(${EnumCourierStatus.OFFLINE} AS "EnumCourierStatus"),
+          "updatedAt" = NOW() AT TIME ZONE 'UTC',
+          "currentLocation" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocation" ELSE NULL END,
+          "currentLocationAt" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocationAt" ELSE NULL END
+      WHERE "id" = ${courierId}
+    `
+  }
+
+  // Spec 0038 (AC-15): erases the stored position of an Offline rider who holds no active delivery. With
+  // a rider's id, that rider only; without, every such rider, which is how a job ending clears its
+  // rider without having to know which rider it was (one statement, idempotent, cheap: it only touches
+  // Offline riders who still have a position).
+  async clearLocationIfOfflineAndFree(courierId?: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "Courier"
+      SET "currentLocation" = NULL, "currentLocationAt" = NULL
+      WHERE "status"::text = ${EnumCourierStatus.OFFLINE}
+        AND "currentLocation" IS NOT NULL
+        AND NOT EXISTS (${busyCourierDeliverySubQuery()})
+        ${courierId ? Prisma.sql`AND "id" = ${courierId}` : Prisma.empty}
+    `
   }
 
   async getCurrentLocation(courierId: string) {
@@ -180,6 +208,13 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   }
 
   async updateStatus(courierId: string, status: EnumCourierStatus) {
+    // Spec 0038 (AC-15): Offline always goes through the statement that erases the position, even if
+    // the rider already reads as Offline, so a position left from before is cleared too.
+    if (status === EnumCourierStatus.OFFLINE) {
+      await this.setOfflineAndClearLocationIfFree(courierId)
+      return
+    }
+
     const courier = await this.prisma.courier.findUniqueOrThrow({
       where: {
         id: courierId,

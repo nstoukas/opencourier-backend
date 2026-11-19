@@ -147,6 +147,17 @@ export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
 export const DEFAULT_CHAT_RETENTION_DAYS = 90
 export const CHAT_RETENTION_DAYS_MIN = 7
 export const CHAT_RETENTION_DAYS_MAX = 365
+
+// Review requests (spec 0038). A person must answer a rider's request within this many whole days
+// (AC-3), and may add a pay correction of at most this many cents (AC-7). The operative values are
+// the co-op settings reviewAnswerDays and reviewCorrectionMaxCents; these are their fallbacks when
+// the Config row is missing, and their ranges. 14 days is the most the directive's spirit allows.
+export const DEFAULT_REVIEW_ANSWER_DAYS = 14
+export const REVIEW_ANSWER_DAYS_MIN = 1
+export const REVIEW_ANSWER_DAYS_MAX = 14
+export const DEFAULT_REVIEW_CORRECTION_MAX_CENTS = 5000
+export const REVIEW_CORRECTION_MAX_CENTS_MIN = 1
+export const REVIEW_CORRECTION_MAX_CENTS_MAX = 100000
 // The one tap presets (AC-13): at most this many, each this many characters at most.
 export const CHAT_QUICK_REPLIES_MAX_ENTRIES = 8
 export const CHAT_QUICK_REPLY_MAX_LENGTH = 100

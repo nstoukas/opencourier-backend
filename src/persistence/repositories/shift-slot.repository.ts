@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { EnumShiftSlotChangeAction, Prisma, ShiftSlot, ShiftSlotChange } from '@prisma/types'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
+import { SHIFT_SLOT_SETTING_KEY, writeSettingChange } from './setting-change.repository'
 
 // The four fields an admin sets on a slot (spec 0026), and all a change row's before and after hold.
 export interface ShiftSlotFields {
@@ -49,6 +50,14 @@ export class ShiftSlotRepository extends EntityRepository {
           after: { ...fields },
         },
       })
+      // Spec 0038 (AC-12): the same change on the settings record riders read.
+      await writeSettingChange(tx, {
+        key: SHIFT_SLOT_SETTING_KEY,
+        subject: slot.id,
+        oldValue: null,
+        newValue: { ...fields },
+        changedByUserId,
+      })
       return slot
     })
   }
@@ -72,6 +81,13 @@ export class ShiftSlotRepository extends EntityRepository {
           after: { ...next },
         },
       })
+      await writeSettingChange(tx, {
+        key: SHIFT_SLOT_SETTING_KEY,
+        subject: id,
+        oldValue: { ...read },
+        newValue: { ...next },
+        changedByUserId,
+      })
       return tx.shiftSlot.findUnique({ where: { id } })
     })
   }
@@ -92,6 +108,13 @@ export class ShiftSlotRepository extends EntityRepository {
           before: { ...read },
           after: Prisma.DbNull,
         },
+      })
+      await writeSettingChange(tx, {
+        key: SHIFT_SLOT_SETTING_KEY,
+        subject: id,
+        oldValue: { ...read },
+        newValue: null,
+        changedByUserId,
       })
       return tx.shiftSlot.findUnique({ where: { id } })
     })

@@ -146,6 +146,12 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   chatRetentionDays: number
 
+  @ApiProperty({ type: Number })
+  reviewAnswerDays: number
+
+  @ApiProperty({ type: Number })
+  reviewCorrectionMaxCents: number
+
   constructor(data: InstanceConfigSettings) {
     this.courierMatcherType = data.courierMatcherType as EnumCourierMatcherType
     this.quoteCalculationType = data.quoteCalculationType as EnumQuoteCalculationType
@@ -195,5 +201,7 @@ export class InstanceConfigSettingsDto {
     this.chatQuickRepliesDispatch = data.chatQuickRepliesDispatch
     this.chatQuickRepliesCourier = data.chatQuickRepliesCourier
     this.chatRetentionDays = data.chatRetentionDays
+    this.reviewAnswerDays = data.reviewAnswerDays
+    this.reviewCorrectionMaxCents = data.reviewCorrectionMaxCents
   }
 }

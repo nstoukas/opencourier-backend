@@ -52,12 +52,21 @@ export interface EarningsDelivery {
   total: number // compensation + tips
   // A pay that is not a drop off: a reassigned rider's payout, a cancelled job's (spec 0015), or a
   // wait at the restaurant (spec 0033).
-  kind?: 'REASSIGNMENT_COMPENSATION' | 'CANCELLATION_COMPENSATION' | 'WAITING' | 'REMOVAL_COMPENSATION' | 'RETURN_TRIP'
+  // Spec 0038 adds REVIEW_CORRECTION: pay a person added when answering a review request.
+  kind?:
+    | 'REASSIGNMENT_COMPENSATION'
+    | 'CANCELLATION_COMPENSATION'
+    | 'WAITING'
+    | 'REMOVAL_COMPENSATION'
+    | 'RETURN_TRIP'
+    | 'REVIEW_CORRECTION'
   // Spec 0033, on the detail of a delivered order only: what its wait paid, already inside `total`.
   waitingPay?: number
   // Spec 0035, on the detail of a job cancelled after pickup: what the return trip paid, already inside `total`.
   returnTripPay?: number
   // Spec 0035, on a detail: what a removal from this order paid, already inside `total`.
   removalPay?: number
+  // Spec 0038, on a detail: what review corrections added to this order, already inside `total`.
+  reviewPay?: number
 }
 

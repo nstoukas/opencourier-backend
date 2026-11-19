@@ -1,5 +1,5 @@
 import { omit } from 'lodash'
-import { PaginatedResult, PaginateFunction, PaginateOptions } from '../core/models/Pagination'
+import { PaginatedResult, PaginateFunction, PaginateOptions, Pagination } from '../core/models/Pagination'
 
 type WhereInput = {
   [key: string]: any
@@ -53,5 +53,20 @@ export function createPaginator<T, Args extends ArgsInput, Model extends ModelIn
         nextPage: page < totalPages ? page + 1 : null,
       },
     }
+  }
+}
+
+// The pagination block for a page read by hand (spec 0038): createPaginator's model type cannot
+// take a findMany with an `include`, so those repositories count and read themselves.
+export function buildPagination(total: number, page: number, perPage: number, currentItems: number): Pagination {
+  const totalPages = Math.ceil(total / perPage)
+  return {
+    perPage,
+    totalItems: total,
+    totalPages,
+    currentItems,
+    currentPage: page,
+    prevPage: page > 1 ? page - 1 : null,
+    nextPage: page < totalPages ? page + 1 : null,
   }
 }

@@ -28,7 +28,7 @@ export class EarningsDeliveryDetailCourierDto {
   @ApiProperty({ type: String, description: 'Instance currency code, e.g. EUR' })
   currency: string
 
-  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION, WAITING, REMOVAL_COMPENSATION or RETURN_TRIP' })
+  @ApiProperty({ required: false, type: String, description: 'Optional line item kind: REASSIGNMENT_COMPENSATION, CANCELLATION_COMPENSATION, WAITING, REMOVAL_COMPENSATION, RETURN_TRIP or REVIEW_CORRECTION' })
   kind?: string
 
   @ApiProperty({ required: false, type: Number, description: 'What waiting at the restaurant paid on this delivered order, in integer cents, inside total' })
@@ -39,6 +39,9 @@ export class EarningsDeliveryDetailCourierDto {
 
   @ApiProperty({ required: false, type: Number, description: 'What a removal from this order paid, in integer cents, inside total' })
   removalPay?: number
+
+  @ApiProperty({ required: false, type: Number, description: 'What review corrections added to this order, in integer cents, inside total (spec 0038)' })
+  reviewPay?: number
 
   constructor(delivery: EarningsDelivery, meta: { currency: string }) {
     this.deliveryId = delivery.deliveryId
@@ -53,5 +56,6 @@ export class EarningsDeliveryDetailCourierDto {
     this.waitingPay = delivery.waitingPay
     this.returnTripPay = delivery.returnTripPay
     this.removalPay = delivery.removalPay
+    this.reviewPay = delivery.reviewPay
   }
 }

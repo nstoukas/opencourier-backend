@@ -49,6 +49,12 @@ import {
   DEFAULT_CHAT_RETENTION_DAYS,
   CHAT_RETENTION_DAYS_MIN,
   CHAT_RETENTION_DAYS_MAX,
+  DEFAULT_REVIEW_ANSWER_DAYS,
+  REVIEW_ANSWER_DAYS_MIN,
+  REVIEW_ANSWER_DAYS_MAX,
+  DEFAULT_REVIEW_CORRECTION_MAX_CENTS,
+  REVIEW_CORRECTION_MAX_CENTS_MIN,
+  REVIEW_CORRECTION_MAX_CENTS_MAX,
   DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
   DEFAULT_CHAT_QUICK_REPLIES_COURIER,
   DEFAULT_RESTAURANT_HISTORY_DAYS,
@@ -91,6 +97,7 @@ import { ConfigKey } from 'src/shared-types/index'
 import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 import { DISPATCH_PHONE_NUMBER_REFUSAL, normalizeDispatchPhoneNumber } from './dispatch-phone-number'
 import { checkChatQuickReplies, storedChatQuickReplies } from './chat-quick-replies'
+import { writeSettingChange } from 'src/persistence/repositories/setting-change.repository'
 
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
@@ -206,6 +213,21 @@ export const NUMERIC_SETTING_RULES: {
     min: CHAT_RETENTION_DAYS_MIN,
     max: CHAT_RETENTION_DAYS_MAX,
   },
+  // Review requests (spec 0038): days to answer (AC-3) and the largest correction (AC-7).
+  {
+    key: 'reviewAnswerDays',
+    whyZeroIsRefused: 'every review request would be overdue the moment it was sent',
+    mustBeInteger: true,
+    min: REVIEW_ANSWER_DAYS_MIN,
+    max: REVIEW_ANSWER_DAYS_MAX,
+  },
+  {
+    key: 'reviewCorrectionMaxCents',
+    whyZeroIsRefused: 'no review could ever put a rider\'s pay right',
+    mustBeInteger: true,
+    min: REVIEW_CORRECTION_MAX_CENTS_MIN,
+    max: REVIEW_CORRECTION_MAX_CENTS_MAX,
+  },
   // Order history (spec 0017): how far back a restaurant sees its own orders.
   {
     key: 'restaurantHistoryDays',
@@ -251,6 +273,31 @@ export const NUMERIC_SETTING_RULES: {
     max: SHIFT_DROP_NOTICE_HOURS_MAX,
   },
 ]
+
+// One settings write waiting for the save's transaction (spec 0038, AC-12).
+type StoredSettingValue = string | number | boolean | string[]
+type PendingSettingWrite = { key: ConfigKey; stored: StoredSettingValue; value: unknown }
+
+// Writes the value with object keys in a fixed order, so two equal objects give the same text.
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value ?? null)
+}
+
+// Whether a save leaves a setting's value in effect unchanged (spec 0038, AC-12): lists and
+// objects compared by content, and an empty text the same as no value (a cleared dispatch phone
+// reads back as null).
+export function isSameSettingValue(before: unknown, after: unknown): boolean {
+  const plain = (value: unknown) => (value === '' || value === undefined ? null : value)
+  return stableJson(plain(before)) === stableJson(plain(after))
+}
 
 @Injectable()
 export class InstanceConfigDomainService {
@@ -308,6 +355,8 @@ export class InstanceConfigDomainService {
     const chatQuickRepliesDispatch = await this.getChatQuickRepliesDispatch()
     const chatQuickRepliesCourier = await this.getChatQuickRepliesCourier()
     const chatRetentionDays = await this.getChatRetentionDays()
+    const reviewAnswerDays = await this.getReviewAnswerDays()
+    const reviewCorrectionMaxCents = await this.getReviewCorrectionMaxCents()
 
     // Instance courier defaults
     const defaultCourierPayRate = await this.getDefaultCourierPayRate()
@@ -359,6 +408,8 @@ export class InstanceConfigDomainService {
       chatQuickRepliesDispatch,
       chatQuickRepliesCourier,
       chatRetentionDays,
+      reviewAnswerDays,
+      reviewCorrectionMaxCents,
     }
   }
 
@@ -375,7 +426,11 @@ export class InstanceConfigDomainService {
     }
   }
 
-  async setInstanceConfigSettings(data: InstanceConfigSettingsInput): Promise<InstanceConfigSettings> {
+  // `changedByUserId`: the admin saving, recorded on each SettingChange row (spec 0038, AC-12).
+  async setInstanceConfigSettings(
+    data: InstanceConfigSettingsInput,
+    changedByUserId: string | null = null
+  ): Promise<InstanceConfigSettings> {
     // Phase 1 — validate everything first. A rejected write must leave the Config table
     // completely untouched, so no saveByKey may run before this block has passed.
 
@@ -551,78 +606,86 @@ export class InstanceConfigDomainService {
       chatQuickRepliesCourier = checked.replies
     }
 
-    // Phase 2 — write validated settings to the database repository.
+    // Phase 2 — write validated settings to the database repository. Each `save` only lists the
+    // write; they all run below, in one transaction.
+    const writes: PendingSettingWrite[] = []
+    // `value` is what the setting means (an object for the JSON ones); `stored` is what saveByKey
+    // writes, unchanged from before this spec so the stored text and its type stay the same.
+    const save = (key: ConfigKey, stored: StoredSettingValue, value: unknown = stored) => {
+      writes.push({ key, stored, value })
+    }
     // Numeric settings use !== undefined, never `if (data.x)`: see NUMERIC_SETTING_RULES.
     if (data.courierMatcherType) {
-      await this.configRepository.saveByKey(ConfigKey.COURIER_MATCHER_TYPE, data.courierMatcherType)
+      save(ConfigKey.COURIER_MATCHER_TYPE, data.courierMatcherType)
     }
     if (data.quoteCalculationType) {
-      await this.configRepository.saveByKey(ConfigKey.QUOTE_CALCULATION_TYPE, data.quoteCalculationType)
+      save(ConfigKey.QUOTE_CALCULATION_TYPE, data.quoteCalculationType)
     }
     if (data.geoCalculationType) {
-      await this.configRepository.saveByKey(ConfigKey.GEO_CALCULATION_TYPE, data.geoCalculationType)
+      save(ConfigKey.GEO_CALCULATION_TYPE, data.geoCalculationType)
     }
     if (data.deliveryDurationCalculationType) {
-      await this.configRepository.saveByKey(
+      save(
         ConfigKey.DELIVERY_DURATION_CALCULATION_TYPE,
         data.deliveryDurationCalculationType
       )
     }
     if (data.courierCompensationCalculationType) {
-      await this.configRepository.saveByKey(
+      save(
         ConfigKey.COURIER_COMPENSATION_CALCULATION_TYPE,
         data.courierCompensationCalculationType
       )
     }
     if (data.maxAssignmentDistance !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.MAX_ASSIGNMENT_DISTANCE, data.maxAssignmentDistance)
+      save(ConfigKey.MAX_ASSIGNMENT_DISTANCE, data.maxAssignmentDistance)
     }
     if (data.quoteExpirationMinutes !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.QUOTE_EXPIRATION_MINUTES, data.quoteExpirationMinutes)
+      save(ConfigKey.QUOTE_EXPIRATION_MINUTES, data.quoteExpirationMinutes)
     }
     if (data.feePercentageAmount !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.FEE_PERCENTAGE_AMOUNT, data.feePercentageAmount)
+      save(ConfigKey.FEE_PERCENTAGE_AMOUNT, data.feePercentageAmount)
     }
     if (data.quoteRatePerDistanceUnit !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
+      save(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
     }
     if (data.quoteBaseFee !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.QUOTE_BASE_FEE, data.quoteBaseFee)
+      save(ConfigKey.QUOTE_BASE_FEE, data.quoteBaseFee)
     }
 
     if (data.defaultCourierPayRate !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.DEFAULT_COURIER_PAY_RATE, data.defaultCourierPayRate)
+      save(ConfigKey.DEFAULT_COURIER_PAY_RATE, data.defaultCourierPayRate)
     }
     if (data.defaultMaxWorkingHours !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.DEFAULT_MAX_WORKING_HOURS, data.defaultMaxWorkingHours)
+      save(ConfigKey.DEFAULT_MAX_WORKING_HOURS, data.defaultMaxWorkingHours)
     }
     if (data.defaultDietaryRestrictions) {
-      await this.configRepository.saveByKey(ConfigKey.DEFAULT_DIETARY_RESTRICTIONS, data.defaultDietaryRestrictions)
+      save(ConfigKey.DEFAULT_DIETARY_RESTRICTIONS, data.defaultDietaryRestrictions)
     }
     if (data.distanceUnit) {
-      await this.configRepository.saveByKey(ConfigKey.DISTANCE_UNIT, data.distanceUnit)
+      save(ConfigKey.DISTANCE_UNIT, data.distanceUnit)
     }
     if (data.currency) {
-      await this.configRepository.saveByKey(ConfigKey.CURRENCY, data.currency)
+      save(ConfigKey.CURRENCY, data.currency)
     }
     if (data.maxDriftDistance !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.MAX_DRIFT_DISTANCE, data.maxDriftDistance)
+      save(ConfigKey.MAX_DRIFT_DISTANCE, data.maxDriftDistance)
     }
     if (data.details) {
-      await this.configRepository.saveByKey(ConfigKey.DETAILS, JSON.stringify(data.details))
+      save(ConfigKey.DETAILS, JSON.stringify(data.details), data.details)
     }
     if (data.registeredRegistries) {
-      await this.configRepository.saveByKey(ConfigKey.REGISTERED_REGISTRIES, JSON.stringify(data.registeredRegistries))
+      save(ConfigKey.REGISTERED_REGISTRIES, JSON.stringify(data.registeredRegistries), data.registeredRegistries)
     }
 
     if (data.reassignmentPayoutPolicies !== undefined) {
-      await this.configRepository.saveByKey(
+      save(
         ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
-        JSON.stringify(data.reassignmentPayoutPolicies)
+        JSON.stringify(data.reassignmentPayoutPolicies),
+        data.reassignmentPayoutPolicies
       )
     }
     if (data.reassignmentPayoutDefaultPolicy !== undefined) {
-      await this.configRepository.saveByKey(
+      save(
         ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
         data.reassignmentPayoutDefaultPolicy
       )
@@ -630,87 +693,112 @@ export class InstanceConfigDomainService {
     // !== undefined, never `if (data.offerExpiryEnabled)`: that would silently drop a `false`,
     // and switching expiry off is exactly the save that must never be lost.
     if (data.offerExpiryEnabled !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.OFFER_EXPIRY_ENABLED, data.offerExpiryEnabled)
+      save(ConfigKey.OFFER_EXPIRY_ENABLED, data.offerExpiryEnabled)
     }
     if (data.offerExpirySeconds !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.OFFER_EXPIRY_SECONDS, data.offerExpirySeconds)
+      save(ConfigKey.OFFER_EXPIRY_SECONDS, data.offerExpirySeconds)
     }
     if (data.noCourierRetrySeconds !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
+      save(ConfigKey.NO_COURIER_RETRY_SECONDS, data.noCourierRetrySeconds)
     }
     // !== undefined, so a `false` (delay pay off) is saved, not dropped.
     if (data.waitPayEnabled !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_ENABLED, data.waitPayEnabled)
+      save(ConfigKey.WAIT_PAY_ENABLED, data.waitPayEnabled)
     }
     if (data.waitPayFreeMinutes !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_FREE_MINUTES, data.waitPayFreeMinutes)
+      save(ConfigKey.WAIT_PAY_FREE_MINUTES, data.waitPayFreeMinutes)
     }
     if (data.waitPayCentsPerMinute !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.WAIT_PAY_CENTS_PER_MINUTE, data.waitPayCentsPerMinute)
+      save(ConfigKey.WAIT_PAY_CENTS_PER_MINUTE, data.waitPayCentsPerMinute)
     }
     if (data.waitLimitMinutes !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.WAIT_LIMIT_MINUTES, data.waitLimitMinutes)
+      save(ConfigKey.WAIT_LIMIT_MINUTES, data.waitLimitMinutes)
     }
     if (data.returnTripPayPercent !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.RETURN_TRIP_PAY_PERCENT, data.returnTripPayPercent)
+      save(ConfigKey.RETURN_TRIP_PAY_PERCENT, data.returnTripPayPercent)
     }
     if (data.offerTimingEnabled !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
+      save(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
     }
     if (data.offerLeadMinutes !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.OFFER_LEAD_MINUTES, data.offerLeadMinutes)
+      save(ConfigKey.OFFER_LEAD_MINUTES, data.offerLeadMinutes)
     }
     if (data.offerTimingCandidates !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.OFFER_TIMING_CANDIDATES, data.offerTimingCandidates)
+      save(ConfigKey.OFFER_TIMING_CANDIDATES, data.offerTimingCandidates)
     }
     if (data.savedCustomerRetentionMonths !== undefined) {
-      await this.configRepository.saveByKey(
+      save(
         ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
         data.savedCustomerRetentionMonths
       )
     }
     if (data.handBackSeconds !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.HAND_BACK_SECONDS, data.handBackSeconds)
+      save(ConfigKey.HAND_BACK_SECONDS, data.handBackSeconds)
     }
     if (data.arrivalRadiusMetres !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
+      save(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
     }
     // !== undefined, so a `false` (Shifts off) is saved, not dropped (as for offerExpiryEnabled).
     if (data.shiftsEnabled !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.SHIFTS_ENABLED, data.shiftsEnabled)
+      save(ConfigKey.SHIFTS_ENABLED, data.shiftsEnabled)
     }
     if (data.shiftDropNoticeHours !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.SHIFT_DROP_NOTICE_HOURS, data.shiftDropNoticeHours)
+      save(ConfigKey.SHIFT_DROP_NOTICE_HOURS, data.shiftDropNoticeHours)
     }
     if (data.restaurantHistoryDays !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
+      save(ConfigKey.RESTAURANT_HISTORY_DAYS, data.restaurantHistoryDays)
     }
     if (data.sosLocationRetentionDays !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.SOS_LOCATION_RETENTION_DAYS, data.sosLocationRetentionDays)
+      save(ConfigKey.SOS_LOCATION_RETENTION_DAYS, data.sosLocationRetentionDays)
     }
 
     if (data.cancellationPayoutPolicy !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.CANCELLATION_PAYOUT_POLICY, data.cancellationPayoutPolicy)
+      save(ConfigKey.CANCELLATION_PAYOUT_POLICY, data.cancellationPayoutPolicy)
     }
 
     // !== undefined, never a truthy check: '' is how a representative clears the number.
     if (dispatchPhoneNumber !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.DISPATCH_PHONE_NUMBER, dispatchPhoneNumber)
+      save(ConfigKey.DISPATCH_PHONE_NUMBER, dispatchPhoneNumber)
     }
 
     // Chat (spec 0034). An empty list is a real choice (no presets), so !== undefined.
     if (chatQuickRepliesDispatch !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.CHAT_QUICK_REPLIES_DISPATCH, chatQuickRepliesDispatch)
+      save(ConfigKey.CHAT_QUICK_REPLIES_DISPATCH, chatQuickRepliesDispatch)
     }
     if (chatQuickRepliesCourier !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.CHAT_QUICK_REPLIES_COURIER, chatQuickRepliesCourier)
+      save(ConfigKey.CHAT_QUICK_REPLIES_COURIER, chatQuickRepliesCourier)
     }
     if (data.chatRetentionDays !== undefined) {
-      await this.configRepository.saveByKey(ConfigKey.CHAT_RETENTION_DAYS, data.chatRetentionDays)
+      save(ConfigKey.CHAT_RETENTION_DAYS, data.chatRetentionDays)
     }
 
-    // Update the updated_at timestamp whenever config is changed
-    await this.configRepository.saveByKey(ConfigKey.UPDATED_AT, new Date().toISOString())
+    if (data.reviewAnswerDays !== undefined) {
+      save(ConfigKey.REVIEW_ANSWER_DAYS, data.reviewAnswerDays)
+    }
+    if (data.reviewCorrectionMaxCents !== undefined) {
+      save(ConfigKey.REVIEW_CORRECTION_MAX_CENTS, data.reviewCorrectionMaxCents)
+    }
+
+    // Spec 0038 (AC-12): the whole save is one transaction, and each key whose value in effect
+    // moved gets a SettingChange row in it. "In effect" is what the app used before the save (the
+    // stored value, or the default when no row exists), read once here before anything is written,
+    // so a form that resends every value records only what changed.
+    const before: Record<string, unknown> = { ...(await this.getInstanceConfigSettings()) }
+    await this.configRepository.inTransaction(async (tx) => {
+      for (const write of writes) {
+        await this.configRepository.saveByKey(write.key, write.stored, tx)
+        if (!isSameSettingValue(before[write.key], write.value)) {
+          await writeSettingChange(tx, {
+            key: write.key,
+            oldValue: before[write.key],
+            newValue: write.value,
+            changedByUserId,
+          })
+        }
+      }
+      // Update the updated_at timestamp whenever config is changed
+      await this.configRepository.saveByKey(ConfigKey.UPDATED_AT, new Date().toISOString(), tx)
+    })
 
     return this.getInstanceConfigSettings()
   }
@@ -1216,6 +1304,26 @@ export class InstanceConfigDomainService {
       DEFAULT_CHAT_RETENTION_DAYS,
       CHAT_RETENTION_DAYS_MIN,
       CHAT_RETENTION_DAYS_MAX
+    )
+  }
+
+  // Review requests (spec 0038, AC-3): whole days a person has to answer a rider's request.
+  async getReviewAnswerDays(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.REVIEW_ANSWER_DAYS,
+      DEFAULT_REVIEW_ANSWER_DAYS,
+      REVIEW_ANSWER_DAYS_MIN,
+      REVIEW_ANSWER_DAYS_MAX
+    )
+  }
+
+  // Review requests (spec 0038, AC-7): the largest pay correction an answer may add, in cents.
+  async getReviewCorrectionMaxCents(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.REVIEW_CORRECTION_MAX_CENTS,
+      DEFAULT_REVIEW_CORRECTION_MAX_CENTS,
+      REVIEW_CORRECTION_MAX_CENTS_MIN,
+      REVIEW_CORRECTION_MAX_CENTS_MAX
     )
   }
 

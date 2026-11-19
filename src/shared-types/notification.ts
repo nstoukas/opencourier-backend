@@ -28,6 +28,9 @@ export enum NotificationEventType {
   CHAT_READ_BY_DISPATCH = 'CHAT_READ_BY_DISPATCH',
   // Chat (spec 0034, AC-7): an admin read a thread, so every admin's unread mark for it clears.
   CHAT_THREAD_READ = 'CHAT_THREAD_READ',
+  // Spec 0038 (AC-9): a person answered this rider's review request. Data only, the request id alone;
+  // the phone shows "Your review request has an answer" on the chat's quiet channel.
+  REVIEW_ANSWERED = 'REVIEW_ANSWERED',
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.

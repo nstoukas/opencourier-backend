@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { ConflictException, Injectable, Logger } from '@nestjs/common'
 import { ICourierCreate } from './interfaces/ICourierCreate'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { ICourierUpdate } from './interfaces/ICourierUpdate'
@@ -6,6 +6,9 @@ import { ICourierUpdateLocation } from './interfaces/ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from './interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from './interfaces/ICourierFindBySeniorityArgs'
 import { EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
+
+// The 409 a phone gets for a position sent while Offline with no job (spec 0038, AC-14).
+export const OFFLINE_POSITION_REFUSED_MESSAGE = 'You are Offline, so no position is stored'
 
 @Injectable()
 export class CourierDomainService {
@@ -24,7 +27,14 @@ export class CourierDomainService {
     return courier
   }
 
+  // Spec 0038 (AC-15): an admin setting a rider Offline goes through the same statement as the rider's
+  // own switch, which erases the stored position when they hold no job. The other fields follow.
   async update(id: string, input: ICourierUpdate) {
+    if (input.status === EnumCourierStatus.OFFLINE) {
+      await this.courierRepository.setOfflineAndClearLocationIfFree(id)
+      const { status: _status, ...rest } = input
+      return this.courierRepository.updateById(id, rest)
+    }
     const courier = await this.courierRepository.updateById(id, input)
 
     return courier
@@ -70,10 +80,12 @@ export class CourierDomainService {
     return courier
   }
 
-  async updateCurrentLocation(id: string, input: ICourierUpdateLocation) {
-    const courier = await this.courierRepository.updateCurrentLocationById(id, input)
-
-    return courier
+  // Spec 0038 (AC-14): a position from a rider who is Offline and holds no job is refused, and nothing
+  // is stored. The app stops sending positions when it goes Offline (row 67); this is the server's own
+  // guarantee.
+  async updateCurrentLocation(id: string, input: ICourierUpdateLocation): Promise<void> {
+    const stored = await this.courierRepository.updateCurrentLocationById(id, input)
+    if (!stored) throw new ConflictException(OFFLINE_POSITION_REFUSED_MESSAGE)
   }
 
   async getCurrentLocation(id: string) {

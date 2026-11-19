@@ -3,6 +3,7 @@ import { DeliveryRemovalRequest, EnumRemovalRequestStatus, Prisma, RemovalReason
 import { isUniqueConstraintError } from 'src/prisma.util'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
+import { REMOVAL_REASON_SETTING_KEY, writeSettingChange } from './setting-change.repository'
 
 // What the Dispatch board reads besides the request: the rider's name and the delivery (spec 0035, AC-6).
 // `satisfies` checks the object against Prisma's type without widening it.
@@ -50,6 +51,12 @@ export type CreateRemovalRequestInput = {
 
 const ACTIVE_REASON = { removedAt: null } satisfies Prisma.RemovalReasonWhereInput
 
+// What the settings record keeps of a reason (spec 0038, AC-12): the fields that decide what a rider
+// sees and is paid. Its order and its note rule are left out, so editing only those records nothing.
+function recordedReason(reason: Pick<RemovalReason, 'label' | 'paidToRider' | 'chargedToRestaurant'>) {
+  return { label: reason.label, paidToRider: reason.paidToRider, chargedToRestaurant: reason.chargedToRestaurant }
+}
+
 // Spec 0035: the co-op's reasons, and riders' requests to come off a delivery. Every status change
 // is a conditional write on the status read, so a rider's withdraw, a second admin and the sweep
 // can race safely: exactly one of them wins.
@@ -76,27 +83,79 @@ export class RemovalRequestRepository extends EntityRepository {
     return this.prisma.removalReason.count({ where: ACTIVE_REASON })
   }
 
-  // A new reason goes last: the highest position plus one.
-  async createReason(input: RemovalReasonInput): Promise<RemovalReason> {
-    const highest = await this.prisma.removalReason.aggregate({ _max: { position: true } })
-    return this.prisma.removalReason.create({
-      data: { ...input, position: input.position ?? (highest._max.position ?? 0) + 1 },
+  // A new reason goes last: the highest position plus one. The reason and its SettingChange row are
+  // written in one transaction (spec 0038, AC-12); `changedByUserId` is the admin.
+  async createReason(input: RemovalReasonInput, changedByUserId: string | null = null): Promise<RemovalReason> {
+    return this.prisma.$transaction(async (tx) => {
+      const highest = await tx.removalReason.aggregate({ _max: { position: true } })
+      const reason = await tx.removalReason.create({
+        data: { ...input, position: input.position ?? (highest._max.position ?? 0) + 1 },
+      })
+      await writeSettingChange(tx, {
+        key: REMOVAL_REASON_SETTING_KEY,
+        subject: reason.id,
+        oldValue: null,
+        newValue: recordedReason(reason),
+        changedByUserId,
+      })
+      return reason
     })
   }
 
-  // Only an active reason can be edited. Null when the reason is unknown or already removed.
-  async updateActiveReason(id: string, input: Partial<RemovalReasonInput>): Promise<RemovalReason | null> {
-    const updated = await this.prisma.removalReason.updateMany({ where: { id, ...ACTIVE_REASON }, data: input })
-    return updated.count === 1 ? this.findReasonById(id) : null
+  // Only an active reason can be edited. Null when the reason is unknown or already removed. A
+  // SettingChange is written, in the same transaction, only when the label or a pay flag moved.
+  async updateActiveReason(
+    id: string,
+    input: Partial<RemovalReasonInput>,
+    changedByUserId: string | null = null
+  ): Promise<RemovalReason | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const read = await tx.removalReason.findFirst({ where: { id, ...ACTIVE_REASON } })
+      if (!read) return null
+      // Conditional on the fields read, so a second admin's edit in between cannot leave a wrong "before".
+      const updated = await tx.removalReason.updateMany({
+        where: { id, ...ACTIVE_REASON, ...recordedReason(read) },
+        data: input,
+      })
+      if (updated.count !== 1) return null
+      const reason = await tx.removalReason.findUniqueOrThrow({ where: { id } })
+      const before = recordedReason(read)
+      const after = recordedReason(reason)
+      if (
+        before.label !== after.label ||
+        before.paidToRider !== after.paidToRider ||
+        before.chargedToRestaurant !== after.chargedToRestaurant
+      ) {
+        await writeSettingChange(tx, {
+          key: REMOVAL_REASON_SETTING_KEY,
+          subject: id,
+          oldValue: before,
+          newValue: after,
+          changedByUserId,
+        })
+      }
+      return reason
+    })
   }
 
   // Soft delete: requests that used this reason keep their own copy of it.
-  async removeActiveReason(id: string): Promise<RemovalReason | null> {
-    const updated = await this.prisma.removalReason.updateMany({
-      where: { id, ...ACTIVE_REASON },
-      data: { removedAt: new Date() },
+  async removeActiveReason(id: string, changedByUserId: string | null = null): Promise<RemovalReason | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.removalReason.updateMany({
+        where: { id, ...ACTIVE_REASON },
+        data: { removedAt: new Date() },
+      })
+      if (updated.count !== 1) return null
+      const reason = await tx.removalReason.findUniqueOrThrow({ where: { id } })
+      await writeSettingChange(tx, {
+        key: REMOVAL_REASON_SETTING_KEY,
+        subject: id,
+        oldValue: recordedReason(reason),
+        newValue: null,
+        changedByUserId,
+      })
+      return reason
     })
-    return updated.count === 1 ? this.findReasonById(id) : null
   }
 
   // --- Requests -----------------------------------------------------------------------------
