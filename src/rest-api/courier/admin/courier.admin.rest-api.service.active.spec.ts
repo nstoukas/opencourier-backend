@@ -1,11 +1,7 @@
 import { Logger } from '@nestjs/common'
-import {
-  EnumCourierDeliverySetting,
-  EnumCourierStatus,
-  EnumStripeAccountStatus,
-  EnumUserRole,
-} from '@prisma/types'
+import { EnumCourierDeliverySetting, EnumCourierStatus, EnumStripeAccountStatus, EnumUserRole } from '@prisma/types'
 import { CourierAdminRestApiService } from './courier.admin.rest-api.service'
+import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { CourierCreateAdminInput } from './queries/courier-create.admin.input'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
@@ -88,20 +84,25 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       disconnectUser: jest.fn().mockResolvedValue(undefined),
     }
 
+    const courierCutOffService = new CourierCutOffService(
+      mockWebsocketDispatcher,
+      mockCourierDeviceRepository,
+      mockCourierDomainService,
+      mockDeliveryEventService
+    )
+
     service = new CourierAdminRestApiService(
       mockUserDomainService,
       mockPasswordService,
       mockCourierRepository,
-      mockCourierDeviceRepository,
-      mockCourierDomainService,
-      mockDeliveryEventService,
-      mockWebsocketDispatcher
+      courierCutOffService
     )
 
     const logger = (service as any).logger as Logger
+    const cutOffLogger = (courierCutOffService as any).logger as Logger
     loggerSpies = {
       log: jest.spyOn(logger, 'log').mockImplementation(() => {}),
-      error: jest.spyOn(logger, 'error').mockImplementation(() => {}),
+      error: jest.spyOn(cutOffLogger, 'error').mockImplementation(() => {}),
       warn: jest.spyOn(logger, 'warn').mockImplementation(() => {}),
     }
   })
@@ -190,9 +191,7 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
         password: 'plainSecretPassword888',
       }
 
-      await expect(service.createCourier(rawInput, 'admin-user-99')).rejects.toThrow(
-        errors.CourierPhoneTakenException,
-      )
+      await expect(service.createCourier(rawInput, 'admin-user-99')).rejects.toThrow(errors.CourierPhoneTakenException)
       expect(mockCourierRepository.findByPhoneNumber).toHaveBeenCalledWith('+306900000000')
       expect(mockCourierRepository.createWithLogin).not.toHaveBeenCalled()
     })

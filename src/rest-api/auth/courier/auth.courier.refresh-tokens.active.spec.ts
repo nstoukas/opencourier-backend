@@ -61,7 +61,12 @@ describe('AuthCourierRestApiController', () => {
       getAblyToken: jest.fn(),
     } as unknown as jest.Mocked<AuthDomainService>
 
-    controller = new AuthCourierRestApiController(mockAuthDomainService)
+    const mockPasswordResetService = {
+      forgotPassword: jest.fn(),
+      resetPassword: jest.fn(),
+    } as any
+
+    controller = new AuthCourierRestApiController(mockAuthDomainService, mockPasswordResetService)
   })
 
   describe('Route Metadata & Guards', () => {

@@ -18,6 +18,14 @@ class TestAllowNullDto {
   testField?: string | null
 }
 
+// Dummy DTO to test RefuseIfNotSentAsString with custom message (row 17, spec 0039 AC-11)
+class TestCustomMessageDto {
+  @IsOptional()
+  @IsString()
+  @RefuseIfNotSentAsString({ message: 'Custom refusal message' })
+  code?: string
+}
+
 describe('RefuseIfNotSentAsString decorator (row 72, decision 72.3)', () => {
   // Real ValidationPipe configured with exact main.ts options (enableImplicitConversion: true)
   const pipe = new ValidationPipe({
@@ -122,6 +130,24 @@ describe('RefuseIfNotSentAsString decorator (row 72, decision 72.3)', () => {
         await expect(promise).rejects.toBeInstanceOf(BadRequestException)
         await expect(promise).rejects.toThrow('testField must be sent as text')
       }
+    })
+  })
+
+  describe('custom message option (row 17, spec 0039 AC-11)', () => {
+    it('uses custom message when provided for non-string values', async () => {
+      for (const nonString of [4219, true, false, null, [1, 2], { a: 1 }]) {
+        const promise = pipe.transform({ code: nonString }, { type: 'body', metatype: TestCustomMessageDto })
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow('Custom refusal message')
+      }
+    })
+
+    it('allows valid string value', async () => {
+      const res = (await pipe.transform(
+        { code: '004219' },
+        { type: 'body', metatype: TestCustomMessageDto }
+      )) as TestCustomMessageDto
+      expect(res.code).toBe('004219')
     })
   })
 })

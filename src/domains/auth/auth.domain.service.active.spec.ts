@@ -504,4 +504,52 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       await expect(call).rejects.toThrow('You are not allowed to login as partner')
     })
   })
+
+  describe('createSessionForUser (row 17, spec 0039 AC-10)', () => {
+    test('creates email auth session with sub, email and role for user', async () => {
+      const user = makeUser({
+        id: 'user-courier-99',
+        email: 'rider99@volos.gr',
+        role: [EnumUserRole.COURIER],
+      })
+
+      const expectedSession = {
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        refreshExpiresIn: 7200,
+      }
+      mockTokenService.createEmailAuthSession.mockResolvedValue(expectedSession)
+
+      const result = await service.createSessionForUser(user)
+
+      expect(mockTokenService.createEmailAuthSession).toHaveBeenCalledWith({
+        sub: 'user-courier-99',
+        email: 'rider99@volos.gr',
+        role: [EnumUserRole.COURIER],
+      })
+      expect(result).toEqual({
+        user,
+        session: expectedSession,
+      })
+    })
+
+    test('handles user with null email by falling back to empty string', async () => {
+      const user = makeUser({
+        id: 'user-no-email',
+        email: null,
+        role: [EnumUserRole.COURIER],
+      })
+      mockTokenService.createEmailAuthSession.mockResolvedValue({} as any)
+
+      await service.createSessionForUser(user)
+
+      expect(mockTokenService.createEmailAuthSession).toHaveBeenCalledWith({
+        sub: 'user-no-email',
+        email: '',
+        role: [EnumUserRole.COURIER],
+      })
+    })
+  })
 })
