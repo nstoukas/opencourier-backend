@@ -134,6 +134,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - Prisma 5.3.1's `distinct` is done in memory: it reads every matching row and drops duplicates in Node. For "the newest row
   per group", use `$queryRaw` with `SELECT DISTINCT ON (...) id ... ORDER BY ...` and `Prisma.join` for the values, then
   `findMany` by those ids (`ChatRepository.findNewestMessageIds`).
+- Review requests and the settings record (spec 0038): the three review events are written in `ReviewRequestRepository`'s transaction with null statuses, never through `processDeliveryEvent`, so anything that reads drop offs must keep filtering by `newStatus` or type. A request leaves `OPEN` only through `answer()` or `withdrawIfOpen()` (a guard test scans all of `src`). Every Instance configuration save runs in one transaction under `pg_advisory_xact_lock` and writes a `SettingChange` per changed value in effect; a test faking that transaction must give it `$executeRaw`. A new rider facing setting goes in `RIDER_FACING_SETTINGS` with a formatter that writes every part that can change, or the rider's What changed list drops the line as unchanged. `updateCurrentLocationById` is the only writer of a courier's position, and it refuses an Offline rider with no job (409).
 
 ## Agent skills
 
