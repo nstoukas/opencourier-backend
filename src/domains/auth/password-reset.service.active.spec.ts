@@ -21,6 +21,7 @@ import {
   RESET_CODES_PER_HOUR,
   RESET_RESEND_WAIT_SECONDS,
   RESET_TRIES_PER_CODE,
+  RESET_TRIES_PER_DAY,
   resetKeys,
 } from './password-reset.service'
 
@@ -399,6 +400,49 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       const loggedText = loggerSpies.error.mock.calls.map((c) => c.join(' ')).join(' ')
       expect(loggedText).not.toContain('rider@volos.coop')
     })
+
+    test('clears old password-reset-tries before saving new code and does not touch day tries (Clause 5)', async () => {
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRider('rider@volos.coop')
+
+      const keys = resetKeys('user-courier-1')
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.tries)
+
+      const deleteInvocation =
+        mockCacheService.delete.mock.invocationCallOrder[
+          mockCacheService.delete.mock.calls.findIndex(([key]) => key === keys.tries)
+        ]
+      const saveInvocation =
+        mockCacheService.save.mock.invocationCallOrder[
+          mockCacheService.save.mock.calls.findIndex(([key]) => key === keys.code)
+        ]
+      expect(deleteInvocation).toBeDefined()
+      expect(saveInvocation).toBeDefined()
+      expect(deleteInvocation!).toBeLessThan(saveInvocation!)
+
+      // Day key is never touched or deleted when making a code
+      expect(mockCacheService.delete).not.toHaveBeenCalledWith(keys.dayTries)
+      expect(mockCacheService.increment).not.toHaveBeenCalledWith(keys.dayTries, expect.anything())
+      expect(mockCacheService.save).not.toHaveBeenCalledWith(keys.dayTries, expect.anything(), expect.anything())
+    })
+
+    test('sends mail with fallback "τον συνεταιρισμό / the co-op" when instance details has no name (AC-9, Clause 6)', async () => {
+      mockConfigDomainService.instanceConfig.getDetails.mockResolvedValue({})
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRider('rider@volos.coop')
+
+      expect(mockMailService.send).toHaveBeenCalledTimes(1)
+      expect(mockMailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'rider@volos.coop',
+          subject: 'Κωδικός επαναφοράς για τον συνεταιρισμό / Password reset code for the co-op',
+          text: expect.stringContaining('004219'),
+        })
+      )
+      expect(loggerSpies.error).not.toHaveBeenCalled()
+    })
   })
 
   describe('Clause 3: buildResetEmail (AC-9)', () => {
@@ -463,6 +507,7 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       const keys = resetKeys('user-courier-1')
       // Tries incremented first
       expect(mockCacheService.increment).toHaveBeenCalledWith(keys.tries, RESET_CODE_TTL_SECONDS)
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.dayTries, 86400)
       // Code read and verified
       expect(mockCacheService.get).toHaveBeenCalledWith(keys.code)
       // Code claimed atomically with take
@@ -480,11 +525,27 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       expect(mockCacheService.increment).not.toHaveBeenCalled()
     })
 
-    test('increments tries before comparing; above 5 deletes code and refuses without comparing (AC-11)', async () => {
-      // 6th try: increment returns 6 (> 5)
-      mockCacheService.increment.mockResolvedValue(6)
-
+    test('per-code limit boundary: at exactly 5 tries with the right code succeeds (Clause 2)', async () => {
       const keys = resetKeys('user-courier-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.tries) return 5
+        if (key === keys.dayTries) return 5
+        return 1
+      })
+
+      const rider = await service.claimCode('rider@volos.coop', validCode)
+
+      expect(rider.user.id).toBe('user-courier-1')
+      expect(mockCacheService.take).toHaveBeenCalledWith(keys.code)
+    })
+
+    test('per-code limit boundary: at 6 tries (> 5), code is deleted and refused without comparing (Clause 2)', async () => {
+      const keys = resetKeys('user-courier-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.tries) return 6
+        if (key === keys.dayTries) return 6
+        return 1
+      })
 
       await expect(service.claimCode('rider@volos.coop', validCode)).rejects.toThrow(
         new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
@@ -493,6 +554,38 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       // Code deleted
       expect(mockCacheService.delete).toHaveBeenCalledWith(keys.code)
       // Never compared: get and take were not called
+      expect(mockCacheService.get).not.toHaveBeenCalled()
+      expect(mockCacheService.take).not.toHaveBeenCalled()
+    })
+
+    test('decision 17.21: increments day tries with 86400s; at exactly 10 day tries the right code works (Clause 1)', async () => {
+      const keys = resetKeys('user-courier-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.dayTries) return 10
+        if (key === keys.tries) return 1
+        return 1
+      })
+
+      const rider = await service.claimCode('rider@volos.coop', validCode)
+
+      expect(rider.user.id).toBe('user-courier-1')
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.dayTries, 86400)
+      expect(mockCacheService.take).toHaveBeenCalledWith(keys.code)
+    })
+
+    test('decision 17.21: above 10 day tries (> 10), code is deleted and refused without comparing even when code is right (Clause 1)', async () => {
+      const keys = resetKeys('user-courier-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.dayTries) return 11
+        if (key === keys.tries) return 1
+        return 1
+      })
+
+      await expect(service.claimCode('rider@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.code)
       expect(mockCacheService.get).not.toHaveBeenCalled()
       expect(mockCacheService.take).not.toHaveBeenCalled()
     })

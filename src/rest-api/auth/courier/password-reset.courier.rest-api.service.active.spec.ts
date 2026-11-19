@@ -203,6 +203,21 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
       // 7. Returns login-shaped DTO
       expect(result.id).toBe('user-courier-1')
       expect(result.session?.accessToken).toBe('new-jwt-token')
+
+      // 8. Order of operations (AC-10): claimCode -> update -> cutOff -> createSessionForUser
+      const claimOrder = mockPasswordResetService.claimCode.mock.invocationCallOrder[0]
+      const updateOrder = mockUserDomainService.update.mock.invocationCallOrder[0]
+      const cutOffOrder = mockCourierCutOffService.cutOff.mock.invocationCallOrder[0]
+      const sessionOrder = mockAuthDomainService.createSessionForUser.mock.invocationCallOrder[0]
+
+      expect(claimOrder).toBeDefined()
+      expect(updateOrder).toBeDefined()
+      expect(cutOffOrder).toBeDefined()
+      expect(sessionOrder).toBeDefined()
+
+      expect(claimOrder!).toBeLessThan(updateOrder!)
+      expect(updateOrder!).toBeLessThan(cutOffOrder!)
+      expect(cutOffOrder!).toBeLessThan(sessionOrder!)
     })
 
     test('when claimCode fails, nothing is updated and cut off is not called', async () => {

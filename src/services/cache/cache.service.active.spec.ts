@@ -10,6 +10,7 @@ describe('CacheService (Spec 0039 row 17: increment, take, setIfAbsent for passw
     incr: jest.Mock
     expire: jest.Mock
     getdel: jest.Mock
+    eval: jest.Mock
   }
 
   beforeEach(() => {
@@ -20,39 +21,51 @@ describe('CacheService (Spec 0039 row 17: increment, take, setIfAbsent for passw
       incr: jest.fn(),
       expire: jest.fn(),
       getdel: jest.fn(),
+      eval: jest.fn(),
     }
     cacheService = new CacheService(mockRedisClient as unknown as RedisClient)
   })
 
-  describe('increment (Clause 8: INCR with expiry only on creation)', () => {
-    test('sets expiry when the new count is 1 (first increment creates the key)', async () => {
-      mockRedisClient.incr.mockResolvedValue(1)
-      mockRedisClient.expire.mockResolvedValue(1)
+  describe('increment (Clause 4: Lua script eval atomic increment and expiry)', () => {
+    test('calls redisClient.eval once with script, 1 key, key and ttl, returning count as number', async () => {
+      mockRedisClient.eval.mockResolvedValue(1)
 
       const result = await cacheService.increment('test-key', 3600)
 
-      expect(mockRedisClient.incr).toHaveBeenCalledWith('test-key')
-      expect(mockRedisClient.expire).toHaveBeenCalledWith('test-key', 3600)
+      expect(mockRedisClient.eval).toHaveBeenCalledTimes(1)
+      const [script, numKeys, key, ttl] = mockRedisClient.eval.mock.calls[0]
+      expect(numKeys).toBe(1)
+      expect(key).toBe('test-key')
+      expect(ttl).toBe(3600)
+      expect(script).toContain("redis.call('INCR', KEYS[1])")
+      expect(script).toContain("redis.call('TTL', KEYS[1]) == -1")
+      expect(script).toContain("redis.call('EXPIRE', KEYS[1], ARGV[1])")
       expect(result).toBe(1)
     })
 
-    test('does not reset expiry when count is already greater than 1', async () => {
-      mockRedisClient.incr.mockResolvedValue(2)
+    test('returns count as number when eval returns string or higher number', async () => {
+      mockRedisClient.eval.mockResolvedValue('2')
 
       const result = await cacheService.increment('test-key', 3600)
 
-      expect(mockRedisClient.incr).toHaveBeenCalledWith('test-key')
-      expect(mockRedisClient.expire).not.toHaveBeenCalled()
+      expect(mockRedisClient.eval).toHaveBeenCalledTimes(1)
       expect(result).toBe(2)
+      expect(typeof result).toBe('number')
     })
 
-    test('does not reset expiry when count is 5', async () => {
-      mockRedisClient.incr.mockResolvedValue(5)
+    test('increments counter with key and ttl and returns count', async () => {
+      mockRedisClient.eval.mockResolvedValue(5)
 
       const result = await cacheService.increment('password-reset-count:user-1', 3600)
 
-      expect(mockRedisClient.incr).toHaveBeenCalledWith('password-reset-count:user-1')
-      expect(mockRedisClient.expire).not.toHaveBeenCalled()
+      expect(mockRedisClient.eval).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /INCR[\s\S]*KEYS\[1\][\s\S]*TTL[\s\S]*KEYS\[1\][\s\S]*==\s*-1[\s\S]*EXPIRE[\s\S]*KEYS\[1\][\s\S]*ARGV\[1\]/
+        ),
+        1,
+        'password-reset-count:user-1',
+        3600
+      )
       expect(result).toBe(5)
     })
   })
