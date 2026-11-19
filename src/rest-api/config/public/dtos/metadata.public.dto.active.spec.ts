@@ -54,6 +54,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    shiftBreakMinutes: 30,
     returnTripPayPercent: 100,
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
     chatQuickRepliesCourier: ['Θα αργήσω λίγο'],

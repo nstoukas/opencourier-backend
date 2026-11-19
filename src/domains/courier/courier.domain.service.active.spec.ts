@@ -1,7 +1,7 @@
 import { ConflictException } from '@nestjs/common'
 import { CourierDomainService, OFFLINE_POSITION_REFUSED_MESSAGE } from './courier.domain.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
-import { EnumCourierStatus, Prisma } from '@prisma/types'
+import { EnumCourierStatus, EnumCourierStatusChangeCause, Prisma } from '@prisma/types'
 import { CourierEntity } from './entities/courier.entity'
 
 describe('CourierDomainService', () => {
@@ -16,7 +16,7 @@ describe('CourierDomainService', () => {
       updateById: jest.fn(),
       create: jest.fn(),
       updateCurrentLocationById: jest.fn(),
-      setOfflineAndClearLocationIfFree: jest.fn(),
+      changeStatus: jest.fn(),
     } as unknown as jest.Mocked<CourierRepository>
 
     service = new CourierDomainService(mockCourierRepository)
@@ -104,28 +104,49 @@ describe('CourierDomainService', () => {
     })
   })
 
-  describe('update status to OFFLINE (spec 0038 AC-15)', () => {
-    test('routes OFFLINE status update through setOfflineAndClearLocationIfFree and updates remaining fields', async () => {
+  describe('update (spec 0040 AC-1)', () => {
+    test('routes update through updateById', async () => {
       mockCourierRepository.updateById.mockResolvedValue({ id: 'courier-1' } as any)
 
       await service.update('courier-1', {
-        status: EnumCourierStatus.OFFLINE,
         firstName: 'Updated',
       } as any)
 
-      expect(mockCourierRepository.setOfflineAndClearLocationIfFree).toHaveBeenCalledWith('courier-1')
       expect(mockCourierRepository.updateById).toHaveBeenCalledWith('courier-1', { firstName: 'Updated' })
     })
+  })
 
-    test('routes non-OFFLINE status update through updateById without setOfflineAndClearLocationIfFree', async () => {
-      mockCourierRepository.updateById.mockResolvedValue({ id: 'courier-1' } as any)
+  describe('changeStatus (spec 0040 AC-1)', () => {
+    test('forwards arguments to courierRepository.changeStatus', async () => {
+      mockCourierRepository.changeStatus.mockResolvedValue({ changed: true, fromStatus: EnumCourierStatus.ONLINE })
 
-      await service.update('courier-1', {
-        status: EnumCourierStatus.ONLINE,
-      } as any)
+      const result = await service.changeStatus('courier-1', EnumCourierStatus.OFFLINE, EnumCourierStatusChangeCause.RIDER)
 
-      expect(mockCourierRepository.setOfflineAndClearLocationIfFree).not.toHaveBeenCalled()
-      expect(mockCourierRepository.updateById).toHaveBeenCalledWith('courier-1', { status: EnumCourierStatus.ONLINE })
+      expect(mockCourierRepository.changeStatus).toHaveBeenCalledWith(
+        'courier-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.RIDER,
+        undefined
+      )
+      expect(result).toEqual({ changed: true, fromStatus: EnumCourierStatus.ONLINE })
+    })
+
+    test('forwards adminUserId when provided', async () => {
+      mockCourierRepository.changeStatus.mockResolvedValue({ changed: true, fromStatus: EnumCourierStatus.ONLINE })
+
+      await service.changeStatus(
+        'courier-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-user-1'
+      )
+
+      expect(mockCourierRepository.changeStatus).toHaveBeenCalledWith(
+        'courier-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-user-1'
+      )
     })
   })
 })

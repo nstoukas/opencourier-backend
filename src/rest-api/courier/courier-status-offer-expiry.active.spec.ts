@@ -1,5 +1,5 @@
 import { CourierAdminRestApiService } from 'src/rest-api/courier/admin/courier.admin.rest-api.service'
-import { EnumCourierStatus } from '@prisma/types'
+import { EnumCourierStatus, EnumCourierStatusChangeCause } from '@prisma/types'
 import { CourierCourierRestApiController } from './courier/courier.courier.rest-api.controller'
 import { CourierAdminRestApiController } from './admin/courier.admin.rest-api.controller'
 import { CourierDomainService } from '../../domains/courier/courier.domain.service'
@@ -12,7 +12,7 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
 
   beforeEach(() => {
     mockCourierDomainService = {
-      updateStatus: jest.fn().mockResolvedValue(undefined),
+      changeStatus: jest.fn().mockResolvedValue({ changed: true, fromStatus: EnumCourierStatus.ONLINE }),
       update: jest.fn().mockImplementation((id, data) =>
         Promise.resolve(
           new CourierEntity({
@@ -48,7 +48,11 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
 
       await controller.updateStatus(input as any, courier)
 
-      expect(mockCourierDomainService.updateStatus).toHaveBeenCalledWith('courier-rider-1', EnumCourierStatus.OFFLINE)
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        'courier-rider-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.RIDER
+      )
       expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
         'courier-rider-1',
         EnumCourierStatus.OFFLINE
@@ -67,7 +71,11 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
       // The controller call must resolve promptly without waiting for handleCourierStatusChanged
       const resultPromise = controller.updateStatus(input as any, courier)
       await expect(resultPromise).resolves.toBeUndefined()
-      expect(mockCourierDomainService.updateStatus).toHaveBeenCalledWith('courier-rider-2', EnumCourierStatus.ONLINE)
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        'courier-rider-2',
+        EnumCourierStatus.ONLINE,
+        EnumCourierStatusChangeCause.RIDER
+      )
     })
   })
 
@@ -87,9 +95,15 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
       const courierId = 'courier-admin-target'
       const input = { status: EnumCourierStatus.OFFLINE, firstName: 'Updated' }
 
-      await controller.updateCourier(courierId, input as any)
+      await controller.updateCourier(courierId, input as any, { id: 'admin-1' } as any)
 
-      expect(mockCourierDomainService.update).toHaveBeenCalledWith(courierId, input)
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        courierId,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-1'
+      )
+      expect(mockCourierDomainService.update).toHaveBeenCalledWith(courierId, { firstName: 'Updated' })
       expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
         courierId,
         EnumCourierStatus.OFFLINE
@@ -100,9 +114,10 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
       const courierId = 'courier-admin-target'
       const input = { firstName: 'OnlyNameChange' } // status is undefined
 
-      await controller.updateCourier(courierId, input as any)
+      await controller.updateCourier(courierId, input as any, { id: 'admin-1' } as any)
 
-      expect(mockCourierDomainService.update).toHaveBeenCalledWith(courierId, input)
+      expect(mockCourierDomainService.changeStatus).not.toHaveBeenCalled()
+      expect(mockCourierDomainService.update).toHaveBeenCalledWith(courierId, { firstName: 'OnlyNameChange' })
       expect(mockDeliveryEventService.handleCourierStatusChanged).not.toHaveBeenCalled()
     })
   })

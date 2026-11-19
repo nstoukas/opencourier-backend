@@ -1,5 +1,11 @@
 import { Logger } from '@nestjs/common'
-import { EnumCourierDeliverySetting, EnumCourierStatus, EnumStripeAccountStatus, EnumUserRole } from '@prisma/types'
+import {
+  EnumCourierDeliverySetting,
+  EnumCourierStatus,
+  EnumCourierStatusChangeCause,
+  EnumStripeAccountStatus,
+  EnumUserRole,
+} from '@prisma/types'
 import { CourierAdminRestApiService } from './courier.admin.rest-api.service'
 import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { CourierCreateAdminInput } from './queries/courier-create.admin.input'
@@ -74,6 +80,7 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
 
     mockCourierDomainService = {
       update: jest.fn().mockResolvedValue(mockCourier),
+      changeStatus: jest.fn().mockResolvedValue(mockCourier),
     }
 
     mockDeliveryEventService = {
@@ -319,9 +326,12 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       // Verifies cut off steps
       expect(mockWebsocketDispatcher.disconnectUser).toHaveBeenCalledWith(mockCourier.userId)
       expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith(mockCourier.id)
-      expect(mockCourierDomainService.update).toHaveBeenCalledWith(mockCourier.id, {
-        status: EnumCourierStatus.OFFLINE,
-      })
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        mockCourier.id,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.CUT_OFF,
+        'admin-user-77'
+      )
       expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
         mockCourier.id,
         EnumCourierStatus.OFFLINE
@@ -351,9 +361,12 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       )
       // Remaining cut off steps still ran
       expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith(mockCourier.id)
-      expect(mockCourierDomainService.update).toHaveBeenCalledWith(mockCourier.id, {
-        status: EnumCourierStatus.OFFLINE,
-      })
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        mockCourier.id,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.CUT_OFF,
+        'admin-user-77'
+      )
       expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
         mockCourier.id,
         EnumCourierStatus.OFFLINE
@@ -370,9 +383,12 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
         `Could not remove the devices of courier ${mockCourier.id}`,
         expect.any(Error)
       )
-      expect(mockCourierDomainService.update).toHaveBeenCalledWith(mockCourier.id, {
-        status: EnumCourierStatus.OFFLINE,
-      })
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        mockCourier.id,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.CUT_OFF,
+        'admin-user-77'
+      )
       expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
         mockCourier.id,
         EnumCourierStatus.OFFLINE
@@ -380,7 +396,7 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
     })
 
     test('continues when setting Offline fails, logs error, and keeps password updated', async () => {
-      mockCourierDomainService.update.mockRejectedValue(new Error('State transition error'))
+      mockCourierDomainService.changeStatus.mockRejectedValue(new Error('State transition error'))
 
       await service.rotatePassword(mockCourier.id, 'newSuperPassword99', 'admin-user-77')
 

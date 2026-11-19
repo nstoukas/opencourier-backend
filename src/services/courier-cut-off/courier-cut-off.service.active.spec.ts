@@ -1,5 +1,10 @@
 import { Logger } from '@nestjs/common'
-import { EnumCourierDeliverySetting, EnumCourierStatus, EnumStripeAccountStatus } from '@prisma/types'
+import {
+  EnumCourierDeliverySetting,
+  EnumCourierStatus,
+  EnumCourierStatusChangeCause,
+  EnumStripeAccountStatus,
+} from '@prisma/types'
 import { CourierCutOffService } from './courier-cut-off.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 
@@ -7,7 +12,7 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
   let service: CourierCutOffService
   let mockWebsocketDispatcher: { disconnectUser: jest.Mock }
   let mockCourierDeviceRepository: { deleteAllForCourier: jest.Mock }
-  let mockCourierDomainService: { update: jest.Mock }
+  let mockCourierDomainService: { update: jest.Mock; changeStatus: jest.Mock }
   let mockDeliveryEventService: { handleCourierStatusChanged: jest.Mock }
   let loggerSpies: {
     log: jest.SpyInstance
@@ -40,6 +45,7 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
     }
     mockCourierDomainService = {
       update: jest.fn().mockResolvedValue(mockCourier),
+      changeStatus: jest.fn().mockResolvedValue(mockCourier),
     }
     mockDeliveryEventService = {
       handleCourierStatusChanged: jest.fn().mockResolvedValue(undefined),
@@ -74,9 +80,12 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
     expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
 
     // 3. Status set to OFFLINE via domain service
-    expect(mockCourierDomainService.update).toHaveBeenCalledWith('courier-123', {
-      status: EnumCourierStatus.OFFLINE,
-    })
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE,
+      EnumCourierStatusChangeCause.CUT_OFF,
+      undefined
+    )
 
     // 4. Delivery event service handles status change (ends open offers)
     expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
@@ -98,9 +107,12 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
       expect.any(Error)
     )
     expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
-    expect(mockCourierDomainService.update).toHaveBeenCalledWith('courier-123', {
-      status: EnumCourierStatus.OFFLINE,
-    })
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE,
+      EnumCourierStatusChangeCause.CUT_OFF,
+      undefined
+    )
     expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
       'courier-123',
       EnumCourierStatus.OFFLINE
@@ -117,9 +129,12 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
       expect.any(Error)
     )
     expect(mockWebsocketDispatcher.disconnectUser).toHaveBeenCalledWith('user-456')
-    expect(mockCourierDomainService.update).toHaveBeenCalledWith('courier-123', {
-      status: EnumCourierStatus.OFFLINE,
-    })
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE,
+      EnumCourierStatusChangeCause.CUT_OFF,
+      undefined
+    )
     expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
       'courier-123',
       EnumCourierStatus.OFFLINE
@@ -127,7 +142,7 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
   })
 
   test('continues when setting Offline throws, logging error with courier id', async () => {
-    mockCourierDomainService.update.mockRejectedValue(new Error('Update status failure'))
+    mockCourierDomainService.changeStatus.mockRejectedValue(new Error('Update status failure'))
 
     await expect(service.cutOff(mockCourier)).resolves.toBeUndefined()
 

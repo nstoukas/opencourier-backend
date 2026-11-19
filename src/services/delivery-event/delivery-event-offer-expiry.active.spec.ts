@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config'
 import {
   EnumCourierStatus,
+  EnumCourierStatusChangeCause,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
   EnumDeliveryStatus,
@@ -67,6 +68,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       findByIdOrThrow: jest.fn().mockResolvedValue({ id: 'courier-1', userId: 'user-courier-1' } as any),
       findById: jest.fn().mockResolvedValue({ id: 'courier-1', userId: 'user-courier-1' } as any),
       updateById: jest.fn().mockResolvedValue({} as any),
+      changeStatus: jest.fn().mockResolvedValue({} as any),
       findNamesByIds: jest.fn().mockResolvedValue(new Map()),
       hasActiveSos: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<CourierRepository>
@@ -925,9 +927,11 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       })
 
       // Courier status updated to OFFLINE
-      expect(mockCourierRepository.updateById).toHaveBeenCalledWith(courierId, {
-        status: EnumCourierStatus.OFFLINE,
-      })
+      expect(mockCourierRepository.changeStatus).toHaveBeenCalledWith(
+        courierId,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.LAST_CALL_ACCEPTED
+      )
 
       // Other open offers ended
       expect(endOpenOffersSpy).toHaveBeenCalledWith(courierId)

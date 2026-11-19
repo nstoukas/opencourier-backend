@@ -7,6 +7,7 @@ import { CourierEntity } from '../../domains/courier/entities/courier.entity'
 import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
+  EnumCourierStatusChangeCause,
   EnumDeliveryStatus,
   EnumStripeAccountStatus,
   EnumUserRole,
@@ -16,6 +17,7 @@ import {
 describe('CourierRepository - busy riders matching (scope row 62)', () => {
   let repository: CourierRepository
   let mockPrisma: {
+    $transaction: jest.Mock
     $queryRaw: jest.Mock
     $executeRaw: jest.Mock
     user: {
@@ -26,9 +28,17 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       findUniqueOrThrow: jest.Mock
       findMany: jest.Mock
       count: jest.Mock
+      update: jest.Mock
     }
     sosIncident: {
       findFirst: jest.Mock
+    }
+  }
+  let txMock: {
+    $queryRaw: jest.Mock
+    $executeRaw: jest.Mock
+    courier: {
+      update: jest.Mock
     }
   }
 
@@ -68,7 +78,16 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   ]
 
   beforeEach(() => {
+    txMock = {
+      $queryRaw: jest.fn().mockResolvedValue([{ status: EnumCourierStatus.ONLINE }]),
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      courier: {
+        update: jest.fn().mockResolvedValue(sampleCourierRecord),
+      },
+    }
+
     mockPrisma = {
+      $transaction: jest.fn().mockImplementation((cb: (tx: any) => any) => cb(txMock)),
       $queryRaw: jest.fn(),
       $executeRaw: jest.fn().mockResolvedValue(1),
       user: {
@@ -79,6 +98,7 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
         findUniqueOrThrow: jest.fn(),
         findMany: jest.fn().mockResolvedValue([sampleCourierRecord]),
         count: jest.fn().mockResolvedValue(1),
+        update: jest.fn().mockResolvedValue(sampleCourierRecord),
       },
       sosIncident: {
         findFirst: jest.fn(),
@@ -583,21 +603,141 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     })
   })
 
-  describe('setOfflineAndClearLocationIfFree (spec 0038 AC-15)', () => {
-    test('sets status to OFFLINE and nulls currentLocation and currentLocationAt unless busy', async () => {
-      await repository.setOfflineAndClearLocationIfFree('courier-loc-1')
+  describe('changeStatus (spec 0040 AC-1, spec 0038 AC-15)', () => {
+    const getSqlAndValues = (mockFn: jest.Mock, callIndex = 0) => {
+      const call = mockFn.mock.calls[callIndex]
+      if (!call) return { sqlText: '', values: [] }
+      const arg0 = call[0]
+      if (Array.isArray(arg0)) {
+        return { sqlText: arg0.join(' ? '), values: call.slice(1) }
+      }
+      if (arg0 && typeof arg0 === 'object' && Array.isArray(arg0.strings)) {
+        return { sqlText: arg0.strings.join(' ? '), values: arg0.values ?? call.slice(1) }
+      }
+      return { sqlText: String(arg0 ?? ''), values: call.slice(1) }
+    }
 
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
-      const strings = mockPrisma.$executeRaw.mock.calls[0]?.[0] as string[]
-      const values = mockPrisma.$executeRaw.mock.calls[0]?.slice(1)
-      const sqlText = strings.join(' ? ')
+    test('the first query locks the row with FOR UPDATE', async () => {
+      txMock.$queryRaw.mockResolvedValue([{ status: EnumCourierStatus.ONLINE }])
 
+      await repository.changeStatus('courier-1', EnumCourierStatus.OFFLINE, EnumCourierStatusChangeCause.RIDER)
+
+      expect(txMock.$queryRaw).toHaveBeenCalledTimes(1)
+      const { sqlText } = getSqlAndValues(txMock.$queryRaw, 0)
+      expect(sqlText).toContain('FOR UPDATE')
+      expect(sqlText).toContain('SELECT "status"::text AS "status" FROM "Courier"')
+    })
+
+    test('Offline always runs the erase UPDATE (even from Offline) and writes no row when status did not change', async () => {
+      txMock.$queryRaw.mockResolvedValue([{ status: EnumCourierStatus.OFFLINE }])
+
+      const result = await repository.changeStatus(
+        'courier-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.RIDER
+      )
+
+      expect(result).toEqual({ changed: false, fromStatus: EnumCourierStatus.OFFLINE })
+      // Offline erase UPDATE was run:
+      expect(txMock.$executeRaw).toHaveBeenCalledTimes(1)
+      const { sqlText, values } = getSqlAndValues(txMock.$executeRaw, 0)
       expect(sqlText).toContain('UPDATE "Courier"')
       expect(sqlText).toContain('"status" = CAST(')
       expect(sqlText).toContain('"currentLocation" = CASE WHEN EXISTS')
       expect(sqlText).toContain('"currentLocationAt" = CASE WHEN EXISTS')
       expect(sqlText).toContain('WHERE "id" =')
-      expect(values).toContain('courier-loc-1')
+      expect(values).toContain('courier-1')
+      // No INSERT into CourierStatusChange was run:
+      expect(sqlText).not.toContain('INSERT INTO "CourierStatusChange"')
+    })
+
+    test('ONLINE to ONLINE writes nothing', async () => {
+      txMock.$queryRaw.mockResolvedValue([{ status: EnumCourierStatus.ONLINE }])
+
+      const result = await repository.changeStatus(
+        'courier-1',
+        EnumCourierStatus.ONLINE,
+        EnumCourierStatusChangeCause.RIDER
+      )
+
+      expect(result).toEqual({ changed: false, fromStatus: EnumCourierStatus.ONLINE })
+      expect(txMock.$executeRaw).not.toHaveBeenCalled()
+      expect(txMock.courier.update).not.toHaveBeenCalled()
+    })
+
+    test('a change writes one INSERT into "CourierStatusChange" with fromStatus, toStatus, cause and adminUserId as parameters and clock_timestamp() in the text', async () => {
+      txMock.$queryRaw.mockResolvedValue([{ status: EnumCourierStatus.ONLINE }])
+
+      const result = await repository.changeStatus(
+        'courier-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-user-42'
+      )
+
+      expect(result).toEqual({ changed: true, fromStatus: EnumCourierStatus.ONLINE })
+      // Called twice: 1) UPDATE "Courier" (offline erase), 2) INSERT INTO "CourierStatusChange"
+      expect(txMock.$executeRaw).toHaveBeenCalledTimes(2)
+
+      const { sqlText: insertSql, values: insertValues } = getSqlAndValues(txMock.$executeRaw, 1)
+      expect(insertSql).toContain('INSERT INTO "CourierStatusChange"')
+      expect(insertSql).toContain('clock_timestamp()')
+
+      expect(insertValues).toContain(EnumCourierStatus.ONLINE)
+      expect(insertValues).toContain(EnumCourierStatus.OFFLINE)
+      expect(insertValues).toContain(EnumCourierStatusChangeCause.ADMIN)
+      expect(insertValues).toContain('admin-user-42')
+    })
+
+    test('non-offline status change updates courier and inserts CourierStatusChange', async () => {
+      txMock.$queryRaw.mockResolvedValue([{ status: EnumCourierStatus.ONLINE }])
+
+      const result = await repository.changeStatus(
+        'courier-1',
+        EnumCourierStatus.LAST_CALL,
+        EnumCourierStatusChangeCause.RIDER
+      )
+
+      expect(result).toEqual({ changed: true, fromStatus: EnumCourierStatus.ONLINE })
+      expect(txMock.courier.update).toHaveBeenCalledWith({
+        where: { id: 'courier-1' },
+        data: { status: EnumCourierStatus.LAST_CALL },
+      })
+      expect(txMock.$executeRaw).toHaveBeenCalledTimes(1)
+      const { sqlText: insertSql } = getSqlAndValues(txMock.$executeRaw, 0)
+      expect(insertSql).toContain('INSERT INTO "CourierStatusChange"')
+      expect(insertSql).toContain('clock_timestamp()')
+    })
+
+    test('an unknown courier throws NotFound and writes nothing', async () => {
+      txMock.$queryRaw.mockResolvedValue([])
+
+      await expect(
+        repository.changeStatus('unknown-courier', EnumCourierStatus.ONLINE, EnumCourierStatusChangeCause.RIDER)
+      ).rejects.toThrow()
+
+      expect(txMock.$executeRaw).not.toHaveBeenCalled()
+      expect(txMock.courier.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('updateById (spec 0040 AC-1)', () => {
+    test('never passes a status key to prisma.courier.update even when the argument object carries one', async () => {
+      mockPrisma.courier.update.mockResolvedValue(sampleCourierRecord)
+
+      await repository.updateById('courier-1', {
+        firstName: 'UpdatedName',
+        status: EnumCourierStatus.OFFLINE,
+      } as any)
+
+      expect(mockPrisma.courier.update).toHaveBeenCalledWith({
+        where: { id: 'courier-1' },
+        data: {
+          firstName: 'UpdatedName',
+        },
+      })
+      const callData = mockPrisma.courier.update.mock.calls[0]?.[0]?.data
+      expect('status' in callData).toBe(false)
     })
   })
 

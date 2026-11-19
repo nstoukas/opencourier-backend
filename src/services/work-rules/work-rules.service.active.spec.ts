@@ -68,6 +68,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    shiftBreakMinutes: 30,
     returnTripPayPercent: 100,
     chatQuickRepliesDispatch: ['Preset 1'],
     chatQuickRepliesCourier: ['Preset 2'],
