@@ -18,14 +18,22 @@ describe('InstanceConfigDomainService - Offer Timing Settings (Spec 0031: AC-1)'
   let service: InstanceConfigDomainService
   let configRepository: jest.Mocked<ConfigRepository>
   let fileConfigService: jest.Mocked<ConfigService>
+  let mockTx: any
 
   beforeEach(() => {
     const notFoundError = new Error('Record not found in config table')
     notFoundError.name = 'NotFoundError'
 
+    mockTx = {
+      settingChange: {
+        create: jest.fn(),
+      },
+    }
+
     configRepository = {
       getByKey: jest.fn().mockRejectedValue(notFoundError),
       saveByKey: jest.fn().mockResolvedValue(undefined),
+      inTransaction: jest.fn((callback) => callback(mockTx)),
     } as any
 
     fileConfigService = {
@@ -175,9 +183,9 @@ describe('InstanceConfigDomainService - Offer Timing Settings (Spec 0031: AC-1)'
         offerTimingCandidates: 8,
       })
 
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_TIMING_ENABLED, true)
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_LEAD_MINUTES, 5)
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_TIMING_CANDIDATES, 8)
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_TIMING_ENABLED, true, mockTx)
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_LEAD_MINUTES, 5, mockTx)
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_TIMING_CANDIDATES, 8, mockTx)
     })
 
     it('rejects offerTimingEnabled when not a boolean', async () => {

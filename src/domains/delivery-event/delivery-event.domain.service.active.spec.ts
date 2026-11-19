@@ -582,6 +582,63 @@ describe('DeliveryEventDomainService', () => {
       expect(result).not.toHaveProperty('removalPay')
       expect(result?.total).toBe(550)
     })
+
+    test('delivered job with REVIEW correction row includes reviewPay and adds it to total (Spec 0038 AC-7, AC-10)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue({
+        deliveryId: 'del-delivered-review',
+        droppedOffAt: new Date('2026-07-10T10:00:00Z'),
+        totalCompensation: 500,
+        tips: 0,
+        pickupBusinessName: 'Pizzeria',
+        dropoffAddress: 'Address C',
+      })
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-delivered-review',
+          reason: EnumCourierCompensationReason.REVIEW,
+          amount: 150,
+          createdAt: new Date('2026-07-15T12:00:00Z'),
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: null,
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-delivered-review')
+
+      expect(result).not.toBeNull()
+      expect(result?.reviewPay).toBe(150)
+      expect(result?.total).toBe(650) // 500 + 150
+    })
+
+    test('undelivered compensation job with REVIEW correction includes reviewPay as separate line (Spec 0038 AC-7, AC-10)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-canc-review',
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          amount: 300,
+          createdAt: new Date('2026-07-10T09:00:00Z'),
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+        {
+          deliveryId: 'del-canc-review',
+          reason: EnumCourierCompensationReason.REVIEW,
+          amount: 200,
+          createdAt: new Date('2026-07-12T10:00:00Z'),
+          pickupBusinessName: 'Pizzeria',
+          dropoffLocation: { formattedAddress: 'Address A', street: null, city: null, state: null },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-canc-review')
+
+      expect(result).not.toBeNull()
+      expect(result?.kind).toBe('CANCELLATION_COMPENSATION')
+      expect(result?.compensation).toBe(300)
+      expect(result?.reviewPay).toBe(200)
+      expect(result?.total).toBe(500) // 300 + 200
+    })
   })
 
   describe('courierId scoping', () => {

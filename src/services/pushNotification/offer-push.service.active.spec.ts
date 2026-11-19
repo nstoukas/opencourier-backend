@@ -1009,4 +1009,58 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
     })
   })
+
+  describe('reviewAnswered & sendReviewAnswered (spec 0038, AC-9)', () => {
+    test('sendReviewAnswered sends data { type: "REVIEW_ANSWERED", requestId } with 3600 s TTL and no personal text', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue(['device-token-1'])
+      mockPushNotificationService.sendData.mockResolvedValue({ deadTokens: [], failureCodes: [] })
+
+      await service.sendReviewAnswered('courier-1', 'review-req-101')
+
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledTimes(1)
+      const [tokens, data, ttl] = mockPushNotificationService.sendData.mock.calls[0]!
+      expect(tokens).toEqual(['device-token-1'])
+      expect(data).toEqual({
+        type: NotificationEventType.REVIEW_ANSWERED,
+        requestId: 'review-req-101',
+      })
+      expect(ttl).toBe(CHAT_PUSH_TTL_SECONDS)
+      expect(ttl).toBe(3600)
+      // Check no answer text, note text or outcome is in the data payload (AC-4, AC-9)
+      expect(Object.keys(data)).toEqual(['type', 'requestId'])
+    })
+
+    test('sendReviewAnswered sends nothing when pushNotificationService is disabled', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      await service.sendReviewAnswered('courier-1', 'review-req-101')
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('sendReviewAnswered sends nothing when courier has no device tokens', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue([])
+
+      await service.sendReviewAnswered('courier-1', 'review-req-101')
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('reviewAnswered is fire-and-forget: does not throw even if sendReviewAnswered fails', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Firebase network error'))
+
+      expect(() => service.reviewAnswered('courier-1', 'review-req-101')).not.toThrow()
+    })
+
+    test('reviewAnswered does nothing and does not throw when push is disabled', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      expect(() => service.reviewAnswered('courier-1', 'review-req-101')).not.toThrow()
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+    })
+  })
 })

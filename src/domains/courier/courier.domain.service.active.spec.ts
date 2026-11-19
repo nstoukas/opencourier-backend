@@ -1,9 +1,10 @@
-import { CourierDomainService } from './courier.domain.service'
+import { ConflictException } from '@nestjs/common'
+import { CourierDomainService, OFFLINE_POSITION_REFUSED_MESSAGE } from './courier.domain.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { EnumCourierStatus, Prisma } from '@prisma/types'
 import { CourierEntity } from './entities/courier.entity'
 
-describe('CourierDomainService (scope row 97, Clause 3)', () => {
+describe('CourierDomainService', () => {
   let service: CourierDomainService
   let mockCourierRepository: jest.Mocked<CourierRepository>
 
@@ -14,6 +15,8 @@ describe('CourierDomainService (scope row 97, Clause 3)', () => {
       findById: jest.fn(),
       updateById: jest.fn(),
       create: jest.fn(),
+      updateCurrentLocationById: jest.fn(),
+      setOfflineAndClearLocationIfFree: jest.fn(),
     } as unknown as jest.Mocked<CourierRepository>
 
     service = new CourierDomainService(mockCourierRepository)
@@ -75,6 +78,54 @@ describe('CourierDomainService (scope row 97, Clause 3)', () => {
       expect(call).toBeDefined()
       expect(call![1]).toBe(3)
       expect(call![2]).toBe(50)
+    })
+  })
+
+  describe('updateCurrentLocation (spec 0038 AC-14)', () => {
+    test('succeeds when location is stored (Online or busy rider)', async () => {
+      mockCourierRepository.updateCurrentLocationById.mockResolvedValue(true)
+
+      await expect(
+        service.updateCurrentLocation('courier-1', { latitude: 39.36, longitude: 22.94 })
+      ).resolves.toBeUndefined()
+
+      expect(mockCourierRepository.updateCurrentLocationById).toHaveBeenCalledWith('courier-1', {
+        latitude: 39.36,
+        longitude: 22.94,
+      })
+    })
+
+    test('refuses with 409 ConflictException when rider is Offline and holds no active delivery', async () => {
+      mockCourierRepository.updateCurrentLocationById.mockResolvedValue(false)
+
+      await expect(
+        service.updateCurrentLocation('courier-1', { latitude: 39.36, longitude: 22.94 })
+      ).rejects.toThrow(new ConflictException(OFFLINE_POSITION_REFUSED_MESSAGE))
+    })
+  })
+
+  describe('update status to OFFLINE (spec 0038 AC-15)', () => {
+    test('routes OFFLINE status update through setOfflineAndClearLocationIfFree and updates remaining fields', async () => {
+      mockCourierRepository.updateById.mockResolvedValue({ id: 'courier-1' } as any)
+
+      await service.update('courier-1', {
+        status: EnumCourierStatus.OFFLINE,
+        firstName: 'Updated',
+      } as any)
+
+      expect(mockCourierRepository.setOfflineAndClearLocationIfFree).toHaveBeenCalledWith('courier-1')
+      expect(mockCourierRepository.updateById).toHaveBeenCalledWith('courier-1', { firstName: 'Updated' })
+    })
+
+    test('routes non-OFFLINE status update through updateById without setOfflineAndClearLocationIfFree', async () => {
+      mockCourierRepository.updateById.mockResolvedValue({ id: 'courier-1' } as any)
+
+      await service.update('courier-1', {
+        status: EnumCourierStatus.ONLINE,
+      } as any)
+
+      expect(mockCourierRepository.setOfflineAndClearLocationIfFree).not.toHaveBeenCalled()
+      expect(mockCourierRepository.updateById).toHaveBeenCalledWith('courier-1', { status: EnumCourierStatus.ONLINE })
     })
   })
 })

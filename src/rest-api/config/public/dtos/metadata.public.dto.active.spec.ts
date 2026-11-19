@@ -58,6 +58,8 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
     chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
     chatRetentionDays: 90,
+    reviewAnswerDays: 14,
+    reviewCorrectionMaxCents: 5000,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

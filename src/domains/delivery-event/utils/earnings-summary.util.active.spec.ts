@@ -577,6 +577,18 @@ describe('earnings-summary.util', () => {
       expect(result.total).toBe(450)
     })
 
+    it('maps reason REVIEW to kind REVIEW_CORRECTION (Spec 0038 AC-7, AC-10)', () => {
+      const result = compensationToEarningsDelivery({
+        ...baseCompRow,
+        reason: EnumCourierCompensationReason.REVIEW,
+      })
+
+      expect(result.kind).toBe('REVIEW_CORRECTION')
+      expect(result.compensation).toBe(450)
+      expect(result.tips).toBe(0)
+      expect(result.total).toBe(450)
+    })
+
     it('maps absent / undefined reason to kind REASSIGNMENT_COMPENSATION', () => {
       const result = compensationToEarningsDelivery({
         ...baseCompRow,

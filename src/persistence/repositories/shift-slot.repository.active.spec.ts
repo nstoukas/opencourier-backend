@@ -32,17 +32,19 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
     mockTx = {
       shiftSlot: modelMock(),
       shiftSlotChange: modelMock(),
+      settingChange: modelMock(),
     }
     mockPrisma = {
       $transaction: jest.fn((callback) => callback(mockTx)),
       shiftSlot: modelMock(),
       shiftSlotChange: modelMock(),
+      settingChange: modelMock(),
     }
     repository = new ShiftSlotRepository(mockPrisma as unknown as PrismaService)
   })
 
   const expectNoRootWrites = () => {
-    for (const model of [mockPrisma.shiftSlot, mockPrisma.shiftSlotChange]) {
+    for (const model of [mockPrisma.shiftSlot, mockPrisma.shiftSlotChange, mockPrisma.settingChange]) {
       expect(model.create).not.toHaveBeenCalled()
       expect(model.updateMany).not.toHaveBeenCalled()
       expect(model.update).not.toHaveBeenCalled()
@@ -103,7 +105,34 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
           after: fields,
         },
       })
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: Prisma.DbNull,
+          newValue: fields,
+          changedByUserId: ADMIN,
+        },
+      })
       expectNoRootWrites()
+    })
+
+    it('writes a SettingChange row with key shiftSlot inside the same transaction as ShiftSlotChange (AC-12)', async () => {
+      mockTx.shiftSlot.create.mockResolvedValue(slotRow)
+      await repository.create(fields, ADMIN)
+
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: Prisma.DbNull,
+          newValue: fields,
+          changedByUserId: ADMIN,
+        },
+      })
+      expect(mockPrisma.settingChange.create).not.toHaveBeenCalled()
     })
 
     it('writes before as Prisma.DbNull exactly (SQL NULL, so "before IS NULL" finds a creation), never JsonNull', async () => {
@@ -157,8 +186,37 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
           after: next,
         },
       })
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: fields,
+          newValue: next,
+          changedByUserId: ADMIN,
+        },
+      })
       expect(mockTx.shiftSlot.findUnique).toHaveBeenCalledWith({ where: { id: 'slot-1' } })
       expectNoRootWrites()
+    })
+
+    it('writes a SettingChange row with key shiftSlot inside the same transaction as ShiftSlotChange (AC-12)', async () => {
+      mockTx.shiftSlot.updateMany.mockResolvedValue({ count: 1 })
+      mockTx.shiftSlot.findUnique.mockResolvedValue({ ...slotRow, riderCap: 8 })
+
+      await repository.updateIfUnchanged('slot-1', fields, next, ADMIN)
+
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: fields,
+          newValue: next,
+          changedByUserId: ADMIN,
+        },
+      })
+      expect(mockPrisma.settingChange.create).not.toHaveBeenCalled()
     })
 
     it('with a count of 0 (changed, removed or gone) writes no change row and returns null', async () => {
@@ -168,6 +226,7 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
 
       expect(result).toBeNull()
       expect(mockTx.shiftSlotChange.create).not.toHaveBeenCalled()
+      expect(mockTx.settingChange.create).not.toHaveBeenCalled()
       expect(mockPrisma.shiftSlotChange.create).not.toHaveBeenCalled()
     })
   })
@@ -196,7 +255,36 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
           after: Prisma.DbNull,
         },
       })
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: fields,
+          newValue: Prisma.DbNull,
+          changedByUserId: ADMIN,
+        },
+      })
       expectNoRootWrites()
+    })
+
+    it('writes a SettingChange row with key shiftSlot inside the same transaction as ShiftSlotChange (AC-12)', async () => {
+      mockTx.shiftSlot.updateMany.mockResolvedValue({ count: 1 })
+      mockTx.shiftSlot.findUnique.mockResolvedValue({ ...slotRow, removedAt: new Date() })
+
+      await repository.removeIfUnchanged('slot-1', fields, ADMIN)
+
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'shiftSlot',
+          subject: 'slot-1',
+          oldValue: fields,
+          newValue: Prisma.DbNull,
+          changedByUserId: ADMIN,
+        },
+      })
+      expect(mockPrisma.settingChange.create).not.toHaveBeenCalled()
     })
 
     it('writes after as Prisma.DbNull exactly (SQL NULL), never JsonNull', async () => {
@@ -225,6 +313,7 @@ describe('ShiftSlotRepository (spec 0026, AC-2, AC-3)', () => {
 
       expect(result).toBeNull()
       expect(mockTx.shiftSlotChange.create).not.toHaveBeenCalled()
+      expect(mockTx.settingChange.create).not.toHaveBeenCalled()
       expect(mockPrisma.shiftSlotChange.create).not.toHaveBeenCalled()
     })
   })

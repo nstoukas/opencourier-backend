@@ -17,6 +17,7 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   let repository: CourierRepository
   let mockPrisma: {
     $queryRaw: jest.Mock
+    $executeRaw: jest.Mock
     user: {
       create: jest.Mock
     }
@@ -69,6 +70,7 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
   beforeEach(() => {
     mockPrisma = {
       $queryRaw: jest.fn(),
+      $executeRaw: jest.fn().mockResolvedValue(1),
       user: {
         create: jest.fn(),
       },
@@ -544,26 +546,91 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     })
   })
 
-  describe('updateCurrentLocationById (spec 0034, AC-12 invariant)', () => {
-    test('sets currentLocation and currentLocationAt in the same SQL statement', async () => {
-      mockPrisma.courier.findUniqueOrThrow.mockResolvedValue({ id: 'courier-loc-1' })
-      mockPrisma.$queryRaw.mockResolvedValue([])
+  describe('updateCurrentLocationById (spec 0034 AC-12, spec 0038 AC-14)', () => {
+    test('sets currentLocation and currentLocationAt in the same SQL statement with offline/busy condition', async () => {
+      mockPrisma.$executeRaw.mockResolvedValue(1)
 
-      await repository.updateCurrentLocationById('courier-loc-1', {
+      const result = await repository.updateCurrentLocationById('courier-loc-1', {
         latitude: 39.3622,
         longitude: 22.9411,
       })
 
-      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
-      const sqlObj = mockPrisma.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql
-      const sqlText = sqlObj.strings.join(' ? ')
+      expect(result).toBe(true)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
+      const strings = mockPrisma.$executeRaw.mock.calls[0]?.[0] as string[]
+      const values = mockPrisma.$executeRaw.mock.calls[0]?.slice(1)
+      const sqlText = strings.join(' ? ')
 
       expect(sqlText).toContain('UPDATE "Courier"')
       expect(sqlText).toContain('SET "currentLocation" = ST_GeomFromText(')
       expect(sqlText).toContain('"currentLocationAt" = NOW() AT TIME ZONE \'UTC\'')
       expect(sqlText).toContain('WHERE "id" =')
-      expect(sqlObj.values).toContain('POINT(22.9411 39.3622)')
-      expect(sqlObj.values).toContain('courier-loc-1')
+      expect(sqlText).toContain('"status"::text <>')
+      expect(sqlText).toContain('EXISTS')
+      expect(values).toContain('POINT(22.9411 39.3622)')
+      expect(values).toContain('courier-loc-1')
+    })
+
+    test('returns false when 0 rows were updated (e.g. offline and free)', async () => {
+      mockPrisma.$executeRaw.mockResolvedValue(0)
+
+      const result = await repository.updateCurrentLocationById('courier-loc-1', {
+        latitude: 39.3622,
+        longitude: 22.9411,
+      })
+
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('setOfflineAndClearLocationIfFree (spec 0038 AC-15)', () => {
+    test('sets status to OFFLINE and nulls currentLocation and currentLocationAt unless busy', async () => {
+      await repository.setOfflineAndClearLocationIfFree('courier-loc-1')
+
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
+      const strings = mockPrisma.$executeRaw.mock.calls[0]?.[0] as string[]
+      const values = mockPrisma.$executeRaw.mock.calls[0]?.slice(1)
+      const sqlText = strings.join(' ? ')
+
+      expect(sqlText).toContain('UPDATE "Courier"')
+      expect(sqlText).toContain('"status" = CAST(')
+      expect(sqlText).toContain('"currentLocation" = CASE WHEN EXISTS')
+      expect(sqlText).toContain('"currentLocationAt" = CASE WHEN EXISTS')
+      expect(sqlText).toContain('WHERE "id" =')
+      expect(values).toContain('courier-loc-1')
+    })
+  })
+
+  describe('clearLocationIfOfflineAndFree (spec 0038 AC-15)', () => {
+    test('clears location for single courier when courierId is passed', async () => {
+      await repository.clearLocationIfOfflineAndFree('courier-loc-1')
+
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
+      const strings = mockPrisma.$executeRaw.mock.calls[0]?.[0] as string[]
+      const values = mockPrisma.$executeRaw.mock.calls[0]?.slice(1)
+      const sqlText = strings.join(' ? ')
+
+      expect(sqlText).toContain('UPDATE "Courier"')
+      expect(sqlText).toContain('"currentLocation" = NULL, "currentLocationAt" = NULL')
+      expect(sqlText).toContain('"status"::text =')
+      expect(sqlText).toContain('NOT EXISTS')
+      expect(JSON.stringify(values)).toContain('\\"id\\" =')
+      expect(JSON.stringify(values)).toContain('courier-loc-1')
+    })
+
+    test('clears location for all offline and free couriers when courierId is omitted', async () => {
+      await repository.clearLocationIfOfflineAndFree()
+
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
+      const strings = mockPrisma.$executeRaw.mock.calls[0]?.[0] as string[]
+      const values = mockPrisma.$executeRaw.mock.calls[0]?.slice(1)
+      const sqlText = strings.join(' ? ')
+
+      expect(sqlText).toContain('UPDATE "Courier"')
+      expect(sqlText).toContain('"currentLocation" = NULL, "currentLocationAt" = NULL')
+      expect(sqlText).toContain('"status"::text =')
+      expect(sqlText).toContain('NOT EXISTS')
+      expect(sqlText).not.toContain('"id" =')
     })
   })
 })

@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
-import { InstanceConfigDomainService, NUMERIC_SETTING_RULES } from './instance-config.domain.service'
+import {
+  InstanceConfigDomainService,
+  NUMERIC_SETTING_RULES,
+  isSameSettingValue,
+} from './instance-config.domain.service'
 import { ConfigRepository } from '../../persistence/repositories/config.repository'
 import { ConfigService } from '@nestjs/config'
 import {
@@ -28,11 +32,19 @@ describe('InstanceConfigDomainService', () => {
   let service: InstanceConfigDomainService
   let configRepository: jest.Mocked<ConfigRepository>
   let fileConfigService: jest.Mocked<ConfigService>
+  let mockTx: any
 
   beforeEach(() => {
+    mockTx = {
+      settingChange: {
+        create: jest.fn(),
+      },
+    }
+
     configRepository = {
       getByKey: jest.fn(),
       saveByKey: jest.fn(),
+      inTransaction: jest.fn((callback) => callback(mockTx)),
     } as any
 
     fileConfigService = {
@@ -165,13 +177,15 @@ describe('InstanceConfigDomainService', () => {
 
       expect(configRepository.saveByKey).toHaveBeenCalledWith(
         ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
-        'HALF_COMPENSATION'
+        'HALF_COMPENSATION',
+        mockTx
       )
       expect(configRepository.saveByKey).not.toHaveBeenCalledWith(
         ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
-        expect.anything()
+        expect.anything(),
+        mockTx
       )
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String), mockTx)
     })
 
     it('rejects a default-only update when the key is not on the stored menu', async () => {
@@ -240,9 +254,10 @@ describe('InstanceConfigDomainService', () => {
       expect(result).toBeDefined()
       expect(configRepository.saveByKey).toHaveBeenCalledWith(
         ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
-        JSON.stringify({ FULL_COMPENSATION: 100, NO_COMPENSATION: 0 })
+        JSON.stringify({ FULL_COMPENSATION: 100, NO_COMPENSATION: 0 }),
+        mockTx
       )
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String), mockTx)
     })
 
     // Test Plan A Case 4: Default supplied alongside a menu that contains it succeeds
@@ -258,13 +273,15 @@ describe('InstanceConfigDomainService', () => {
 
       expect(configRepository.saveByKey).toHaveBeenCalledWith(
         ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
-        JSON.stringify({ FULL_COMPENSATION: 100, CUSTOM: 80 })
+        JSON.stringify({ FULL_COMPENSATION: 100, CUSTOM: 80 }),
+        mockTx
       )
       expect(configRepository.saveByKey).toHaveBeenCalledWith(
         ConfigKey.REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
-        'CUSTOM'
+        'CUSTOM',
+        mockTx
       )
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String))
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.UPDATED_AT, expect.any(String), mockTx)
     })
 
     describe('cancellationPayoutPolicy (Spec 0015 AC-4)', () => {
@@ -397,9 +414,10 @@ describe('InstanceConfigDomainService', () => {
 
         expect(configRepository.saveByKey).toHaveBeenCalledWith(
           ConfigKey.REASSIGNMENT_PAYOUT_POLICIES,
-          JSON.stringify({ CUSTOM_A: 100, CUSTOM_B: 70 })
+          JSON.stringify({ CUSTOM_A: 100, CUSTOM_B: 70 }),
+          mockTx
         )
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.CANCELLATION_PAYOUT_POLICY, 'CUSTOM_B')
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.CANCELLATION_PAYOUT_POLICY, 'CUSTOM_B', mockTx)
       })
     })
   })
@@ -453,7 +471,7 @@ describe('InstanceConfigDomainService', () => {
 
       await service.setInstanceConfigSettings({ quoteRatePerDistanceUnit: 0 })
 
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, 0)
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, 0, mockTx)
     })
 
     // E5. setInstanceConfigSettings({}) does not call saveByKey for rate key
@@ -650,7 +668,7 @@ describe('InstanceConfigDomainService', () => {
     it('saves a base fee of 0 when explicitly passed to setInstanceConfigSettings', async () => {
       await service.setInstanceConfigSettings({ quoteBaseFee: 0 })
 
-      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_BASE_FEE, 0)
+      expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.QUOTE_BASE_FEE, 0, mockTx)
     })
 
     it('refuses negative quoteBaseFee of -1 in setInstanceConfigSettings with clear message naming quoteBaseFee (AC-4)', async () => {
@@ -691,7 +709,7 @@ describe('InstanceConfigDomainService', () => {
             // Setting 0 should call configRepository.saveByKey with the setting key and 0
             await service.setInstanceConfigSettings({ [rule.key]: 0 })
 
-            expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, 0)
+            expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, 0, mockTx)
           })
         } else {
           it(`refuses 0 for ${rule.key} with clear explanation`, async () => {
@@ -758,7 +776,7 @@ describe('InstanceConfigDomainService', () => {
 
         // Assert each key was saved as 0, proving none was dropped by a truthy check
         zeroAllowedSettings.forEach((rule) => {
-          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, 0)
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, 0, mockTx)
         })
       })
     })
@@ -782,7 +800,7 @@ describe('InstanceConfigDomainService', () => {
 
         it(`accepts exact min boundary value for ${rule.key} (${rule.min})`, async () => {
           await service.setInstanceConfigSettings({ [rule.key]: rule.min })
-          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.min)
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.min, mockTx)
         })
       })
     })
@@ -798,7 +816,7 @@ describe('InstanceConfigDomainService', () => {
 
         it(`accepts exact max boundary value for ${rule.key} (${rule.max})`, async () => {
           await service.setInstanceConfigSettings({ [rule.key]: rule.max })
-          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.max)
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.max, mockTx)
         })
       })
     })
@@ -817,12 +835,12 @@ describe('InstanceConfigDomainService', () => {
     describe('offerExpiryEnabled saving', () => {
       it('saves false for offerExpiryEnabled (not dropped by a truthy check)', async () => {
         await service.setInstanceConfigSettings({ offerExpiryEnabled: false })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, false)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, false, mockTx)
       })
 
       it('saves true for offerExpiryEnabled', async () => {
         await service.setInstanceConfigSettings({ offerExpiryEnabled: true })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, true)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_EXPIRY_ENABLED, true, mockTx)
       })
 
       it('refuses non-boolean offerExpiryEnabled if sent to domain service', async () => {
@@ -997,7 +1015,8 @@ describe('InstanceConfigDomainService', () => {
           await service.setInstanceConfigSettings({ savedCustomerRetentionMonths: validVal })
           expect(configRepository.saveByKey).toHaveBeenCalledWith(
             ConfigKey.SAVED_CUSTOMER_RETENTION_MONTHS,
-            validVal
+            validVal,
+            mockTx
           )
         }
       })
@@ -1214,7 +1233,8 @@ describe('InstanceConfigDomainService', () => {
           await service.setInstanceConfigSettings({ restaurantHistoryDays: validVal })
           expect(configRepository.saveByKey).toHaveBeenCalledWith(
             ConfigKey.RESTAURANT_HISTORY_DAYS,
-            validVal
+            validVal,
+            mockTx
           )
         }
       })
@@ -1402,7 +1422,8 @@ describe('InstanceConfigDomainService', () => {
           await service.setInstanceConfigSettings({ sosLocationRetentionDays: validVal })
           expect(configRepository.saveByKey).toHaveBeenCalledWith(
             ConfigKey.SOS_LOCATION_RETENTION_DAYS,
-            validVal
+            validVal,
+            mockTx
           )
         }
       })
@@ -1615,7 +1636,7 @@ describe('InstanceConfigDomainService', () => {
         // 0 is valid (switches hand back off)
         configRepository.getByKey.mockRejectedValue(notFoundError)
         await service.setInstanceConfigSettings({ handBackSeconds: 0 })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.HAND_BACK_SECONDS, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.HAND_BACK_SECONDS, 0, mockTx)
       })
 
       it('saves valid whole values 0, 60 and 300 under ConfigKey.HAND_BACK_SECONDS', async () => {
@@ -1625,7 +1646,8 @@ describe('InstanceConfigDomainService', () => {
           await service.setInstanceConfigSettings({ handBackSeconds: validVal })
           expect(configRepository.saveByKey).toHaveBeenCalledWith(
             ConfigKey.HAND_BACK_SECONDS,
-            validVal
+            validVal,
+            mockTx
           )
         }
       })
@@ -1865,7 +1887,7 @@ describe('InstanceConfigDomainService', () => {
       it('accepts and saves 0 (switches detection off)', async () => {
         configRepository.getByKey.mockRejectedValue(notFoundError)
         await service.setInstanceConfigSettings({ arrivalRadiusMetres: 0 })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.ARRIVAL_RADIUS_METRES, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.ARRIVAL_RADIUS_METRES, 0, mockTx)
       })
 
       it('saves valid whole values 0, 20, 50 and 300 under ConfigKey.ARRIVAL_RADIUS_METRES', async () => {
@@ -1875,7 +1897,8 @@ describe('InstanceConfigDomainService', () => {
           await service.setInstanceConfigSettings({ arrivalRadiusMetres: validVal })
           expect(configRepository.saveByKey).toHaveBeenCalledWith(
             ConfigKey.ARRIVAL_RADIUS_METRES,
-            validVal
+            validVal,
+            mockTx
           )
         }
       })
@@ -1953,11 +1976,13 @@ describe('InstanceConfigDomainService', () => {
 
         expect(configRepository.saveByKey).toHaveBeenCalledWith(
           ConfigKey.DISPATCH_PHONE_NUMBER,
-          '+302421012345'
+          '+302421012345',
+          mockTx
         )
         expect(configRepository.saveByKey).toHaveBeenCalledWith(
           ConfigKey.UPDATED_AT,
-          expect.any(String)
+          expect.any(String),
+          mockTx
         )
       })
 
@@ -1967,7 +1992,8 @@ describe('InstanceConfigDomainService', () => {
         await service.setInstanceConfigSettings({ dispatchPhoneNumber: '' })
         expect(configRepository.saveByKey).toHaveBeenCalledWith(
           ConfigKey.DISPATCH_PHONE_NUMBER,
-          ''
+          '',
+          mockTx
         )
 
         configRepository.saveByKey.mockClear()
@@ -1975,7 +2001,8 @@ describe('InstanceConfigDomainService', () => {
         await service.setInstanceConfigSettings({ dispatchPhoneNumber: '   ' })
         expect(configRepository.saveByKey).toHaveBeenCalledWith(
           ConfigKey.DISPATCH_PHONE_NUMBER,
-          ''
+          '',
+          mockTx
         )
       })
 
@@ -2220,17 +2247,17 @@ describe('InstanceConfigDomainService', () => {
     describe('setInstanceConfigSettings - shiftsEnabled', () => {
       it('saves false (Shifts off), not dropped by a truthy check', async () => {
         await service.setInstanceConfigSettings({ shiftsEnabled: false })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false, mockTx)
       })
 
       it('saves true', async () => {
         await service.setInstanceConfigSettings({ shiftsEnabled: true })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, true)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, true, mockTx)
       })
 
       it('saves nothing for it when left out', async () => {
         await service.setInstanceConfigSettings({ handBackSeconds: 60 })
-        expect(configRepository.saveByKey).not.toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, expect.anything())
+        expect(configRepository.saveByKey).not.toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, expect.anything(), mockTx)
       })
 
       it.each(['false', 'true', 0, 1, null])('refuses %p sent past the pipe, saving nothing', async (value) => {
@@ -2244,7 +2271,7 @@ describe('InstanceConfigDomainService', () => {
     describe('setInstanceConfigSettings - shiftDropNoticeHours', () => {
       it.each([0, 1, 12, 168])('saves %p hours', async (value) => {
         await service.setInstanceConfigSettings({ shiftDropNoticeHours: value })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, value)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, value, mockTx)
       })
 
       it.each([
@@ -2269,8 +2296,8 @@ describe('InstanceConfigDomainService', () => {
 
       it('saves both together, false and 0 included', async () => {
         await service.setInstanceConfigSettings({ shiftsEnabled: false, shiftDropNoticeHours: 0 })
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false)
-        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, 0)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFTS_ENABLED, false, mockTx)
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.SHIFT_DROP_NOTICE_HOURS, 0, mockTx)
       })
     })
 
@@ -2340,6 +2367,74 @@ describe('InstanceConfigDomainService', () => {
         expect(settings.shiftsEnabled).toBe(true)
         expect(settings.shiftDropNoticeHours).toBe(48)
       })
+    })
+  })
+
+  describe('isSameSettingValue (Spec 0038 AC-12, AC-16)', () => {
+    it('treats identical numbers, booleans, and strings as equal', () => {
+      expect(isSameSettingValue(10, 10)).toBe(true)
+      expect(isSameSettingValue(true, true)).toBe(true)
+      expect(isSameSettingValue('test', 'test')).toBe(true)
+      expect(isSameSettingValue(10, 20)).toBe(false)
+      expect(isSameSettingValue(true, false)).toBe(false)
+    })
+
+    it('treats empty string, undefined, and null as equal (empty text same as no value)', () => {
+      expect(isSameSettingValue('', null)).toBe(true)
+      expect(isSameSettingValue(undefined, null)).toBe(true)
+      expect(isSameSettingValue('', undefined)).toBe(true)
+      expect(isSameSettingValue(null, null)).toBe(true)
+    })
+
+    it('compares objects by content with key-order independence', () => {
+      expect(isSameSettingValue({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true)
+      expect(isSameSettingValue({ a: 1, b: 2 }, { a: 1, b: 3 })).toBe(false)
+    })
+
+    it('compares arrays by content', () => {
+      expect(isSameSettingValue(['a', 'b'], ['a', 'b'])).toBe(true)
+      expect(isSameSettingValue(['a', 'b'], ['b', 'a'])).toBe(false)
+    })
+  })
+
+  describe('SettingChange transaction record (Spec 0038 AC-12, AC-16)', () => {
+    const notFoundError = new Error('Record not found in config table')
+    notFoundError.name = 'NotFoundError'
+
+    beforeEach(() => {
+      configRepository.getByKey.mockRejectedValue(notFoundError)
+    })
+
+    it('writes SettingChange row only for keys whose effective value actually changed', async () => {
+      // Default waitPayFreeMinutes is 10 with no row
+      // We pass waitPayFreeMinutes: 15 (changed) and shiftsEnabled: false (same as default false)
+      await service.setInstanceConfigSettings({
+        waitPayFreeMinutes: 15,
+        shiftsEnabled: false,
+      }, 'admin-user-1')
+
+      expect(configRepository.inTransaction).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          key: 'waitPayFreeMinutes',
+          oldValue: 10,
+          newValue: 15,
+          changedByUserId: 'admin-user-1',
+        }),
+      })
+
+      // Guard test: shiftsEnabled did not change from default false, so NO SettingChange written for it
+      const changeCalls = mockTx.settingChange.create.mock.calls
+      const shiftsChange = changeCalls.find((c: any) => c[0]?.data?.key === 'shiftsEnabled')
+      expect(shiftsChange).toBeUndefined()
+    })
+
+    it('writes NO SettingChange rows when entire form is resent with identical values', async () => {
+      // resending shiftsEnabled: false (same as default)
+      mockTx.settingChange.create.mockClear()
+      await service.setInstanceConfigSettings({ shiftsEnabled: false }, 'admin-user-1')
+
+      expect(mockTx.settingChange.create).not.toHaveBeenCalled()
     })
   })
 })

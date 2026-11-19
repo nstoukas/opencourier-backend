@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config'
 import {
+  EnumCourierStatus,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
   EnumDeliveryStatus,
@@ -54,6 +55,7 @@ describe('DeliveryEventService', () => {
       findByIdOrThrow: jest.fn(),
       updateById: jest.fn().mockResolvedValue({} as any),
       hasActiveSos: jest.fn().mockResolvedValue(false),
+      clearLocationIfOfflineAndFree: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CourierRepository>
 
     mockDeliveryRepository = {
@@ -781,6 +783,118 @@ describe('DeliveryEventService', () => {
 
       await expect(service.refuseIfCourierInSos('courier-free-1')).resolves.toBeUndefined()
       expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('courier-free-1')
+    })
+  })
+
+  describe('review request events refused by processDeliveryEvent (Spec 0038 AC-4, AC-16)', () => {
+    test.each([
+      EnumDeliveryEventType.REVIEW_REQUESTED,
+      EnumDeliveryEventType.REVIEW_ANSWERED,
+      EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW,
+    ])('refuses %s with CantUpdateDeliveryStatusError and records failed event', async (type) => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: 'del-review-1',
+        status: EnumDeliveryStatus.DROPPED_OFF,
+        courierId: 'courier-1',
+      } as any)
+
+      await service.processDeliveryEvent({
+        deliveryId: 'del-review-1',
+        type,
+        actor: EnumEventActor.COURIER,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      } as any)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-review-1',
+          type,
+          transitionSuccessful: false,
+          oldStatus: EnumDeliveryStatus.DROPPED_OFF,
+          newStatus: null,
+          message: `${type} is recorded by a review request only`,
+        })
+      )
+    })
+  })
+
+  describe('clearLocationIfOfflineAndFree invocations (Spec 0038 AC-15)', () => {
+    test('clears location for single courier when courier status switches to OFFLINE', async () => {
+      await service.handleCourierStatusChanged('courier-off-1', EnumCourierStatus.OFFLINE)
+
+      expect(mockCourierRepository.clearLocationIfOfflineAndFree).toHaveBeenCalledWith('courier-off-1')
+    })
+
+    test('clears location for all free offline couriers after a successful status-changing event', async () => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId: 'del-step-1',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+          newStatus: EnumDeliveryStatus.DROPPED_OFF,
+        }
+      )
+
+      expect(mockCourierRepository.clearLocationIfOfflineAndFree).toHaveBeenCalledWith()
+    })
+
+    test('does not clear location when oldStatus or newStatus is null (e.g. review events)', async () => {
+      mockCourierRepository.clearLocationIfOfflineAndFree.mockClear()
+
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId: 'del-review-null-statuses',
+          type: EnumDeliveryEventType.REVIEW_REQUESTED,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'courier-r1',
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: null,
+          newStatus: null,
+        }
+      )
+
+      expect(mockCourierRepository.clearLocationIfOfflineAndFree).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('saveDeliveryEvent courierId whitelist for review events (Spec 0038 AC-4)', () => {
+    test.each([
+      EnumDeliveryEventType.REVIEW_REQUESTED,
+      EnumDeliveryEventType.REVIEW_ANSWERED,
+      EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW,
+    ])('stores courierId on %s event row', async (type) => {
+      await (service as any).saveDeliveryEvent(
+        {
+          deliveryId: 'del-whitelist-1',
+          type,
+          actor: EnumEventActor.COURIER,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: 'courier-wl-1',
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: null,
+          newStatus: null,
+        }
+      )
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-whitelist-1',
+          type,
+          courierId: 'courier-wl-1',
+          oldStatus: null,
+          newStatus: null,
+        })
+      )
     })
   })
 })

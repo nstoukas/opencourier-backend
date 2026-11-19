@@ -4,24 +4,35 @@ import { RemovalRequestRepository } from './removal-request.repository'
 
 describe('RemovalRequestRepository', () => {
   let repository: RemovalRequestRepository
-  let mockPrisma: {
-    deliveryRemovalRequest: {
-      updateMany: jest.Mock
-      create: jest.Mock
-      findMany: jest.Mock
-      findFirst: jest.Mock
-      findUnique: jest.Mock
-    }
-  }
+  let mockPrisma: any
+  let mockTx: any
 
   beforeEach(() => {
+    mockTx = {
+      removalReason: {
+        findFirst: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
+        create: jest.fn(),
+        aggregate: jest.fn(),
+      },
+      settingChange: {
+        create: jest.fn(),
+      },
+    }
     mockPrisma = {
+      $transaction: jest.fn((callback) => callback(mockTx)),
       deliveryRemovalRequest: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue(null),
+      },
+      removalReason: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
       },
     }
     repository = new RemovalRequestRepository(mockPrisma as unknown as PrismaService)
@@ -152,6 +163,115 @@ describe('RemovalRequestRepository', () => {
         },
         orderBy: { decidedAt: 'asc' },
         take: 200,
+      })
+    })
+  })
+
+  describe('updateActiveReason (spec 0038, AC-12)', () => {
+    const reasonId = 'reason-1'
+    const adminId = 'admin-user-1'
+    const initialReason = {
+      id: reasonId,
+      label: 'Flat tire',
+      paidToRider: true,
+      chargedToRestaurant: false,
+      position: 1,
+      needsNote: false,
+      removedAt: null,
+      createdAt: new Date('2026-11-01T10:00:00.000Z'),
+      updatedAt: new Date('2026-11-01T10:00:00.000Z'),
+    }
+
+    it('an edit of only the order writes no settingChange through the tx client', async () => {
+      mockTx.removalReason.findFirst.mockResolvedValue(initialReason)
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue({
+        ...initialReason,
+        position: 2,
+      })
+
+      const result = await repository.updateActiveReason(reasonId, { position: 2 }, adminId)
+
+      expect(result).toEqual({ ...initialReason, position: 2 })
+      expect(mockTx.removalReason.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).not.toHaveBeenCalled()
+    })
+
+    it('an edit of only the note rule writes no settingChange through the tx client', async () => {
+      mockTx.removalReason.findFirst.mockResolvedValue(initialReason)
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue({
+        ...initialReason,
+        needsNote: true,
+      })
+
+      const result = await repository.updateActiveReason(reasonId, { needsNote: true }, adminId)
+
+      expect(result).toEqual({ ...initialReason, needsNote: true })
+      expect(mockTx.removalReason.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).not.toHaveBeenCalled()
+    })
+
+    it('an edit of the label writes exactly one settingChange with key removalReason', async () => {
+      mockTx.removalReason.findFirst.mockResolvedValue(initialReason)
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      const updatedReason = { ...initialReason, label: 'Punctured tire' }
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue(updatedReason)
+
+      const result = await repository.updateActiveReason(reasonId, { label: 'Punctured tire' }, adminId)
+
+      expect(result).toEqual(updatedReason)
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'removalReason',
+          subject: reasonId,
+          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Punctured tire', paidToRider: true, chargedToRestaurant: false },
+          changedByUserId: adminId,
+        },
+      })
+    })
+
+    it('an edit of paidToRider writes exactly one settingChange with key removalReason', async () => {
+      mockTx.removalReason.findFirst.mockResolvedValue(initialReason)
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      const updatedReason = { ...initialReason, paidToRider: false }
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue(updatedReason)
+
+      const result = await repository.updateActiveReason(reasonId, { paidToRider: false }, adminId)
+
+      expect(result).toEqual(updatedReason)
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'removalReason',
+          subject: reasonId,
+          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Flat tire', paidToRider: false, chargedToRestaurant: false },
+          changedByUserId: adminId,
+        },
+      })
+    })
+
+    it('an edit of chargedToRestaurant writes exactly one settingChange with key removalReason', async () => {
+      mockTx.removalReason.findFirst.mockResolvedValue(initialReason)
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      const updatedReason = { ...initialReason, chargedToRestaurant: true }
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue(updatedReason)
+
+      const result = await repository.updateActiveReason(reasonId, { chargedToRestaurant: true }, adminId)
+
+      expect(result).toEqual(updatedReason)
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'removalReason',
+          subject: reasonId,
+          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: true },
+          changedByUserId: adminId,
+        },
       })
     })
   })

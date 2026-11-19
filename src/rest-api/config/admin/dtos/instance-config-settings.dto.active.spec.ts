@@ -59,6 +59,8 @@ describe('InstanceConfigSettingsDto', () => {
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
     chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
     chatRetentionDays: 90,
+    reviewAnswerDays: 14,
+    reviewCorrectionMaxCents: 5000,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {
@@ -190,5 +192,12 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.chatQuickRepliesDispatch).toEqual(['Περίμενε 5 λεπτά ακόμα'])
     expect(dto.chatQuickRepliesCourier).toEqual(['Θα αργήσω λίγο'])
     expect(dto.chatRetentionDays).toBe(90)
+  })
+
+  // Spec 0038 (AC-3, AC-7): InstanceConfigSettingsDto exposes review settings
+  it('exposes reviewAnswerDays and reviewCorrectionMaxCents (spec 0038)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.reviewAnswerDays).toBe(14)
+    expect(dto.reviewCorrectionMaxCents).toBe(5000)
   })
 })
