@@ -16,12 +16,18 @@ import { Roles } from 'src/decorators/roles.decorator'
 import { Request } from 'express'
 import { UserWithCourierCourierDto } from './dtos/user-with-courier.courier.dto'
 import { AblyTokenDto } from 'src/rest-api/common/dtos/ably-token.dto'
+import { ForgotPasswordCourierInput } from './queries/forgot-password.courier.input'
+import { ResetPasswordCourierInput } from './queries/reset-password.courier.input'
+import { PasswordResetCourierRestApiService } from './password-reset.courier.rest-api.service'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('auth')
 @common.Controller(`${COURIER_API_V1_PREFIX}/auth`)
 export class AuthCourierRestApiController {
-  constructor(private readonly authDomainService: AuthDomainService) {}
+  constructor(
+    private readonly authDomainService: AuthDomainService,
+    private readonly passwordResetCourierRestApiService: PasswordResetCourierRestApiService
+  ) {}
 
   @Public()
   @Post('login')
@@ -51,6 +57,33 @@ export class AuthCourierRestApiController {
   }
 
   // No public sign up: the co-op issues every rider's login from admin (spec 0013, AC-7).
+
+  // Row 17 (spec 0039, AC-7): asks for a reset code by email. Always 202 with an empty body, so the
+  // answer never says whether the email has an account; 400 for a malformed email and 503 when mail
+  // is off both come before any lookup. `@HttpCode` replaces Nest's default 201 for a POST.
+  @Public()
+  @Post('forgot-password')
+  @common.HttpCode(202)
+  @swagger.ApiBody({ type: ForgotPasswordCourierInput })
+  @swagger.ApiAcceptedResponse({ description: 'Always, whether or not the email belongs to a rider' })
+  @swagger.ApiServiceUnavailableResponse({ description: 'Mail is not set up on this instance' })
+  @Throttle(PUBLIC_DEFAULT_THROTTLE)
+  forgotPassword(@Body() body: ForgotPasswordCourierInput): void {
+    this.passwordResetCourierRestApiService.forgotPassword(body.email)
+  }
+
+  // Row 17 (spec 0039, AC-10 and AC-11): sets a new password with the emailed code and logs the rider
+  // in, signing out every other phone. Answers like login.
+  @Public()
+  @Post('reset-password')
+  @common.HttpCode(200)
+  @swagger.ApiBody({ type: ResetPasswordCourierInput })
+  @swagger.ApiOkResponse({ type: UserInfoCourierDto })
+  @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
+  @Throttle(PUBLIC_DEFAULT_THROTTLE)
+  async resetPassword(@Body() body: ResetPasswordCourierInput): Promise<UserInfoCourierDto> {
+    return this.passwordResetCourierRestApiService.resetPassword(body.email, body.code, body.password)
+  }
 
   @Get('me')
   @swagger.ApiOkResponse({ type: UserWithCourierCourierDto })

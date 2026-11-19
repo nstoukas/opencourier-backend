@@ -70,6 +70,17 @@ export class AuthDomainService {
     })
   }
 
+  // A session for a user whose identity was proven some other way than a password: a rider's reset
+  // by emailed code (row 17, spec 0039, AC-10). The same token contents as loginWithEmail.
+  async createSessionForUser(user: UserEntity) {
+    const session = await this.tokenService.createEmailAuthSession({
+      sub: user.id,
+      email: user.email || '',
+      role: user.role,
+    })
+    return { session, user }
+  }
+
   async loginPartnerWithUsername(input: { email: string; password: string }) {
     const { email, password } = input
     const user = await this.validateUser(password, email)
