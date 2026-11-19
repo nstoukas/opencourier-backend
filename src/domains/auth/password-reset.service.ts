@@ -24,7 +24,11 @@ export const RESET_CODE_TTL_SECONDS = 900 // a code works for 15 minutes
 export const RESET_RESEND_WAIT_SECONDS = 60 // one code per minute per account
 export const RESET_CODES_PER_HOUR = 5
 export const RESET_TRIES_PER_CODE = 5
+// Decision 17.21: at most 10 tries per account per day, whatever the number of codes, so a patient
+// guesser gets about 3650 guesses a year out of a million codes instead of about 219000.
+export const RESET_TRIES_PER_DAY = 10
 const HOUR_SECONDS = 3600
+const DAY_SECONDS = 86400
 
 // The Redis keys of spec 0039's data model table. Each holds one account's state, by user id.
 export const resetKeys = (userId: string) => ({
@@ -32,6 +36,7 @@ export const resetKeys = (userId: string) => ({
   tries: `password-reset-tries:${userId}`,
   wait: `password-reset-wait:${userId}`,
   count: `password-reset-count:${userId}`,
+  dayTries: `password-reset-day-tries:${userId}`,
 })
 
 // What is stored for a pending code: never the code itself, only its keyed hash.
@@ -125,15 +130,21 @@ export class PasswordResetService implements OnModuleInit {
     if ((await this.cacheService.increment(keys.count, HOUR_SECONDS)) > RESET_CODES_PER_HOUR) return
 
     const code = this.makeCode()
-    // A new code replaces the old one and gets its own five tries.
+    // A new code replaces the old one and gets its own five tries. The old count goes first: a try
+    // landing in between then counts against the new code (1 of 5) instead of finding the old count
+    // past five and deleting the code just saved. The day's count is never reset (decision 17.21).
+    await this.cacheService.delete(keys.tries)
     await this.cacheService.save<PendingCode>(
       keys.code,
       { codeHash: this.hashCode(userId, code) },
       RESET_CODE_TTL_SECONDS
     )
-    await this.cacheService.delete(keys.tries)
 
-    const name = (await this.configDomainService.instanceConfig.getDetails()).name.trim()
+    // getDetails returns the stored JSON unchecked, so `name` can be missing although its type says
+    // string; `as string | undefined` widens the type to what can really arrive. Missing, the email
+    // says "the co-op" (AC-9) instead of failing.
+    const storedName = (await this.configDomainService.instanceConfig.getDetails()).name as string | undefined
+    const name = (storedName ?? '').trim()
     try {
       // Sent to the stored address, never the typed one (they can differ in capitals).
       await this.mailService.send({ to: rider.user.email as string, ...buildResetEmail(code, name) })
@@ -155,8 +166,11 @@ export class PasswordResetService implements OnModuleInit {
     const userId = rider.user.id
     const keys = resetKeys(userId)
 
-    // The try is counted before comparing; past five the code is gone and nothing is compared.
-    if ((await this.cacheService.increment(keys.tries, RESET_CODE_TTL_SECONDS)) > RESET_TRIES_PER_CODE) {
+    // The try is counted before comparing, against this code (5) and against the day (10, decision
+    // 17.21); past either limit the code is gone and nothing is compared.
+    const triesOnCode = await this.cacheService.increment(keys.tries, RESET_CODE_TTL_SECONDS)
+    const triesToday = await this.cacheService.increment(keys.dayTries, DAY_SECONDS)
+    if (triesOnCode > RESET_TRIES_PER_CODE || triesToday > RESET_TRIES_PER_DAY) {
       await this.cacheService.delete(keys.code)
       throw new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
     }
@@ -168,7 +182,8 @@ export class PasswordResetService implements OnModuleInit {
     }
 
     // Claimed with GETDEL: of two right answers at once, only one gets the code back. If a new code
-    // replaced it between the read and the claim, the claimed hash no longer matches and this refuses.
+    // replaced it between the read and the claim, the claimed hash no longer matches and this refuses;
+    // that new code is gone too (GETDEL removed it), so the rider asks again after the minute's wait.
     const claimed = await this.cacheService.take<PendingCode>(keys.code)
     if (!claimed || !hashesMatch(claimed.codeHash, expected)) {
       throw new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)

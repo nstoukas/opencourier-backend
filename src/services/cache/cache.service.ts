@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common'
 import { RedisClient } from '../redis/models/RedisClient'
 
+// KEYS[1] is the counter, ARGV[1] its lifetime in seconds. TTL answers -1 for a key with no expiry.
+const INCREMENT_WITH_EXPIRY = `
+local count = redis.call('INCR', KEYS[1])
+if redis.call('TTL', KEYS[1]) == -1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count`
+
 @Injectable()
 export class CacheService {
   constructor(private readonly redisClient: RedisClient) {}
@@ -18,17 +26,16 @@ export class CacheService {
     return value === null ? null : JSON.parse(value) // might throw an exception if not valid JSON
   }
 
-  // The three below are each one atomic Redis command, so two requests at the same moment can never
-  // both pass the guard they implement (row 17, spec 0039: password reset codes).
+  // The three below each run as one step in Redis, so two requests at the same moment can never both
+  // pass the guard they implement (row 17, spec 0039: password reset codes).
 
-  // Adds 1 and returns the new count. The expiry is set only when the count is created (it was 1),
-  // so the window runs from the first increment, not the latest.
+  // Adds 1 and returns the new count. The expiry is set when the count has none (it was just
+  // created), so the window runs from the first increment, not the latest. A Lua script runs in Redis
+  // as one step: no crash or other request can land between the INCR and the EXPIRE, and a counter
+  // that somehow lost its expiry gets one back instead of counting up forever.
   public async increment(key: string, ttlSeconds: number): Promise<number> {
-    const count = await this.redisClient.incr(key)
-    if (count === 1) {
-      await this.redisClient.expire(key, ttlSeconds)
-    }
-    return count
+    const count = await this.redisClient.eval(INCREMENT_WITH_EXPIRY, 1, key, ttlSeconds)
+    return Number(count)
   }
 
   // Reads the value and deletes it in one step (GETDEL): of two callers at once, only one gets it.
