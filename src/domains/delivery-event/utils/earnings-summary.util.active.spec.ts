@@ -209,6 +209,51 @@ describe('earnings-summary.util', () => {
       })
     })
 
+    test('does not raise deliveryCount when a REVIEW compensation row is present (Spec 0038 AC-10)', () => {
+      // Day 1: 1 completed delivery and 1 review compensation row -> deliveryCount remains 1
+      const dropOffRows: CourierEarningsRow[] = [
+        {
+          deliveryId: 'del-1',
+          droppedOffAt: new Date('2026-11-19T10:00:00Z'),
+          totalCompensation: 350,
+          tips: 50,
+        },
+      ]
+      // Day 1 review correction AND Day 2 review correction with no deliveries
+      const compRows: CourierCompensationRow[] = [
+        {
+          deliveryId: 'del-1',
+          createdAt: new Date('2026-11-19T14:00:00Z'),
+          amount: 150,
+        },
+        {
+          deliveryId: 'del-offered-only',
+          createdAt: new Date('2026-11-20T11:00:00Z'),
+          amount: 200,
+        },
+      ]
+
+      const result = summarizeEarningsByDay(dropOffRows, 'UTC', compRows)
+
+      expect(result).toHaveLength(2)
+      // Day 1: deliveryCount is 1, not 2
+      expect(result[0]).toEqual({
+        date: '2026-11-19',
+        deliveryCount: 1,
+        compensation: 500, // 350 + 150
+        tips: 50,
+        total: 550,
+      })
+      // Day 2: deliveryCount is 0, not 1
+      expect(result[1]).toEqual({
+        date: '2026-11-20',
+        deliveryCount: 0,
+        compensation: 200,
+        tips: 0,
+        total: 200,
+      })
+    })
+
     // Test Plan Case 10: Two compensation rows for the same deliveryId
     test('counts multiple compensation rows for the same deliveryId without deduplicating them', () => {
       const compRows: CourierCompensationRow[] = [
@@ -503,6 +548,50 @@ describe('earnings-summary.util', () => {
       expect(result[1]?.deliveryId).toBe('del-completed-1')
       expect(result[1]?.kind).toBeUndefined()
     })
+
+    it('sets dropoffAddress to null for REVIEW_CORRECTION rows in day list while keeping address for other compensation rows', () => {
+      const compRows: CourierCompensationDeliveryRow[] = [
+        {
+          deliveryId: 'del-review-1',
+          createdAt: new Date('2026-07-10T09:00:00Z'),
+          amount: 200,
+          reason: EnumCourierCompensationReason.REVIEW,
+          pickupBusinessName: 'Pizza Place',
+          dropoffLocation: {
+            formattedAddress: 'Customer Secret St 10, Athens',
+            street: 'Customer Secret St 10',
+            city: 'Athens',
+            state: 'Attica',
+          },
+        },
+        {
+          deliveryId: 'del-canc-1',
+          createdAt: new Date('2026-07-10T11:00:00Z'),
+          amount: 300,
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          pickupBusinessName: 'Bakery',
+          dropoffLocation: {
+            formattedAddress: 'Public Address 5, Athens',
+            street: 'Public Address 5',
+            city: 'Athens',
+            state: 'Attica',
+          },
+        },
+      ]
+
+      const result = listEarningsDeliveriesForDay([], '2026-07-10', 'UTC', compRows)
+
+      expect(result).toHaveLength(2)
+      // REVIEW row has dropoffAddress null
+      expect(result[0]?.deliveryId).toBe('del-review-1')
+      expect(result[0]?.kind).toBe('REVIEW_CORRECTION')
+      expect(result[0]?.dropoffAddress).toBeNull()
+
+      // CANCELLATION row keeps dropoffAddress
+      expect(result[1]?.deliveryId).toBe('del-canc-1')
+      expect(result[1]?.kind).toBe('CANCELLATION_COMPENSATION')
+      expect(result[1]?.dropoffAddress).toBe('Public Address 5, Athens')
+    })
   })
 
   describe('compensationToEarningsDelivery (Spec 0015 AC-15)', () => {
@@ -577,16 +666,33 @@ describe('earnings-summary.util', () => {
       expect(result.total).toBe(450)
     })
 
-    it('maps reason REVIEW to kind REVIEW_CORRECTION (Spec 0038 AC-7, AC-10)', () => {
+    it('maps reason REVIEW to kind REVIEW_CORRECTION and sets dropoffAddress to null (Spec 0038 review)', () => {
       const result = compensationToEarningsDelivery({
         ...baseCompRow,
         reason: EnumCourierCompensationReason.REVIEW,
       })
 
       expect(result.kind).toBe('REVIEW_CORRECTION')
+      expect(result.dropoffAddress).toBeNull()
       expect(result.compensation).toBe(450)
       expect(result.tips).toBe(0)
       expect(result.total).toBe(450)
+    })
+
+    it('keeps dropoffAddress for non-REVIEW compensation reasons (CANCELLATION, REMOVAL, WAITING, RETURN_TRIP)', () => {
+      for (const reason of [
+        EnumCourierCompensationReason.CANCELLATION,
+        EnumCourierCompensationReason.REMOVAL,
+        EnumCourierCompensationReason.WAITING,
+        EnumCourierCompensationReason.RETURN_TRIP,
+        EnumCourierCompensationReason.REASSIGNMENT,
+      ]) {
+        const result = compensationToEarningsDelivery({
+          ...baseCompRow,
+          reason,
+        })
+        expect(result.dropoffAddress).toBe('Main St 1, Volos')
+      }
     })
 
     it('maps absent / undefined reason to kind REASSIGNMENT_COMPENSATION', () => {

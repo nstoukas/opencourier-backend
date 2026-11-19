@@ -42,25 +42,108 @@ describe('Platform Work Directive Readiness Guards (spec 0038, AC-16)', () => {
 
   // AC-16 Guard 3: Only admin answer and rider withdrawal can move a request out of OPEN.
   describe('Guard: Only admin answer and rider withdrawal update ReviewRequest.status (AC-6, AC-8, AC-16)', () => {
-    it('ReviewRequestRepository contains no status writes other than answer and withdrawIfOpen', () => {
-      const repoPath = path.resolve(__dirname, '../../persistence/repositories/review-request.repository.ts')
-      const code = fs.readFileSync(repoPath, 'utf8')
+    function findFiles(dir: string, filter: (filePath: string) => boolean): string[] {
+      const results: string[] = []
+      if (!fs.existsSync(dir)) return results
 
-      // Matches any update of status to ANSWERED or WITHDRAWN
-      const statusUpdates = code.match(/status:\s*EnumReviewRequestStatus\.\w+/g) || []
-      expect(statusUpdates.length).toBeGreaterThan(0)
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          results.push(...findFiles(fullPath, filter))
+        } else if (entry.isFile() && filter(fullPath)) {
+          results.push(fullPath)
+        }
+      }
+      return results
+    }
 
-      for (const update of statusUpdates) {
-        // Every status assignment is either default OPEN on create, ANSWERED in answer(), or WITHDRAWN in withdrawIfOpen()
-        expect(
-          update.includes('EnumReviewRequestStatus.OPEN') ||
-          update.includes('EnumReviewRequestStatus.ANSWERED') ||
-          update.includes('EnumReviewRequestStatus.WITHDRAWN')
-        ).toBe(true)
+    it('scans all src files for writes to ReviewRequest status and allows only create, answer, and withdrawIfOpen in ReviewRequestRepository', () => {
+      const srcDir = path.resolve(__dirname, '../..')
+      const tsFiles = findFiles(
+        srcDir,
+        (f) => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.test.ts')
+      )
+      expect(tsFiles.length).toBeGreaterThan(100)
+
+      const repoRelative = 'persistence/repositories/review-request.repository.ts'
+      const violations: string[] = []
+
+      for (const file of tsFiles) {
+        const content = fs.readFileSync(file, 'utf8')
+        const isRepo = file.endsWith(repoRelative)
+
+        // 1. Raw SQL touching ReviewRequest and status
+        if (/ReviewRequest/i.test(content) && /\$executeRaw|\$queryRaw/.test(content)) {
+          if (/\bstatus\b/i.test(content)) {
+            violations.push(`${path.basename(file)}: raw SQL touching ReviewRequest status`)
+          }
+        }
+
+        if (!isRepo) {
+          // 2. Any Prisma write to reviewRequest outside repository
+          if (/\.reviewRequest\s*\.\s*(update|updateMany|upsert|create|createMany)\b/.test(content)) {
+            violations.push(`${path.basename(file)}: reviewRequest write outside ReviewRequestRepository`)
+          }
+
+          // 3. Any assignment of ReviewRequest status outside repository (e.g. stray status: EnumReviewRequestStatus.ANSWERED)
+          if (/status:\s*EnumReviewRequestStatus\.(ANSWERED|WITHDRAWN|OPEN)/.test(content)) {
+            violations.push(`${path.basename(file)}: stray ReviewRequest status assignment`)
+          }
+        } else {
+          // Inside review-request.repository.ts:
+          // Check create method
+          const createMatch = content.match(/async\s+create\s*\([^)]*\)[\s\S]*?return\s+this\.findById/)
+          expect(createMatch).not.toBeNull()
+          const createBody = createMatch![0]
+          if (/status:\s*EnumReviewRequestStatus\.(ANSWERED|WITHDRAWN)/.test(createBody)) {
+            violations.push('create() sets non-OPEN status')
+          }
+
+          // Check answer method: must set ANSWERED conditional on where status OPEN
+          const answerMatch = content.match(
+            /async\s+answer\s*\([^)]*\)[\s\S]*?return\s+\{\s*courierId:\s*request\.courierId\s*\}/
+          )
+          expect(answerMatch).not.toBeNull()
+          const answerBody = answerMatch![0]
+          if (!/where:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.OPEN/.test(answerBody)) {
+            violations.push('answer() missing conditional where status OPEN')
+          }
+          if (!/data:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.ANSWERED/.test(answerBody)) {
+            violations.push('answer() does not set status to ANSWERED')
+          }
+          if (/data:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.(WITHDRAWN|OPEN)/.test(answerBody)) {
+            violations.push('answer() sets illegal status')
+          }
+
+          // Check withdrawIfOpen method: must set WITHDRAWN conditional on where status OPEN
+          const withdrawMatch = content.match(
+            /async\s+withdrawIfOpen\s*\([^)]*\)[\s\S]*?return\s+count\s*===\s*1/
+          )
+          expect(withdrawMatch).not.toBeNull()
+          const withdrawBody = withdrawMatch![0]
+          if (!/where:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.OPEN/.test(withdrawBody)) {
+            violations.push('withdrawIfOpen() missing conditional where status OPEN')
+          }
+          if (!/data:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.WITHDRAWN/.test(withdrawBody)) {
+            violations.push('withdrawIfOpen() does not set status to WITHDRAWN')
+          }
+          if (/data:\s*\{[^}]*status:\s*EnumReviewRequestStatus\.(ANSWERED|OPEN)/.test(withdrawBody)) {
+            violations.push('withdrawIfOpen() sets illegal status')
+          }
+
+          // Ensure exactly 3 prisma reviewRequest writes in review-request.repository.ts
+          const prismaWrites =
+            content.match(/\breviewRequest\s*\.\s*(create|createMany|update|updateMany|upsert)\b/g) || []
+          if (prismaWrites.length !== 3) {
+            violations.push(
+              `review-request.repository.ts has ${prismaWrites.length} writes to reviewRequest, expected exactly 3`
+            )
+          }
+        }
       }
 
-      // Check conditional update in answer and withdraw
-      expect(code).toContain("status: EnumReviewRequestStatus.OPEN")
+      expect(violations).toEqual([])
     })
   })
 

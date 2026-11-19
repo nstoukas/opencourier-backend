@@ -639,6 +639,28 @@ describe('DeliveryEventDomainService', () => {
       expect(result?.reviewPay).toBe(200)
       expect(result?.total).toBe(500) // 300 + 200
     })
+
+    it('returns dropoffAddress null in undelivered detail branch when the only row is a REVIEW one (Spec 0038 review)', async () => {
+      mockRepository.findCompletedDeliveryRowForCourierDelivery.mockResolvedValue(null)
+      mockCompensationRepository.findDetailedRowsForCourierDelivery.mockResolvedValue([
+        {
+          deliveryId: 'del-review-only',
+          amount: 250,
+          reason: EnumCourierCompensationReason.REVIEW,
+          createdAt: new Date('2026-07-15T12:00:00Z'),
+          pickupBusinessName: 'Souvlaki Shop',
+          dropoffLocation: { formattedAddress: 'Private Residence 123, Volos', street: null, city: null, state: null },
+        },
+      ])
+
+      const result = await service.getEarningsDeliveryDetailForCourier('courier-123', 'del-review-only')
+
+      expect(result).not.toBeNull()
+      expect(result?.kind).toBe('REVIEW_CORRECTION')
+      expect(result?.dropoffAddress).toBeNull()
+      expect(result?.pickupBusinessName).toBe('Souvlaki Shop')
+      expect(result?.total).toBe(250)
+    })
   })
 
   describe('courierId scoping', () => {

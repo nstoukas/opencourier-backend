@@ -13,6 +13,7 @@ import {
   FALLBACK_REASSIGNMENT_PAYOUT_POLICIES,
   FALLBACK_REASSIGNMENT_PAYOUT_DEFAULT_POLICY,
 } from 'src/shared-types'
+import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/instance-config-settings.input'
 import {
   DEFAULT_QUOTE_RATE_PER_DISTANCE_UNIT,
   DEFAULT_QUOTE_BASE_FEE,
@@ -2431,12 +2432,111 @@ describe('InstanceConfigDomainService', () => {
       expect(shiftsChange).toBeUndefined()
     })
 
+    it('takes pg_advisory_xact_lock inside transaction BEFORE reading before-values in effect (AC-12)', async () => {
+      const callLog: string[] = []
+
+      configRepository.inTransaction = jest.fn().mockImplementation(async (cb) => {
+        callLog.push('inTransaction_start')
+        const result = await cb(mockTx)
+        callLog.push('inTransaction_end')
+        return result
+      })
+
+      mockTx.$executeRaw = jest.fn().mockImplementation(async (...args: any[]) => {
+        callLog.push('lock_acquired')
+      })
+
+      const origGetInstanceConfigSettings = service.getInstanceConfigSettings.bind(service)
+      jest.spyOn(service, 'getInstanceConfigSettings').mockImplementation(async () => {
+        callLog.push('getInstanceConfigSettings')
+        return origGetInstanceConfigSettings()
+      })
+
+      await service.setInstanceConfigSettings({ waitPayFreeMinutes: 15 }, 'admin-user-1')
+
+      // Assert lock was called with the advisory lock SQL
+      expect(mockTx.$executeRaw).toHaveBeenCalled()
+      const rawCall = mockTx.$executeRaw.mock.calls[0]
+      expect(rawCall?.[0]?.[0]).toContain('SELECT pg_advisory_xact_lock(hashtext(\'instance-config-save\'))')
+
+      // Assert order: inTransaction_start -> lock_acquired -> getInstanceConfigSettings
+      expect(callLog[0]).toBe('inTransaction_start')
+      expect(callLog[1]).toBe('lock_acquired')
+      expect(callLog[2]).toBe('getInstanceConfigSettings')
+    })
+
+    const fullSettingsForm: InstanceConfigSettingsInput = {
+      courierMatcherType: EnumCourierMatcherType.NEAREST_COURIER,
+      quoteCalculationType: 'BY_DISTANCE' as any,
+      geoCalculationType: 'HAVERSINE' as any,
+      deliveryDurationCalculationType: 'OSRM' as any,
+      courierCompensationCalculationType: 'FROM_QUOTE_FROM' as any,
+      defaultDietaryRestrictions: 'NONE' as any,
+      distanceUnit: 'KILOMETERS' as any,
+      currency: EnumCurrency.EUR,
+      maxAssignmentDistance: 20,
+      maxDriftDistance: 5,
+      quoteExpirationMinutes: 15,
+      feePercentageAmount: 10,
+      quoteRatePerDistanceUnit: 150,
+      quoteBaseFee: 200,
+      defaultCourierPayRate: 300,
+      defaultMaxWorkingHours: 8,
+      reassignmentPayoutPolicies: { FULL_COMPENSATION: 100, HALF_COMPENSATION: 50 },
+      reassignmentPayoutDefaultPolicy: 'FULL_COMPENSATION',
+      offerExpiryEnabled: true,
+      offerExpirySeconds: 60,
+      noCourierRetrySeconds: 30,
+      offerTimingEnabled: false,
+      offerLeadMinutes: 3,
+      offerTimingCandidates: 5,
+      savedCustomerRetentionMonths: 12,
+      restaurantHistoryDays: 30,
+      handBackSeconds: 60,
+      sosLocationRetentionDays: 30,
+      arrivalRadiusMetres: 50,
+      shiftsEnabled: true,
+      shiftDropNoticeHours: 12,
+      dispatchPhoneNumber: '+302421012345',
+      cancellationPayoutPolicy: 'FULL_COMPENSATION',
+      waitPayEnabled: true,
+      waitPayFreeMinutes: 10,
+      waitPayCentsPerMinute: 10,
+      waitLimitMinutes: 10,
+      returnTripPayPercent: 100,
+      chatQuickRepliesDispatch: ['Preset 1'],
+      chatQuickRepliesCourier: ['Preset 2'],
+      chatRetentionDays: 90,
+      reviewAnswerDays: 14,
+      reviewCorrectionMaxCents: 5000,
+    }
+
     it('writes NO SettingChange rows when entire form is resent with identical values', async () => {
-      // resending shiftsEnabled: false (same as default)
+      jest.spyOn(service, 'getInstanceConfigSettings').mockResolvedValue(fullSettingsForm as any)
       mockTx.settingChange.create.mockClear()
-      await service.setInstanceConfigSettings({ shiftsEnabled: false }, 'admin-user-1')
+      await service.setInstanceConfigSettings(fullSettingsForm, 'admin-user-1')
 
       expect(mockTx.settingChange.create).not.toHaveBeenCalled()
+    })
+
+    it('writes exactly one SettingChange when entire form is resent with one key changed (AC-12)', async () => {
+      jest.spyOn(service, 'getInstanceConfigSettings').mockResolvedValue(fullSettingsForm as any)
+      const updatedForm: InstanceConfigSettingsInput = {
+        ...fullSettingsForm,
+        waitPayFreeMinutes: 15,
+      }
+      mockTx.settingChange.create.mockClear()
+      await service.setInstanceConfigSettings(updatedForm, 'admin-user-1')
+
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          key: 'waitPayFreeMinutes',
+          oldValue: 10,
+          newValue: 15,
+          changedByUserId: 'admin-user-1',
+        }),
+      })
     })
   })
 })

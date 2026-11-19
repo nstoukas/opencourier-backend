@@ -1,4 +1,4 @@
-import { EnumRemovalRequestStatus } from '@prisma/types'
+import { EnumRemovalRequestStatus, Prisma } from '@prisma/types'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { RemovalRequestRepository } from './removal-request.repository'
 
@@ -271,6 +271,74 @@ describe('RemovalRequestRepository', () => {
           oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
           newValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: true },
           changedByUserId: adminId,
+        },
+      })
+    })
+  })
+
+  describe('createReason (spec 0038, AC-12)', () => {
+    it('writes a SettingChange with key removalReason, oldValue null, and newValue on create', async () => {
+      const createdReason = {
+        id: 'new-reason-1',
+        label: 'Severe weather',
+        paidToRider: true,
+        chargedToRestaurant: true,
+        position: 3,
+        needsNote: false,
+        removedAt: null,
+        createdAt: new Date('2026-11-19T10:00:00.000Z'),
+        updatedAt: new Date('2026-11-19T10:00:00.000Z'),
+      }
+      mockTx.removalReason.aggregate.mockResolvedValue({ _max: { position: 2 } })
+      mockTx.removalReason.create.mockResolvedValue(createdReason)
+
+      const result = await repository.createReason(
+        { label: 'Severe weather', paidToRider: true, chargedToRestaurant: true },
+        'admin-user-1'
+      )
+
+      expect(result).toEqual(createdReason)
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'removalReason',
+          subject: 'new-reason-1',
+          oldValue: Prisma.DbNull,
+          newValue: { label: 'Severe weather', paidToRider: true, chargedToRestaurant: true },
+          changedByUserId: 'admin-user-1',
+        },
+      })
+    })
+  })
+
+  describe('removeActiveReason (spec 0038, AC-12)', () => {
+    it('writes a SettingChange with key removalReason, oldValue, and newValue null on remove', async () => {
+      const reasonId = 'reason-to-remove'
+      const existingReason = {
+        id: reasonId,
+        label: 'Customer absent',
+        paidToRider: false,
+        chargedToRestaurant: true,
+        position: 2,
+        needsNote: false,
+        removedAt: new Date('2026-11-19T10:00:00.000Z'),
+        createdAt: new Date('2026-11-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-11-19T10:00:00.000Z'),
+      }
+      mockTx.removalReason.updateMany.mockResolvedValue({ count: 1 })
+      mockTx.removalReason.findUniqueOrThrow.mockResolvedValue(existingReason)
+
+      const result = await repository.removeActiveReason(reasonId, 'admin-user-1')
+
+      expect(result).toEqual(existingReason)
+      expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+      expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+        data: {
+          key: 'removalReason',
+          subject: reasonId,
+          oldValue: { label: 'Customer absent', paidToRider: false, chargedToRestaurant: true },
+          newValue: Prisma.DbNull,
+          changedByUserId: 'admin-user-1',
         },
       })
     })

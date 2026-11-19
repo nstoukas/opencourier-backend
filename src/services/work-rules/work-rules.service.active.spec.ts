@@ -241,6 +241,29 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.data[1]?.label).toBe('Reason to be taken off an order')
       expect(result.data[1]?.newText).toBe('Severe weather, pays the rider')
     })
+
+    it('a SettingChange of reassignmentPayoutPolicies where only one percentage moved appears in rider changes list (AC-13)', async () => {
+      mockSettingChangeRepository.findPage.mockResolvedValue({
+        data: [
+          {
+            id: 'change-policy-1',
+            key: 'reassignmentPayoutPolicies',
+            oldValue: { FULL_COMPENSATION: 100, HALF_COMPENSATION: 50 },
+            newValue: { FULL_COMPENSATION: 100, HALF_COMPENSATION: 25 },
+            createdAt: new Date('2026-11-19T09:30:00Z'),
+            changedBy: { id: 'admin-1', email: 'admin@coop.gr', username: 'admin' },
+          } as any,
+        ],
+        pagination: { totalPages: 1 } as any,
+      })
+
+      const result = await service.riderChanges({ page: 1, perPage: 20 })
+
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0]?.label).toBe('Pay rules for a job taken off you')
+      expect(result.data[0]?.oldText).toBe('full compensation 100%, half compensation 50%')
+      expect(result.data[0]?.newText).toBe('full compensation 100%, half compensation 25%')
+    })
   })
 
   describe('adminChanges (AC-13)', () => {
@@ -289,6 +312,28 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
         expect(() => setting?.format(null, context)).not.toThrow()
         expect(() => setting?.format(undefined, context)).not.toThrow()
       }
+    })
+
+    it('formats offerTimingCandidates number as "<n> riders" (AC-13)', () => {
+      const context = { distanceUnit: 'KILOMETERS', currency: 'EUR' }
+      const format = RIDER_FACING_SETTINGS.offerTimingCandidates!.format
+      expect(format(5, context)).toBe('5 riders')
+      expect(format(1, context)).toBe('1 riders')
+      expect(format(0, context)).toBe('0 riders')
+      expect(format(null, context)).toBe('not set')
+    })
+
+    it('formats reassignmentPayoutPolicies as each policy with its percentage (AC-13)', () => {
+      const context = { distanceUnit: 'KILOMETERS', currency: 'EUR' }
+      const format = RIDER_FACING_SETTINGS.reassignmentPayoutPolicies!.format
+      expect(format({ FULL_COMPENSATION: 100, HALF_COMPENSATION: 50 }, context)).toBe(
+        'full compensation 100%, half compensation 50%'
+      )
+      expect(format({ FULL_COMPENSATION: 100, HALF_COMPENSATION: 25 }, context)).toBe(
+        'full compensation 100%, half compensation 25%'
+      )
+      expect(format({}, context)).toBe('none')
+      expect(format(null, context)).toBe('not set')
     })
   })
 })
