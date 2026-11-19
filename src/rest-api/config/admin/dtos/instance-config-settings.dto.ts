@@ -101,6 +101,9 @@ export class InstanceConfigSettingsDto {
   waitPayFreeMinutes: number
 
   @ApiProperty({ type: Number })
+  shiftBreakMinutes: number
+
+  @ApiProperty({ type: Number })
   waitPayCentsPerMinute: number
 
   @ApiProperty({ type: Number })
@@ -186,6 +189,7 @@ export class InstanceConfigSettingsDto {
     this.offerTimingCandidates = data.offerTimingCandidates
     this.waitPayEnabled = data.waitPayEnabled
     this.waitPayFreeMinutes = data.waitPayFreeMinutes
+    this.shiftBreakMinutes = data.shiftBreakMinutes
     this.waitPayCentsPerMinute = data.waitPayCentsPerMinute
     this.waitLimitMinutes = data.waitLimitMinutes
     this.returnTripPayPercent = data.returnTripPayPercent

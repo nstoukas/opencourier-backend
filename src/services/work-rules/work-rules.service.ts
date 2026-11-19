@@ -26,6 +26,8 @@ export type HowItWorks = {
   pay: string[]
   personDecides: string[]
   appRecords: string[]
+  // Spec 0040 (AC-13): how time worked is counted, and who can see it.
+  timeWorked: string[]
   reviewAnswerDays: number
 }
 
@@ -67,6 +69,24 @@ export const APP_RECORDS = [
   'There are no ratings, and nothing is counted or ranked per rider.',
   'Every step that affects an offer or your pay is written on that delivery’s record, which a representative can show you.',
 ]
+
+// Spec 0040 (AC-13): who sees a rider's time worked, and why. Fixed text, tied to AC-15 and AC-16.
+export const TIME_WORKED_ADMIN_VIEW =
+  'Admins can see your time worked on your own page, to answer your questions and review requests. No one ranks or compares riders by it, and the co-op totals never name a rider.'
+
+// Spec 0040 (AC-13): the time worked sentences, from the live break setting.
+export function timeWorkedSentences(shiftBreakMinutes: number): string[] {
+  return [
+    'Your time worked runs from when you go Online until you go Offline, and keeps going while you still hold a job.',
+    shiftBreakMinutes > 0
+      ? `An Offline shorter than ${shiftBreakMinutes} minutes is a break inside the same shift: it is marked "Break" and is not counted as time worked. ${shiftBreakMinutes} minutes or longer ends the shift.`
+      : 'Every Offline with no job ends the shift.',
+    'Each shift is split into job time (from accepting a job until it ends), paid waiting at restaurants, and unpaid time (Online with no job).',
+    'The money of a shift is the pay of each job you accepted in it, with any pay added later, such as a review correction.',
+    'Day totals reset at midnight. A shift that crosses midnight stays one shift.',
+    TIME_WORKED_ADMIN_VIEW,
+  ]
+}
 
 @Injectable()
 export class WorkRulesService {
@@ -133,6 +153,7 @@ export class WorkRulesService {
       pay,
       personDecides: PERSON_DECIDES,
       appRecords: APP_RECORDS,
+      timeWorked: timeWorkedSentences(settings.shiftBreakMinutes),
       reviewAnswerDays: settings.reviewAnswerDays,
     }
   }

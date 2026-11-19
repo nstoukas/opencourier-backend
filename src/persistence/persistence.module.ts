@@ -24,6 +24,7 @@ import { DispatchBoardRepository } from './repositories/dispatch-board.repositor
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 import { RemovalRequestRepository } from './repositories/removal-request.repository'
 import { SettingChangeRepository } from './repositories/setting-change.repository'
+import { TimeWorkedRepository } from './repositories/time-worked.repository'
 import { ReviewRequestRepository } from './repositories/review-request.repository'
 import { PartnerBillingRepository } from './repositories/partner-billing.repository'
 import { ChatRepository } from './repositories/chat.repository'
@@ -56,6 +57,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SosIncidentRepository,
     RemovalRequestRepository,
     SettingChangeRepository,
+    TimeWorkedRepository,
     ReviewRequestRepository,
     ChatRepository,
     PartnerBillingRepository,
@@ -86,6 +88,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SosIncidentRepository,
     RemovalRequestRepository,
     SettingChangeRepository,
+    TimeWorkedRepository,
     ReviewRequestRepository,
     ChatRepository,
     PartnerBillingRepository,

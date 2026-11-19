@@ -30,6 +30,9 @@ import {
   WAIT_PAY_CENTS_PER_MINUTE_MIN,
   WAIT_PAY_FREE_MINUTES_MAX,
   WAIT_PAY_FREE_MINUTES_MIN,
+  DEFAULT_SHIFT_BREAK_MINUTES,
+  SHIFT_BREAK_MINUTES_MAX,
+  SHIFT_BREAK_MINUTES_MIN,
   DEFAULT_OFFER_LEAD_MINUTES,
   DEFAULT_OFFER_TIMING_CANDIDATES,
   DEFAULT_OFFER_TIMING_ENABLED,
@@ -153,6 +156,14 @@ export const NUMERIC_SETTING_RULES: {
     mustBeInteger: true,
     min: WAIT_PAY_FREE_MINUTES_MIN,
     max: WAIT_PAY_FREE_MINUTES_MAX,
+  },
+  // Spec 0040 (AC-17): 0 is allowed and means every Offline with no job ends the shift.
+  {
+    key: 'shiftBreakMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: SHIFT_BREAK_MINUTES_MIN,
+    max: SHIFT_BREAK_MINUTES_MAX,
   },
   {
     key: 'waitPayCentsPerMinute',
@@ -337,6 +348,7 @@ export class InstanceConfigDomainService {
     const noCourierRetrySeconds = await this.getNoCourierRetrySeconds()
     const waitPayEnabled = await this.getWaitPayEnabled()
     const waitPayFreeMinutes = await this.getWaitPayFreeMinutes()
+    const shiftBreakMinutes = await this.getShiftBreakMinutes()
     const waitPayCentsPerMinute = await this.getWaitPayCentsPerMinute()
     const waitLimitMinutes = await this.getWaitLimitMinutes()
     const returnTripPayPercent = await this.getReturnTripPayPercent()
@@ -390,6 +402,7 @@ export class InstanceConfigDomainService {
       noCourierRetrySeconds,
       waitPayEnabled,
       waitPayFreeMinutes,
+      shiftBreakMinutes,
       waitPayCentsPerMinute,
       waitLimitMinutes,
       returnTripPayPercent,
@@ -707,6 +720,9 @@ export class InstanceConfigDomainService {
     }
     if (data.waitPayFreeMinutes !== undefined) {
       save(ConfigKey.WAIT_PAY_FREE_MINUTES, data.waitPayFreeMinutes)
+    }
+    if (data.shiftBreakMinutes !== undefined) {
+      save(ConfigKey.SHIFT_BREAK_MINUTES, data.shiftBreakMinutes)
     }
     if (data.waitPayCentsPerMinute !== undefined) {
       save(ConfigKey.WAIT_PAY_CENTS_PER_MINUTE, data.waitPayCentsPerMinute)
@@ -1103,6 +1119,16 @@ export class InstanceConfigDomainService {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.WAIT_PAY_ENABLED, DEFAULT_WAIT_PAY_ENABLED)
 
     return enabled.value === true
+  }
+
+  // Spec 0040 (AC-17): the break limit of a worked shift, read once per time worked request.
+  async getShiftBreakMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.SHIFT_BREAK_MINUTES,
+      DEFAULT_SHIFT_BREAK_MINUTES,
+      SHIFT_BREAK_MINUTES_MIN,
+      SHIFT_BREAK_MINUTES_MAX
+    )
   }
 
   async getWaitPayFreeMinutes(): Promise<number> {

@@ -129,6 +129,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   waitPayFreeMinutes?: number
 
+  // Spec 0040 (AC-17): whole minutes, 0 to 240.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  shiftBreakMinutes?: number
+
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()

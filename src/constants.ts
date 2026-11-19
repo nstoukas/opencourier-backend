@@ -113,6 +113,12 @@ export const DEFAULT_WAIT_PAY_ENABLED = false
 export const DEFAULT_WAIT_PAY_FREE_MINUTES = 10
 export const WAIT_PAY_FREE_MINUTES_MIN = 0
 export const WAIT_PAY_FREE_MINUTES_MAX = 60
+
+// Spec 0040 (AC-17): an Offline with no job shorter than this is a break inside the same worked shift;
+// this long or longer ends the shift. 0 means every Offline with no job ends it. A co-op setting.
+export const DEFAULT_SHIFT_BREAK_MINUTES = 30
+export const SHIFT_BREAK_MINUTES_MIN = 0
+export const SHIFT_BREAK_MINUTES_MAX = 240
 export const DEFAULT_WAIT_PAY_CENTS_PER_MINUTE = 10
 export const WAIT_PAY_CENTS_PER_MINUTE_MIN = 0
 export const WAIT_PAY_CENTS_PER_MINUTE_MAX = 200

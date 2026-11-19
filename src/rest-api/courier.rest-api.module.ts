@@ -15,6 +15,7 @@ import { RemovalRequestCourierRestApiModule } from './removal-request/courier/re
 import { ReviewRequestCourierRestApiModule } from './review-request/courier/review-request.courier.rest-api.module'
 import { SettingChangeCourierRestApiModule } from './setting-change/courier/setting-change.courier.rest-api.module'
 import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.module'
+import { TimeWorkedCourierRestApiModule } from './time-worked/courier/time-worked.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.m
     RemovalRequestCourierRestApiModule,
     ReviewRequestCourierRestApiModule,
     SettingChangeCourierRestApiModule,
+    TimeWorkedCourierRestApiModule,
     // A rider's chat with dispatch (spec 0034).
     ChatCourierRestApiModule,
   ],

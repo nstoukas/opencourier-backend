@@ -50,6 +50,8 @@ export type InstanceConfigSettings = {
   waitPayFreeMinutes: number
   waitPayCentsPerMinute: number
   waitLimitMinutes: number
+  // Time worked (spec 0040): the longest Offline that still counts as a break inside a shift.
+  shiftBreakMinutes: number
   returnTripPayPercent: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
@@ -143,6 +145,7 @@ export enum ConfigKey {
   OFFER_TIMING_CANDIDATES = 'offerTimingCandidates',
   WAIT_PAY_ENABLED = 'waitPayEnabled',
   WAIT_PAY_FREE_MINUTES = 'waitPayFreeMinutes',
+  SHIFT_BREAK_MINUTES = 'shiftBreakMinutes',
   WAIT_PAY_CENTS_PER_MINUTE = 'waitPayCentsPerMinute',
   WAIT_LIMIT_MINUTES = 'waitLimitMinutes',
   RETURN_TRIP_PAY_PERCENT = 'returnTripPayPercent',

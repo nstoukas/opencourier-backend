@@ -39,6 +39,7 @@ export class InstanceConfigSettingsInput {
   offerTimingCandidates?: number
   waitPayEnabled?: boolean
   waitPayFreeMinutes?: number
+  shiftBreakMinutes?: number
   waitPayCentsPerMinute?: number
   waitLimitMinutes?: number
   returnTripPayPercent?: number

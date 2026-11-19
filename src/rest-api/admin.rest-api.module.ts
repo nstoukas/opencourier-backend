@@ -17,6 +17,7 @@ import { ReviewRequestAdminRestApiModule } from './review-request/admin/review-r
 import { SettingChangeAdminRestApiModule } from './setting-change/admin/setting-change.admin.rest-api.module'
 import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
 import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-charge.admin.rest-api.module'
+import { TimeWorkedAdminRestApiModule } from './time-worked/admin/time-worked.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-
     RemovalRequestAdminRestApiModule,
     ReviewRequestAdminRestApiModule,
     SettingChangeAdminRestApiModule,
+    TimeWorkedAdminRestApiModule,
     // Dispatch's chat inbox (spec 0034).
     ChatAdminRestApiModule,
     // What each restaurant owes, and bills made by hand (spec 0036).
