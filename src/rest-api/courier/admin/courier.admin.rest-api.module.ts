@@ -3,9 +3,10 @@ import { CourierAdminRestApiController } from './courier.admin.rest-api.controll
 import { CourierDomainModule } from '../../../domains/courier/courier.domain.module'
 import { UserDomainModule } from '../../../domains/user/user.domain.module'
 import { CourierAdminRestApiService } from './courier.admin.rest-api.service'
+import { CourierCutOffModule } from '../../../services/courier-cut-off/courier-cut-off.module'
 
 @Module({
-  imports: [CourierDomainModule, UserDomainModule],
+  imports: [CourierDomainModule, UserDomainModule, CourierCutOffModule],
   controllers: [CourierAdminRestApiController],
   providers: [CourierAdminRestApiService],
 })

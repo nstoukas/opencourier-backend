@@ -1,15 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { EnumCourierStatus, EnumUserRole } from '@prisma/types'
+import { EnumUserRole } from '@prisma/types'
 import * as errors from 'src/errors'
 import { PasswordService } from 'src/domains/auth/password.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
-import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { UserDomainService } from 'src/domains/user/user.domain.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
-import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { isUniqueConstraintError } from 'src/prisma.util'
-import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
-import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
+import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { CourierCreateAdminInput } from './queries/courier-create.admin.input'
 
 // Rider accounts issued by the co-op (spec 0013): an admin creates a rider with their login, and
@@ -23,10 +20,7 @@ export class CourierAdminRestApiService {
     private readonly userDomainService: UserDomainService,
     private readonly passwordService: PasswordService,
     private readonly courierRepository: CourierRepository,
-    private readonly courierDeviceRepository: CourierDeviceRepository,
-    private readonly courierDomainService: CourierDomainService,
-    private readonly deliveryEventService: DeliveryEventService,
-    private readonly websocketDispatcher: WebsocketDispatcher
+    private readonly courierCutOffService: CourierCutOffService
   ) {}
 
   async createCourier(input: CourierCreateAdminInput, adminUserId: string): Promise<CourierEntity> {
@@ -94,32 +88,7 @@ export class CourierAdminRestApiService {
     await this.userDomainService.update(user.id, { password: hashedPassword, credentialsChangedAt: new Date() })
     this.logger.log(`Admin ${adminUserId} set a new password for courier ${courierId}`)
 
-    await this.cutOffOldPhone(courier)
-  }
-
-  // After the password is saved, the old phone is cut off beyond its tokens (spec 0013, AC-5): its
-  // live connection, its offer pushes, and its Online status. Each step is tried on its own; a
-  // failure is logged and does not undo the password, which already stops the phone at its next
-  // request.
-  private async cutOffOldPhone(courier: CourierEntity): Promise<void> {
-    try {
-      await this.websocketDispatcher.disconnectUser(courier.userId)
-    } catch (error) {
-      this.logger.error(`Could not close the connections of courier ${courier.id}`, error as Error)
-    }
-
-    try {
-      await this.courierDeviceRepository.deleteAllForCourier(courier.id)
-    } catch (error) {
-      this.logger.error(`Could not remove the devices of courier ${courier.id}`, error as Error)
-    }
-
-    try {
-      // The same path as an admin setting a rider Offline (the PATCH route): open offers end.
-      await this.courierDomainService.update(courier.id, { status: EnumCourierStatus.OFFLINE })
-      await this.deliveryEventService.handleCourierStatusChanged(courier.id, EnumCourierStatus.OFFLINE)
-    } catch (error) {
-      this.logger.error(`Could not set courier ${courier.id} Offline`, error as Error)
-    }
+    // Sockets closed, devices removed, set Offline (spec 0013, AC-5), shared with the reset by email.
+    await this.courierCutOffService.cutOff(courier)
   }
 }
