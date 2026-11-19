@@ -78,7 +78,10 @@ export function compensationToEarningsDelivery(row: CourierCompensationDeliveryR
   return {
     deliveryId: row.deliveryId,
     droppedOffAt: row.createdAt,
-    dropoffAddress: formatDropoffAddress(row.dropoffLocation),
+    // A review correction can go to a rider who was only offered the order, and an offer shows only
+    // the area, never the customer's address (spec 0038 review), so its row names the restaurant only.
+    dropoffAddress:
+      row.reason === EnumCourierCompensationReason.REVIEW ? null : formatDropoffAddress(row.dropoffLocation),
     pickupBusinessName: row.pickupBusinessName ?? '',
     compensation: row.amount,
     tips: 0,

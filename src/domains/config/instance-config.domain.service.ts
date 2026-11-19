@@ -783,8 +783,11 @@ export class InstanceConfigDomainService {
     // moved gets a SettingChange row in it. "In effect" is what the app used before the save (the
     // stored value, or the default when no row exists), read once here before anything is written,
     // so a form that resends every value records only what changed.
-    const before: Record<string, unknown> = { ...(await this.getInstanceConfigSettings()) }
     await this.configRepository.inTransaction(async (tx) => {
+      // One save at a time: a second admin's save waits here until this one commits, then reads the
+      // values this one wrote, so its "before" is never stale and no change is recorded twice.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('instance-config-save'))`
+      const before: Record<string, unknown> = { ...(await this.getInstanceConfigSettings()) }
       for (const write of writes) {
         await this.configRepository.saveByKey(write.key, write.stored, tx)
         if (!isSameSettingValue(before[write.key], write.value)) {

@@ -64,6 +64,16 @@ const distance = (value: unknown, context: SettingFormatContext) => {
   return number === null ? NO_VALUE : `${number} ${distanceUnitName(context.distanceUnit)}`
 }
 
+// {"FULL_COMPENSATION": 100, "HALF": 50} is "full compensation 100%, half 50%".
+function formatPayoutPolicies(value: unknown): string {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return NO_VALUE
+  const parts = Object.entries(value as Record<string, unknown>).map(([name, percent]) => {
+    const number = asNumber(percent)
+    return number === null ? policyName(name) : `${policyName(name)} ${number}%`
+  })
+  return parts.join(', ') || 'none'
+}
+
 // "10:00" from 600 minutes after midnight.
 function clock(minutes: number): string {
   const hours = Math.floor(minutes / 60)
@@ -95,10 +105,8 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   offerExpirySeconds: { label: 'Time to answer an offer', format: withUnit('seconds') },
   offerTimingEnabled: { label: 'Offers timed to when the food is ready', format: onOff },
   offerLeadMinutes: { label: 'How early before the food is ready an offer goes out', format: withUnit('minutes') },
-  offerTimingCandidates: {
-    label: 'Riders considered for a timed offer',
-    format: (value) => (Array.isArray(value) ? `${value.length} choices` : NO_VALUE),
-  },
+  // A count of riders (a whole number), not a list.
+  offerTimingCandidates: { label: 'Riders considered for a timed offer', format: withUnit('riders') },
   quoteBaseFee: { label: 'Base pay per delivery', format: money },
   quoteRatePerDistanceUnit: {
     label: 'Pay per distance',
@@ -123,11 +131,9 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     format: (value) => (asNumber(value) === 0 ? 'off' : withUnit('metres')(value)),
   },
   cancellationPayoutPolicy: { label: 'Pay when a job you accepted is cancelled', format: policyName },
-  reassignmentPayoutPolicies: {
-    label: 'Pay rules for a job taken off you',
-    format: (value) =>
-      value !== null && typeof value === 'object' ? Object.keys(value).map(policyName).join(', ') || 'none' : NO_VALUE,
-  },
+  // Each policy with its percentage ("full compensation 100%"): a change of percentage alone must read
+  // differently, or the What changed list would drop it as unchanged (decision 30.7).
+  reassignmentPayoutPolicies: { label: 'Pay rules for a job taken off you', format: formatPayoutPolicies },
   reassignmentPayoutDefaultPolicy: { label: 'Usual pay when a job is taken off you', format: policyName },
   shiftsEnabled: { label: 'Shifts', format: onOff },
   shiftDropNoticeHours: { label: 'Notice needed to drop a shift', format: withUnit('hours') },

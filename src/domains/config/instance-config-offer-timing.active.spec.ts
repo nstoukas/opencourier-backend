@@ -25,6 +25,8 @@ describe('InstanceConfigDomainService - Offer Timing Settings (Spec 0031: AC-1)'
     notFoundError.name = 'NotFoundError'
 
     mockTx = {
+      // The save takes a lock first (one save at a time); the fake transaction accepts it.
+      $executeRaw: jest.fn(),
       settingChange: {
         create: jest.fn(),
       },
