@@ -135,10 +135,20 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   per group", use `$queryRaw` with `SELECT DISTINCT ON (...) id ... ORDER BY ...` and `Prisma.join` for the values, then
   `findMany` by those ids (`ChatRepository.findNewestMessageIds`).
 - Review requests and the settings record (spec 0038): the three review events are written in `ReviewRequestRepository`'s transaction with null statuses, never through `processDeliveryEvent`, so anything that reads drop offs must keep filtering by `newStatus` or type. A request leaves `OPEN` only through `answer()` or `withdrawIfOpen()` (a guard test scans all of `src`). Every Instance configuration save runs in one transaction under `pg_advisory_xact_lock` and writes a `SettingChange` per changed value in effect; a test faking that transaction must give it `$executeRaw`. A new rider facing setting goes in `RIDER_FACING_SETTINGS` with a formatter that writes every part that can change, or the rider's What changed list drops the line as unchanged. `updateCurrentLocationById` is the only writer of a courier's position, and it refuses an Offline rider with no job (409).
+- Rider password reset by emailed code (spec 0039): `forgot-password` answers 202 before any lookup, for every email, and runs
+  the work in a promise nobody awaits, so a change must keep the answer and its timing independent of the email. Codes live only
+  as an HMAC (keyed with `JWT_SECRET_KEY`) in Redis, and every guard (`password-reset-wait`, `-count`, `-tries`, `-day-tries`)
+  goes through `CacheService.setIfAbsent`, `increment` (one Lua script) or `take` (GETDEL), never a read then a write. No log
+  line, error or Sentry report may carry an email, a code or a password: `describeError` logs a class and code, never a message.
+- A credential change that must end a rider's other sessions calls `CourierCutOffService.cutOff` (`src/services/courier-cut-off/`,
+  shared by the admin password change and the reset): sockets closed, `CourierDevice` rows deleted, Offline through the admin path.
+- Mail goes through `MailService` (`src/services/mail/`, Nodemailer over SMTP). With no `SMTP_HOST` (or `MAIL_FROM`) the server
+  still starts, logs "Mail is off" once and `isConfigured()` is false; callers check it first. In dev, Mailpit catches every mail.
 
 ## Agent skills
 
 - Declined: `davidcastagnetoa/skills@fcm-push-notifications` (2026-10-26; another app's Expo guide, its advice contradicts this repo's data only push)
+- Declined: an Agent Skill or MCP search for Nodemailer and Mailpit (decision 17.19, 2026-11-19)
 - MCP servers: Firebase MCP, `npx -y firebase-tools@latest mcp` (recommended, not connected; useful for row 1's live push check once the co-op has its own Firebase project)
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
