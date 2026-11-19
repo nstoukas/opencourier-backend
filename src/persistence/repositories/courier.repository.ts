@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { randomUUID } from 'crypto'
 import {
   Courier,
   CourierSetting,
   EnumCourierDeliverySetting,
   EnumCourierStatus,
+  EnumCourierStatusChangeCause,
   EnumDeliveryStatus,
   EnumUserRole,
   Prisma,
@@ -19,6 +21,7 @@ import { ICourierCreate } from '../../domains/courier/interfaces/ICourierCreate'
 import { Exact } from '../../types'
 import { createPaginator } from '../../rest-api/Paginator'
 import { ICourierUpdate } from '../../domains/courier/interfaces/ICourierUpdate'
+import { ICourierStatusChangeResult } from '../../domains/courier/interfaces/ICourierStatusChangeResult'
 import { CourierSettingEntity } from 'src/domains/courier-setting/entities/courier-setting.entity'
 import { ICourierUpdateLocation } from 'src/domains/courier/interfaces/ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from 'src/domains/courier/interfaces/ICourierFindNearestArgs'
@@ -117,12 +120,15 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   }
 
   async updateById(courierId: string, data: ICourierUpdate) {
+    // Spec 0040 (AC-1): `status` is not in ICourierUpdate, but a class with more fields (an admin request
+    // body) still passes the type check, so it is dropped here too. Only changeStatus writes a status.
+    const { status: _status, ...fields } = data as ICourierUpdate & { status?: unknown }
     const result = await this.prisma.courier.update({
       where: {
         id: courierId,
       },
       data: {
-        ...data,
+        ...fields,
       },
     })
 
@@ -145,21 +151,6 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         AND ("status"::text <> ${EnumCourierStatus.OFFLINE} OR EXISTS (${busyCourierDeliverySubQuery()}))
     `
     return updated === 1
-  }
-
-  // Spec 0038 (AC-15): a rider going Offline. The same statement that sets the status erases the stored
-  // position and its time when they hold no active delivery (a Last Call rider still on a job keeps it
-  // until the job ends). Used by the rider's own switch and the admin's; never by the Last Call accept,
-  // which sets Offline while the rider now holds that delivery.
-  async setOfflineAndClearLocationIfFree(courierId: string): Promise<void> {
-    await this.prisma.$executeRaw`
-      UPDATE "Courier"
-      SET "status" = CAST(${EnumCourierStatus.OFFLINE} AS "EnumCourierStatus"),
-          "updatedAt" = NOW() AT TIME ZONE 'UTC',
-          "currentLocation" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocation" ELSE NULL END,
-          "currentLocationAt" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocationAt" ELSE NULL END
-      WHERE "id" = ${courierId}
-    `
   }
 
   // Spec 0038 (AC-15): erases the stored position of an Offline rider who holds no active delivery. With
@@ -207,31 +198,60 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     }
   }
 
-  async updateStatus(courierId: string, status: EnumCourierStatus) {
-    // Spec 0038 (AC-15): Offline always goes through the statement that erases the position, even if
-    // the rider already reads as Offline, so a position left from before is cleared too.
-    if (status === EnumCourierStatus.OFFLINE) {
-      await this.setOfflineAndClearLocationIfFree(courierId)
-      return
-    }
+  // Spec 0040 (AC-1): the only writer of a rider's status. One transaction locks the courier row, writes
+  // the status and, when it changed, one CourierStatusChange row, so the record and the status can never
+  // disagree: a status write that fails writes no row, and a row that fails rolls the status back.
+  // Offline always goes through the statement that erases the stored position when the rider holds no
+  // job (spec 0038, AC-15), even when they already read as Offline, so a position left from before is
+  // cleared too; a request that leaves the status as it was writes no row.
+  async changeStatus(
+    courierId: string,
+    toStatus: EnumCourierStatus,
+    cause: EnumCourierStatusChangeCause,
+    adminUserId?: string | null
+  ): Promise<ICourierStatusChangeResult> {
+    // `$transaction` with a function: every query on `tx` runs in one database transaction, committed
+    // when the function returns and rolled back if it throws.
+    return this.prisma.$transaction(async (tx) => {
+      // FOR UPDATE holds the row until the transaction ends, so two changes for one rider run one after
+      // the other and each reads the status the other left.
+      const rows = await tx.$queryRaw<Array<{ status: EnumCourierStatus }>>`
+        SELECT "status"::text AS "status" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE
+      `
+      const fromStatus = rows[0]?.status
+      if (!fromStatus) throw new errors.NotFoundException('Courier not found')
 
-    const courier = await this.prisma.courier.findUniqueOrThrow({
-      where: {
-        id: courierId,
-      },
-    })
+      if (toStatus === EnumCourierStatus.OFFLINE) {
+        await tx.$executeRaw`
+          UPDATE "Courier"
+          SET "status" = CAST(${EnumCourierStatus.OFFLINE} AS "EnumCourierStatus"),
+              "updatedAt" = NOW() AT TIME ZONE 'UTC',
+              "currentLocation" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocation" ELSE NULL END,
+              "currentLocationAt" = CASE WHEN EXISTS (${busyCourierDeliverySubQuery()}) THEN "currentLocationAt" ELSE NULL END
+          WHERE "id" = ${courierId}
+        `
+      } else if (fromStatus !== toStatus) {
+        await tx.courier.update({ where: { id: courierId }, data: { status: toStatus } })
+      }
 
-    if (courier.status === status) {
-      return
-    }
+      if (fromStatus === toStatus) return { changed: false, fromStatus }
 
-    await this.prisma.courier.update({
-      where: {
-        id: courierId,
-      },
-      data: {
-        status,
-      },
+      // clock_timestamp() is the moment this statement runs, after the lock above (NOW() would be the
+      // transaction's start, which can come before a change that held the lock first). In UTC, as Prisma
+      // stores every DateTime.
+      await tx.$executeRaw`
+        INSERT INTO "CourierStatusChange" ("id", "courierId", "fromStatus", "toStatus", "cause", "adminUserId", "createdAt")
+        VALUES (
+          ${randomUUID()},
+          ${courierId},
+          CAST(${fromStatus} AS "EnumCourierStatus"),
+          CAST(${toStatus} AS "EnumCourierStatus"),
+          CAST(${cause} AS "EnumCourierStatusChangeCause"),
+          ${adminUserId ?? null},
+          clock_timestamp() AT TIME ZONE 'UTC'
+        )
+      `
+      return { changed: true, fromStatus }
     })
   }
 

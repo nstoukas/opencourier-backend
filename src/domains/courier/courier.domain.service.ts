@@ -5,7 +5,8 @@ import { ICourierUpdate } from './interfaces/ICourierUpdate'
 import { ICourierUpdateLocation } from './interfaces/ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from './interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from './interfaces/ICourierFindBySeniorityArgs'
-import { EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
+import { EnumCourierDeliverySetting, EnumCourierStatus, EnumCourierStatusChangeCause, Prisma } from '@prisma/types'
+import { ICourierStatusChangeResult } from './interfaces/ICourierStatusChangeResult'
 
 // The 409 a phone gets for a position sent while Offline with no job (spec 0038, AC-14).
 export const OFFLINE_POSITION_REFUSED_MESSAGE = 'You are Offline, so no position is stored'
@@ -27,17 +28,21 @@ export class CourierDomainService {
     return courier
   }
 
-  // Spec 0038 (AC-15): an admin setting a rider Offline goes through the same statement as the rider's
-  // own switch, which erases the stored position when they hold no job. The other fields follow.
+  // Every field but the status, which only changeStatus writes (spec 0040, AC-1).
   async update(id: string, input: ICourierUpdate) {
-    if (input.status === EnumCourierStatus.OFFLINE) {
-      await this.courierRepository.setOfflineAndClearLocationIfFree(id)
-      const { status: _status, ...rest } = input
-      return this.courierRepository.updateById(id, rest)
-    }
-    const courier = await this.courierRepository.updateById(id, input)
+    return this.courierRepository.updateById(id, input)
+  }
 
-    return courier
+  // Spec 0040 (AC-1): the one way to change a rider's status, with why it changed and, on an admin's
+  // edit or a password change an admin made, which admin. Offline also erases the stored position when
+  // the rider holds no job (spec 0038, AC-15).
+  async changeStatus(
+    id: string,
+    status: EnumCourierStatus,
+    cause: EnumCourierStatusChangeCause,
+    adminUserId?: string | null
+  ): Promise<ICourierStatusChangeResult> {
+    return this.courierRepository.changeStatus(id, status, cause, adminUserId)
   }
 
   async getNearestAvailableCourier(args: ICourierFindNearestArgs) {
@@ -92,12 +97,6 @@ export class CourierDomainService {
     const courier = await this.courierRepository.getCurrentLocation(id)
 
     return courier
-  }
-
-  async updateStatus(id: string, status: EnumCourierStatus) {
-    const result = await this.courierRepository.updateStatus(id, status)
-
-    return result
   }
 
   async updateDeliverySetting(id: string, deliverySetting: EnumCourierDeliverySetting) {

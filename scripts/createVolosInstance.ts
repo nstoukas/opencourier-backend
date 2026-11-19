@@ -8,6 +8,7 @@ import {
   PrismaClient,
 } from '@prisma/types'
 import { hash } from 'bcryptjs'
+import { recordSystemStart } from '../src/db-seeds/courier-status-start'
 
 const prisma = new PrismaClient()
 
@@ -124,6 +125,8 @@ async function createCouriers() {
         userId: user.id,
       },
     })
+    // Spec 0040: an Online rider's record opens with a SYSTEM_START row.
+    await recordSystemStart(prisma, courier)
 
     // Spread couriers in a small ring around Volos center (~1-2 km).
     const angle = (i / COURIERS.length) * 2 * Math.PI

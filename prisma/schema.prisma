@@ -56,6 +56,8 @@ model User {
   reviewRequestsAnswered ReviewRequest[]
   // Settings changes this admin saved (spec 0038).
   settingChanges         SettingChange[]
+  // Rider status changes this admin made, directly or through a password change (spec 0040).
+  courierStatusChanges   CourierStatusChange[]
 }
 
 model Comment {
@@ -120,6 +122,9 @@ model Courier {
   chatThread            ChatThread?
   // This rider's review requests (spec 0038). Never counted per rider anywhere (binding value 5).
   reviewRequests        ReviewRequest[]
+  // Every change of this rider's status (spec 0040), the source of their time worked. Never
+  // counted across riders except in the co-op totals, which carry no rider id (binding value 5).
+  statusChanges         CourierStatusChange[]
   // The admin search's folded names and phone (spec 0025). Written only by the database trigger
   // `courier_search_fold`; Prisma code never sets it, and no entity or DTO carries it.
   searchFold            String?
@@ -482,9 +487,11 @@ model DeliveryEvent {
   delivery   Delivery @relation(fields: [deliveryId], references: [id])
   deliveryId String
 
-  // The rider the event is about, on the types listed in COURIER_ID_EVENT_TYPES
-  // (delivery-event.service.ts): offers, removals, pay events and, since spec 0038, the review
-  // events. Null on every other event (spec 0002).
+  // The rider the event is about, on the types listed in saveDeliveryEvent
+  // (delivery-event.service.ts): offers, removals, pay events, since spec 0038 the review
+  // events, and since spec 0040 ACCEPTED (the accepting rider, which time worked reads). Null on
+  // every other event (spec 0002), and on ACCEPTED events from before spec 0040 except those
+  // still in progress when its migration ran.
   courier   Courier? @relation(fields: [courierId], references: [id])
   courierId String?
 
@@ -665,6 +672,15 @@ enum EnumCourierStatus {
   ONLINE
   OFFLINE
   LAST_CALL
+}
+
+// Why a rider's status changed (spec 0040).
+enum EnumCourierStatusChangeCause {
+  RIDER              // the rider's own switch (logout included)
+  ADMIN              // an admin's edit of the rider
+  CUT_OFF            // a credential change ended the rider's sessions (spec 0039)
+  LAST_CALL_ACCEPTED // a Last Call rider accepted their last job and went Offline
+  SYSTEM_START       // a seed, a dev script or the migration that began the record
 }
 
 enum EnumDeliveryStatus {
@@ -1421,4 +1437,26 @@ model SettingChange {
 
   @@index([createdAt])
   @@index([key, createdAt])
+}
+
+// One change of a rider's status (spec 0040). Append only: never updated or deleted. Written
+// only by CourierRepository.changeStatus, in the same transaction as the status itself, so a
+// rider's last row always holds their current status. A rider with no row has always been
+// Offline. Time worked is worked out from these rows when read, never stored.
+model CourierStatusChange {
+  id          String                       @id @default(cuid())
+  courierId   String
+  courier     Courier                      @relation(fields: [courierId], references: [id])
+  fromStatus  EnumCourierStatus
+  toStatus    EnumCourierStatus
+  cause       EnumCourierStatusChangeCause
+  // The admin on an ADMIN row, and on a CUT_OFF row an admin's password change caused.
+  adminUserId String?
+  adminUser   User?                        @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+  // clock_timestamp() taken after the courier row is locked, so a rider's rows sort in the order
+  // their changes happened.
+  createdAt   DateTime                     @default(now())
+
+  @@index([courierId, createdAt])
+  @@index([createdAt])
 }

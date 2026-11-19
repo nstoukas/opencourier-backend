@@ -12,7 +12,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { CourierUpdateCurrentLocationCourierInput } from './queries/courier-update-current-location.courier.input'
 import * as errors from 'src/errors'
-import { EnumUserRole } from '@prisma/types'
+import { EnumCourierStatusChangeCause, EnumUserRole } from '@prisma/types'
 import { Roles } from 'src/decorators/roles.decorator'
 import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
@@ -204,7 +204,8 @@ export class CourierCourierRestApiController {
     @common.Body() data: CourierUpdateStatusCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<void> {
-    await this.courierDomainService.updateStatus(courier.id, data.status)
+    // Spec 0040 (AC-1): the rider's own switch, recorded with cause RIDER (logout reaches here too).
+    await this.courierDomainService.changeStatus(courier.id, data.status, EnumCourierStatusChangeCause.RIDER)
     // Spec 0002: going Offline ends this rider's open offers; going Online matches waiting deliveries.
     // Not awaited: the rider's status is already saved, so the app gets its answer at once instead
     // of waiting for a round of matching (row 61 review). `void` marks the promise as deliberately

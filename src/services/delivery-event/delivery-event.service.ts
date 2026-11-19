@@ -11,6 +11,7 @@ import { OnEvent } from '@nestjs/event-emitter'
 import { ConfigService } from '@nestjs/config'
 import {
   EnumCourierStatus,
+  EnumCourierStatusChangeCause,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
   EnumDeliveryStatus,
@@ -424,9 +425,17 @@ export class DeliveryEventService {
           const courier = await this.courierRepository.findByIdOrThrow(courierId)
 
           if (courier.status === EnumCourierStatus.LAST_CALL) {
-            await this.courierRepository.updateById(courierId, {
-              status: EnumCourierStatus.OFFLINE,
-            })
+            // Spec 0040 (AC-1): recorded as LAST_CALL_ACCEPTED. The accept is already saved, so a failure
+            // here is logged and the accept kept: the rider stays on Last Call, which gets no new offers.
+            try {
+              await this.courierRepository.changeStatus(
+                courierId,
+                EnumCourierStatus.OFFLINE,
+                EnumCourierStatusChangeCause.LAST_CALL_ACCEPTED
+              )
+            } catch (error) {
+              this.logger.error(`Could not set courier ${courierId} Offline after their Last Call accept: ${error}`)
+            }
             // An Offline rider holds no offers (spec 0002, AC-6): any other open one moves on.
             await this.endOpenOffersForCourier(courierId)
           }
@@ -2433,7 +2442,10 @@ export class DeliveryEventService {
       // request's transaction; listed here so any path that saves one keeps the rider.
       deliveryEvent.type === EnumDeliveryEventType.REVIEW_REQUESTED ||
       deliveryEvent.type === EnumDeliveryEventType.REVIEW_ANSWERED ||
-      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW
+      deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW ||
+      // Spec 0040 (AC-2): the accepting rider, automatic, manual or admin, so time worked can find
+      // each rider's jobs (Delivery.courierId only holds the latest rider).
+      deliveryEvent.type === EnumDeliveryEventType.ACCEPTED
         ? deliveryEvent.courierId
         : // A REASSIGNED row stores the rider it was taken from (AC-20); the event's courierId is the new one.
           deliveryEvent.type === EnumDeliveryEventType.REASSIGNED

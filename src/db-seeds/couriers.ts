@@ -1,6 +1,7 @@
 import { EnumCourierDeliverySetting, EnumCourierStatus, EnumUserRole, PrismaClient } from '@prisma/types'
 import { hash } from 'bcryptjs'
 import { parseSalt } from 'src/domains/auth/password.service'
+import { recordSystemStart } from './courier-status-start'
 
 import couriersSeedJson from './couriers-seed-data.json'
 
@@ -51,6 +52,7 @@ const seedTestingCourier = async (prisma: PrismaClient) => {
       deliverySetting: EnumCourierDeliverySetting.MANUAL,
     },
   })
+  await recordSystemStart(prisma, courierDB)
 
   const point = `POINT(-74.005974 40.712776)`
   await prisma.$queryRaw`
@@ -101,6 +103,7 @@ const seedCouriersFromSeedFile = async (prisma: PrismaClient) => {
         deliverySetting: courier.deliverySetting as EnumCourierDeliverySetting,
       },
     })
+    await recordSystemStart(prisma, courierDB)
 
     const point = `POINT(${courier.currentLocation.longitude} ${courier.currentLocation.latitude})`
 

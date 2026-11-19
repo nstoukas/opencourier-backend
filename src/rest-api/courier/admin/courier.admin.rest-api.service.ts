@@ -89,6 +89,6 @@ export class CourierAdminRestApiService {
     this.logger.log(`Admin ${adminUserId} set a new password for courier ${courierId}`)
 
     // Sockets closed, devices removed, set Offline (spec 0013, AC-5), shared with the reset by email.
-    await this.courierCutOffService.cutOff(courier)
+    await this.courierCutOffService.cutOff(courier, adminUserId)
   }
 }

@@ -3,7 +3,8 @@ import { ICourierCreate } from 'src/domains/courier/interfaces/ICourierCreate'
 import { Exact } from 'src/types'
 import { CourierEntity } from '../entities/courier.entity'
 import { ICourierUpdate } from './ICourierUpdate'
-import { EnumCourierDeliverySetting, EnumCourierStatus, Prisma } from '@prisma/types'
+import { EnumCourierDeliverySetting, EnumCourierStatus, EnumCourierStatusChangeCause, Prisma } from '@prisma/types'
+import { ICourierStatusChangeResult } from './ICourierStatusChangeResult'
 import { ICourierUpdateLocation } from './ICourierUpdateLocation'
 import { ICourierFindNearestArgs } from './ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from './ICourierFindBySeniorityArgs'
@@ -17,10 +18,14 @@ export interface ICourierRepository {
   createWithLogin(data: ICourierCreateWithLogin): Promise<CourierEntity>
   findByPhoneNumber(phoneNumber: string): Promise<CourierEntity | null>
   updateById(courierId: string, data: ICourierUpdate): Promise<CourierEntity>
-  updateStatus(courierId: string, status: EnumCourierStatus): Promise<void>
+  changeStatus(
+    courierId: string,
+    toStatus: EnumCourierStatus,
+    cause: EnumCourierStatusChangeCause,
+    adminUserId?: string | null
+  ): Promise<ICourierStatusChangeResult>
   updateDeliverySetting(courierId: string, deliverySetting: EnumCourierDeliverySetting): Promise<void>
   updateCurrentLocationById(courierId: string, data: ICourierUpdateLocation): Promise<boolean>
-  setOfflineAndClearLocationIfFree(courierId: string): Promise<void>
   clearLocationIfOfflineAndFree(courierId?: string): Promise<void>
   findById(courierId: string): Promise<CourierEntity | null>
   findByIdOrThrow(courierId: string): Promise<CourierEntity>
