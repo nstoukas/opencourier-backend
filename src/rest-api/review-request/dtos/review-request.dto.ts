@@ -26,6 +26,8 @@ export class ReviewRequestCourierDto {
   @ApiProperty({ type: Date, nullable: true }) answeredAt: Date | null
   @ApiProperty({ type: Date, nullable: true }) withdrawnAt: Date | null
   @ApiProperty({ type: Number, nullable: true }) correctionCents: number | null
+  // The correction's currency (the delivery's), or null with no correction.
+  @ApiProperty({ type: String, nullable: true }) correctionCurrency: string | null
   @ApiProperty({ type: () => ReviewDeliverySummaryDto, nullable: true }) delivery: ReviewDeliverySummaryDto | null
 
   constructor(request: ReviewRequestRecord, now: Date = new Date()) {
@@ -41,6 +43,7 @@ export class ReviewRequestCourierDto {
     this.answeredAt = request.answeredAt
     this.withdrawnAt = request.withdrawnAt
     this.correctionCents = request.correctionCents
+    this.correctionCurrency = request.correctionCurrency
     this.delivery = request.delivery
       ? {
           id: request.delivery.id,

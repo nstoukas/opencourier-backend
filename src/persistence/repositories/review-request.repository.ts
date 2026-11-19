@@ -28,7 +28,11 @@ export type ReviewRequestWithDetails = Prisma.ReviewRequestGetPayload<{ include:
 
 // A request as the routes return it: its row plus the correction, read from the REVIEW compensation
 // whose `reviewOf` is the request id (null when there is none).
-export type ReviewRequestRecord = ReviewRequestWithDetails & { correctionCents: number | null }
+export type ReviewRequestRecord = ReviewRequestWithDetails & {
+  correctionCents: number | null
+  // The correction's currency (the delivery's), or null with no correction.
+  correctionCurrency: string | null
+}
 
 // The order a list is read in (Prisma's own name for this type differs between versions).
 type ReviewOrder = NonNullable<Prisma.ReviewRequestFindManyArgs['orderBy']>
@@ -285,9 +289,16 @@ export class ReviewRequestRepository extends EntityRepository {
     if (requests.length === 0) return []
     const corrections = await this.prisma.courierCompensation.findMany({
       where: { reviewOf: { in: requests.map((request) => request.id) } },
-      select: { reviewOf: true, amount: true },
+      select: { reviewOf: true, amount: true, currencyCode: true },
     })
-    const byRequest = new Map(corrections.map((row) => [row.reviewOf, row.amount]))
-    return requests.map((request) => ({ ...request, correctionCents: byRequest.get(request.id) ?? null }))
+    const byRequest = new Map(corrections.map((row) => [row.reviewOf, row]))
+    return requests.map((request) => {
+      const correction = byRequest.get(request.id)
+      return {
+        ...request,
+        correctionCents: correction?.amount ?? null,
+        correctionCurrency: correction?.currencyCode ?? null,
+      }
+    })
   }
 }
