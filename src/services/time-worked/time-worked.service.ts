@@ -175,6 +175,8 @@ export class TimeWorkedService {
   }
 
   // The open shift, or the one on a break, for the home counter (AC-10). Null once a break reaches the limit.
+  // It reads from the start of yesterday (36.39), so a shift left Online longer than that shows less
+  // work time here than in the full list. Accepted: the counter is for the shift in hand.
   async current(courierId: string, now = new Date()) {
     const settings = await this.settings()
     const recordedFrom = await this.timeWorkedRepository.findRecordedFrom()

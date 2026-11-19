@@ -120,16 +120,16 @@ export class CourierAdminRestApiController {
     // there, so `as` says what can really arrive. Left out, the rider's status did not change.
     const { status, ...fields } = data
     const newStatus = status as EnumCourierStatus | undefined
-    // Spec 0040 (AC-1): the status first, through the one writer that records it with this admin's id;
-    // the other fields are saved after.
+    // Spec 0040 (AC-1): the status first, through the one writer that records it with this admin's id.
+    // Spec 0002: an admin setting a rider Offline ends their open offers, like the rider doing it. That
+    // step runs straight after the status change, before the other fields are saved, so a field save
+    // that fails (a phone number another rider has) can't leave an Offline rider with an open offer
+    // (review 2026-11-20, minor).
     if (newStatus) {
       await this.courierDomainService.changeStatus(id, newStatus, EnumCourierStatusChangeCause.ADMIN, admin.id)
-    }
-    const courier = await this.courierDomainService.update(id, fields)
-    // Spec 0002: an admin setting a rider Offline ends their open offers, like the rider doing it.
-    if (newStatus) {
       await this.deliveryEventService.handleCourierStatusChanged(id, newStatus)
     }
+    const courier = await this.courierDomainService.update(id, fields)
 
     const dto = new CourierAdminDto(courier)
     return dto

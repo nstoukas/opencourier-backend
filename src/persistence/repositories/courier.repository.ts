@@ -236,6 +236,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
 
       if (fromStatus === toStatus) return { changed: false, fromStatus }
 
+      // The id is a random UUID here; seeds use a cuid and the migration's rows `csc_start_<id>`. Only
+      // uniqueness matters, so the three shapes are harmless.
       // clock_timestamp() is the moment this statement runs, after the lock above (NOW() would be the
       // transaction's start, which can come before a change that held the lock first). In UTC, as Prisma
       // stores every DateTime.

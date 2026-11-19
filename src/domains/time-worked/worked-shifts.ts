@@ -221,6 +221,8 @@ export function pairJobs(
     list.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
     let open: PairedJob | null = null
     let waitingForReturn = false
+    // The cancel that started the trip back, so a return that never comes ends the job there.
+    let cancelEvent: JobEventRow | null = null
 
     const close = (job: PairedJob, ev: JobEventRow) => {
       job.end = Math.max(ev.occurredAt.getTime(), job.start)
@@ -237,6 +239,7 @@ export function pairJobs(
             close(open, ev)
             open = null
             waitingForReturn = false
+            cancelEvent = null
           }
         } else if (JOB_END_EVENT_TYPES.has(ev.type)) {
           if (
@@ -245,6 +248,7 @@ export function pairJobs(
             DELIVERY_PICKED_UP_STATUSES.includes(ev.oldStatus)
           ) {
             waitingForReturn = true
+            cancelEvent = ev
             open.endEventType = ev.type
           } else {
             close(open, ev)
@@ -273,23 +277,30 @@ export function pairJobs(
         DELIVERY_ONGOING_STATUSES.includes(delivery.status)
       if (stillHeld) {
         jobs.push(open)
+      } else if (waitingForReturn && cancelEvent) {
+        // Cancelled after pickup and the rider never answered the return question: the job ends at
+        // the cancel. Any later event on the delivery (a review answered days later, say) must not
+        // stretch it (review 2026-11-20, major).
+        close(open, cancelEvent)
       } else {
-        // No matching end: the job ends at the delivery's last event.
+        // No matching end at all: the job ends at the delivery's last event.
         const lastEvent = list[list.length - 1]
         if (lastEvent) close(open, lastEvent)
       }
     }
   }
 
-  // No job starts before recording began (AC-4); one that also ended before it is dropped.
+  // No job starts before recording began (AC-4); one that also ended before it is dropped. The
+  // check reads the job's own times before clamping, so a clamped job can't slip through as a zero
+  // length job at the floor (review 2026-11-20, minor).
   const floor = recordedFrom?.getTime()
   return jobs
+    .filter((j) => floor === undefined || j.end === null || j.end > floor || (j.start >= floor && j.end === floor))
     .map((j) =>
       floor !== undefined && j.start < floor
         ? { ...j, start: floor, end: j.end === null ? null : Math.max(j.end, floor) }
         : j
     )
-    .filter((j) => floor === undefined || j.end === null || j.end > floor || j.start === j.end)
     .sort((a, b) => a.start - b.start)
 }
 
@@ -531,6 +542,16 @@ export function buildWorkedShifts(input: WorkedShiftsInput): WorkedShiftsResult 
     const delivery = deliveryById.get(j.deliveryId)
     if (j.droppedOff && delivery) add(moneyByDay, acceptDay, (delivery.totalCompensation ?? 0) + delivery.tips)
     for (const c of compensationsByJob.get(j) ?? []) add(moneyByDay, acceptDay, c.amount)
+  }
+  // A zero length job (clamped, AC-4) makes no work period, so when the rider was Offline at that
+  // instant it sits in no shift. Its money still counts, as money not in a recorded shift, on its
+  // accept day, so it never vanishes (review 2026-11-20, minor).
+  for (const j of paired) {
+    if (shiftOfJob.has(j)) continue
+    const acceptDay = dayOf(j.start, timezone)
+    const delivery = deliveryById.get(j.deliveryId)
+    if (j.droppedOff && delivery) add(unlinkedByDay, acceptDay, (delivery.totalCompensation ?? 0) + delivery.tips)
+    for (const c of compensationsByJob.get(j) ?? []) add(unlinkedByDay, acceptDay, c.amount)
   }
   for (const [deliveryId, list] of compensationsByDelivery) {
     if (input.deliveriesWithAnyJob.has(deliveryId)) continue
