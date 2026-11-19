@@ -5,14 +5,19 @@ import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
   EnumCourierStatusChangeCause,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
 } from '@prisma/types'
 import {
   COOP_TOTALS_MIN_RIDERS,
+  DayRange,
   TimeWorkedService,
   TotalsRow,
 } from 'src/services/time-worked/time-worked.service'
 import { toShiftDto, toTotalsRowDto } from './time-worked.dto'
 import { WorkedShift } from 'src/domains/time-worked/worked-shifts'
+import { TimeWorkedAdminRestApiController } from './admin/time-worked.admin.rest-api.controller'
+import { TimeWorkedRecords } from 'src/persistence/repositories/time-worked.repository'
 
 describe('Value 5 Guards (spec 0040, AC-12, AC-14, AC-16)', () => {
   const FORBIDDEN_COURIER_ADMIN_KEYS = [
@@ -24,6 +29,18 @@ describe('Value 5 Guards (spec 0040, AC-12, AC-14, AC-16)', () => {
     'centsPerHour',
     'shifts',
     'statusChanges',
+  ]
+
+  const EXPECTED_TOTALS_KEYS = [
+    'centsPerHour',
+    'jobSeconds',
+    'moneyCents',
+    'paidWaitSeconds',
+    'period',
+    'riderCount',
+    'unlinkedMoneyCents',
+    'unpaidSeconds',
+    'workSeconds',
   ]
 
   test('CourierAdminDto has none of the AC-16 forbidden keys (Object.keys and class prototype)', () => {
@@ -50,10 +67,179 @@ describe('Value 5 Guards (spec 0040, AC-12, AC-14, AC-16)', () => {
     }
   })
 
-  test('a totals row and toTotalsRowDto carry no courierId or any rider id', () => {
-    const row: TotalsRow = {
+  test('TimeWorkedService.totals and coopWeeks results carry no rider id anywhere and each totals row has exactly the nine allowed keys', async () => {
+    const knownRiderIds = ['rider-alpha', 'rider-beta', 'rider-gamma']
+
+    const mockRecords: TimeWorkedRecords = {
+      // Status changes for all three riders
+      statusChanges: [
+        // rider-alpha: 08:00 to 10:00 (2h work)
+        {
+          id: 'sc-alpha-1',
+          courierId: 'rider-alpha',
+          createdAt: new Date('2026-11-19T08:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-alpha-2',
+          courierId: 'rider-alpha',
+          createdAt: new Date('2026-11-19T10:00:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        // rider-beta: 08:30 to 11:00 (2.5h work), with accepted delivery
+        {
+          id: 'sc-beta-1',
+          courierId: 'rider-beta',
+          createdAt: new Date('2026-11-19T08:30:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-beta-2',
+          courierId: 'rider-beta',
+          createdAt: new Date('2026-11-19T11:00:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        // rider-gamma: 09:00 to 10:30 (1.5h work), with manual compensation
+        {
+          id: 'sc-gamma-1',
+          courierId: 'rider-gamma',
+          createdAt: new Date('2026-11-19T09:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-gamma-2',
+          courierId: 'rider-gamma',
+          createdAt: new Date('2026-11-19T10:30:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ],
+      statusBefore: new Map(),
+      // rider-beta accepted del-beta-1
+      acceptedDeliveries: new Map([['rider-beta', new Set(['del-beta-1'])]]),
+      events: [
+        {
+          id: 'ev-beta-1',
+          deliveryId: 'del-beta-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'rider-beta',
+          occurredAt: new Date('2026-11-19T09:00:00+02:00'),
+          createdAt: new Date('2026-11-19T09:00:00+02:00'),
+        },
+        {
+          id: 'ev-beta-2',
+          deliveryId: 'del-beta-1',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+          courierId: 'rider-beta',
+          occurredAt: new Date('2026-11-19T09:30:00+02:00'),
+          createdAt: new Date('2026-11-19T09:30:00+02:00'),
+        },
+      ],
+      deliveries: [
+        {
+          id: 'del-beta-1',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId: 'rider-beta',
+          totalCompensation: 800,
+          tips: 200,
+          pickupName: 'Bakery Beta',
+        },
+      ],
+      // rider-gamma has compensation
+      compensations: [
+        {
+          id: 'comp-gamma-1',
+          courierId: 'rider-gamma',
+          deliveryId: 'del-gamma-comp',
+          amount: 500,
+          currencyCode: 'EUR',
+          reason: EnumCourierCompensationReason.REVIEW,
+          waitMinutes: null,
+          createdAt: new Date('2026-11-19T09:15:00+02:00'),
+        },
+      ],
+      everAccepted: new Set(['rider-gamma:del-gamma-comp']),
+    }
+
+    const mockTimeWorkedRepository = {
+      findRecordedFrom: jest.fn().mockResolvedValue(new Date('2026-01-01')),
+      findRecords: jest.fn().mockResolvedValue(mockRecords),
+    }
+
+    const mockConfigDomainService = {
+      instanceConfig: {
+        getShiftBreakMinutes: jest.fn().mockResolvedValue(30),
+        getCurrency: jest.fn().mockResolvedValue('EUR'),
+      },
+    }
+
+    const service = new TimeWorkedService(
+      mockTimeWorkedRepository as any,
+      mockConfigDomainService as any
+    )
+
+    const now = new Date('2026-11-19T14:00:00+02:00')
+    const dayRange: DayRange = {
+      from: '2026-11-19',
+      to: '2026-11-19',
+      rangeStart: new Date('2026-11-19T00:00:00+02:00'),
+      rangeEnd: new Date('2026-11-20T00:00:00+02:00'),
+    }
+
+    // 1a: Check totals by day
+    const totalsDay = await service.totals(dayRange, 'day', now)
+    const totalsDayJson = JSON.stringify(totalsDay)
+    for (const riderId of knownRiderIds) {
+      expect(totalsDayJson).not.toContain(riderId)
+    }
+    expect(totalsDay.rows.length).toBeGreaterThan(0)
+    for (const row of totalsDay.rows) {
+      expect(Object.keys(row).sort()).toEqual(EXPECTED_TOTALS_KEYS)
+    }
+
+    // 1b: Check totals by week
+    const totalsWeek = await service.totals(dayRange, 'week', now)
+    const totalsWeekJson = JSON.stringify(totalsWeek)
+    for (const riderId of knownRiderIds) {
+      expect(totalsWeekJson).not.toContain(riderId)
+    }
+    expect(totalsWeek.rows.length).toBeGreaterThan(0)
+    for (const row of totalsWeek.rows) {
+      expect(Object.keys(row).sort()).toEqual(EXPECTED_TOTALS_KEYS)
+    }
+
+    // 1c: Check coopWeeks
+    const coopWeeksResult = await service.coopWeeks(now)
+    const coopWeeksJson = JSON.stringify(coopWeeksResult)
+    for (const riderId of knownRiderIds) {
+      expect(coopWeeksJson).not.toContain(riderId)
+    }
+  })
+
+  test('toTotalsRowDto strips extra rider keys and its keys are exactly the nine allowed keys', () => {
+    // Cast an object with extra rider keys to TotalsRow
+    const rowWithExtraKeys = {
       period: '2026-11-19',
-      riderCount: 5,
+      riderCount: 3,
       workSeconds: 36000,
       jobSeconds: 24000,
       paidWaitSeconds: 2000,
@@ -61,15 +247,58 @@ describe('Value 5 Guards (spec 0040, AC-12, AC-14, AC-16)', () => {
       moneyCents: 15000,
       unlinkedMoneyCents: 500,
       centsPerHour: 1450,
+      courierId: 'rider-alpha',
+      courierIds: ['rider-alpha', 'rider-beta'],
+    } as unknown as TotalsRow
+
+    const rowDto = toTotalsRowDto(rowWithExtraKeys)
+    expect(Object.keys(rowDto).sort()).toEqual(EXPECTED_TOTALS_KEYS)
+    expect((rowDto as any).courierId).toBeUndefined()
+    expect((rowDto as any).courierIds).toBeUndefined()
+    expect(JSON.stringify(rowDto)).not.toContain('rider-alpha')
+    expect(JSON.stringify(rowDto)).not.toContain('rider-beta')
+  })
+
+  test("admin controller's totals route returns rows with none of the extra rider keys returned by service", async () => {
+    const mockTimeWorkedService = {
+      totals: jest.fn().mockResolvedValue({
+        currencyCode: 'EUR',
+        rows: [
+          {
+            period: '2026-11-19',
+            riderCount: 2,
+            workSeconds: 7200,
+            jobSeconds: 5000,
+            paidWaitSeconds: 500,
+            unpaidSeconds: 1700,
+            moneyCents: 3000,
+            unlinkedMoneyCents: 0,
+            centsPerHour: 1500,
+            courierId: 'rider-alpha',
+            courierIds: ['rider-alpha', 'rider-beta'],
+          },
+        ],
+      }),
     }
+    const mockCourierRepository = {}
+    const controller = new TimeWorkedAdminRestApiController(
+      mockTimeWorkedService as any,
+      mockCourierRepository as any
+    )
 
-    const rowDto = toTotalsRowDto(row)
-    const dtoKeys = Object.keys(rowDto)
+    const response = await controller.totals({
+      from: '2026-11-19',
+      to: '2026-11-19',
+      by: 'day',
+    })
 
-    expect(dtoKeys).not.toContain('courierId')
-    expect(dtoKeys).not.toContain('riderId')
-    expect(dtoKeys).not.toContain('userId')
-    expect(dtoKeys).not.toContain('id')
+    expect(response.rows).toHaveLength(1)
+    const row = response.rows[0]!
+    expect(Object.keys(row).sort()).toEqual(EXPECTED_TOTALS_KEYS)
+    expect((row as any).courierId).toBeUndefined()
+    expect((row as any).courierIds).toBeUndefined()
+    expect(JSON.stringify(response)).not.toContain('rider-alpha')
+    expect(JSON.stringify(response)).not.toContain('rider-beta')
   })
 
   test('coopWeeks returns { weekStart, tooFewRiders: true } and nothing else for a week with 2 riders, and full figures for 3', async () => {
