@@ -25,5 +25,14 @@ services:
     image: redis:latest
     ports:
       - '6389:6379'
+
+  # Row 17 (spec 0039, AC-14): a fake mail server for dev. The backend sends reset codes to it over
+  # SMTP on 1025, and you read them in its web inbox at http://localhost:8025. Nothing leaves the machine.
+  mailpit:
+    container_name: opencourier-mailpit
+    image: axllent/mailpit:latest
+    ports:
+      - '1025:1025'
+      - '8025:8025'
 volumes:
   postgres: ~

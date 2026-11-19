@@ -62,6 +62,15 @@ export const TWILIO_PHONE_NUMBER = 'TWILIO_PHONE_NUMBER'
 // on the backend host. Unset means push is off. The file itself never goes into git or a log.
 export const FIREBASE_SERVICE_ACCOUNT_PATH = 'FIREBASE_SERVICE_ACCOUNT_PATH'
 
+// Mail (row 17, spec 0039): the SMTP server reset codes go out through. SMTP_HOST unset means mail
+// is off and "forgot password" answers 503. Mailpit in dev (docker-compose.db.yml).
+export const SMTP_HOST = 'SMTP_HOST'
+export const SMTP_PORT = 'SMTP_PORT'
+export const SMTP_SECURE = 'SMTP_SECURE'
+export const SMTP_USER = 'SMTP_USER'
+export const SMTP_PASS = 'SMTP_PASS'
+export const MAIL_FROM = 'MAIL_FROM'
+
 // Shovel
 export const SHOVEL_DATABASE_CONNECTION_HOST_STRING = 'SHOVEL_DATABASE_CONNECTION_HOST_STRING'
 
