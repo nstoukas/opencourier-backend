@@ -99,7 +99,7 @@ export class DeliveryCourierRestApiController {
   @swagger.ApiForbiddenResponse({
     type: errors.ForbiddenException,
   })
-  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiNotFoundResponse({ type: errors.DeliveryNotFoundException })
   @swagger.ApiOperation({ summary: 'Get delivery by id' })
   @Roles(EnumUserRole.COURIER)
   async getMyDeliveryById(

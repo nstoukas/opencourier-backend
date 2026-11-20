@@ -1,4 +1,9 @@
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
+// The generated client's class (prisma/client, reached as `@prisma/types`). The copy in
+// `@prisma/client/runtime/library` is a different class, so `instanceof` against it was always false for a
+// real error (row 121). The by name and code checks below stay, for errors built in tests or by another copy.
+import { Prisma } from '@prisma/types'
+
+const { PrismaClientKnownRequestError } = Prisma
 
 export const PRISMA_RECORD_NOT_FOUND_ERROR = 'P2025'
 export const PRISMA_UNIQUE_CONSTRAINT_ERROR = 'P2002'
@@ -12,22 +17,25 @@ export function isRecordNotFoundError(error: Error): boolean {
   if (error?.name === 'NotFoundError') {
     return true
   }
-  return false
+  // Recognised by name and code too, like isUniqueConstraintError, so a P2025 from any copy of the class
+  // still answers 404 (row 121).
+  return (
+    error.name === 'PrismaClientKnownRequestError' &&
+    (error as { code?: unknown }).code === PRISMA_RECORD_NOT_FOUND_ERROR
+  )
 }
 
 export function isUniqueConstraintError(error: Error): boolean {
   if (error instanceof PrismaClientKnownRequestError && error.code === PRISMA_UNIQUE_CONSTRAINT_ERROR) {
     return true
   }
-  // The client is generated into prisma/client with its own copy of the runtime, so its errors are
-  // not instances of the class imported above (found on 2026-10-26: `instanceof` was false for a real
-  // P2002). Recognise it by name and code instead, as isRecordNotFoundError does by name.
+  // Found on 2026-10-26: `instanceof` was false for a real P2002 while the class came from
+  // `@prisma/client/runtime/library` (fixed in row 121). Kept: recognise it by name and code as well.
   return (
     error.name === 'PrismaClientKnownRequestError' &&
     (error as { code?: unknown }).code === PRISMA_UNIQUE_CONSTRAINT_ERROR
   )
 }
-
 
 // True when Postgres aborted the transaction for a write conflict or a deadlock: nothing in it was
 // written. Recognised by name and code as well, for the same reason as isUniqueConstraintError.
