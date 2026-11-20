@@ -9,6 +9,7 @@ import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
+  EnumCourierStatusChangeCause,
   EnumStripeAccountStatus,
   EnumUserRole,
 } from '@prisma/types'
@@ -250,6 +251,83 @@ describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () =
       await controller.getManyCouriers({ page: 3, perPage: 25 })
 
       expect(mockCourierDomainService.getManyCouriers).toHaveBeenCalledWith({}, 3, 25)
+    })
+  })
+
+  describe('updateCourier (AC-1, review minor)', () => {
+    const adminUser = new UserEntity({
+      id: 'admin-user-1',
+      username: 'admin',
+      email: 'admin@coop.gr',
+      password: 'hash',
+      role: [EnumUserRole.ADMIN],
+      apiKeyHash: null,
+      apiKeyCreatedAt: null,
+      credentialsChangedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    test('calls handleCourierStatusChanged after changeStatus and before update', async () => {
+      const callOrder: string[] = []
+      mockCourierDomainService.changeStatus = jest.fn().mockImplementation(async () => {
+        callOrder.push('changeStatus')
+        return { changed: true, fromStatus: EnumCourierStatus.ONLINE }
+      })
+      mockDeliveryEventService.handleCourierStatusChanged = jest.fn().mockImplementation(async () => {
+        callOrder.push('handleCourierStatusChanged')
+      })
+      mockCourierDomainService.update = jest.fn().mockImplementation(async () => {
+        callOrder.push('update')
+        return mockCourier
+      })
+
+      await controller.updateCourier(
+        'courier-volos-1',
+        { status: EnumCourierStatus.OFFLINE, firstName: 'Nikos' } as any,
+        adminUser
+      )
+
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        'courier-volos-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-user-1'
+      )
+      expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
+        'courier-volos-1',
+        EnumCourierStatus.OFFLINE
+      )
+      expect(mockCourierDomainService.update).toHaveBeenCalledWith('courier-volos-1', { firstName: 'Nikos' })
+      expect(callOrder).toEqual(['changeStatus', 'handleCourierStatusChanged', 'update'])
+    })
+
+    test('when update throws, handleCourierStatusChanged has still been called', async () => {
+      mockCourierDomainService.changeStatus = jest.fn().mockResolvedValue({
+        changed: true,
+        fromStatus: EnumCourierStatus.ONLINE,
+      })
+      mockDeliveryEventService.handleCourierStatusChanged = jest.fn().mockResolvedValue(undefined)
+      mockCourierDomainService.update = jest.fn().mockRejectedValue(new Error('Phone number already in use'))
+
+      await expect(
+        controller.updateCourier(
+          'courier-volos-1',
+          { status: EnumCourierStatus.OFFLINE, phoneNumber: '+306911111111' } as any,
+          adminUser
+        )
+      ).rejects.toThrow('Phone number already in use')
+
+      expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+        'courier-volos-1',
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        'admin-user-1'
+      )
+      expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
+        'courier-volos-1',
+        EnumCourierStatus.OFFLINE
+      )
     })
   })
 })

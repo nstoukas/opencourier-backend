@@ -435,6 +435,178 @@ describe('WorkedShifts (spec 0040, AC-4 to AC-7)', () => {
       expect(paired[0]!.end).toBe(makeDate('2026-11-19T18:10:00+02:00').getTime())
       expect(paired[0]!.endEventType).toBe(EnumDeliveryEventType.CANCELED)
     })
+
+    test('cancel after pickup with no return answer ends at cancel occurredAt and does not stretch to a later event (review major)', () => {
+      // Accept at 18:00, Picked up at 18:15, Canceled at 18:20 with oldStatus PICKED_UP
+      // No FOOD_RETURNED or FOOD_NOT_RETURNED ever
+      // Two days later (2026-11-21 18:20), a successful REVIEW_ANSWERED event on the same delivery
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-no-return-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:00:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:00:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-no-return-1',
+          type: EnumDeliveryEventType.PICKED_UP,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:15:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:15:00+02:00'),
+        },
+        {
+          id: 'ev-3',
+          deliveryId: 'del-no-return-1',
+          type: EnumDeliveryEventType.CANCELED,
+          oldStatus: EnumDeliveryStatus.PICKED_UP,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:20:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:20:00+02:00'),
+        },
+        {
+          id: 'ev-4',
+          deliveryId: 'del-no-return-1',
+          type: EnumDeliveryEventType.REVIEW_ANSWERED,
+          oldStatus: EnumDeliveryStatus.CANCELED,
+          courierId,
+          occurredAt: makeDate('2026-11-21T18:20:00+02:00'),
+          createdAt: makeDate('2026-11-21T18:20:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-no-return-1',
+          status: EnumDeliveryStatus.CANCELED,
+          courierId,
+          totalCompensation: 0,
+          tips: 0,
+          pickupName: 'Restaurant',
+        },
+      ]
+
+      const paired = pairJobs(courierId, events, deliveries, null)
+      expect(paired).toHaveLength(1)
+      expect(paired[0]!.start).toBe(makeDate('2026-11-19T18:00:00+02:00').getTime())
+      expect(paired[0]!.end).toBe(makeDate('2026-11-19T18:20:00+02:00').getTime())
+      expect(paired[0]!.endEventType).toBe(EnumDeliveryEventType.CANCELED)
+
+      // In buildWorkedShifts: rider was Online 17:50 to 18:30.
+      // The shift must end at 18:30 (when the rider went Offline) and must not stretch to 2 days later.
+      const statusChanges: StatusChangeRow[] = [
+        {
+          id: 'sc-1',
+          createdAt: makeDate('2026-11-19T17:50:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-2',
+          createdAt: makeDate('2026-11-19T18:30:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ]
+
+      const input = createInput({
+        windowStart: makeDate('2026-11-19T00:00:00+02:00'),
+        windowEnd: makeDate('2026-11-22T00:00:00+02:00'),
+        rangeStart: makeDate('2026-11-19T00:00:00+02:00'),
+        rangeEnd: makeDate('2026-11-22T00:00:00+02:00'),
+        statusChanges,
+        events,
+        deliveries,
+        deliveriesWithAnyJob: new Set(['del-no-return-1']),
+        now: makeDate('2026-11-22T10:00:00+02:00'),
+      })
+
+      const result = buildWorkedShifts(input)
+      expect(result.shifts).toHaveLength(1)
+      const shift = result.shifts[0]!
+      expect(shift.endedAt).toEqual(makeDate('2026-11-19T18:30:00+02:00'))
+      expect(shift.workSeconds).toBe(2400) // 17:50 to 18:30 = 40 min = 2400 s
+      expect(shift.jobSeconds).toBe(1200) // 18:00 to 18:20 = 20 min = 1200 s
+      expect(shift.jobs).toHaveLength(1)
+      expect(shift.jobs[0]!.endedAt).toEqual(makeDate('2026-11-19T18:20:00+02:00'))
+      expect(shift.jobs[0]!.endEventType).toBe(EnumDeliveryEventType.CANCELED)
+    })
+
+    test('cancel after pickup with FOOD_RETURNED 10 minutes later still ends at the return', () => {
+      // Cancel at 18:20, FOOD_RETURNED at 18:30, REVIEW_ANSWERED two days later
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-return-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:00:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:00:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-return-1',
+          type: EnumDeliveryEventType.PICKED_UP,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:15:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:15:00+02:00'),
+        },
+        {
+          id: 'ev-3',
+          deliveryId: 'del-return-1',
+          type: EnumDeliveryEventType.CANCELED,
+          oldStatus: EnumDeliveryStatus.PICKED_UP,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:20:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:20:00+02:00'),
+        },
+        {
+          id: 'ev-4',
+          deliveryId: 'del-return-1',
+          type: EnumDeliveryEventType.FOOD_RETURNED,
+          oldStatus: EnumDeliveryStatus.CANCELED,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:30:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:30:00+02:00'),
+        },
+        {
+          id: 'ev-5',
+          deliveryId: 'del-return-1',
+          type: EnumDeliveryEventType.REVIEW_ANSWERED,
+          oldStatus: EnumDeliveryStatus.CANCELED,
+          courierId,
+          occurredAt: makeDate('2026-11-21T18:20:00+02:00'),
+          createdAt: makeDate('2026-11-21T18:20:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-return-1',
+          status: EnumDeliveryStatus.CANCELED,
+          courierId,
+          totalCompensation: 0,
+          tips: 0,
+          pickupName: 'Restaurant',
+        },
+      ]
+
+      const paired = pairJobs(courierId, events, deliveries, null)
+      expect(paired).toHaveLength(1)
+      expect(paired[0]!.start).toBe(makeDate('2026-11-19T18:00:00+02:00').getTime())
+      expect(paired[0]!.end).toBe(makeDate('2026-11-19T18:30:00+02:00').getTime())
+      expect(paired[0]!.endEventType).toBe(EnumDeliveryEventType.FOOD_RETURNED)
+    })
   })
 
   describe('Overlapping jobs and paid waiting caps (AC-5)', () => {
@@ -917,6 +1089,321 @@ describe('WorkedShifts (spec 0040, AC-4 to AC-7)', () => {
       // Shift itself never holds unlinked money (36.36)
       expect(result.shifts[0]!.moneyCents).toBe(0)
     })
+
+    test('a zero length job in no shift counts money as unlinked on accept day (decision 36.46)', () => {
+      // Rider Offline the whole window (no status changes, statusAtWindowStart = OFFLINE)
+      // One ACCEPTED and DROPPED_OFF where drop off occurredAt is before the accept (clamped to zero length)
+      const acceptTime = makeDate('2026-11-19T14:00:00+02:00')
+      const dropoffTime = makeDate('2026-11-19T13:50:00+02:00')
+
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-zero-shiftless',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: acceptTime,
+          createdAt: acceptTime,
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-zero-shiftless',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: dropoffTime, // 13:50, before accept occurredAt 14:00
+          createdAt: makeDate('2026-11-19T14:05:00+02:00'), // received by server after accept
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-zero-shiftless',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 300,
+          tips: 50,
+          pickupName: 'Taverna',
+        },
+      ]
+
+      const compensations: CompensationRow[] = [
+        {
+          id: 'comp-zero-1',
+          deliveryId: 'del-zero-shiftless',
+          amount: 100,
+          currencyCode: 'EUR',
+          reason: EnumCourierCompensationReason.CANCELLATION,
+          waitMinutes: null,
+          createdAt: makeDate('2026-11-19T14:10:00+02:00'),
+        },
+      ]
+
+      const input = createInput({
+        statusAtWindowStart: EnumCourierStatus.OFFLINE,
+        statusChanges: [], // no status periods
+        events,
+        deliveries,
+        compensations,
+        deliveriesWithAnyJob: new Set(['del-zero-shiftless']),
+        now: makeDate('2026-11-20T12:00:00+02:00'),
+      })
+
+      const result = buildWorkedShifts(input)
+
+      // No shift lists the job
+      expect(result.shifts).toHaveLength(0)
+      expect(result.allShifts).toHaveLength(0)
+
+      // The day of the accept must carry unlinkedMoneyCents 450 and moneyCents 450, centsPerHour unaffected by it
+      const acceptDay = result.days.find((d) => d.date === '2026-11-19')!
+      expect(acceptDay).toBeDefined()
+      expect(acceptDay.unlinkedMoneyCents).toBe(450) // 300 totalCompensation + 50 tips + 100 compensation
+      expect(acceptDay.moneyCents).toBe(450)
+      expect(acceptDay.workSeconds).toBe(0)
+      expect(acceptDay.centsPerHour).toBeNull() // unaffected by unlinked money
+    })
+
+    test('paid waiting that a day job time cannot hold moves to the next day (decision 36.40)', () => {
+      // Job from 23:50 (Nov 19) to 00:30 (Nov 20) Europe/Athens with 30 minutes of WAITING compensation
+      const statusChanges: StatusChangeRow[] = [
+        {
+          id: 'sc-1',
+          createdAt: makeDate('2026-11-19T23:50:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-2',
+          createdAt: makeDate('2026-11-20T00:30:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ]
+
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-wait-cross',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T23:50:00+02:00'),
+          createdAt: makeDate('2026-11-19T23:50:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-wait-cross',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-20T00:30:00+02:00'),
+          createdAt: makeDate('2026-11-20T00:30:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-wait-cross',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 800,
+          tips: 0,
+          pickupName: 'Late Tavern',
+        },
+      ]
+
+      const compensations: CompensationRow[] = [
+        {
+          id: 'comp-wait-1',
+          deliveryId: 'del-wait-cross',
+          amount: 300,
+          currencyCode: 'EUR',
+          reason: EnumCourierCompensationReason.WAITING,
+          waitMinutes: 30, // 30 min = 1800 s
+          createdAt: makeDate('2026-11-20T00:15:00+02:00'),
+        },
+      ]
+
+      const input = createInput({
+        windowStart: makeDate('2026-11-19T00:00:00+02:00'),
+        windowEnd: makeDate('2026-11-21T00:00:00+02:00'),
+        rangeStart: makeDate('2026-11-19T00:00:00+02:00'),
+        rangeEnd: makeDate('2026-11-21T00:00:00+02:00'),
+        statusChanges,
+        events,
+        deliveries,
+        compensations,
+        deliveriesWithAnyJob: new Set(['del-wait-cross']),
+        now: makeDate('2026-11-21T12:00:00+02:00'),
+      })
+
+      const result = buildWorkedShifts(input)
+
+      // The first day's paidWaitSeconds is at most its job time, and the rest shows on the next day
+      const day1 = result.days.find((d) => d.date === '2026-11-19')!
+      const day2 = result.days.find((d) => d.date === '2026-11-20')!
+
+      expect(day1.paidWaitSeconds).toBeLessThanOrEqual(day1.jobSeconds + day1.paidWaitSeconds)
+      expect(day1.paidWaitSeconds).toBe(0) // wait is assigned on job end day
+      expect(day2.paidWaitSeconds).toBe(1800) // 30 minutes shows on the next day
+
+      // Every day still satisfies workSeconds = jobSeconds + paidWaitSeconds + unpaidSeconds, none negative
+      for (const day of [day1, day2]) {
+        expect(day.workSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.jobSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.paidWaitSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.unpaidSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.workSeconds).toBe(day.jobSeconds + day.paidWaitSeconds + day.unpaidSeconds)
+      }
+    })
+
+    test('paid waiting exceeding end day job time carries over to the subsequent day (decision 36.40)', () => {
+      // Job from 22:00 (Nov 19) to 00:10 (Nov 20) with 30 minutes of wait (1800 s)
+      // Rider also works on Nov 21 10:00 to 11:00 (job from 10:00 to 11:00)
+      const statusChanges: StatusChangeRow[] = [
+        {
+          id: 'sc-1',
+          createdAt: makeDate('2026-11-19T22:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-2',
+          createdAt: makeDate('2026-11-20T00:10:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-3',
+          createdAt: makeDate('2026-11-21T10:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-4',
+          createdAt: makeDate('2026-11-21T11:00:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ]
+
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-wait-carry',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T22:00:00+02:00'),
+          createdAt: makeDate('2026-11-19T22:00:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-wait-carry',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-20T00:10:00+02:00'),
+          createdAt: makeDate('2026-11-20T00:10:00+02:00'),
+        },
+        {
+          id: 'ev-3',
+          deliveryId: 'del-wait-day3',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-21T10:00:00+02:00'),
+          createdAt: makeDate('2026-11-21T10:00:00+02:00'),
+        },
+        {
+          id: 'ev-4',
+          deliveryId: 'del-wait-day3',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-21T11:00:00+02:00'),
+          createdAt: makeDate('2026-11-21T11:00:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-wait-carry',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 800,
+          tips: 0,
+          pickupName: 'Tavern 1',
+        },
+        {
+          id: 'del-wait-day3',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 800,
+          tips: 0,
+          pickupName: 'Tavern 2',
+        },
+      ]
+
+      const compensations: CompensationRow[] = [
+        {
+          id: 'comp-wait-carry',
+          deliveryId: 'del-wait-carry',
+          amount: 300,
+          currencyCode: 'EUR',
+          reason: EnumCourierCompensationReason.WAITING,
+          waitMinutes: 30, // 1800 s
+          createdAt: makeDate('2026-11-20T00:05:00+02:00'),
+        },
+      ]
+
+      const input = createInput({
+        windowStart: makeDate('2026-11-19T00:00:00+02:00'),
+        windowEnd: makeDate('2026-11-22T00:00:00+02:00'),
+        rangeStart: makeDate('2026-11-19T00:00:00+02:00'),
+        rangeEnd: makeDate('2026-11-22T00:00:00+02:00'),
+        statusChanges,
+        events,
+        deliveries,
+        compensations,
+        deliveriesWithAnyJob: new Set(['del-wait-carry', 'del-wait-day3']),
+        now: makeDate('2026-11-22T12:00:00+02:00'),
+      })
+
+      const result = buildWorkedShifts(input)
+      const day2 = result.days.find((d) => d.date === '2026-11-20')!
+      const day3 = result.days.find((d) => d.date === '2026-11-21')!
+
+      // Day 2 has only 10 minutes (600 s) of job time, so paidWaitSeconds is capped at 600 s
+      expect(day2.workSeconds).toBe(600)
+      expect(day2.paidWaitSeconds).toBe(600)
+      expect(day2.jobSeconds).toBe(0)
+
+      // Remaining 1200 s carries over to Day 3
+      expect(day3.paidWaitSeconds).toBe(1200)
+
+      for (const day of result.days) {
+        expect(day.workSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.jobSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.paidWaitSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.unpaidSeconds).toBeGreaterThanOrEqual(0)
+        expect(day.workSeconds).toBe(day.jobSeconds + day.paidWaitSeconds + day.unpaidSeconds)
+      }
+    })
   })
 
   describe('Other currency compensations (AC-6)', () => {
@@ -1155,6 +1642,154 @@ describe('WorkedShifts (spec 0040, AC-4 to AC-7)', () => {
       for (const j of paired) {
         expect(j.start).toBeGreaterThanOrEqual(recordedFrom.getTime())
       }
+    })
+
+    test('a job wholly before recordedFrom: accept and drop off both before recordedFrom -> no job in the result (pairJobs and buildWorkedShifts)', () => {
+      const recordedFrom = makeDate('2026-11-19T18:00:00+02:00')
+
+      // Accept at 17:00, Drop off at 17:30 (both strictly before recordedFrom 18:00)
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-before-floor',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T17:00:00+02:00'),
+          createdAt: makeDate('2026-11-19T17:00:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-before-floor',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-19T17:30:00+02:00'),
+          createdAt: makeDate('2026-11-19T17:30:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-before-floor',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 500,
+          tips: 50,
+          pickupName: 'Restaurant',
+        },
+      ]
+
+      const paired = pairJobs(courierId, events, deliveries, recordedFrom)
+      expect(paired).toEqual([])
+
+      const statusChanges: StatusChangeRow[] = [
+        {
+          id: 'sc-1',
+          createdAt: makeDate('2026-11-19T18:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-2',
+          createdAt: makeDate('2026-11-19T19:00:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ]
+
+      const input = createInput({
+        statusChanges,
+        events,
+        deliveries,
+        deliveriesWithAnyJob: new Set(['del-before-floor']),
+        recordedFrom,
+      })
+
+      const result = buildWorkedShifts(input)
+      for (const shift of result.shifts) {
+        expect(shift.jobs).toHaveLength(0)
+      }
+      expect(result.allShifts.flatMap((s) => s.jobs)).toHaveLength(0)
+    })
+
+    test('a job that starts before recordedFrom and ends after it is kept and clamped to start at recordedFrom', () => {
+      const recordedFrom = makeDate('2026-11-19T18:00:00+02:00')
+
+      // Accept at 17:30, Drop off at 18:30
+      const events: JobEventRow[] = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-spans-floor',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-19T17:30:00+02:00'),
+          createdAt: makeDate('2026-11-19T17:30:00+02:00'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-spans-floor',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+          courierId,
+          occurredAt: makeDate('2026-11-19T18:30:00+02:00'),
+          createdAt: makeDate('2026-11-19T18:30:00+02:00'),
+        },
+      ]
+
+      const deliveries: JobDeliveryRow[] = [
+        {
+          id: 'del-spans-floor',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 600,
+          tips: 100,
+          pickupName: 'Restaurant',
+        },
+      ]
+
+      const paired = pairJobs(courierId, events, deliveries, recordedFrom)
+      expect(paired).toHaveLength(1)
+      expect(paired[0]!.start).toBe(recordedFrom.getTime())
+      expect(paired[0]!.end).toBe(makeDate('2026-11-19T18:30:00+02:00').getTime())
+
+      const statusChanges: StatusChangeRow[] = [
+        {
+          id: 'sc-1',
+          createdAt: makeDate('2026-11-19T18:00:00+02:00'),
+          fromStatus: EnumCourierStatus.OFFLINE,
+          toStatus: EnumCourierStatus.ONLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+        {
+          id: 'sc-2',
+          createdAt: makeDate('2026-11-19T19:00:00+02:00'),
+          fromStatus: EnumCourierStatus.ONLINE,
+          toStatus: EnumCourierStatus.OFFLINE,
+          cause: EnumCourierStatusChangeCause.RIDER,
+          adminUserId: null,
+        },
+      ]
+
+      const input = createInput({
+        statusChanges,
+        events,
+        deliveries,
+        deliveriesWithAnyJob: new Set(['del-spans-floor']),
+        recordedFrom,
+      })
+
+      const result = buildWorkedShifts(input)
+      expect(result.shifts).toHaveLength(1)
+      expect(result.shifts[0]!.jobs).toHaveLength(1)
+      expect(result.shifts[0]!.jobs[0]!.acceptedAt).toEqual(recordedFrom)
+      expect(result.shifts[0]!.jobs[0]!.endedAt).toEqual(makeDate('2026-11-19T18:30:00+02:00'))
     })
 
     test('centsPerHour is null under 60 s of work (AC-6)', () => {
