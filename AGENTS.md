@@ -150,6 +150,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   event type that ends a job must be added to `JOB_END_EVENT_TYPES` (`src/domains/time-worked/job-end-event-types.ts`; a guard
   test walks `STATE_MACHINE`), or the job runs on to the delivery's last event. "Shift" means a booked slot (specs 0026, 0027);
   "time worked" and `WorkedShift` mean this spec.
+- Earnings (spec 0042): the rider's month, the job detail and the admin card all read `buildWorkedShifts` plus
+  `summarisePeriod` (`src/domains/time-worked/`); money counts on the accept day in Athens time. A new figure goes there,
+  never into a separate sum, or the screens disagree about the same day. The rider's timeline (`delivery-timeline.ts`) never
+  selects an event's `message`, and a job's area is worked out in the repository so the house number never leaves it.
+- There are two `NotFoundException` classes: Nest's and the project's (`src/errors.ts`, imported as `errors`).
+  `ErrorLoggingInterceptor` skips only the project's, so an expected 404 thrown with Nest's is logged as an error with a stack.
 
 ## Agent skills
 
