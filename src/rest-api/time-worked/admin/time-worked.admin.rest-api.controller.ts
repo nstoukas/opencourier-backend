@@ -32,7 +32,9 @@ export class TimeWorkedAdminRestApiController {
   @swagger.ApiOkResponse({ type: EarningsViewDto })
   @swagger.ApiBadRequestResponse({ description: 'A malformed date, from after to, or more than 31 days' })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
-  @swagger.ApiOperation({ summary: "One rider's time worked, at most 31 days" })
+  @swagger.ApiOperation({
+    summary: "One rider's time worked and earnings figures (days, weeks, shifts, jobs), at most 31 days",
+  })
   @Roles(EnumUserRole.ADMIN)
   async forRider(@common.Param('id') id: string, @common.Query() args: TimeWorkedRangeArgs): Promise<EarningsViewDto> {
     const range = parseDayRange(args.from, args.to, RIDER_RANGE_MAX_DAYS)

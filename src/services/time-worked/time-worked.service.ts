@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { EnumCourierCompensationReason, EnumCourierStatus } from '@prisma/types'
 import { INSTANCE_TIMEZONE } from 'src/constants'
+import * as errors from 'src/errors'
 import { dayjs } from 'src/core/utils/time'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { TimelineLine, buildTimeline } from 'src/domains/time-worked/delivery-timeline'
@@ -341,6 +342,8 @@ export class TimeWorkedService {
     }
     const fromStart = dayStart(from).getTime()
     const toEnd = dayStart(nextDate(to)).getTime()
+    // A shift that crosses `from` (the reach, or a month's first day) is returned whole: its start, split,
+    // money and breaks cover the whole shift, and only its job rows are cut to the asked days (decision 75.35).
     const shifts = result.shifts
       .filter((s) => s.startedAt.getTime() < toEnd && (s.endedAt?.getTime() ?? now.getTime()) >= fromStart)
       .map((s) => ({ ...s, jobs: s.jobs.filter((j) => inDays(j.acceptedAt)) }))
@@ -385,11 +388,15 @@ export class TimeWorkedService {
   // and "added later" always match the row. 404 when the rider never held a recorded job on it, or their
   // last job on it was accepted before their reach.
   async deliveryDetail(courierId: string, deliveryId: string, now = new Date()): Promise<EarningsDeliveryDetail> {
-    const notFound = () => new NotFoundException('Delivery not found')
+    // The project's own NotFoundException (src/errors), not Nest's: ErrorLoggingInterceptor skips this one,
+    // so a rider opening a job outside their reach is not logged as an error, and Swagger's shape is true.
+    const notFound = () => new errors.NotFoundException('Delivery not found')
     const acceptTimes = await this.timeWorkedRepository.findAcceptTimes(courierId, deliveryId)
     if (acceptTimes.length === 0) throw notFound()
     const reachFrom = reachFromOf(todayIn(now))
 
+    // One full forRider read per accept day, in turn, on purpose (decision 75.28): the detail must reuse the
+    // exact computation the row used. A rider holds a delivery once or twice, so this is one or two reads.
     const jobs = new Map<number, WorkedJob>()
     for (const date of new Set(acceptTimes.map(dateOf))) {
       const result = await this.forRider(

@@ -66,7 +66,8 @@ export function summarisePeriod(jobs: WorkedJob[], days: WorkedDay[]): PeriodFig
   const activeSeconds = jobSeconds + paidWaitSeconds
 
   // € per paid km: only jobs that ended in this rider's drop off, with their linked compensations
-  // (decision 75.17); a job with no km known adds to neither side.
+  // (decision 75.17); a job with no km known adds to neither side. `dropOffCount` counts the same jobs,
+  // so a drop off in no recorded shift is listed as a row but not counted here (its money is unlinked, AC-2).
   let paidKm = 0
   let deliveredMoney = 0
   let dropOffCount = 0
