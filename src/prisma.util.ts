@@ -14,7 +14,7 @@ export function isRecordNotFoundError(error: Error): boolean {
   if (error instanceof PrismaClientKnownRequestError && error.code === PRISMA_RECORD_NOT_FOUND_ERROR) {
     return true
   }
-  if (error?.name === 'NotFoundError') {
+  if (error.name === 'NotFoundError') {
     return true
   }
   // Recognised by name and code too, like isUniqueConstraintError, so a P2025 from any copy of the class
