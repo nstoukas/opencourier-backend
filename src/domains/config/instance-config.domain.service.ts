@@ -840,11 +840,15 @@ export class InstanceConfigDomainService {
       // Spec 0041 (AC-2 to AC-5): the fee % may not end up above the ceiling. Checked here, after the
       // lock and before any write, against the values in effect after this save (what it sends, else
       // what is stored), so two saves at once cannot together pass it. A throw rolls back everything.
-      assertFeeWithinCeiling(
-        data.feePercentageAmount ?? (before.feePercentageAmount as number | null),
-        data.feePercentageCeiling ?? (before.feePercentageCeiling as number),
-        data.feePercentageCeiling !== undefined && data.feePercentageAmount === undefined
-      )
+      // Only a save that sends the fee or the ceiling is checked (decision 53.3): a stored fee above
+      // the ceiling must not block a save of an unrelated setting.
+      if (data.feePercentageAmount !== undefined || data.feePercentageCeiling !== undefined) {
+        assertFeeWithinCeiling(
+          data.feePercentageAmount ?? (before.feePercentageAmount as number | null),
+          data.feePercentageCeiling ?? (before.feePercentageCeiling as number),
+          data.feePercentageCeiling !== undefined && data.feePercentageAmount === undefined
+        )
+      }
       for (const write of writes) {
         await this.configRepository.saveByKey(write.key, write.stored, tx)
         if (!isSameSettingValue(before[write.key], write.value)) {
