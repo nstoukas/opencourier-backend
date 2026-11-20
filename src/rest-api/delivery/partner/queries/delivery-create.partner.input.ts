@@ -4,7 +4,7 @@ import { DeliveryAddressInput } from './delivery-address-input'
 import { DeliveryCreationDetails } from 'src/shared-types/index'
 import { DeliveryOrderItemInput } from './delivery-order-item.input'
 import { DeliveryVerificationInput } from './delivery-verification.input'
-import { EnumDeliverableAction, EnumUndeliverableAction } from '@prisma/types'
+import { BoxSize, EnumDeliverableAction, EnumUndeliverableAction } from '@prisma/types'
 import { Type } from 'class-transformer'
 
 export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
@@ -276,4 +276,12 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   @IsOptional()
   @IsString()
   externalId?: string
+
+  // Spec 0043 (AC-3): the bag's size, picked by the restaurant. Optional for API restaurants: with
+  // none, the order counts as the co-op's default size and the record says it was assumed. Any other
+  // value is refused with 400 by @IsEnum.
+  @ApiProperty({ required: false, enum: BoxSize })
+  @IsOptional()
+  @IsEnum(BoxSize)
+  boxSize?: BoxSize
 }

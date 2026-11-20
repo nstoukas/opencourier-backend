@@ -20,7 +20,9 @@ import { DeliveryWhereArgs } from 'src/domains/delivery/types/delivery-where-arg
 import { DeliveryWhereUniqueArgs } from 'src/domains/delivery/types/delivery-where-unique-args.type'
 import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
-import { IDeliveryCreate } from 'src/domains/delivery/interfaces/IDeliveryCreate'
+import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
+import { heldBoxUnitsSql } from './courier.repository'
+import { wouldOverfillBox } from 'src/domains/delivery/box'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
 import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
@@ -36,7 +38,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     super(prisma)
   }
 
-  async create(input: IDeliveryCreate) {
+  async create(input: IDeliveryCreateRow) {
     const delivery = await this.prisma.delivery.create({
       data: input,
     })
@@ -70,6 +72,30 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     })
 
     return result.count === 1
+  }
+
+  // Spec 0043 (AC-5, cross check 2): an automatic offer's claim, kept within the rider's box. One
+  // transaction: the rider's Courier row is locked first (as changeStatus does), so two claims for the
+  // same rider run one after the other; then the units they hold are summed, and only if this
+  // delivery still fits is the conditional write made. Two deliveries offered to one rider in the same
+  // instant can therefore never overfill the box. 'NOT_WAITING': the delivery changed first.
+  async claimOfferWithinBox(
+    deliveryId: string,
+    courierId: string,
+    where: Prisma.DeliveryWhereInput,
+    data: IDeliveryUpdate
+  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL'> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE`
+      const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
+      if (!delivery) return 'NOT_WAITING'
+      const rows = await tx.$queryRaw<Array<{ held: number }>>(
+        Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
+      )
+      if (wouldOverfillBox(rows[0]?.held ?? 0, delivery.boxUnits)) return 'BOX_FULL'
+      const result = await tx.delivery.updateMany({ where: { ...where, id: deliveryId }, data })
+      return result.count === 1 ? 'CLAIMED' : 'NOT_WAITING'
+    })
   }
 
   // Spec 0015, AC-10: cancellations from an ongoing status, cancelled between `from` and `to`, still

@@ -27,6 +27,12 @@ import {
   WAIT_LIMIT_MINUTES_MAX,
   WAIT_LIMIT_MINUTES_MIN,
   DEFAULT_RETURN_TRIP_PAY_PERCENT,
+  DEFAULT_BOX_UNITS_SMALL,
+  DEFAULT_BOX_UNITS_MEDIUM,
+  DEFAULT_BOX_UNITS_LARGE,
+  DEFAULT_BOX_DEFAULT_SIZE,
+  BOX_UNITS_MIN,
+  BOX_UNITS_MAX,
   RETURN_TRIP_PAY_PERCENT_MIN,
   RETURN_TRIP_PAY_PERCENT_MAX,
   WAIT_PAY_CENTS_PER_MINUTE_MAX,
@@ -104,6 +110,8 @@ import { InstanceConfigSettingsInput } from 'src/rest-api/config/admin/queries/i
 import { DISPATCH_PHONE_NUMBER_REFUSAL, normalizeDispatchPhoneNumber } from './dispatch-phone-number'
 import { checkChatQuickReplies, storedChatQuickReplies } from './chat-quick-replies'
 import { writeSettingChange } from 'src/persistence/repositories/setting-change.repository'
+import { BoxSize } from '@prisma/types'
+import { boxUnitsOrderRefusal } from 'src/domains/delivery/box'
 
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
@@ -198,6 +206,29 @@ export const NUMERIC_SETTING_RULES: {
     mustBeInteger: true,
     min: RETURN_TRIP_PAY_PERCENT_MIN,
     max: RETURN_TRIP_PAY_PERCENT_MAX,
+  },
+  // Spec 0043 (AC-2): the box units each size takes, out of a rider's 100. An order takes some room,
+  // so 0 is refused; the Small <= Medium <= Large order is checked inside the save's transaction.
+  {
+    key: 'boxUnitsSmall',
+    whyZeroIsRefused: 'every order takes some room in the box',
+    mustBeInteger: true,
+    min: BOX_UNITS_MIN,
+    max: BOX_UNITS_MAX,
+  },
+  {
+    key: 'boxUnitsMedium',
+    whyZeroIsRefused: 'every order takes some room in the box',
+    mustBeInteger: true,
+    min: BOX_UNITS_MIN,
+    max: BOX_UNITS_MAX,
+  },
+  {
+    key: 'boxUnitsLarge',
+    whyZeroIsRefused: 'every order takes some room in the box',
+    mustBeInteger: true,
+    min: BOX_UNITS_MIN,
+    max: BOX_UNITS_MAX,
   },
   {
     key: 'offerLeadMinutes',
@@ -382,6 +413,10 @@ export class InstanceConfigDomainService {
     const waitPayCentsPerMinute = await this.getWaitPayCentsPerMinute()
     const waitLimitMinutes = await this.getWaitLimitMinutes()
     const returnTripPayPercent = await this.getReturnTripPayPercent()
+    const boxUnitsSmall = await this.getBoxUnitsSmall()
+    const boxUnitsMedium = await this.getBoxUnitsMedium()
+    const boxUnitsLarge = await this.getBoxUnitsLarge()
+    const boxDefaultSize = await this.getBoxDefaultSize()
     const offerTimingEnabled = await this.getOfferTimingEnabled()
     const offerLeadMinutes = await this.getOfferLeadMinutes()
     const offerTimingCandidates = await this.getOfferTimingCandidates()
@@ -437,6 +472,10 @@ export class InstanceConfigDomainService {
       waitPayCentsPerMinute,
       waitLimitMinutes,
       returnTripPayPercent,
+      boxUnitsSmall,
+      boxUnitsMedium,
+      boxUnitsLarge,
+      boxDefaultSize,
       offerTimingEnabled,
       offerLeadMinutes,
       offerTimingCandidates,
@@ -619,6 +658,10 @@ export class InstanceConfigDomainService {
     if (data.offerExpiryEnabled !== undefined && typeof data.offerExpiryEnabled !== 'boolean') {
       throw new BadRequestException('offerExpiryEnabled must be true or false')
     }
+    // Spec 0043: repeats the DTO's @IsEnum for any caller that does not come through the ValidationPipe.
+    if (data.boxDefaultSize !== undefined && !Object.values(BoxSize).includes(data.boxDefaultSize)) {
+      throw new BadRequestException('boxDefaultSize must be SMALL, MEDIUM or LARGE')
+    }
 
     // The dispatch line (row 72): normalized here so the save below writes what was checked.
     // typeof also catches a JSON null, which @IsOptional lets through.
@@ -767,6 +810,18 @@ export class InstanceConfigDomainService {
     if (data.returnTripPayPercent !== undefined) {
       save(ConfigKey.RETURN_TRIP_PAY_PERCENT, data.returnTripPayPercent)
     }
+    if (data.boxUnitsSmall !== undefined) {
+      save(ConfigKey.BOX_UNITS_SMALL, data.boxUnitsSmall)
+    }
+    if (data.boxUnitsMedium !== undefined) {
+      save(ConfigKey.BOX_UNITS_MEDIUM, data.boxUnitsMedium)
+    }
+    if (data.boxUnitsLarge !== undefined) {
+      save(ConfigKey.BOX_UNITS_LARGE, data.boxUnitsLarge)
+    }
+    if (data.boxDefaultSize !== undefined) {
+      save(ConfigKey.BOX_DEFAULT_SIZE, data.boxDefaultSize)
+    }
     if (data.offerTimingEnabled !== undefined) {
       save(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
     }
@@ -854,6 +909,19 @@ export class InstanceConfigDomainService {
           data.feePercentageCeiling ?? (before.feePercentageCeiling as number),
           data.feePercentageCeiling !== undefined && !feeSentAndNew
         )
+      }
+      // Spec 0043 (AC-2, cross check 6): Small <= Medium <= Large, on the values in effect after this
+      // save (what it sends, else what is stored), checked only when the save sends one of the three,
+      // so a stored bad order never blocks an unrelated save (as decision 53.3 does for the fee).
+      if (data.boxUnitsSmall !== undefined || data.boxUnitsMedium !== undefined || data.boxUnitsLarge !== undefined) {
+        const refusal = boxUnitsOrderRefusal({
+          boxUnitsSmall: data.boxUnitsSmall ?? (before.boxUnitsSmall as number),
+          boxUnitsMedium: data.boxUnitsMedium ?? (before.boxUnitsMedium as number),
+          boxUnitsLarge: data.boxUnitsLarge ?? (before.boxUnitsLarge as number),
+        })
+        if (refusal) {
+          throw new BadRequestException(refusal)
+        }
       }
       for (const write of writes) {
         await this.configRepository.saveByKey(write.key, write.stored, tx)
@@ -1227,6 +1295,38 @@ export class InstanceConfigDomainService {
       RETURN_TRIP_PAY_PERCENT_MIN,
       RETURN_TRIP_PAY_PERCENT_MAX
     )
+  }
+
+  // Spec 0043: the box units each size takes, and the size an order sent with none counts as.
+  async getBoxUnitsSmall(): Promise<number> {
+    return this.getWholeNumberInRange(ConfigKey.BOX_UNITS_SMALL, DEFAULT_BOX_UNITS_SMALL, BOX_UNITS_MIN, BOX_UNITS_MAX)
+  }
+
+  async getBoxUnitsMedium(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.BOX_UNITS_MEDIUM,
+      DEFAULT_BOX_UNITS_MEDIUM,
+      BOX_UNITS_MIN,
+      BOX_UNITS_MAX
+    )
+  }
+
+  async getBoxUnitsLarge(): Promise<number> {
+    return this.getWholeNumberInRange(ConfigKey.BOX_UNITS_LARGE, DEFAULT_BOX_UNITS_LARGE, BOX_UNITS_MIN, BOX_UNITS_MAX)
+  }
+
+  async getBoxDefaultSize(): Promise<BoxSize> {
+    const stored = await this.getConfigValueOrDefault(ConfigKey.BOX_DEFAULT_SIZE, DEFAULT_BOX_DEFAULT_SIZE)
+    const value = stored.value
+    if (typeof value === 'string' && (Object.values(BoxSize) as string[]).includes(value)) {
+      return value as BoxSize
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.BOX_DEFAULT_SIZE} in config (${String(
+        value
+      )}), using the default ${DEFAULT_BOX_DEFAULT_SIZE}`
+    )
+    return DEFAULT_BOX_DEFAULT_SIZE as BoxSize
   }
 
   // Spec 0031: three co-op settings, off and quiet until a representative switches it on.

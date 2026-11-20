@@ -13,7 +13,7 @@ export class CourierSeniorityMatcherService implements ICourierMatcherService {
   ) {}
 
   async findCourierForDelivery(input: ICourierMatcherInput) {
-    const { pickupLocation, rejectedCourierIds } = input
+    const { pickupLocation, rejectedCourierIds, boxUnits } = input
 
     const maxAssignmentDistance = await this.configDomainService.instanceConfig.getMaxAssignmentDistanceInKM()
 
@@ -24,6 +24,7 @@ export class CourierSeniorityMatcherService implements ICourierMatcherService {
       },
       maxDistanceInKM: maxAssignmentDistance,
       excludeCourierIds: rejectedCourierIds,
+      boxUnits,
     })
 
     if (!result?.courier) {

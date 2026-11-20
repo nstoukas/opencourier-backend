@@ -1,3 +1,4 @@
+import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
@@ -40,6 +41,10 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
 
   @ApiProperty({ type: Date, nullable: true })
   foodReadyAt: Date | null
+
+  // Spec 0043: the size the restaurant picked (or the default, when it sent none).
+  @ApiProperty({ enum: BoxSize })
+  boxSize: BoxSize
 
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
@@ -138,6 +143,7 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
     this.pickupReadyAt = data.pickupReadyAt
     this.readyAt = data.readyAt ?? null
     this.foodReadyAt = data.foodReadyAt ?? null
+    this.boxSize = data.boxSize
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffReadyAt = data.dropoffReadyAt

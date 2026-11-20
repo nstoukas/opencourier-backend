@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumDeliveryEventType, EnumCancelledBy } from '@prisma/types'
 import { IsEnum, IsString, IsOptional, IsDate } from 'class-validator'
+import { IsBoolean } from 'class-validator'
+import { RefuseIfNotSentAsBoolean } from 'src/decorators/refuseIfNotSentAsBoolean.decorator'
 import { Type } from 'class-transformer'
 
 export class DeliverySubmitEventAdminInput {
@@ -47,4 +49,12 @@ export class DeliverySubmitEventAdminInput {
   @IsOptional()
   @Type(() => Date)
   prepareTimeEstimate?: Date | null
+
+  // Spec 0043 (AC-6): the admin confirms giving the order to a rider whose box it would fill past 100
+  // units. Without it such an assignment answers 409 with the numbers. "false" sent as text is refused.
+  @ApiProperty({ required: false, type: Boolean })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  confirmOverCapacity?: boolean
 }

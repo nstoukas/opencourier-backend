@@ -1,4 +1,4 @@
-import { EnumDistanceUnit } from '@prisma/types'
+import { BoxSize, EnumDistanceUnit } from '@prisma/types'
 import { EnumCourierDietaryRestrictions } from './courier'
 import { EnumCourierCompensationCalculationType } from './courier-compensation-calculation'
 import { EnumCourierMatcherType } from './courier-matching'
@@ -55,6 +55,11 @@ export type InstanceConfigSettings = {
   // Time worked (spec 0040): the longest Offline that still counts as a break inside a shift.
   shiftBreakMinutes: number
   returnTripPayPercent: number
+  // Box model (spec 0043): the box units each size takes, and the size an order with none sent counts as.
+  boxUnitsSmall: number
+  boxUnitsMedium: number
+  boxUnitsLarge: number
+  boxDefaultSize: BoxSize
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
@@ -152,6 +157,10 @@ export enum ConfigKey {
   WAIT_PAY_CENTS_PER_MINUTE = 'waitPayCentsPerMinute',
   WAIT_LIMIT_MINUTES = 'waitLimitMinutes',
   RETURN_TRIP_PAY_PERCENT = 'returnTripPayPercent',
+  BOX_UNITS_SMALL = 'boxUnitsSmall',
+  BOX_UNITS_MEDIUM = 'boxUnitsMedium',
+  BOX_UNITS_LARGE = 'boxUnitsLarge',
+  BOX_DEFAULT_SIZE = 'boxDefaultSize',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',

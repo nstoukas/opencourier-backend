@@ -43,6 +43,7 @@ import {
   DeliveryCourierPaidForReturnTripEvent,
   DeliveryFoodReturnedEvent,
   DeliveryDropoffPointCorrectedEvent,
+  DeliveryBoxEvent,
   DeliveryFoodNotReturnedEvent,
   DELIVERY_ONGOING_STATUSES,
   OfferEndedMessage,
@@ -142,6 +143,14 @@ const REVIEW_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.REVIEW_REQUESTED,
   EnumDeliveryEventType.REVIEW_ANSWERED,
   EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW,
+]
+
+// Spec 0043: the box events are written by recordBoxEvent only, with no status change. Refused on
+// the event route, so an admin cannot post one and have it dropped silently.
+export const BOX_EVENT_TYPES: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.BOX_SIZE_ASSUMED,
+  EnumDeliveryEventType.BOX_SIZE_CHANGED,
+  EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED,
 ]
 
 // What one try at offering a delivery came to. NOT_WAITING: someone else offered or took it first.
@@ -251,6 +260,9 @@ export class DeliveryEventService {
       }
       if (REVIEW_EVENT_TYPES.includes(deliveryEvent.type)) {
         throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by a review request only`)
+      }
+      if (BOX_EVENT_TYPES.includes(deliveryEvent.type)) {
+        throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by the box model only`)
       }
 
       if (!newStatus) {
@@ -1492,13 +1504,21 @@ export class DeliveryEventService {
     const offerExpiresAt = expirySeconds !== null ? new Date(offeredAt.getTime() + expirySeconds * 1000) : null
 
     // Written only if the delivery is still waiting with nobody offered: a second matcher running
-    // at the same moment (a retry and a rider coming Online, say) cannot offer it twice.
-    const claimed = await this.deliveryRepository.updateIfMatches(
+    // at the same moment (a retry and a rider coming Online, say) cannot offer it twice. Spec 0043
+    // (AC-5): and only if it still fits in the rider's box, checked under a lock on the rider, which
+    // also covers the STATIC matcher (it never asks whether its rider has room).
+    const claim = await this.deliveryRepository.claimOfferWithinBox(
       deliveryId,
+      courier.id,
       { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
       { matchedCourierId: courier.id, offeredAt, offerExpiresAt, totalCost, totalCompensation, fee, feePercentage }
     )
-    if (!claimed) {
+    if (claim === 'BOX_FULL') {
+      // The delivery waits as if no rider were free, and the backstop retry tries again.
+      this.logger.log(`Courier ${courier.id} has no room in the box; delivery ${deliveryId} is not offered to them`)
+      return 'NO_COURIER'
+    }
+    if (claim === 'NOT_WAITING') {
       this.logger.log(`Delivery ${deliveryId} was offered or taken meanwhile; not offering it to ${courier.id}`)
       return 'NOT_WAITING'
     }
@@ -1939,6 +1959,12 @@ export class DeliveryEventService {
   // Spec 0035 (AC-23): whether this very reassignment's REASSIGNED row was saved as successful.
   async hasSuccessfulReassignedWithMessage(deliveryId: string, message: string): Promise<boolean> {
     return this.deliveryEventRepository.hasSuccessfulReassignedWithMessage(deliveryId, message)
+  }
+
+  // Spec 0043: a box record (a size assumed or changed, an admin past a full box). No status change,
+  // so never through processDeliveryEvent (which refuses these); old and new status are the same.
+  async recordBoxEvent(event: DeliveryBoxEvent, status: EnumDeliveryStatus): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
   // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
@@ -2443,6 +2469,8 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.REVIEW_REQUESTED ||
       deliveryEvent.type === EnumDeliveryEventType.REVIEW_ANSWERED ||
       deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW ||
+      // Spec 0043: the rider an admin put past a full box, so it is on that rider's record too.
+      deliveryEvent.type === EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED ||
       // Spec 0040 (AC-2): the accepting rider, automatic, manual or admin, so time worked can find
       // each rider's jobs (Delivery.courierId only holds the latest rider).
       deliveryEvent.type === EnumDeliveryEventType.ACCEPTED

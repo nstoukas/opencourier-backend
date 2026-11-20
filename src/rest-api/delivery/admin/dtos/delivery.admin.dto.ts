@@ -1,3 +1,4 @@
+import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import {
   EnumCancelledBy,
@@ -38,6 +39,16 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
 
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
+
+  // Spec 0043 (AC-8): the size, the box units it was given at creation, and whether no size was sent.
+  @ApiProperty({ enum: BoxSize })
+  boxSize: BoxSize
+
+  @ApiProperty({ type: Number })
+  boxUnits: number
+
+  @ApiProperty({ type: Boolean })
+  boxSizeAssumed: boolean
 
   @ApiProperty({ type: String })
   dropoffName: string
@@ -246,6 +257,9 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.pickupLocationId = data.pickupLocationId
     this.pickupReadyAt = data.pickupReadyAt
     this.pickupDeadlineAt = data.pickupDeadlineAt
+    this.boxSize = data.boxSize
+    this.boxUnits = data.boxUnits
+    this.boxSizeAssumed = data.boxSizeAssumed
 
     this.dropoffName = data.dropoffName
     this.dropoffPhoneNumber = data.dropoffPhoneNumber

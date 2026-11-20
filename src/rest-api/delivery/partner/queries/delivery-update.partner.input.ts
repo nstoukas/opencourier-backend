@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsDate, IsNumber, IsString, ValidateNested } from 'class-validator'
+import { IsDate, IsEnum, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator'
+import { BoxSize } from '@prisma/types'
 import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
 import { DeliveryUpdateDetails } from 'src/shared-types/index'
@@ -90,4 +91,10 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   })
   @IsDate()
   dropoffDeadlineAt: Date
+
+  // Spec 0043 (AC-3): a new size, only while no rider has been offered or holds the order (409 after).
+  @ApiProperty({ required: false, enum: BoxSize })
+  @IsOptional()
+  @IsEnum(BoxSize)
+  boxSize?: BoxSize
 }

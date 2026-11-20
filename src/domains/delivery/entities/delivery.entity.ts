@@ -6,6 +6,7 @@ import {
   EnumDeliverableAction,
   EnumCancelledBy,
   EnumFoodOutcome,
+  BoxSize,
 } from '@prisma/types'
 
 export class DeliveryEntity implements Delivery {
@@ -37,6 +38,10 @@ export class DeliveryEntity implements Delivery {
   // Spec 0023: the restaurant's ready promise, and when it marked the food ready.
   readyAt: Date | null
   foodReadyAt: Date | null
+  // Spec 0043: the box size, its units (copied at creation) and whether the size was assumed.
+  boxSize: BoxSize
+  boxUnits: number
+  boxSizeAssumed: boolean
   dropoffVerification: Prisma.JsonValue | null
   dropoffReadyAt: Date | null
   dropoffEta: Date | null
@@ -124,6 +129,10 @@ export class DeliveryEntity implements Delivery {
     this.handBackUntil = data.handBackUntil
     this.readyAt = data.readyAt
     this.foodReadyAt = data.foodReadyAt
+    // Spec 0043: copied here like every column, or the box fields never leave the repository.
+    this.boxSize = data.boxSize
+    this.boxUnits = data.boxUnits
+    this.boxSizeAssumed = data.boxSizeAssumed
     this.dropoffVerification = data.dropoffVerification
     this.dropoffReadyAt = data.dropoffReadyAt
     this.dropoffEta = data.dropoffEta

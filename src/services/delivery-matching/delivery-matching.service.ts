@@ -57,6 +57,7 @@ export class DeliveryMatchingService {
         longitude: dropoffLocation.longitude,
       },
       rejectedCourierIds: await this.getRejectedCourierIds(delivery.id),
+      boxUnits: delivery.boxUnits,
     })
 
     if (!result) {

@@ -1,3 +1,4 @@
+import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
@@ -59,6 +60,11 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
 
   @ApiProperty({ type: Date, nullable: true })
   foodReadyAt: Date | null
+
+  // Spec 0043 (AC-7): the order's size, which the app words ("Medium order") on the offer and job.
+  // No box fill yet: boxPercentAfter waits for stacking (spec 0048), when a rider can hold two jobs.
+  @ApiProperty({ enum: BoxSize })
+  boxSize: BoxSize
 
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
@@ -243,6 +249,7 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.pickupReadyAt = data.pickupReadyAt
     this.readyAt = data.readyAt ?? null
     this.foodReadyAt = data.foodReadyAt ?? null
+    this.boxSize = data.boxSize
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     // Spec 0020 (AC-3): the end of the free hand back, while it is still ahead and the rider has not

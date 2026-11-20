@@ -25,6 +25,8 @@ export const OFFER_CARD_PAYLOAD_KEYS = [
   'toDropoffMetres',
   'minutes',
   'insistent',
+  // Spec 0043 (AC-7): 'SMALL', 'MEDIUM' or 'LARGE'; the app words it ("Medium order").
+  'boxSize',
 ] as const
 
 // `(typeof X)[number]` is "any one element of the array X": the union 'deliveryId' | 'offeredAt' | ...
@@ -40,7 +42,7 @@ export type OfferCardPayload = Record<OfferCardPayloadKey, string>
 export interface OfferCardSource {
   delivery: Pick<
     Delivery,
-    'id' | 'offeredAt' | 'offerExpiresAt' | 'totalCompensation' | 'currencyCode' | 'pickupBusinessName'
+    'id' | 'offeredAt' | 'offerExpiresAt' | 'totalCompensation' | 'currencyCode' | 'pickupBusinessName' | 'boxSize'
   >
   dropoffLocation: Pick<Location, 'street' | 'houseNumber' | 'city'> | null
   // The quote the delivery was priced from: its distance is restaurant to customer, in the unit the
@@ -80,6 +82,7 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     toDropoffMetres: numberOrEmpty(source.trip.toDropoffMetres),
     minutes: numberOrEmpty(source.trip.minutes),
     insistent: options.insistent ? '1' : '',
+    boxSize: delivery.boxSize,
   }
 
   return payload

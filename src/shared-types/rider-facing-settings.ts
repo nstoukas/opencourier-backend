@@ -59,6 +59,9 @@ const withUnit = (unit: string) => (value: unknown) => {
   return number === null ? NO_VALUE : `${number} ${unit}`
 }
 const money = (value: unknown, context: SettingFormatContext) => formatCents(value, context.currency)
+// Spec 0043: "MEDIUM" is "Medium".
+const boxSizeName = (value: unknown) =>
+  isMissing(value) ? NO_VALUE : String(value).charAt(0) + String(value).slice(1).toLowerCase()
 const distance = (value: unknown, context: SettingFormatContext) => {
   const number = asNumber(value)
   return number === null ? NO_VALUE : `${number} ${distanceUnitName(context.distanceUnit)}`
@@ -131,6 +134,11 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
       asNumber(value) === 0 ? 'none, every Offline with no job ends the shift' : withUnit('minutes')(value),
   },
   returnTripPayPercent: { label: 'Pay for taking food back, as a share of the distance pay', format: withUnit('%') },
+  // Spec 0043: how much of the box (100 units) each order size takes, and the size of an order sent with none.
+  boxUnitsSmall: { label: 'Room a Small order takes in the box', format: withUnit('of 100 units') },
+  boxUnitsMedium: { label: 'Room a Medium order takes in the box', format: withUnit('of 100 units') },
+  boxUnitsLarge: { label: 'Room a Large order takes in the box', format: withUnit('of 100 units') },
+  boxDefaultSize: { label: 'Size an order counts as when the restaurant sends none', format: boxSizeName },
   handBackSeconds: { label: 'Time to give an accepted order back for free', format: withUnit('seconds') },
   arrivalRadiusMetres: {
     label: 'Distance at which the app marks you arrived',

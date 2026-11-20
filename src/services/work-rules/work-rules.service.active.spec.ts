@@ -77,6 +77,10 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     chatRetentionDays: 90,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
+    boxUnitsSmall: 30,
+    boxUnitsMedium: 50,
+    boxUnitsLarge: 100,
+    boxDefaultSize: 'MEDIUM',
   }
 
   beforeEach(() => {

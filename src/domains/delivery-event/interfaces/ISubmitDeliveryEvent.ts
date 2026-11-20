@@ -6,4 +6,6 @@ export interface ISubmitDeliveryEvent {
   courierId?: string
   // Only with CANCELED (spec 0015); defaults to COOP.
   cancelledBy?: EnumCancelledBy
+  // Spec 0043 (AC-6): with ACCEPTED, the admin confirms putting the rider past a full box.
+  confirmOverCapacity?: boolean
 }

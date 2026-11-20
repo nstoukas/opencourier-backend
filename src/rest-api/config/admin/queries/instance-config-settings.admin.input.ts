@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
+import { BoxSize } from '@prisma/types'
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
 import {
   EnumCourierCompensationCalculationType,
@@ -161,6 +162,31 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   @RefuseIfNotSentAsNumber()
   returnTripPayPercent?: number
+
+  // Spec 0043: the box units each size takes, whole numbers 1 to 100 (NUMERIC_SETTING_RULES), with
+  // Small <= Medium <= Large checked on save; and the size an order with no size counts as.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  boxUnitsSmall?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  boxUnitsMedium?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  boxUnitsLarge?: number
+
+  @ApiProperty({ required: false, enum: BoxSize })
+  @IsOptional()
+  @IsEnum(BoxSize)
+  boxDefaultSize?: BoxSize
 
   // Spec 0031: offers timed to food readiness. The ranges live in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Boolean, required: false })

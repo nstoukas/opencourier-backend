@@ -175,9 +175,10 @@ export class DeliveryAdminRestApiController {
   @Roles(EnumUserRole.ADMIN)
   async submitOrderEvent(
     @common.Param('id') id: string,
-    @common.Body() data: DeliverySubmitEventAdminInput
+    @common.Body() data: DeliverySubmitEventAdminInput,
+    @CurrentUser() admin: UserEntity
   ): Promise<DeliveryAdminDto> {
-    const result = await this.deliveryDomainService.submitDeliveryEvent(data)
+    const result = await this.deliveryDomainService.submitDeliveryEvent(data, undefined, admin)
     return new DeliveryAdminDto(result)
   }
 
@@ -191,13 +192,18 @@ export class DeliveryAdminRestApiController {
   @Roles(EnumUserRole.ADMIN)
   async reassignDelivery(
     @common.Param('id') id: string,
-    @common.Body() data: DeliveryReassignAdminInput
+    @common.Body() data: DeliveryReassignAdminInput,
+    @CurrentUser() admin: UserEntity
   ): Promise<DeliveryAdminDto> {
     const result = await this.deliveryDomainService.reassignDelivery(
       id,
       data.courierId,
       data.payoutPolicy,
-      data.message
+      data.message,
+      {
+        confirmOverCapacity: data.confirmOverCapacity,
+        admin,
+      }
     )
     return new DeliveryAdminDto(result)
   }

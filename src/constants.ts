@@ -136,6 +136,15 @@ export const SHIFT_BREAK_MINUTES_MAX = 240
 export const DEFAULT_RETURN_TRIP_PAY_PERCENT = 100
 export const RETURN_TRIP_PAY_PERCENT_MIN = 0
 export const RETURN_TRIP_PAY_PERCENT_MAX = 100
+// Spec 0043 (row 9): how many of a rider's 100 box units each size takes. Placeholders until the
+// field study (row 7) replaces them from Instance configuration; fallbacks only.
+export const DEFAULT_BOX_UNITS_SMALL = 30
+export const DEFAULT_BOX_UNITS_MEDIUM = 50
+export const DEFAULT_BOX_UNITS_LARGE = 100
+export const BOX_UNITS_MIN = 1
+export const BOX_UNITS_MAX = 100
+// The size an order with no size sent counts as (AC-3).
+export const DEFAULT_BOX_DEFAULT_SIZE = 'MEDIUM'
 // Offers timed to food readiness (spec 0031). Off until the assembly decides; fallbacks only.
 export const DEFAULT_OFFER_TIMING_ENABLED = false
 export const DEFAULT_OFFER_LEAD_MINUTES = 3

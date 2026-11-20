@@ -8,12 +8,28 @@ import {
   pastReadyLimit,
   readyActionRefusal,
 } from './ready-signals'
-import type { DeliveryFoodReadyEvent, DeliveryReadyDelayedEvent } from 'src/shared-types/delivery-events'
+import type {
+  DeliveryBoxSizeAssumedEvent,
+  DeliveryBoxSizeChangedEvent,
+  DeliveryBoxOverCapacityConfirmedEvent,
+  DeliveryFoodReadyEvent,
+  DeliveryReadyDelayedEvent,
+} from 'src/shared-types/delivery-events'
+import { BOX_SIZE_WORDS, boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
+import { adminLabel } from 'src/domains/partner-billing/billing-month'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
-import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, EnumCourierCompensationReason, EnumCancelledBy } from '@prisma/types'
+import {
+  BoxSize,
+  EnumDeliveryEventSource,
+  EnumDeliveryEventType,
+  EnumDeliveryStatus,
+  EnumEventActor,
+  EnumCourierCompensationReason,
+  EnumCancelledBy,
+} from '@prisma/types'
 import { IDeliveryUpdate } from './interfaces/IDeliveryUpdate'
 import { DeliveryOfferView } from './types/delivery-offer-view.type'
 import { DeliveryEntity } from './entities/delivery.entity'
@@ -21,7 +37,13 @@ import { IDeliveryCreate } from './interfaces/IDeliveryCreate'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CacheService } from 'src/services/cache/cache.service'
 import { addCourierToRejectedList, removeCourierFromRejectedList } from 'src/services/cache/rejected-couriers'
-import { CantUpdateDeliveryStatusError, DeliveryCantBeAcceptedException, OfferHasEndedException } from 'src/errors'
+import {
+  BOX_SIZE_LOCKED_MESSAGE,
+  BoxOverCapacityException,
+  CantUpdateDeliveryStatusError,
+  DeliveryCantBeAcceptedException,
+  OfferHasEndedException,
+} from 'src/errors'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import {
   DeliveryCanceledEvent,
@@ -55,6 +77,9 @@ export function arrivalHow(detected?: boolean): string {
 
 // A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
 const DEFAULT_USUAL_PREP_MINUTES = 15
+
+// Spec 0043: the admin who acted, as much as a record needs to name them (adminLabel).
+export type AdminRef = { id: string; email: string | null; username: string | null }
 
 @Injectable()
 export class DeliveryDomainService {
@@ -168,8 +193,40 @@ export class DeliveryDomainService {
       initialReadyAt(pickupReadyAt, partner?.usualPrepMinutes ?? DEFAULT_USUAL_PREP_MINUTES, now).getTime() +
         busyExtraMinutes * 60_000
     )
+    // Spec 0043 (AC-1, AC-3): the size the restaurant picked, or the co-op's default size when none
+    // was sent (recorded below as assumed). The units are copied from the setting now, so a later
+    // change of the setting never alters this delivery.
+    const { boxSize: sentBoxSize, ...rest } = input
+    const instanceConfig = this.configDomainService.instanceConfig
+    const boxSize = sentBoxSize ?? (await instanceConfig.getBoxDefaultSize())
+    const boxUnits = boxUnitsFor(boxSize, {
+      boxUnitsSmall: await instanceConfig.getBoxUnitsSmall(),
+      boxUnitsMedium: await instanceConfig.getBoxUnitsMedium(),
+      boxUnitsLarge: await instanceConfig.getBoxUnitsLarge(),
+    })
+    const boxSizeAssumed = !sentBoxSize
     // Spec 0033 (decision 23.6): the first promise is kept apart, so a later "+10" cannot erase a wait.
-    const delivery = await this.deliveryRepository.create({ ...input, readyAt, promisedReadyAt: readyAt })
+    const delivery = await this.deliveryRepository.create({
+      ...rest,
+      readyAt,
+      promisedReadyAt: readyAt,
+      boxSize,
+      boxUnits,
+      boxSizeAssumed,
+    })
+
+    // Spec 0043 (AC-3): before CREATED sends it into matching, so the record shows the size matching
+    // used was assumed. No status change, never through processDeliveryEvent.
+    if (boxSizeAssumed) {
+      const assumedEvent: DeliveryBoxSizeAssumedEvent = {
+        deliveryId: delivery.id,
+        type: EnumDeliveryEventType.BOX_SIZE_ASSUMED,
+        actor: EnumEventActor.SYSTEM,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        message: `No box size was sent, so it counts as ${BOX_SIZE_WORDS[boxSize]} (${boxUnits} units), the co-op's default`,
+      }
+      await this.deliveryEventService.recordBoxEvent(assumedEvent, delivery.status)
+    }
 
     await this.deliveryEventService.processDeliveryEvent({
       deliveryId: delivery.id,
@@ -180,6 +237,37 @@ export class DeliveryDomainService {
     })
 
     return delivery
+  }
+
+  // Spec 0043 (AC-3, cross check 4): the restaurant changes the size. Only while no rider has been
+  // offered or holds the order (an open offer has already shown the size): one conditional write on
+  // that and on the size read, so a size never changes under an offer that goes out at the same
+  // moment. The units are copied again from the setting in force, and the size is no longer assumed.
+  async changeBoxSize(delivery: DeliveryEntity, newSize: BoxSize): Promise<void> {
+    const instanceConfig = this.configDomainService.instanceConfig
+    const boxUnits = boxUnitsFor(newSize, {
+      boxUnitsSmall: await instanceConfig.getBoxUnitsSmall(),
+      boxUnitsMedium: await instanceConfig.getBoxUnitsMedium(),
+      boxUnitsLarge: await instanceConfig.getBoxUnitsLarge(),
+    })
+    const changed = await this.deliveryRepository.updateIfMatches(
+      delivery.id,
+      { matchedCourierId: null, courierId: null, boxSize: delivery.boxSize, status: delivery.status },
+      { boxSize: newSize, boxUnits, boxSizeAssumed: false }
+    )
+    if (!changed) {
+      throw new ConflictException(BOX_SIZE_LOCKED_MESSAGE)
+    }
+    const changedEvent: DeliveryBoxSizeChangedEvent = {
+      deliveryId: delivery.id,
+      type: EnumDeliveryEventType.BOX_SIZE_CHANGED,
+      actor: EnumEventActor.PARTNER,
+      source: EnumDeliveryEventSource.PARTNER_APP,
+      message: `Box size changed by the restaurant from ${BOX_SIZE_WORDS[delivery.boxSize]} (${
+        delivery.boxUnits
+      } units) to ${BOX_SIZE_WORDS[newSize]} (${boxUnits} units)`,
+    }
+    await this.deliveryEventService.recordBoxEvent(changedEvent, delivery.status)
   }
 
   // Spec 0023 (AC-3, AC-5): the restaurant moves the ready time later by 5, 10 or 15 minutes. One
@@ -619,11 +707,13 @@ export class DeliveryDomainService {
     return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
   }
 
+  // `box`: spec 0043 (AC-6). The admin's confirm to put the new rider past a full box, and who they are.
   async reassignDelivery(
     deliveryId: string,
     newCourierId: string,
     payoutPolicy?: string,
-    message?: string
+    message?: string,
+    box: { confirmOverCapacity?: boolean; admin?: AdminRef } = {}
   ) {
     // A heat or storm stop binds admins too (spec 0014, AC-4): restart dispatch first.
     await this.deliveryEventService.refuseIfDispatchStopped()
@@ -650,6 +740,13 @@ export class DeliveryDomainService {
     }
 
     await this.courierRepository.findByIdOrThrow(newCourierId)
+
+    // Spec 0043 (AC-6, cross check 1): before the award is written, so a refused move leaves nothing.
+    const overCapacityHeldUnits = await this.refuseBoxOverCapacityUnlessConfirmed(
+      newCourierId,
+      delivery.boxUnits,
+      box.confirmOverCapacity
+    )
 
     const menu = await this.configDomainService.instanceConfig.getReassignmentPayoutPolicies()
     const defaultPolicy = await this.configDomainService.instanceConfig.getReassignmentPayoutDefaultPolicy()
@@ -760,6 +857,15 @@ export class DeliveryDomainService {
       this.logger.error(
         formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' })
       )
+      if (overCapacityHeldUnits !== null) {
+        await this.recordBoxOverCapacityConfirmed(
+          deliveryId,
+          newCourierId,
+          overCapacityHeldUnits,
+          delivery.boxUnits,
+          box.admin
+        )
+      }
       return reloadedDelivery
     }
 
@@ -778,7 +884,55 @@ export class DeliveryDomainService {
       )
     }
 
+    if (overCapacityHeldUnits !== null) {
+      await this.recordBoxOverCapacityConfirmed(
+        deliveryId,
+        newCourierId,
+        overCapacityHeldUnits,
+        delivery.boxUnits,
+        box.admin
+      )
+    }
     return reloadedDelivery
+  }
+
+  // Spec 0043 (AC-6): null when the order fits in the rider's box. Past a full box, a 409 with the
+  // rider's held units and the order's units, unless the admin confirmed; then the held units, so the
+  // caller records the override once its write has succeeded. A read before the write, like
+  // refuseIfCourierInSos: an admin's assignment takes no lock on the rider (decision 9.4).
+  private async refuseBoxOverCapacityUnlessConfirmed(
+    courierId: string,
+    deliveryUnits: number,
+    confirmOverCapacity: boolean | undefined
+  ): Promise<number | null> {
+    const heldUnits = await this.courierRepository.heldBoxUnits(courierId)
+    if (!wouldOverfillBox(heldUnits, deliveryUnits)) return null
+    if (confirmOverCapacity !== true) throw new BoxOverCapacityException(heldUnits, deliveryUnits)
+    return heldUnits
+  }
+
+  // Spec 0043 (AC-6, cross check 1): the admin's confirmed override, on the record with their name,
+  // written after the assignment itself succeeded. No status change; the status is read again.
+  private async recordBoxOverCapacityConfirmed(
+    deliveryId: string,
+    courierId: string,
+    heldUnits: number,
+    deliveryUnits: number,
+    admin: AdminRef | undefined
+  ): Promise<void> {
+    const current = await this.deliveryRepository.findByIdOrThrow(deliveryId)
+    const who = admin ? adminLabel(admin) : 'an admin'
+    const overEvent: DeliveryBoxOverCapacityConfirmedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED,
+      actor: EnumEventActor.ADMIN,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId,
+      message: `${who} confirmed giving this order (${deliveryUnits} units) to a rider already holding ${heldUnits} of ${RIDER_BOX_UNITS} units, ${
+        heldUnits + deliveryUnits
+      } in all`,
+    }
+    await this.deliveryEventService.recordBoxEvent(overEvent, current.status)
   }
 
   // Unwinds a reassignment attempt that did not happen: removes the award row, and — when we
@@ -822,7 +976,8 @@ export class DeliveryDomainService {
     }
   }
 
-  async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string) {
+  // `admin`: who submitted it, named on a box over capacity record (spec 0043, AC-6).
+  async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string, admin?: AdminRef) {
     const actor = EnumEventActor.ADMIN
 
     // Who cancelled belongs only to a cancellation (spec 0015): anywhere else it is a mistake.
@@ -857,7 +1012,24 @@ export class DeliveryDomainService {
         ) {
           await this.acceptDelivery(event.deliveryId, event.courierId)
         } else {
+          // Spec 0043 (AC-6, cross check 1): a hand offer that would put the rider past a full box
+          // answers 409 with the numbers, unless the admin confirmed it. Accepting the offer already
+          // out to the rider (above) adds nothing to their box: an open offer is already counted.
+          const heldUnits = await this.refuseBoxOverCapacityUnlessConfirmed(
+            event.courierId,
+            delivery.boxUnits,
+            event.confirmOverCapacity
+          )
           await this.deliveryEventService.offerDeliveryToCourierAsAdmin(event.deliveryId, event.courierId, message)
+          if (heldUnits !== null) {
+            await this.recordBoxOverCapacityConfirmed(
+              event.deliveryId,
+              event.courierId,
+              heldUnits,
+              delivery.boxUnits,
+              admin
+            )
+          }
         }
         break
       }

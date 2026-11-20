@@ -159,6 +159,10 @@ async function main() {
 
     const delivery = await prisma.delivery.create({
       data: {
+        // Spec 0043: a dev order with no size picked counts as the default Medium, marked assumed.
+        boxSize: 'MEDIUM',
+        boxUnits: 50,
+        boxSizeAssumed: true,
         pickupName: spec.store,
         pickupPhoneNumber: '+302421000000',
         pickupBusinessName: spec.store,

@@ -25,6 +25,8 @@ export enum ErrorCode {
 
   // Delivery
   DELIVERY_EXISTS = 'DELIVERY_EXISTS',
+  // Spec 0043: an admin assignment past a full box, not yet confirmed.
+  BOX_OVER_CAPACITY = 'BOX_OVER_CAPACITY',
   DELIVERY_ALREADY_MATCHED = 'DELIVERY_ALREADY_MATCHED',
   DELIVERY_CANT_BE_ACCEPTED = 'DELIVERY_CANT_BE_ACCEPTED',
   DELIVERY_CANT_BE_REJECTED = 'DELIVERY_CANT_BE_REJECTED',
@@ -325,6 +327,24 @@ export class SavedCustomerPhoneClashException extends common.ConflictException {
       message: SAVED_CUSTOMER_PHONE_CLASH_MESSAGE,
       statusCode: 409,
       conflictingCustomerId,
+    })
+  }
+}
+
+// Spec 0043 (AC-3): a restaurant's size change after a rider was offered or took the order.
+export const BOX_SIZE_LOCKED_MESSAGE = 'The size cannot change any more: a rider has already been offered this order.'
+
+// Spec 0043 (AC-6): an admin assignment that would put the rider past a full box. The admin page
+// shows both numbers in its confirm dialog, so the 409 carries them (ResponseFormatMiddleware passes
+// them through). Sent again with confirmOverCapacity: true, the assignment goes ahead.
+export class BoxOverCapacityException extends common.ConflictException {
+  constructor(heldUnits: number, deliveryUnits: number) {
+    super({
+      code: ErrorCode.BOX_OVER_CAPACITY,
+      message: `This would put the rider past a full box: they hold ${heldUnits} of 100 units and this order takes ${deliveryUnits}. Confirm to assign anyway.`,
+      statusCode: 409,
+      heldUnits,
+      deliveryUnits,
     })
   }
 }

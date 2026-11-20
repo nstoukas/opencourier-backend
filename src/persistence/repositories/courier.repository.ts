@@ -27,6 +27,8 @@ import { ICourierUpdateLocation } from 'src/domains/courier/interfaces/ICourierU
 import { ICourierFindNearestArgs } from 'src/domains/courier/interfaces/ICourierFindNearestArgs'
 import { ICourierFindBySeniorityArgs } from 'src/domains/courier/interfaces/ICourierFindBySeniorityArgs'
 import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
+import { DELIVERY_PICKED_UP_STATUSES } from 'src/shared-types/stateMachine'
+import { BOX_HELD_STATUSES, RIDER_BOX_UNITS } from 'src/domains/delivery/box'
 import { ACTIVE_SOS_WHERE } from 'src/domains/sos/sos-incident-state'
 
 // A rider is busy, and gets no new offer, while any delivery of theirs is in one of
@@ -50,6 +52,49 @@ export function busyCourierDeliverySubQuery(): Prisma.Sql {
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
       )
     `
+}
+
+// Spec 0043 (cross check 3): how long after a cancellation a rider may still be carrying the food back
+// (the cancelled jobs screen offers "I took it back" for the same 24 h). Past it, an outcome never
+// recorded stops counting against their box.
+export const RETURN_TRIP_HELD_HOURS = 24
+
+// Spec 0043 (AC-5, cross check 3): the deliveries whose food is in, or on its way into, the rider's
+// box: held from accept until drop off, an open offer to them, and food they are taking back after a
+// cancellation (picked up, no outcome recorded yet). `riderId` is the rider's id as SQL: the outer
+// "Courier"."id" inside a matcher query, or a bound value for one rider. One predicate for both, so
+// the matcher and the claim can never disagree about what a rider holds.
+export function heldBoxDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(
+        "Delivery"."courierId" = ${riderId}
+        AND "Delivery"."status"::text IN (${Prisma.join(BOX_HELD_STATUSES, ',')})
+      ) OR (
+        "Delivery"."matchedCourierId" = ${riderId}
+        AND "Delivery"."courierId" IS NULL
+        AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
+      ) OR (
+        "Delivery"."courierId" = ${riderId}
+        AND "Delivery"."status"::text = ${EnumDeliveryStatus.CANCELED}
+        AND "Delivery"."cancelledFromStatus"::text IN (${Prisma.join(DELIVERY_PICKED_UP_STATUSES, ',')})
+        AND "Delivery"."foodOutcome" IS NULL
+        -- ::int: a bound number arrives as bigint, and make_interval takes only int (found live on dev).
+        AND "Delivery"."cancelledAt" > NOW() - make_interval(hours => ${RETURN_TRIP_HELD_HOURS}::int)
+      )`
+}
+
+// The box units a rider holds, summed over heldBoxDeliveriesWhere. A whole number (SUM gives bigint).
+export function heldBoxUnitsSql(riderId: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`SELECT COALESCE(SUM("Delivery"."boxUnits"), 0)::int FROM "Delivery" WHERE ${heldBoxDeliveriesWhere(
+    riderId
+  )}`
+}
+
+// Spec 0043 (AC-5): inside a matcher query, keeps only riders with room for `deliveryUnits` more.
+// Correlated with the outer "Courier" row. Empty when the matcher was not told the delivery's units.
+export function boxRoomCondition(deliveryUnits: number | undefined): Prisma.Sql {
+  if (deliveryUnits === undefined) return Prisma.empty
+  return Prisma.sql`-- Room left in the box (spec 0043, AC-5)
+      AND (${heldBoxUnitsSql(Prisma.sql`"Courier"."id"`)}) + ${deliveryUnits} <= ${RIDER_BOX_UNITS}`
 }
 
 // A rider with an active SOS (spec 0022, AC-7) is busy too: no matcher offers them anything until
@@ -309,6 +354,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
       -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
       AND NOT EXISTS (${activeSosCourierSubQuery()})
+      ${boxRoomCondition(args.boxUnits)}
 
       -- Exclude courier ids
       ${
@@ -412,6 +458,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
       -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
       AND NOT EXISTS (${activeSosCourierSubQuery()})
+      ${boxRoomCondition(args.boxUnits)}
 
       -- Exclude courier ids
       ${
@@ -502,6 +549,15 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
 
   // Whether this rider has an active SOS (spec 0022, AC-7), for the admin paths that pick a rider by
   // hand. Same rule as activeSosCourierSubQuery above.
+  // Spec 0043 (AC-6): the box units this rider holds now (heldBoxDeliveriesWhere). A plain read, for
+  // the admin's check before an assignment; the automatic claim reads it under the rider's row lock.
+  async heldBoxUnits(courierId: string): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ held: number }>>(
+      Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
+    )
+    return rows[0]?.held ?? 0
+  }
+
   async hasActiveSos(courierId: string): Promise<boolean> {
     const incident = await this.prisma.sosIncident.findFirst({
       where: { courierId, ...ACTIVE_SOS_WHERE },

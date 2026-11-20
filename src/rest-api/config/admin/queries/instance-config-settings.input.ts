@@ -1,3 +1,4 @@
+import { BoxSize } from '@prisma/types'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -44,6 +45,10 @@ export class InstanceConfigSettingsInput {
   waitPayCentsPerMinute?: number
   waitLimitMinutes?: number
   returnTripPayPercent?: number
+  boxUnitsSmall?: number
+  boxUnitsMedium?: number
+  boxUnitsLarge?: number
+  boxDefaultSize?: BoxSize
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number

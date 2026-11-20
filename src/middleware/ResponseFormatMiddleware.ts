@@ -26,6 +26,10 @@ export class ResponseFormatMiddleware implements NestMiddleware {
               // A bill that names charges another bill already covers lists their ids, so the admin's
               // page can say which (spec 0036, AC-6). Charge ids only, nothing about a customer.
               ...(Array.isArray(data.alreadyBilled) && { alreadyBilled: data.alreadyBilled }),
+              // An admin assignment past a full box names the rider's held units and the order's units,
+              // so the confirm dialog can show them (spec 0043, AC-6). Two numbers, nothing personal.
+              ...(typeof data.heldUnits === 'number' && { heldUnits: data.heldUnits }),
+              ...(typeof data.deliveryUnits === 'number' && { deliveryUnits: data.deliveryUnits }),
             },
           ],
         }

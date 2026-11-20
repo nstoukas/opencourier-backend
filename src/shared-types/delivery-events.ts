@@ -197,6 +197,25 @@ export interface DeliveryCourierPaidForReviewEvent extends BaseDeliveryEvent {
   courierId: string
 }
 
+// Spec 0043: the box model's three records, written by DeliveryEventService.recordBoxEvent with the
+// old status equal to the new, never through processDeliveryEvent. BOX_SIZE_ASSUMED is SYSTEM (no
+// size was sent), BOX_SIZE_CHANGED is the restaurant's, BOX_OVER_CAPACITY_CONFIRMED the admin's
+// (`courierId` is the rider put past a full box).
+export interface DeliveryBoxSizeAssumedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.BOX_SIZE_ASSUMED
+}
+export interface DeliveryBoxSizeChangedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.BOX_SIZE_CHANGED
+}
+export interface DeliveryBoxOverCapacityConfirmedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED
+  courierId: string
+}
+export type DeliveryBoxEvent =
+  | DeliveryBoxSizeAssumedEvent
+  | DeliveryBoxSizeChangedEvent
+  | DeliveryBoxOverCapacityConfirmedEvent
+
 export type DeliveryReviewEvent =
   | DeliveryReviewRequestedEvent
   | DeliveryReviewAnsweredEvent
@@ -256,6 +275,7 @@ export type DeliveryEvent =
   | DeliveryFoodReadyEvent
   | DeliveryRemovalEvent
   | DeliveryReviewEvent
+  | DeliveryBoxEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

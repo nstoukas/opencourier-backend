@@ -377,6 +377,12 @@ model Delivery {
   // made before this change. Never pickupReadyAt, which becomes the pickup moment at PICKED_UP.
   readyAt                 DateTime? @postgres.Timestamptz(6)
   foodReadyAt             DateTime? @postgres.Timestamptz(6)
+  // Spec 0043: the box size the restaurant picked, and the share of a rider's 100 box units it
+  // takes, copied from the co-op setting at creation so a later setting change never alters it.
+  // boxSizeAssumed: no size was sent, so the co-op's default size was used (a BOX_SIZE_ASSUMED event).
+  boxSize                 BoxSize
+  boxUnits                Int
+  boxSizeAssumed          Boolean   @default(false)
 
   deliverableAction        EnumDeliverableAction    @default(MEET_AT_DOOR)
   undeliverableAction      EnumUndeliverableAction?
@@ -754,6 +760,19 @@ enum EnumDeliveryEventType {
   REVIEW_REQUESTED
   REVIEW_ANSWERED
   COURIER_PAID_FOR_REVIEW
+  // Spec 0043: no box size was sent so the default was used, the restaurant changed the size, and
+  // an admin confirmed putting a rider past a full box. No status change, never in STATE_MACHINE.
+  BOX_SIZE_ASSUMED
+  BOX_SIZE_CHANGED
+  BOX_OVER_CAPACITY_CONFIRMED
+}
+
+// Spec 0043: the size of an order's bag, picked by the restaurant. Co-op settings map each size to
+// box units out of a rider's 100.
+enum BoxSize {
+  SMALL
+  MEDIUM
+  LARGE
 }
 
 // What a rider can report about a delivery from the app (decision 66.11). OTHER carries its

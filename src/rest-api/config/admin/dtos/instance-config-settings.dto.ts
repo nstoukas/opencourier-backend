@@ -1,3 +1,4 @@
+import { BoxSize } from '@prisma/types'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -116,6 +117,19 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   returnTripPayPercent: number
 
+  // Spec 0043: the box model settings.
+  @ApiProperty({ type: Number })
+  boxUnitsSmall: number
+
+  @ApiProperty({ type: Number })
+  boxUnitsMedium: number
+
+  @ApiProperty({ type: Number })
+  boxUnitsLarge: number
+
+  @ApiProperty({ enum: BoxSize })
+  boxDefaultSize: BoxSize
+
   @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
@@ -198,6 +212,10 @@ export class InstanceConfigSettingsDto {
     this.waitPayCentsPerMinute = data.waitPayCentsPerMinute
     this.waitLimitMinutes = data.waitLimitMinutes
     this.returnTripPayPercent = data.returnTripPayPercent
+    this.boxUnitsSmall = data.boxUnitsSmall
+    this.boxUnitsMedium = data.boxUnitsMedium
+    this.boxUnitsLarge = data.boxUnitsLarge
+    this.boxDefaultSize = data.boxDefaultSize
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds

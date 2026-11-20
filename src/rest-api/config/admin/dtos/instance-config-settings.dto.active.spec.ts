@@ -63,6 +63,10 @@ describe('InstanceConfigSettingsDto', () => {
     chatRetentionDays: 90,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
+    boxUnitsSmall: 30,
+    boxUnitsMedium: 50,
+    boxUnitsLarge: 100,
+    boxDefaultSize: 'MEDIUM',
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

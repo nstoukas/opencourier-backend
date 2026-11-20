@@ -18,6 +18,7 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
       totalCompensation: 350.4,
       currencyCode: 'EUR',
       pickupBusinessName: 'Volos Bakery',
+      boxSize: 'MEDIUM',
     },
     dropoffLocation: {
       street: 'Iasonos',
