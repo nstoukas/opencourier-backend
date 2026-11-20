@@ -155,7 +155,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   never into a separate sum, or the screens disagree about the same day. The rider's timeline (`delivery-timeline.ts`) never
   selects an event's `message`, and a job's area is worked out in the repository so the house number never leaves it.
 - There are two `NotFoundException` classes: Nest's and the project's (`src/errors.ts`, imported as `errors`).
-  `ErrorLoggingInterceptor` skips only the project's, so an expected 404 thrown with Nest's is logged as an error with a stack.
+  `ErrorLoggingInterceptor` skips any project `ApiException` answering 404 (row 121), but Nest's is not one, so an expected
+  404 thrown with Nest's is still logged as an error with a stack.
+- Prisma's error classes come from the generated client: `import { Prisma } from '@prisma/types'`, then
+  `Prisma.PrismaClientKnownRequestError`. Never import them from `@prisma/client/runtime/library`: that is a second copy,
+  `instanceof` and `@Catch` never match a real error, and every Prisma error became a 500 until row 121 (a guard test in
+  `HttpExceptions.filter.active.spec.ts` fails if the filter goes back). `...OrThrow` throws `NotFoundError`, a subclass.
 
 ## Agent skills
 
