@@ -225,7 +225,13 @@ export class DeliveryDomainService {
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `No box size was sent, so it counts as ${BOX_SIZE_WORDS[boxSize]} (${boxUnits} units), the co-op's default`,
       }
-      await this.deliveryEventService.recordBoxEvent(assumedEvent, delivery.status)
+      // Review fix: a failed insert must not stop the order. Before this guard it threw before CREATED,
+      // and the delivery stayed in CREATED, never offered. The columns still say it was assumed.
+      try {
+        await this.deliveryEventService.recordBoxEvent(assumedEvent, delivery.status)
+      } catch (error) {
+        this.logger.error(`Could not record BOX_SIZE_ASSUMED for delivery ${delivery.id}: ${error}`)
+      }
     }
 
     await this.deliveryEventService.processDeliveryEvent({
@@ -1015,18 +1021,21 @@ export class DeliveryDomainService {
           // Spec 0043 (AC-6, cross check 1): a hand offer that would put the rider past a full box
           // answers 409 with the numbers, unless the admin confirmed it. Accepting the offer already
           // out to the rider (above) adds nothing to their box: an open offer is already counted.
-          const heldUnits = await this.refuseBoxOverCapacityUnlessConfirmed(
+          // The check before the write answers at once; the write itself checks again under a lock on
+          // the rider (review fix), and its numbers are the ones recorded.
+          await this.refuseBoxOverCapacityUnlessConfirmed(event.courierId, delivery.boxUnits, event.confirmOverCapacity)
+          const atWrite = await this.deliveryEventService.offerDeliveryToCourierAsAdmin(
+            event.deliveryId,
             event.courierId,
-            delivery.boxUnits,
-            event.confirmOverCapacity
+            message,
+            event.confirmOverCapacity === true
           )
-          await this.deliveryEventService.offerDeliveryToCourierAsAdmin(event.deliveryId, event.courierId, message)
-          if (heldUnits !== null) {
+          if (wouldOverfillBox(atWrite.heldUnits, atWrite.deliveryUnits)) {
             await this.recordBoxOverCapacityConfirmed(
               event.deliveryId,
               event.courierId,
-              heldUnits,
-              delivery.boxUnits,
+              atWrite.heldUnits,
+              atWrite.deliveryUnits,
               admin
             )
           }

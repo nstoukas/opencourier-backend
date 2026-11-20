@@ -1,3 +1,4 @@
+import { BoxOverCapacityException } from 'src/errors'
 import type {
   DeliveryFoodReadyEvent,
   DeliveryProductReportedEvent,
@@ -550,7 +551,15 @@ export class DeliveryEventService {
     }
   }
 
-  async offerDeliveryToCourierAsAdmin(deliveryId: string, courierId: string, message?: string): Promise<void> {
+  // Spec 0043 (AC-6, review fix): the offer is written under a lock on the rider with their box
+  // measured inside it. Past a full box without `confirmOverCapacity` it answers 409 with the numbers;
+  // confirmed, it returns the numbers measured at the write, for the record of the override.
+  async offerDeliveryToCourierAsAdmin(
+    deliveryId: string,
+    courierId: string,
+    message?: string,
+    confirmOverCapacity = false
+  ): Promise<{ heldUnits: number; deliveryUnits: number }> {
     // A heat or storm stop binds admins too (spec 0014, AC-4, decision 29.1): restart dispatch first.
     await this.refuseIfDispatchStopped()
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -599,8 +608,9 @@ export class DeliveryEventService {
     // status goes in the same write, so a rider's accept landing in between can never be undone by
     // a later status write. An admin's offer never expires (AC-3), whatever the setting.
     const offeredAt = new Date()
-    const written = await this.deliveryRepository.updateIfMatches(
+    const claim = await this.deliveryRepository.claimForRiderWithinBox(
       deliveryId,
+      courierId,
       {
         status: delivery.status,
         courierId: null,
@@ -616,9 +626,13 @@ export class DeliveryEventService {
         totalCompensation,
         fee,
         feePercentage,
-      }
+      },
+      confirmOverCapacity
     )
-    if (!written) {
+    if (claim.outcome === 'BOX_FULL') {
+      throw new BoxOverCapacityException(claim.heldUnits, claim.deliveryUnits)
+    }
+    if (claim.outcome === 'NOT_WAITING') {
       throw new CantUpdateDeliveryStatusError(
         `Delivery ${deliveryId} changed while you were offering it (a rider answered or it moved on); reload and try again`
       )
@@ -680,6 +694,7 @@ export class DeliveryEventService {
         this.logger.error(`Could not tell courier ${replacedCourierId} that the offer of ${deliveryId} moved: ${error}`)
       }
     }
+    return { heldUnits: claim.heldUnits, deliveryUnits: claim.deliveryUnits }
   }
 
   // ---------------------------------------------------------------------------------------------

@@ -249,11 +249,6 @@ export class DeliveryPartnerRestApiService {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
     await this.assertVisibleToPartner(delivery, partnerId)
 
-    // Spec 0043 (AC-3, cross check 4): a new size, before anything else is written, so a refused size
-    // change leaves the whole update unwritten. Sending the size the order already has changes nothing.
-    if (input.boxSize !== undefined && input.boxSize !== delivery.boxSize) {
-      await this.deliveryDomainService.changeBoxSize(delivery, input.boxSize)
-    }
 
     const dropoffLocation = await this.locationDomainService.getById(delivery.dropoffLocationId)
     if (!dropoffLocation) {
@@ -307,6 +302,14 @@ export class DeliveryPartnerRestApiService {
           })
         ).id
       : delivery.dropoffLocationId
+
+    // Spec 0043 (AC-3, cross check 4): a new size, after the update's own checks (review fix: a refused
+    // update must not leave the size changed) and before the rest is written, so a refused size change
+    // leaves the delivery's fields unwritten. The same size, or none, changes nothing; a JSON null is
+    // read as none (review fix: it reached Prisma and answered 500).
+    if (input.boxSize != null && input.boxSize !== delivery.boxSize) {
+      await this.deliveryDomainService.changeBoxSize(delivery, input.boxSize)
+    }
 
     const updatedDelivery = await this.deliveryDomainService.update(delivery.id, {
       dropoffLocationId,

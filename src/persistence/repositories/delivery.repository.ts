@@ -85,16 +85,41 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate
   ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL'> {
+    const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false)
+    return claim.outcome
+  }
+
+  // The locked claim itself, shared by the automatic offer and the admin's hand offer (review fix:
+  // the admin's check was a read before a separate write, so it could race a claim for the same
+  // rider). `allowOverCapacity`: the admin confirmed going past a full box; the write then goes ahead
+  // whatever the sum. Returns what the rider held and what the delivery takes, both measured under
+  // the lock, so a confirmed override records the numbers that were true at the write. The write is
+  // also conditional on the units read (review fix): a size change landing between the read and the
+  // write makes it miss, instead of claiming a bigger order than the one checked.
+  async claimForRiderWithinBox(
+    deliveryId: string,
+    courierId: string,
+    where: Prisma.DeliveryWhereInput,
+    data: IDeliveryUpdate,
+    allowOverCapacity: boolean
+  ): Promise<{ outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL'; heldUnits: number; deliveryUnits: number }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE`
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
-      if (!delivery) return 'NOT_WAITING'
+      if (!delivery) return { outcome: 'NOT_WAITING', heldUnits: 0, deliveryUnits: 0 }
       const rows = await tx.$queryRaw<Array<{ held: number }>>(
         Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
       )
-      if (wouldOverfillBox(rows[0]?.held ?? 0, delivery.boxUnits)) return 'BOX_FULL'
-      const result = await tx.delivery.updateMany({ where: { ...where, id: deliveryId }, data })
-      return result.count === 1 ? 'CLAIMED' : 'NOT_WAITING'
+      const heldUnits = rows[0]?.held ?? 0
+      const deliveryUnits = delivery.boxUnits
+      if (!allowOverCapacity && wouldOverfillBox(heldUnits, deliveryUnits)) {
+        return { outcome: 'BOX_FULL', heldUnits, deliveryUnits }
+      }
+      const result = await tx.delivery.updateMany({
+        where: { ...where, id: deliveryId, boxUnits: deliveryUnits },
+        data,
+      })
+      return { outcome: result.count === 1 ? 'CLAIMED' : 'NOT_WAITING', heldUnits, deliveryUnits }
     })
   }
 

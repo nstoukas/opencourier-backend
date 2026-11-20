@@ -74,7 +74,8 @@ export function heldBoxDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
       ) OR (
         "Delivery"."courierId" = ${riderId}
-        AND "Delivery"."status"::text = ${EnumDeliveryStatus.CANCELED}
+        -- A cancelled delivery can still be marked FAILED later; the food is in the box either way (review fix).
+        AND "Delivery"."status"::text IN (${EnumDeliveryStatus.CANCELED}, ${EnumDeliveryStatus.FAILED})
         AND "Delivery"."cancelledFromStatus"::text IN (${Prisma.join(DELIVERY_PICKED_UP_STATUSES, ',')})
         AND "Delivery"."foodOutcome" IS NULL
         -- ::int: a bound number arrives as bigint, and make_interval takes only int (found live on dev).
