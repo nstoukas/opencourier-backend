@@ -70,7 +70,9 @@ export function heldBoxDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
         AND "Delivery"."status"::text IN (${Prisma.join(BOX_HELD_STATUSES, ',')})
       ) OR (
         "Delivery"."matchedCourierId" = ${riderId}
-        AND "Delivery"."courierId" IS NULL
+        -- agy review: an accept writes courierId first, while the status is still ASSIGNING_COURIER,
+        -- and the status moves a moment later; counted in that moment too, or the box looks emptier.
+        AND ("Delivery"."courierId" IS NULL OR "Delivery"."courierId" = ${riderId})
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
       ) OR (
         "Delivery"."courierId" = ${riderId}
