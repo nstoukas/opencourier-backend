@@ -5,16 +5,8 @@ import { COURIER_API_V1_PREFIX } from 'src/constants'
 import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
 import { Roles } from 'src/decorators/roles.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
-import { RIDER_RANGE_MAX_DAYS, TimeWorkedService, parseDayRange } from 'src/services/time-worked/time-worked.service'
-import {
-  CoopTotalsDto,
-  CurrentTimeWorkedDto,
-  TimeWorkedDto,
-  TimeWorkedRangeArgs,
-  toCoopWeekDto,
-  toCurrentShiftDto,
-  toTimeWorkedDto,
-} from '../time-worked.dto'
+import { TimeWorkedService } from 'src/services/time-worked/time-worked.service'
+import { CoopTotalsDto, CurrentTimeWorkedDto, toCoopWeekDto, toCurrentShiftDto } from '../time-worked.dto'
 
 // Spec 0040: a rider's own time worked and the co-op totals. No route here takes a rider id: the
 // session decides whose time worked it is (AC-18).
@@ -40,19 +32,5 @@ export class TimeWorkedCourierRestApiController {
   async coopTotals(): Promise<CoopTotalsDto> {
     const { thisWeek, lastWeek } = await this.timeWorkedService.coopWeeks()
     return { thisWeek: toCoopWeekDto(thisWeek), lastWeek: toCoopWeekDto(lastWeek) }
-  }
-
-  @common.Get()
-  @swagger.ApiOkResponse({ type: TimeWorkedDto })
-  @swagger.ApiBadRequestResponse({ description: 'A malformed date, from after to, or more than 31 days' })
-  @swagger.ApiOperation({ summary: 'My time worked by day and by shift, at most 31 days' })
-  @Roles(EnumUserRole.COURIER)
-  async list(
-    @common.Query() args: TimeWorkedRangeArgs,
-    @CurrentUserCourier() courier: CourierEntity
-  ): Promise<TimeWorkedDto> {
-    const range = parseDayRange(args.from, args.to, RIDER_RANGE_MAX_DAYS)
-    const result = await this.timeWorkedService.forRider(courier.id, range, { withAdminLabels: false })
-    return toTimeWorkedDto(result, false)
   }
 }

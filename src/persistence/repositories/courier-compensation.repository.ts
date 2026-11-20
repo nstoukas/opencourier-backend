@@ -7,16 +7,9 @@ import {
   ICourierCompensationRepository,
   ICourierCompensationCreateInput,
 } from 'src/domains/delivery-event/interfaces/ICourierCompensationRepository'
-import {
-  CourierCompensationRow,
-  CourierCompensationDeliveryRow,
-} from 'src/domains/delivery-event/types/earnings-summary.type'
 
 @Injectable()
-export class CourierCompensationRepository
-  extends EntityRepository
-  implements ICourierCompensationRepository
-{
+export class CourierCompensationRepository extends EntityRepository implements ICourierCompensationRepository {
   constructor(prisma: PrismaService) {
     super(prisma)
   }
@@ -60,7 +53,9 @@ export class CourierCompensationRepository
   }
 
   // Writes a removal's pay once (spec 0035). A second writer gets the row that is already there.
-  async createRemovalPayOnce(input: ICourierCompensationCreateInput & { removalOf: string }): Promise<CourierCompensation> {
+  async createRemovalPayOnce(
+    input: ICourierCompensationCreateInput & { removalOf: string }
+  ): Promise<CourierCompensation> {
     try {
       return await this.create(input)
     } catch (error) {
@@ -78,7 +73,9 @@ export class CourierCompensationRepository
   }
 
   // Writes one return trip's pay once (spec 0035).
-  async createReturnTripPayOnce(input: ICourierCompensationCreateInput & { returnOf: string }): Promise<CourierCompensation> {
+  async createReturnTripPayOnce(
+    input: ICourierCompensationCreateInput & { returnOf: string }
+  ): Promise<CourierCompensation> {
     try {
       return await this.create(input)
     } catch (error) {
@@ -105,124 +102,5 @@ export class CourierCompensationRepository
     await this.prisma.courierCompensation.delete({
       where: { id },
     })
-  }
-
-  async findRowsForCourierEarnings(
-    courierId: string,
-    from: Date,
-    to: Date
-  ): Promise<CourierCompensationRow[]> {
-    const rows = await this.prisma.courierCompensation.findMany({
-      where: {
-        courierId,
-        createdAt: {
-          gte: from,
-          lte: to,
-        },
-      },
-      select: {
-        deliveryId: true,
-        amount: true,
-        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
-        reason: true,
-        createdAt: true,
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    })
-    return rows
-  }
-
-  async findDetailedRowsForCourierDay(
-    courierId: string,
-    from: Date,
-    to: Date
-  ): Promise<CourierCompensationDeliveryRow[]> {
-    const rows = await this.prisma.courierCompensation.findMany({
-      where: {
-        courierId,
-        createdAt: {
-          gte: from,
-          lte: to,
-        },
-      },
-      select: {
-        deliveryId: true,
-        amount: true,
-        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
-        reason: true,
-        createdAt: true,
-        delivery: {
-          select: {
-            pickupBusinessName: true,
-            dropoffLocation: {
-              select: {
-                formattedAddress: true,
-                street: true,
-                city: true,
-                state: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    })
-
-    return rows.map((r) => ({
-      deliveryId: r.deliveryId,
-      amount: r.amount,
-      reason: r.reason,
-      createdAt: r.createdAt,
-      pickupBusinessName: r.delivery.pickupBusinessName,
-      dropoffLocation: r.delivery.dropoffLocation,
-    }))
-  }
-
-  async findDetailedRowsForCourierDelivery(
-    courierId: string,
-    deliveryId: string
-  ): Promise<CourierCompensationDeliveryRow[]> {
-    const rows = await this.prisma.courierCompensation.findMany({
-      where: {
-        courierId,
-        deliveryId,
-      },
-      select: {
-        deliveryId: true,
-        amount: true,
-        // The kind of award, so earnings can tell a cancelled job from a reassignment (spec 0015).
-        reason: true,
-        createdAt: true,
-        delivery: {
-          select: {
-            pickupBusinessName: true,
-            dropoffLocation: {
-              select: {
-                formattedAddress: true,
-                street: true,
-                city: true,
-                state: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    })
-
-    return rows.map((r) => ({
-      deliveryId: r.deliveryId,
-      amount: r.amount,
-      reason: r.reason,
-      createdAt: r.createdAt,
-      pickupBusinessName: r.delivery.pickupBusinessName,
-      dropoffLocation: r.delivery.dropoffLocation,
-    }))
   }
 }

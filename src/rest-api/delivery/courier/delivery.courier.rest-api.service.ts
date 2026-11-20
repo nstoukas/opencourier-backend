@@ -6,7 +6,10 @@ import {
   EnumUndeliverableAction,
 } from '@prisma/types'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
-import { ProductReportDomainService, ProductReportInput } from 'src/domains/product-report/product-report.domain.service'
+import {
+  ProductReportDomainService,
+  ProductReportInput,
+} from 'src/domains/product-report/product-report.domain.service'
 import { EnumProductReportSource } from '@prisma/types'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
@@ -125,7 +128,8 @@ export class DeliveryRestApiCourierService {
     }
     const shownRequest = (deliveryId: string): DeliveryRemovalRequest | null => {
       const newest = newestRequestByDelivery.get(deliveryId)
-      return newest && (newest.status === EnumRemovalRequestStatus.OPEN || newest.status === EnumRemovalRequestStatus.DECLINED)
+      return newest &&
+        (newest.status === EnumRemovalRequestStatus.OPEN || newest.status === EnumRemovalRequestStatus.DECLINED)
         ? newest
         : null
     }
@@ -150,24 +154,6 @@ export class DeliveryRestApiCourierService {
       data: deliveriesWithNotes,
       pagination: deliveries.pagination,
     }
-  }
-
-  async getMyDoneDeliveries(courierId: string, page?: number, perPage?: number) {
-    const args: DeliveryWhereArgs = {
-      courierId,
-      status: {
-        notIn: [
-          EnumDeliveryStatus.ASSIGNING_COURIER,
-          EnumDeliveryStatus.ACCEPTED,
-          EnumDeliveryStatus.DISPATCHED,
-          EnumDeliveryStatus.PICKED_UP,
-        ],
-      },
-    }
-
-    const deliveries = await this.deliveryDomainService.getMany(args, page, perPage)
-
-    return deliveries
   }
 
   async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {

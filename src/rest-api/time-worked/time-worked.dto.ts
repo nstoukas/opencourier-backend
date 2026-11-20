@@ -6,7 +6,7 @@ import {
   EnumDeliveryEventType,
 } from '@prisma/types'
 import { IsIn, IsOptional, IsString } from 'class-validator'
-import { WorkedDay, WorkedShift } from 'src/domains/time-worked/worked-shifts'
+import { WorkedShift } from 'src/domains/time-worked/worked-shifts'
 import { CoopWeek, TotalsRow } from 'src/services/time-worked/time-worked.service'
 
 // Spec 0040: the time worked answers. Each class lists its fields one by one, so nothing the pure
@@ -83,24 +83,6 @@ export class WorkedShiftDto {
   @ApiProperty({ type: String }) currencyCode: string
   @ApiProperty({ type: () => [WorkedStatusChangeDto] }) statusChanges: WorkedStatusChangeDto[]
   @ApiProperty({ type: () => [WorkedJobDto] }) jobs: WorkedJobDto[]
-}
-
-export class WorkedDayDto {
-  @ApiProperty({ type: String }) date: string
-  @ApiProperty({ type: Number }) workSeconds: number
-  @ApiProperty({ type: Number }) jobSeconds: number
-  @ApiProperty({ type: Number }) paidWaitSeconds: number
-  @ApiProperty({ type: Number }) unpaidSeconds: number
-  @ApiProperty({ type: Number, description: 'Includes unlinkedMoneyCents' }) moneyCents: number
-  @ApiProperty({ type: Number, nullable: true }) centsPerHour: number | null
-  @ApiProperty({ type: Number }) unlinkedMoneyCents: number
-}
-
-export class TimeWorkedDto {
-  @ApiProperty({ type: Date, nullable: true }) recordedFrom: Date | null
-  @ApiProperty({ type: String }) currencyCode: string
-  @ApiProperty({ type: () => [WorkedDayDto] }) days: WorkedDayDto[]
-  @ApiProperty({ type: () => [WorkedShiftDto] }) shifts: WorkedShiftDto[]
 }
 
 // The home counter's snapshot (AC-10): the shift without its lists.
@@ -196,31 +178,6 @@ export function toShiftDto(shift: WorkedShift, withAdminLabels: boolean): Worked
         addedLater: c.addedLater,
       })),
     })),
-  }
-}
-
-export function toDayDto(day: WorkedDay): WorkedDayDto {
-  return {
-    date: day.date,
-    workSeconds: day.workSeconds,
-    jobSeconds: day.jobSeconds,
-    paidWaitSeconds: day.paidWaitSeconds,
-    unpaidSeconds: day.unpaidSeconds,
-    moneyCents: day.moneyCents,
-    centsPerHour: day.centsPerHour,
-    unlinkedMoneyCents: day.unlinkedMoneyCents,
-  }
-}
-
-export function toTimeWorkedDto(
-  result: { recordedFrom: Date | null; currencyCode: string; days: WorkedDay[]; shifts: WorkedShift[] },
-  withAdminLabels: boolean
-): TimeWorkedDto {
-  return {
-    recordedFrom: result.recordedFrom,
-    currencyCode: result.currencyCode,
-    days: result.days.map(toDayDto),
-    shifts: result.shifts.map((s) => toShiftDto(s, withAdminLabels)),
   }
 }
 

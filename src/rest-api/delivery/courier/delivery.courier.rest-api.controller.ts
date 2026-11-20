@@ -5,7 +5,6 @@ import { offerTripFor } from 'src/domains/delivery/offer-trip'
 import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
 import { COURIER_API_V1_PREFIX } from '../../../constants'
-import { DeliveryCourierPaginatedDto } from './dtos/delivery.courier.paginated.dto'
 import { EnumUserRole } from '@prisma/types'
 import { Roles } from 'src/decorators/roles.decorator'
 import { DeliveryFindManyCourierArgs } from './queries/delivery-find-many.courier.args'
@@ -91,24 +90,6 @@ export class DeliveryCourierRestApiController {
 
     const waitRules = await this.deliveryRestApiCourierService.getCourierWaitRules()
     const dto = new InProgressDeliveriesCourierPaginatedDto(deliveries, waitRules)
-    return dto
-  }
-
-  @common.Get('done')
-  @swagger.ApiResponse({ type: DeliveryCourierPaginatedDto })
-  @swagger.ApiForbiddenResponse({
-    type: errors.ForbiddenException,
-  })
-  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
-  @swagger.ApiOperation({ summary: 'Get my new deliveries' })
-  @Roles(EnumUserRole.COURIER)
-  async getMyDoneDeliveries(
-    @common.Query() args: DeliveryFindManyCourierArgs,
-    @CurrentUserCourier() courier: CourierEntity
-  ): Promise<DeliveryCourierPaginatedDto> {
-    const deliveries = await this.deliveryRestApiCourierService.getMyDoneDeliveries(courier.id, args.page, args.perPage)
-
-    const dto = new DeliveryCourierPaginatedDto(deliveries)
     return dto
   }
 
