@@ -6,6 +6,16 @@ import { ApiException } from '../errors'
 import { isRecordNotFoundError } from '../prisma.util'
 import winston from 'winston'
 
+// The method and the route pattern (`/deliveries/:deliveryId`, never the URL with its ids), so a 404
+// warning says where it came from without writing an id into the log (review of row 121).
+function routeOf(context: ExecutionContext): string {
+  if (context.getType() !== 'http') {
+    return context.getType()
+  }
+  const request = context.switchToHttp().getRequest<{ method?: string; route?: { path?: string } }>()
+  return `${request.method ?? ''} ${request.route?.path ?? '(no route)'}`
+}
+
 // Without this interceptor a lot of logs do not end up in GCP Logging.
 // The downside is that we need to filter out errors that aren't important, like retuning 404
 // when there is no cart.
@@ -28,7 +38,7 @@ export class ErrorLoggingInterceptor implements NestInterceptor {
           return throwError(() => err)
         }
         if (err instanceof Error && isRecordNotFoundError(err)) {
-          this.logger.warn(`Endpoint answered 404 for a missing row: ${err.message}`)
+          this.logger.warn(`Endpoint answered 404 for a missing row: ${routeOf(context)} ${err.message}`)
           return throwError(() => err)
         }
         this.logger.error('Endpoint returned error', err)

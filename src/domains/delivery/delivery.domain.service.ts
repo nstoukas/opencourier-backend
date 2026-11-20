@@ -357,6 +357,9 @@ export class DeliveryDomainService {
           delivery.offerExpiresAt
         )
       }
+      // The request log no longer prints 404 answers (row 121), and this one is not an ordinary miss: the
+      // rider won the offer but the server could not record the accept. One warning keeps it traceable.
+      this.logger.warn(`Accept by courier ${courierId} on delivery ${deliveryId} did not take; offer given back`)
       throw new DeliveryCantBeAcceptedException(`Delivery ${deliveryId} could not be accepted, please try again`)
     }
 
