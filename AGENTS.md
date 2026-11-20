@@ -144,6 +144,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   shared by the admin password change and the reset): sockets closed, `CourierDevice` rows deleted, Offline through the admin path.
 - Mail goes through `MailService` (`src/services/mail/`, Nodemailer over SMTP). With no `SMTP_HOST` (or `MAIL_FROM`) the server
   still starts, logs "Mail is off" once and `isConfigured()` is false; callers check it first. In dev, Mailpit catches every mail.
+- Time worked (spec 0040): every write of `Courier.status` goes through `CourierRepository.changeStatus(id, status, cause,
+  adminUserId?)`, which locks the row and writes the `CourierStatusChange` record in the same transaction; `updateById` drops a
+  `status` key at run time. Never write the status another way, or the rider's time worked silently loses that change. A new
+  event type that ends a job must be added to `JOB_END_EVENT_TYPES` (`src/domains/time-worked/job-end-event-types.ts`; a guard
+  test walks `STATE_MACHINE`), or the job runs on to the delivery's last event. "Shift" means a booked slot (specs 0026, 0027);
+  "time worked" and `WorkedShift` mean this spec.
 
 ## Agent skills
 
