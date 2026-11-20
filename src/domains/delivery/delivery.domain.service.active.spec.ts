@@ -1067,7 +1067,12 @@ describe('DeliveryDomainService', () => {
         id: 'del-1',
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         matchedCourierId: 'courier-other',
+        boxUnits: 50,
       } as any)
+      mockDeliveryEventService.offerDeliveryToCourierAsAdmin.mockResolvedValue({
+        heldUnits: 0,
+        deliveryUnits: 50,
+      })
       const acceptSpy = jest.spyOn(service, 'acceptDelivery')
 
       await service.submitDeliveryEvent(
@@ -1083,7 +1088,8 @@ describe('DeliveryDomainService', () => {
       expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).toHaveBeenCalledWith(
         'del-1',
         'courier-target',
-        'Admin assigned directly'
+        'Admin assigned directly',
+        false
       )
       expect(acceptSpy).not.toHaveBeenCalled()
     })

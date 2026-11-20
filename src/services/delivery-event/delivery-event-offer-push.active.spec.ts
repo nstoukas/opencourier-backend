@@ -92,6 +92,7 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       findByIdOrThrow: jest.fn().mockResolvedValue(sampleDelivery),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
+      claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
       updateStatus: jest.fn().mockResolvedValue(sampleDelivery),
       update: jest.fn().mockResolvedValue(sampleDelivery),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([sampleDelivery]),

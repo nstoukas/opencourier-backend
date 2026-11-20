@@ -63,6 +63,21 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       expect(RETURN_TRIP_HELD_HOURS).toBe(24)
     })
 
+    test('open offer branch counts a delivery whose courierId is the rider while status is ASSIGNING_COURIER (the accept window)', () => {
+      const boundRider = Prisma.sql`${'courier-volos-1'}`
+      const whereSql = heldBoxDeliveriesWhere(boundRider)
+      expect(whereSql.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" =')
+      expect(whereSql.values).toContain('courier-volos-1')
+      expect(whereSql.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
+    })
+
+    test('return trip branch counts status FAILED as well as CANCELED', () => {
+      const whereSql = heldBoxDeliveriesWhere(riderSql)
+      expect(whereSql.sql).toContain('"Delivery"."status"::text IN')
+      expect(whereSql.values).toContain(EnumDeliveryStatus.CANCELED)
+      expect(whereSql.values).toContain(EnumDeliveryStatus.FAILED)
+    })
+
     test('heldBoxUnitsSql sums boxUnits with COALESCE to 0 and casts to ::int', () => {
       const unitsSql = heldBoxUnitsSql(riderSql)
 
@@ -441,6 +456,152 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       // Delivery 2 was never updated
       expect(fakeTx.delivery.updateMany).toHaveBeenCalledTimes(1)
       expect(courierHeldUnits).toBe(60)
+    })
+  })
+
+  describe('claimForRiderWithinBox (spec 0043 review fix)', () => {
+    test('locks the Courier row before summing', async () => {
+      const callLog: string[] = []
+      const fakeTx = {
+        $queryRaw: jest.fn().mockImplementation((stringsOrSql: any) => {
+          const sqlText = stringsOrSql?.sql ?? (typeof stringsOrSql === 'string' ? stringsOrSql : stringsOrSql.join('?'))
+          if (sqlText.includes('FOR UPDATE')) {
+            callLog.push('lock')
+            return Promise.resolve([{ id: 'courier-1' }])
+          }
+          if (sqlText.includes('SELECT COALESCE(SUM("Delivery"."boxUnits")')) {
+            callLog.push('sum')
+            return Promise.resolve([{ held: 0 }])
+          }
+          return Promise.resolve([])
+        }),
+        delivery: {
+          findUnique: jest.fn().mockResolvedValue({ boxUnits: 50 }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const prisma = { $transaction: jest.fn((cb) => cb(fakeTx)) }
+      const deliveryRepo = new DeliveryRepository(prisma as unknown as PrismaService)
+
+      await deliveryRepo.claimForRiderWithinBox('del-1', 'courier-1', {}, {}, false)
+
+      expect(callLog).toEqual(['lock', 'sum'])
+      expect(fakeTx.$queryRaw.mock.calls[0][0].join('')).toContain('FOR UPDATE')
+    })
+
+    test('with allowOverCapacity false and held + units > 100 returns BOX_FULL without writing', async () => {
+      const fakeTx = {
+        $queryRaw: jest.fn().mockImplementation((stringsOrSql: any) => {
+          const sqlText = stringsOrSql?.sql ?? (typeof stringsOrSql === 'string' ? stringsOrSql : stringsOrSql.join('?'))
+          if (sqlText.includes('FOR UPDATE')) return Promise.resolve([{ id: 'courier-1' }])
+          if (sqlText.includes('SELECT COALESCE(SUM("Delivery"."boxUnits")')) return Promise.resolve([{ held: 60 }])
+          return Promise.resolve([])
+        }),
+        delivery: {
+          findUnique: jest.fn().mockResolvedValue({ boxUnits: 50 }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const prisma = { $transaction: jest.fn((cb) => cb(fakeTx)) }
+      const deliveryRepo = new DeliveryRepository(prisma as unknown as PrismaService)
+
+      const result = await deliveryRepo.claimForRiderWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.CREATED },
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        false
+      )
+
+      expect(result).toEqual({ outcome: 'BOX_FULL', heldUnits: 60, deliveryUnits: 50 })
+      expect(fakeTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('with allowOverCapacity true writes anyway and returns held and delivery units measured inside transaction', async () => {
+      const fakeTx = {
+        $queryRaw: jest.fn().mockImplementation((stringsOrSql: any) => {
+          const sqlText = stringsOrSql?.sql ?? (typeof stringsOrSql === 'string' ? stringsOrSql : stringsOrSql.join('?'))
+          if (sqlText.includes('FOR UPDATE')) return Promise.resolve([{ id: 'courier-1' }])
+          if (sqlText.includes('SELECT COALESCE(SUM("Delivery"."boxUnits")')) return Promise.resolve([{ held: 70 }])
+          return Promise.resolve([])
+        }),
+        delivery: {
+          findUnique: jest.fn().mockResolvedValue({ boxUnits: 40 }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const prisma = { $transaction: jest.fn((cb) => cb(fakeTx)) }
+      const deliveryRepo = new DeliveryRepository(prisma as unknown as PrismaService)
+
+      const result = await deliveryRepo.claimForRiderWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.CREATED },
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        true
+      )
+
+      expect(result).toEqual({ outcome: 'CLAIMED', heldUnits: 70, deliveryUnits: 40 })
+      expect(fakeTx.delivery.updateMany).toHaveBeenCalledWith({
+        where: { status: EnumDeliveryStatus.CREATED, id: 'del-1', boxUnits: 40 },
+        data: { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+      })
+    })
+
+    test("conditional write's where includes boxUnits equal to the units read (a size change in between makes it miss: NOT_WAITING)", async () => {
+      const fakeTx = {
+        $queryRaw: jest.fn().mockImplementation((stringsOrSql: any) => {
+          const sqlText = stringsOrSql?.sql ?? (typeof stringsOrSql === 'string' ? stringsOrSql : stringsOrSql.join('?'))
+          if (sqlText.includes('FOR UPDATE')) return Promise.resolve([{ id: 'courier-1' }])
+          if (sqlText.includes('SELECT COALESCE(SUM("Delivery"."boxUnits")')) return Promise.resolve([{ held: 20 }])
+          return Promise.resolve([])
+        }),
+        delivery: {
+          findUnique: jest.fn().mockResolvedValue({ boxUnits: 30 }),
+          // Size changed concurrently in DB so where clause with boxUnits: 30 matches 0 rows!
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+      }
+      const prisma = { $transaction: jest.fn((cb) => cb(fakeTx)) }
+      const deliveryRepo = new DeliveryRepository(prisma as unknown as PrismaService)
+
+      const result = await deliveryRepo.claimForRiderWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.CREATED },
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        false
+      )
+
+      expect(fakeTx.delivery.updateMany).toHaveBeenCalledWith({
+        where: { status: EnumDeliveryStatus.CREATED, id: 'del-1', boxUnits: 30 },
+        data: { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+      })
+      expect(result).toEqual({ outcome: 'NOT_WAITING', heldUnits: 20, deliveryUnits: 30 })
+    })
+
+    test('claimOfferWithinBox still answers its three words through it with allowOverCapacity false', async () => {
+      const prisma = { $transaction: jest.fn() }
+      const deliveryRepo = new DeliveryRepository(prisma as unknown as PrismaService)
+
+      const spy = jest.spyOn(deliveryRepo, 'claimForRiderWithinBox')
+
+      spy.mockResolvedValueOnce({ outcome: 'CLAIMED', heldUnits: 10, deliveryUnits: 30 })
+      const res1 = await deliveryRepo.claimOfferWithinBox('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {})
+      expect(res1).toBe('CLAIMED')
+      expect(spy).toHaveBeenLastCalledWith('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {}, false)
+
+      spy.mockResolvedValueOnce({ outcome: 'BOX_FULL', heldUnits: 80, deliveryUnits: 30 })
+      const res2 = await deliveryRepo.claimOfferWithinBox('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {})
+      expect(res2).toBe('BOX_FULL')
+      expect(spy).toHaveBeenLastCalledWith('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {}, false)
+
+      spy.mockResolvedValueOnce({ outcome: 'NOT_WAITING', heldUnits: 10, deliveryUnits: 30 })
+      const res3 = await deliveryRepo.claimOfferWithinBox('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {})
+      expect(res3).toBe('NOT_WAITING')
+      expect(spy).toHaveBeenLastCalledWith('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {}, false)
+
+      spy.mockRestore()
     })
   })
 })

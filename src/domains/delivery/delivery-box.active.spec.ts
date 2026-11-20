@@ -11,7 +11,7 @@ import {
 import { DeliveryDomainService } from './delivery.domain.service'
 import { DeliveryEntity } from './entities/delivery.entity'
 import { DeliveryWithLocationsEntity } from './entities/delivery-with-locations.entity'
-import { BOX_SIZE_LOCKED_MESSAGE, BoxOverCapacityException, ErrorCode } from 'src/errors'
+import { BOX_SIZE_LOCKED_MESSAGE, BoxOverCapacityException, CantUpdateDeliveryStatusError, ErrorCode } from 'src/errors'
 import { DeliveryCreatePartnerInput } from 'src/rest-api/delivery/partner/queries/delivery-create.partner.input'
 import { DeliveryUpdatePartnerInput } from 'src/rest-api/delivery/partner/queries/delivery-update.partner.input'
 import { DeliverySubmitEventAdminInput } from 'src/rest-api/delivery/admin/queries/delivery-submit-event.admin.input'
@@ -250,6 +250,26 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       expect(callLog).toEqual(['recordBoxEvent:BOX_SIZE_ASSUMED:CREATED', 'processDeliveryEvent:CREATED'])
     })
 
+    test('create: when recording BOX_SIZE_ASSUMED throws, the error is logged and the CREATED event is still processed', async () => {
+      const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      mockDeliveryEventService.recordBoxEvent.mockRejectedValue(new Error('DB failure on event insert'))
+
+      await service.create({
+        partnerId: 'partner-1',
+        pickupName: 'Nosh',
+        pickupLocationId: 'loc-1',
+        dropoffLocationId: 'loc-2',
+      } as any)
+
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Could not record BOX_SIZE_ASSUMED for delivery del-box-1: Error: DB failure on event insert')
+      )
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.CREATED, deliveryId: 'del-box-1' })
+      )
+      loggerSpy.mockRestore()
+    })
+
     test('partner create with a size records NO BOX_SIZE_ASSUMED event', async () => {
       await service.create({
         partnerId: 'partner-1',
@@ -454,6 +474,7 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       const callOrder: string[] = []
       mockDeliveryEventService.offerDeliveryToCourierAsAdmin.mockImplementation(async () => {
         callOrder.push('offerDeliveryToCourierAsAdmin')
+        return { heldUnits: 60, deliveryUnits: 50 }
       })
       mockDeliveryEventService.recordBoxEvent.mockImplementation(async (evt: any) => {
         callOrder.push(`recordBoxEvent:${evt.type}`)
@@ -471,6 +492,12 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       )
 
       expect(callOrder).toEqual(['offerDeliveryToCourierAsAdmin', 'recordBoxEvent:BOX_OVER_CAPACITY_CONFIRMED'])
+      expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).toHaveBeenCalledWith(
+        'del-admin-over',
+        'courier-busy',
+        'Admin manual offer',
+        true
+      )
 
       expect(mockDeliveryEventService.recordBoxEvent).toHaveBeenCalledWith(
         {
@@ -497,6 +524,10 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
         courierId: null,
         boxUnits: 50,
       })
+      mockDeliveryEventService.offerDeliveryToCourierAsAdmin.mockResolvedValue({
+        heldUnits: 40,
+        deliveryUnits: 50,
+      })
 
       await service.submitDeliveryEvent(
         {
@@ -511,8 +542,67 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).toHaveBeenCalledWith(
         'del-admin-fits',
         'courier-1',
-        'Admin manual offer'
+        'Admin manual offer',
+        false
       )
+      expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+    })
+
+    test('submitDeliveryEvent ACCEPTED (hand offer): BOX_OVER_CAPACITY_CONFIRMED event uses numbers returned from locked write (not earlier read) and is written only when they pass 100', async () => {
+      // 1. Earlier read was 60 held, 50 delivery (sum 110 > 100).
+      // Under lock, a race added another order, so write returned 75 held, 50 delivery (sum 125).
+      mockCourierRepository.heldBoxUnits.mockResolvedValue(60)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: 'del-admin-race',
+        status: EnumDeliveryStatus.CREATED,
+        matchedCourierId: null,
+        courierId: null,
+        boxUnits: 50,
+      })
+      mockDeliveryEventService.offerDeliveryToCourierAsAdmin.mockResolvedValue({
+        heldUnits: 75,
+        deliveryUnits: 50,
+      })
+
+      await service.submitDeliveryEvent(
+        {
+          deliveryId: 'del-admin-race',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+          courierId: 'courier-busy',
+          confirmOverCapacity: true,
+        },
+        'Admin manual offer',
+        adminUser
+      )
+
+      // Event message uses the 75 units returned from the locked write (not 60 from earlier read), 125 in all
+      expect(mockDeliveryEventService.recordBoxEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED,
+          message: expect.stringContaining('already holding 75 of 100 units, 125 in all'),
+        }),
+        EnumDeliveryStatus.CREATED
+      )
+
+      // 2. Only written when numbers pass 100:
+      // Even if confirmOverCapacity was true and earlier read was > 100, if locked write returns <= 100, no event is written
+      mockDeliveryEventService.recordBoxEvent.mockClear()
+      mockDeliveryEventService.offerDeliveryToCourierAsAdmin.mockResolvedValue({
+        heldUnits: 30,
+        deliveryUnits: 50, // 30 + 50 = 80 <= 100
+      })
+
+      await service.submitDeliveryEvent(
+        {
+          deliveryId: 'del-admin-race',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+          courierId: 'courier-busy',
+          confirmOverCapacity: true,
+        },
+        'Admin manual offer',
+        adminUser
+      )
+
       expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
     })
 
@@ -606,6 +696,46 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
           message: expect.stringContaining(`${adminLabel(adminUser)} confirmed giving this order (30 units)`),
         }),
         EnumDeliveryStatus.ASSIGNING_COURIER
+      )
+    })
+
+    test('reassignDelivery with confirmOverCapacity: when the reassignment did not take effect (rolled back), no BOX_OVER_CAPACITY_CONFIRMED is written', async () => {
+      mockCourierRepository.heldBoxUnits.mockResolvedValue(80)
+      const initialDelivery = {
+        id: 'del-reassign-rollback',
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId: 'courier-old',
+        matchedCourierId: null,
+        boxUnits: 30,
+        totalCompensation: 350,
+        currencyCode: 'EUR',
+      }
+      const reloadedDelivery = {
+        ...initialDelivery,
+        // courierId is still courier-old! Reassignment did not take effect!
+      }
+      mockDeliveryRepository.findByIdOrThrow
+        .mockResolvedValueOnce(initialDelivery)
+        .mockResolvedValueOnce(reloadedDelivery)
+
+      mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValue(false)
+
+      await expect(
+        service.reassignDelivery(
+          'del-reassign-rollback',
+          'courier-new',
+          undefined,
+          'Reassignment attempt',
+          { confirmOverCapacity: true, admin: adminUser }
+        )
+      ).rejects.toThrow(CantUpdateDeliveryStatusError)
+
+      // Compensation award was rolled back
+      expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-box-1')
+      // No BOX_OVER_CAPACITY_CONFIRMED was written
+      expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED }),
+        expect.anything()
       )
     })
   })

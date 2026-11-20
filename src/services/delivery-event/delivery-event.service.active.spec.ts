@@ -62,6 +62,7 @@ describe('DeliveryEventService', () => {
       findByIdOrThrow: jest.fn(),
       update: jest.fn().mockResolvedValue({ id: 'del-1', partnerId: null, courierId: null } as any),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 
@@ -315,13 +316,18 @@ describe('DeliveryEventService', () => {
         feePercentage: 20,
       } as any)
 
-      // Admin offer uses conditional updateIfMatches (row 61 review)
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      // Admin offer uses conditional claimForRiderWithinBox (row 9 review)
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValue({
+        outcome: 'CLAIMED',
+        heldUnits: 0,
+        deliveryUnits: 50,
+      })
 
       await service.offerDeliveryToCourierAsAdmin('del-offer', 'courier-1', 'Admin offer note')
 
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimForRiderWithinBox).toHaveBeenCalledWith(
         'del-offer',
+        'courier-1',
         expect.objectContaining({
           status: EnumDeliveryStatus.CREATED,
           courierId: null,
@@ -331,7 +337,8 @@ describe('DeliveryEventService', () => {
           status: EnumDeliveryStatus.ASSIGNING_COURIER,
           matchedCourierId: 'courier-1',
           offerExpiresAt: null,
-        })
+        }),
+        false
       )
 
       // Assert CONFIRMED and OFFERED events are created (spec 0002: admin offer writes CONFIRMED and OFFERED)

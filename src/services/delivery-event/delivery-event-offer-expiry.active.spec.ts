@@ -79,6 +79,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       update: jest.fn().mockImplementation((id, data) => Promise.resolve({ id, ...data })),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
+      claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
       findLatestNoCourierAvailableAt: jest.fn().mockResolvedValue(new Map()),
@@ -719,9 +720,10 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.offerDeliveryToCourierAsAdmin(deliveryId, 'courier-1', 'Priority assignment')
 
-      // 1. Delivery update has offerExpiresAt: null via conditional updateIfMatches
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      // 1. Delivery update has offerExpiresAt: null via conditional claimForRiderWithinBox
+      expect(mockDeliveryRepository.claimForRiderWithinBox).toHaveBeenCalledWith(
         deliveryId,
+        'courier-1',
         expect.objectContaining({
           status: EnumDeliveryStatus.CREATED,
           courierId: null,
@@ -731,7 +733,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
           matchedCourierId: 'courier-1',
           offeredAt: expect.any(Date),
           offerExpiresAt: null,
-        })
+        }),
+        false
       )
 
       // 2. CONFIRMED audit event saved

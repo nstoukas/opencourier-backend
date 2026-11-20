@@ -23,7 +23,7 @@ import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
-import { CantUpdateDeliveryStatusError } from 'src/errors'
+import { BoxOverCapacityException, CantUpdateDeliveryStatusError } from 'src/errors'
 import { DeliveryPartnerRestApiController } from 'src/rest-api/delivery/partner/delivery.partner.rest-api.controller'
 import { DeliveryPartnerRestApiService } from 'src/rest-api/delivery/partner/delivery.partner.rest-api.service'
 import { TestingAdminRestApiController } from 'src/rest-api/testing/admin/testing.admin.rest-api.controller'
@@ -93,6 +93,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       } as any),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
+      claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
     mockDeliveryEventRepository = {
@@ -593,13 +594,77 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       } as any)
       mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'c-1', userId: 'u-1' } as any)
 
-      // Miss on updateIfMatches (e.g. accepted at same second)
-      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+      // Miss on claimForRiderWithinBox (e.g. accepted at same second)
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValueOnce({
+        outcome: 'NOT_WAITING',
+        heldUnits: 0,
+        deliveryUnits: 50,
+      })
 
       await expect(service.offerDeliveryToCourierAsAdmin(deliveryId, 'c-1')).rejects.toThrow(
         CantUpdateDeliveryStatusError
       )
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+    })
+
+    it('admin offer: BOX_FULL throws BoxOverCapacityException with the numbers from the lock', async () => {
+      const deliveryId = 'del-admin-box-full'
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CREATED,
+        partnerId: 'partner-1',
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+      } as any)
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'c-1', userId: 'u-1' } as any)
+
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValueOnce({
+        outcome: 'BOX_FULL',
+        heldUnits: 75,
+        deliveryUnits: 50,
+      })
+
+      const offerPromise = service.offerDeliveryToCourierAsAdmin(deliveryId, 'c-1')
+      await expect(offerPromise).rejects.toBeInstanceOf(BoxOverCapacityException)
+      try {
+        await offerPromise
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(409)
+        const res = err.getResponse()
+        expect(res.heldUnits).toBe(75)
+        expect(res.deliveryUnits).toBe(50)
+      }
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+    })
+
+    it('admin offer: confirmOverCapacity true is passed as allowOverCapacity', async () => {
+      const deliveryId = 'del-admin-confirm'
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CREATED,
+        partnerId: 'partner-1',
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+      } as any)
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'c-1', userId: 'u-1' } as any)
+
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValueOnce({
+        outcome: 'CLAIMED',
+        heldUnits: 75,
+        deliveryUnits: 50,
+      })
+
+      await service.offerDeliveryToCourierAsAdmin(deliveryId, 'c-1', 'Over capacity note', true)
+
+      expect(mockDeliveryRepository.claimForRiderWithinBox).toHaveBeenCalledWith(
+        deliveryId,
+        'c-1',
+        expect.anything(),
+        expect.anything(),
+        true
+      )
     })
 
     it('admin offer: replacing rider A sends A OFFER_ENDED with reason MOVED, puts A on no skip list, writes no OFFER_EXPIRED', async () => {
@@ -632,7 +697,11 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         userId: `user-${id}`,
       } as any))
 
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValue({
+        outcome: 'CLAIMED',
+        heldUnits: 0,
+        deliveryUnits: 50,
+      })
 
       await service.offerDeliveryToCourierAsAdmin(deliveryId, 'courier-B', 'Replacing rider A')
 
@@ -684,7 +753,11 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
 
       mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'courier-same', userId: 'user-same' } as any)
       mockCourierRepository.findById.mockResolvedValue({ id: 'courier-same', userId: 'user-same' } as any)
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValue({
+        outcome: 'CLAIMED',
+        heldUnits: 0,
+        deliveryUnits: 50,
+      })
 
       await service.offerDeliveryToCourierAsAdmin(deliveryId, 'courier-same')
 

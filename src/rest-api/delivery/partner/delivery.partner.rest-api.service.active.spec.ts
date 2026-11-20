@@ -1,5 +1,6 @@
 import { DeliveryLocationDoesntMatchQuoteException, DeliveryNotFoundException, NotFoundException } from 'src/errors'
 import {
+  BoxSize,
   EnumCancelledBy,
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
@@ -271,6 +272,71 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         expect(mockLocationDomainService.getById).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+      })
+
+      it('boxSize null changes nothing and calls no changeBoxSize', async () => {
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'del-update-null-size',
+          partnerId,
+          status: EnumDeliveryStatus.CREATED,
+          createdAt: new Date(),
+          dropoffLocationId: 'loc-1',
+          boxSize: BoxSize.MEDIUM,
+        })
+        mockLocationDomainService.getById.mockResolvedValue({
+          id: 'loc-1',
+          latitude: 39.36,
+          longitude: 22.94,
+        })
+        mockDeliveryDomainService.changeBoxSize = jest.fn()
+        mockDeliveryDomainService.update.mockResolvedValue({ id: 'del-update-null-size' })
+
+        await service.update('del-update-null-size', partnerId, {
+          boxSize: null,
+          dropoffLatitude: 39.36,
+          dropoffLongitude: 22.94,
+        } as any)
+
+        expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+          'del-update-null-size',
+          expect.anything()
+        )
+      })
+
+      it('the size change runs after the drift check, so an update refused by the drift check leaves the size unchanged (changeBoxSize not called)', async () => {
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'del-update-drift-fail',
+          partnerId,
+          status: EnumDeliveryStatus.CREATED,
+          createdAt: new Date(),
+          dropoffLocationId: 'loc-current',
+          deliveryQuoteId: 'quote-1',
+          boxSize: BoxSize.MEDIUM,
+        })
+        mockLocationDomainService.getById.mockImplementation(async (id: string) => {
+          if (id === 'loc-current') return { id: 'loc-current', latitude: 39.36, longitude: 22.94 }
+          if (id === 'loc-quoted') return { id: 'loc-quoted', latitude: 39.36, longitude: 22.94 }
+          return null
+        })
+        mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+          id: 'quote-1',
+          dropoffLocationId: 'loc-quoted',
+        })
+        mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(false)
+        mockDeliveryDomainService.changeBoxSize = jest.fn()
+
+        await expect(
+          service.update('del-update-drift-fail', partnerId, {
+            boxSize: BoxSize.LARGE,
+            dropoffLatitude: 40.0,
+            dropoffLongitude: 23.0,
+          } as any)
+        ).rejects.toThrow(DeliveryLocationDoesntMatchQuoteException)
+
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenCalled()
+        expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
     })
