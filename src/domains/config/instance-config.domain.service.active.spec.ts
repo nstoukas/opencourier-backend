@@ -2799,6 +2799,52 @@ describe('InstanceConfigDomainService', () => {
           mockTx
         )
       })
+
+      it('refuses save of { feePercentageAmount: 20, feePercentageCeiling: 15 } with stored fee 20 with ceiling message naming 20, not fee message (agy review 1)', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.FEE_PERCENTAGE_AMOUNT) {
+            return new ConfigEntity({
+              key: ConfigKey.FEE_PERCENTAGE_AMOUNT,
+              value: '20',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const promise = service.setInstanceConfigSettings(
+          { feePercentageAmount: 20, feePercentageCeiling: 15 },
+          'admin-user-1'
+        )
+
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow(
+          'feePercentageCeiling cannot be below the fee % in effect (20). Lower feePercentageAmount first, or in the same save.'
+        )
+      })
+
+      it('refuses save of { feePercentageAmount: 21, feePercentageCeiling: 15 } with stored fee 20 with fee message naming 15 (agy review 1)', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.FEE_PERCENTAGE_AMOUNT) {
+            return new ConfigEntity({
+              key: ConfigKey.FEE_PERCENTAGE_AMOUNT,
+              value: '20',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        const promise = service.setInstanceConfigSettings(
+          { feePercentageAmount: 21, feePercentageCeiling: 15 },
+          'admin-user-1'
+        )
+
+        await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+        await expect(promise).rejects.toThrow(
+          "feePercentageAmount can be at most 15, the co-op's fee ceiling (feePercentageCeiling). Raise the ceiling first if the co-op decided a higher fee."
+        )
+      })
     })
 
     describe('AC-5: check runs inside transaction after advisory lock against values in effect', () => {
@@ -2991,11 +3037,96 @@ describe('InstanceConfigDomainService', () => {
         const fee = await service.getFeePercentageAmount()
         expect(fee).toBe(50)
       })
+
+      it('with stored fee 40 and stored ceiling 25, a save of { quoteBaseFee: 250 } succeeds (decision 53.3 / AC-6)', async () => {
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          if (key === ConfigKey.FEE_PERCENTAGE_AMOUNT) {
+            return new ConfigEntity({
+              key: ConfigKey.FEE_PERCENTAGE_AMOUNT,
+              value: '40',
+              type: 'number',
+            })
+          }
+          if (key === ConfigKey.FEE_PERCENTAGE_CEILING) {
+            return new ConfigEntity({
+              key: ConfigKey.FEE_PERCENTAGE_CEILING,
+              value: '25',
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        await service.setInstanceConfigSettings({ quoteBaseFee: 250 }, 'admin-user-1')
+
+        expect(configRepository.saveByKey).toHaveBeenCalledWith(
+          ConfigKey.QUOTE_BASE_FEE,
+          250,
+          mockTx
+        )
+      })
+    })
+
+    describe('AC-7: SettingChange audit trail for feePercentageCeiling', () => {
+      it('a save of { feePercentageCeiling: 30 } with ceiling in effect 25 writes exactly one SettingChange with oldValue 25 and newValue 30 (AC-7)', async () => {
+        mockTx.settingChange.create.mockClear()
+
+        await service.setInstanceConfigSettings({ feePercentageCeiling: 30 }, 'admin-user-1')
+
+        expect(mockTx.settingChange.create).toHaveBeenCalledTimes(1)
+        expect(mockTx.settingChange.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            key: 'feePercentageCeiling',
+            oldValue: 25,
+            newValue: 30,
+            changedByUserId: 'admin-user-1',
+          }),
+        })
+      })
+    })
+
+    describe("representative's flow (spec user story 2)", () => {
+      it('on one mocked store, saves { feePercentageCeiling: 40 }, then { feePercentageAmount: 35 } and both succeed (spec user story 2)', async () => {
+        const store = new Map<string, string>()
+
+        configRepository.getByKey.mockImplementation(async (key: string) => {
+          const val = store.get(key)
+          if (val !== undefined) {
+            return new ConfigEntity({
+              key,
+              value: val,
+              type: 'number',
+            })
+          }
+          throw notFoundError
+        })
+
+        configRepository.saveByKey.mockImplementation(async (key: ConfigKey, value: any) => {
+          store.set(key, String(value))
+          return new ConfigEntity({
+            key,
+            value: String(value),
+            type: typeof value === 'number' ? 'number' : 'string',
+          })
+        })
+
+        // Step 1: Save feePercentageCeiling: 40
+        await service.setInstanceConfigSettings({ feePercentageCeiling: 40 }, 'admin-user-1')
+        expect(await service.getFeePercentageCeiling()).toBe(40)
+
+        // Step 2: With the store now holding 40, save feePercentageAmount: 35
+        await service.setInstanceConfigSettings({ feePercentageAmount: 35 }, 'admin-user-1')
+        expect(await service.getFeePercentageAmount()).toBe(35)
+      })
     })
   })
 })
 
 describe('assertFeeWithinCeiling unit cases (spec 0041, AC-2 to AC-4)', () => {
+  it('does not throw when fee is NaN (not a finite number)', () => {
+    expect(() => assertFeeWithinCeiling(NaN, 25, true)).not.toThrow()
+    expect(() => assertFeeWithinCeiling(NaN, 25, false)).not.toThrow()
+  })
   it('never refuses when fee is null (AC-2)', () => {
     expect(() => assertFeeWithinCeiling(null, 25, false)).not.toThrow()
     expect(() => assertFeeWithinCeiling(null, 25, true)).not.toThrow()
