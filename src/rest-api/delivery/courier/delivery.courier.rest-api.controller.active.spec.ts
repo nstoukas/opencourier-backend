@@ -44,8 +44,12 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
     mockDeliveryRestApiCourierService = {
       reportIssue: jest.fn(),
       markAsDispatched: jest.fn().mockResolvedValue({ id: deliveryId, status: 'DISPATCHED' } as any),
-      courierArrivedAtPickup: jest.fn().mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_PICKUP_LOCATION' } as any),
-      courierArrivedAtDropOff: jest.fn().mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_DROPOFF_LOCATION' } as any),
+      courierArrivedAtPickup: jest
+        .fn()
+        .mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_PICKUP_LOCATION' } as any),
+      courierArrivedAtDropOff: jest
+        .fn()
+        .mockResolvedValue({ id: deliveryId, status: 'COURIER_ARRIVED_AT_DROPOFF_LOCATION' } as any),
       markAsPickedUp: jest.fn().mockResolvedValue({ id: deliveryId, status: 'PICKED_UP' } as any),
       markAsDelivered: jest.fn().mockResolvedValue({ id: deliveryId, status: 'DROPPED_OFF' } as any),
     } as unknown as jest.Mocked<DeliveryRestApiCourierService>
@@ -70,11 +74,7 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
 
     const result = await controller.reportIssue(deliveryId, input, mockCourier)
 
-    expect(mockDeliveryRestApiCourierService.reportIssue).toHaveBeenCalledWith(
-      deliveryId,
-      mockCourier.id,
-      input
-    )
+    expect(mockDeliveryRestApiCourierService.reportIssue).toHaveBeenCalledWith(deliveryId, mockCourier.id, input)
     expect(result).toBeInstanceOf(DeliveryIssueCourierDto)
     expect(result.id).toBe('issue-42')
     expect(result.reason).toBe(EnumDeliveryIssueReason.ORDER_HANDED)
@@ -98,18 +98,14 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
   })
 
   test('propagates DeliveryNotFoundException when delivery does not belong to courier or does not exist', async () => {
-    mockDeliveryRestApiCourierService.reportIssue.mockRejectedValue(
-      new DeliveryNotFoundException('Delivery not found')
-    )
+    mockDeliveryRestApiCourierService.reportIssue.mockRejectedValue(new DeliveryNotFoundException('Delivery not found'))
 
     const input = {
       reason: EnumDeliveryIssueReason.OTHER,
       note: 'Issue note',
     }
 
-    await expect(controller.reportIssue(deliveryId, input, mockCourier)).rejects.toThrow(
-      DeliveryNotFoundException
-    )
+    await expect(controller.reportIssue(deliveryId, input, mockCourier)).rejects.toThrow(DeliveryNotFoundException)
   })
 
   describe('Five courier step endpoints forward body with tapAgeMs (Spec 0009, AC-4, AC-9)', () => {
@@ -117,11 +113,7 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
       const input = { tapAgeMs: 5000 }
       await controller.markAsDispatched(deliveryId, input, mockCourier)
 
-      expect(mockDeliveryRestApiCourierService.markAsDispatched).toHaveBeenCalledWith(
-        deliveryId,
-        mockCourier.id,
-        input
-      )
+      expect(mockDeliveryRestApiCourierService.markAsDispatched).toHaveBeenCalledWith(deliveryId, mockCourier.id, input)
     })
 
     test('courierArrivedAtPickup forwards input (including detected boolean) to service', async () => {
@@ -167,25 +159,17 @@ describe('DeliveryCourierRestApiController.reportIssue (clause 1)', () => {
       const input = { note: 'Picked up from chef', tapAgeMs: 6000 }
       await controller.markAsPickedUp(deliveryId, input, mockCourier)
 
-      expect(mockDeliveryRestApiCourierService.markAsPickedUp).toHaveBeenCalledWith(
-        deliveryId,
-        mockCourier.id,
-        {
-          note: 'Picked up from chef',
-          tapAgeMs: 6000,
-        }
-      )
+      expect(mockDeliveryRestApiCourierService.markAsPickedUp).toHaveBeenCalledWith(deliveryId, mockCourier.id, {
+        note: 'Picked up from chef',
+        tapAgeMs: 6000,
+      })
     })
 
     test('markAsDelivered forwards input to service', async () => {
       const input = { note: 'Left at door', tapAgeMs: 4000 }
       await controller.markAsDelivered(deliveryId, input, mockCourier)
 
-      expect(mockDeliveryRestApiCourierService.markAsDelivered).toHaveBeenCalledWith(
-        deliveryId,
-        mockCourier.id,
-        input
-      )
+      expect(mockDeliveryRestApiCourierService.markAsDelivered).toHaveBeenCalledWith(deliveryId, mockCourier.id, input)
     })
   })
 })
@@ -267,7 +251,15 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
 
     mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
       data: [offer1, offer2],
-      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+      pagination: {
+        totalItems: 2,
+        totalPages: 1,
+        currentItems: 2,
+        currentPage: 1,
+        perPage: 10,
+        prevPage: null,
+        nextPage: null,
+      },
     })
 
     // Offer 1: rider leg (600m, 70s), dropoff leg (1200m, 130s) -> total 200s -> 4 min
@@ -280,11 +272,7 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
 
     const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, courierWithLocation)
 
-    expect(mockDeliveryRestApiCourierService.getMyNewDeliveries).toHaveBeenCalledWith(
-      courierWithLocation.id,
-      1,
-      10
-    )
+    expect(mockDeliveryRestApiCourierService.getMyNewDeliveries).toHaveBeenCalledWith(courierWithLocation.id, 1, 10)
 
     expect(mockOsrmRoutingService.getRoute).toHaveBeenCalledTimes(4)
     // Offer 1 rider leg: rider -> pickup
@@ -329,7 +317,15 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
 
     mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
       data: [offer1, offer2],
-      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+      pagination: {
+        totalItems: 2,
+        totalPages: 1,
+        currentItems: 2,
+        currentPage: 1,
+        perPage: 10,
+        prevPage: null,
+        nextPage: null,
+      },
     })
 
     mockOsrmRoutingService.getRoute.mockRejectedValue(new Error('OSRM network timeout'))
@@ -362,7 +358,15 @@ describe('DeliveryCourierRestApiController.getMyNewDeliveries (Spec 0019 AC-1, R
 
     mockDeliveryRestApiCourierService.getMyNewDeliveries.mockResolvedValue({
       data: [offer],
-      pagination: { totalItems: 1, totalPages: 1, currentItems: 1, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+      pagination: {
+        totalItems: 1,
+        totalPages: 1,
+        currentItems: 1,
+        currentPage: 1,
+        perPage: 10,
+        prevPage: null,
+        nextPage: null,
+      },
     })
 
     mockOsrmRoutingService.getRoute.mockResolvedValue({
@@ -405,7 +409,13 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
   }
   type CustomerField = keyof typeof CUSTOMER_DETAILS
   const FIELDS = Object.keys(CUSTOMER_DETAILS) as CustomerField[]
-  const LEAK_TEXT = ['Kalliopi Offeridou', 'Bougatsa Thessalonikis', 'Allergic to sesame', 'Offeridou-K', 'give receipt to Kalliopi']
+  const LEAK_TEXT = [
+    'Kalliopi Offeridou',
+    'Bougatsa Thessalonikis',
+    'Allergic to sesame',
+    'Offeridou-K',
+    'give receipt to Kalliopi',
+  ]
 
   function delivery(id: string, status: EnumDeliveryStatus, extra: Record<string, unknown> = {}) {
     return {
@@ -418,8 +428,22 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
       pickupName: 'Volos Test Kitchen',
       pickupBusinessName: 'Volos Test Kitchen',
       ...CUSTOMER_DETAILS,
-      pickupLocation: { id: `p-${id}`, latitude: 39.365, longitude: 22.945, street: 'Iasonos', city: 'Volos', state: 'Magnesia' },
-      dropoffLocation: { id: `d-${id}`, latitude: 39.375, longitude: 22.955, street: 'Dimitriadis', city: 'Volos', state: 'Magnesia' },
+      pickupLocation: {
+        id: `p-${id}`,
+        latitude: 39.365,
+        longitude: 22.945,
+        street: 'Iasonos',
+        city: 'Volos',
+        state: 'Magnesia',
+      },
+      dropoffLocation: {
+        id: `d-${id}`,
+        latitude: 39.375,
+        longitude: 22.955,
+        street: 'Dimitriadis',
+        city: 'Volos',
+        state: 'Magnesia',
+      },
       ...extra,
     }
   }
@@ -434,7 +458,9 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
     controller = new DeliveryCourierRestApiController(
       { getMyNewDeliveries } as unknown as DeliveryRestApiCourierService,
       { getByIdOrThrowWithLocation } as unknown as DeliveryDomainService,
-      { getRoute: jest.fn().mockResolvedValue({ distanceMetres: 1000, durationSeconds: 120, points: [] }) } as unknown as OsrmRoutingService
+      {
+        getRoute: jest.fn().mockResolvedValue({ distanceMetres: 1000, durationSeconds: 120, points: [] }),
+      } as unknown as OsrmRoutingService
     )
   })
 
@@ -461,7 +487,15 @@ describe('DeliveryCourierRestApiController: customer details only once accepted 
         delivery('del-r101-a', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id }),
         delivery('del-r101-b', EnumDeliveryStatus.ASSIGNING_COURIER, { matchedCourierId: RIDER.id }),
       ],
-      pagination: { totalItems: 2, totalPages: 1, currentItems: 2, currentPage: 1, perPage: 10, prevPage: null, nextPage: null },
+      pagination: {
+        totalItems: 2,
+        totalPages: 1,
+        currentItems: 2,
+        currentPage: 1,
+        perPage: 10,
+        prevPage: null,
+        nextPage: null,
+      },
     })
 
     const result = await controller.getMyNewDeliveries({ page: 1, perPage: 10 }, RIDER)
@@ -560,42 +594,28 @@ describe('DeliveryCourierRestApiController.acceptDelivery (Spec 0020 AC-1)', () 
 
     mockDeliveryDomainService = {} as jest.Mocked<DeliveryDomainService>
 
-    controller = new DeliveryCourierRestApiController(
-      mockDeliveryRestApiCourierService,
-      mockDeliveryDomainService,
-      { getRoute: jest.fn() } as never
-    )
+    controller = new DeliveryCourierRestApiController(mockDeliveryRestApiCourierService, mockDeliveryDomainService, {
+      getRoute: jest.fn(),
+    } as never)
   })
 
   test('calls service with automatic: true when input has automatic true', async () => {
     const result = await controller.acceptDelivery(deliveryId, mockCourier, { automatic: true })
 
-    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
-      deliveryId,
-      mockCourier.id,
-      true
-    )
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(deliveryId, mockCourier.id, true)
     expect(result.id).toBe(deliveryId)
   })
 
   test('calls service with automatic: false when input has automatic false', async () => {
     await controller.acceptDelivery(deliveryId, mockCourier, { automatic: false })
 
-    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
-      deliveryId,
-      mockCourier.id,
-      false
-    )
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(deliveryId, mockCourier.id, false)
   })
 
   test('calls service with automatic: false when body is default/empty', async () => {
     await controller.acceptDelivery(deliveryId, mockCourier, {})
 
-    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(
-      deliveryId,
-      mockCourier.id,
-      false
-    )
+    expect(mockDeliveryRestApiCourierService.acceptDelivery).toHaveBeenCalledWith(deliveryId, mockCourier.id, false)
   })
 
   test('acceptDelivery handler carries @Roles(COURIER) decorator metadata and POST :deliveryId/accept route', () => {
