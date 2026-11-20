@@ -27,11 +27,19 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
     loggerWarnSpy.mockRestore()
   })
 
-  const makeMockContext = (): ExecutionContext =>
+  const makeMockContext = (
+    contextType: string = 'http',
+    reqOverrides?: { method?: string; route?: { path?: string }; url?: string }
+  ): ExecutionContext =>
     ({
-      getType: () => 'http',
+      getType: () => contextType,
       switchToHttp: () => ({
-        getRequest: () => ({}),
+        getRequest: () =>
+          reqOverrides ?? {
+            method: 'POST',
+            route: { path: '/api/courier/v1/deliveries/:deliveryId/accept' },
+            url: '/api/courier/v1/deliveries/abc123/accept',
+          },
         getResponse: () => ({}),
       }),
     } as unknown as ExecutionContext)
@@ -40,8 +48,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
     handle: () => throwError(() => err),
   })
 
-  const runInterceptor = async (err: any) => {
-    const context = makeMockContext()
+  const runInterceptor = async (err: any, context: ExecutionContext = makeMockContext()) => {
     const callHandler = makeMockCallHandler(err)
     return lastValueFrom(interceptor.intercept(context, callHandler))
   }
@@ -64,7 +71,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(loggerWarnSpy).not.toHaveBeenCalled()
     })
 
-    it('does not call logger.error for any other ApiException answering 404', async () => {
+    it('does not call logger.error for 404 ApiException when server fails to record an accept the rider won (DELIVERY_CANT_BE_ACCEPTED)', async () => {
       const err = new ApiException(ErrorCode.DELIVERY_CANT_BE_ACCEPTED, 'Offer has ended', 404)
       await expect(runInterceptor(err)).rejects.toThrow(err)
 
@@ -74,25 +81,77 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
   })
 
   describe('Prisma missing row errors log one warning and no error (AC-4)', () => {
-    it('logs one logger.warn and NO logger.error for Prisma.NotFoundError', async () => {
+    it('logs one logger.warn and NO logger.error for Prisma.NotFoundError naming method and route pattern, never request.url', async () => {
       const err = new Prisma.NotFoundError('No Delivery found', '5.3.1')
-      await expect(runInterceptor(err)).rejects.toThrow(err)
+      const context = makeMockContext('http', {
+        method: 'POST',
+        route: { path: '/api/courier/v1/deliveries/:deliveryId/accept' },
+        url: '/api/courier/v1/deliveries/abc123/accept',
+      })
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
 
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
-      expect(loggerWarnSpy).toHaveBeenCalledWith('Endpoint answered 404 for a missing row: No Delivery found')
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept No Delivery found'
+      )
+      const warnMessage = loggerWarnSpy.mock.calls[0][0]
+      expect(warnMessage).toContain('POST /api/courier/v1/deliveries/:deliveryId/accept')
+      expect(warnMessage).not.toContain('abc123')
     })
 
-    it('logs one logger.warn and NO logger.error for PrismaClientKnownRequestError with P2025', async () => {
+    it('logs one logger.warn and NO logger.error for PrismaClientKnownRequestError with P2025 naming method and route pattern', async () => {
       const err = new Prisma.PrismaClientKnownRequestError('Record to update not found.', {
         code: 'P2025',
         clientVersion: '5.3.1',
       })
-      await expect(runInterceptor(err)).rejects.toThrow(err)
+      const context = makeMockContext('http', {
+        method: 'POST',
+        route: { path: '/api/courier/v1/deliveries/:deliveryId/accept' },
+        url: '/api/courier/v1/deliveries/abc123/accept',
+      })
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
 
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
-      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Endpoint answered 404 for a missing row:'))
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept Record to update not found.'
+      )
+      const warnMessage = loggerWarnSpy.mock.calls[0][0]
+      expect(warnMessage).toContain('POST /api/courier/v1/deliveries/:deliveryId/accept')
+      expect(warnMessage).not.toContain('abc123')
+    })
+
+    it('falls back to (no route) when request route path is undefined', async () => {
+      const err = new Prisma.NotFoundError('No Delivery found', '5.3.1')
+      const context = makeMockContext('http', { method: 'GET' })
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      expect(loggerErrorSpy).not.toHaveBeenCalled()
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Endpoint answered 404 for a missing row: GET (no route) No Delivery found'
+      )
+    })
+
+    it('for a non-HTTP context (ws), does not throw and names the context type in logger.warn', async () => {
+      const err = new Prisma.NotFoundError('No Delivery found', '5.3.1')
+      const context = makeMockContext('ws')
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      expect(loggerErrorSpy).not.toHaveBeenCalled()
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
+      expect(loggerWarnSpy).toHaveBeenCalledWith('Endpoint answered 404 for a missing row: ws No Delivery found')
+    })
+
+    it('for a non-HTTP context (rpc), does not throw and names the context type in logger.warn', async () => {
+      const err = new Prisma.NotFoundError('No Delivery found', '5.3.1')
+      const context = makeMockContext('rpc')
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      expect(loggerErrorSpy).not.toHaveBeenCalled()
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
+      expect(loggerWarnSpy).toHaveBeenCalledWith('Endpoint answered 404 for a missing row: rpc No Delivery found')
     })
   })
 

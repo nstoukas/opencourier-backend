@@ -1,10 +1,5 @@
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import {
-  EnumDeliveryEventSource,
-  EnumDeliveryEventType,
-  EnumDeliveryStatus,
-  EnumEventActor,
-} from '@prisma/types'
+import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
 import { DeliveryDomainService } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { CacheService } from 'src/services/cache/cache.service'
@@ -88,12 +83,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         new CantUpdateDeliveryStatusError('Dispatch is stopped until 17:00.')
       )
 
-      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
-        CantUpdateDeliveryStatusError
-      )
-      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
-        'Dispatch is stopped until 17:00.'
-      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(CantUpdateDeliveryStatusError)
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow('Dispatch is stopped until 17:00.')
 
       // Must NOT touch the delivery before checking the stop gate
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
@@ -106,9 +97,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
       )
 
-      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
-        CantUpdateDeliveryStatusError
-      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(CantUpdateDeliveryStatusError)
       await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
         'This rider has an active SOS and cannot be given a delivery until it ends.'
       )
@@ -125,9 +114,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         new CantUpdateDeliveryStatusError('This rider has an active SOS and cannot be given a delivery until it ends.')
       )
 
-      await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
-        CantUpdateDeliveryStatusError
-      )
+      await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(CantUpdateDeliveryStatusError)
       await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
         'This rider has an active SOS and cannot be given a delivery until it ends.'
       )
@@ -157,9 +144,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         .mockResolvedValueOnce(true) // 1st update: claim succeeds
         .mockResolvedValueOnce(true) // 2nd update: give back claim
 
-      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
-        CantUpdateDeliveryStatusError
-      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(CantUpdateDeliveryStatusError)
 
       // Initial claim: sets courierId, clears offerExpiresAt
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
@@ -335,6 +320,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
     it('rolls back offer fields and throws DeliveryCantBeAcceptedException if delivery status remains ASSIGNING_COURIER after event processing', async () => {
       const offerExpiresAt = new Date(Date.now() + 15000)
+      const loggerWarnSpy = jest.spyOn((service as any).logger, 'warn')
+
       mockDeliveryRepository.findByIdOrThrow
         .mockResolvedValueOnce({
           id: deliveryId,
@@ -352,9 +339,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
 
-      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(
-        DeliveryCantBeAcceptedException
-      )
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(DeliveryCantBeAcceptedException)
 
       // Rollback call
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenLastCalledWith(
@@ -369,6 +354,12 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         offeredAt,
         offerExpiresAt
       )
+      // One warning keeps the failed accept traceable (row 121 review fix)
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        `Accept by courier ${courierId} on delivery ${deliveryId} did not take; offer given back`
+      )
+      loggerWarnSpy.mockRestore()
     })
   })
 
@@ -407,11 +398,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       )
 
       // 2. Courier added to skip list (20 min TTL)
-      expect(mockCacheService.save).toHaveBeenCalledWith(
-        expect.stringContaining(deliveryId),
-        [courierId],
-        1200
-      )
+      expect(mockCacheService.save).toHaveBeenCalledWith(expect.stringContaining(deliveryId), [courierId], 1200)
 
       // 3. processDeliveryEvent called with REJECTED
       expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
@@ -522,12 +509,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         } as any,
       ]
 
-      mockCourierRepository.findNamesByIds.mockResolvedValueOnce(
-        new Map([['courier-1', 'Ana P.']])
-      )
-      mockDeliveryRepository.findLatestNoCourierAvailableAt.mockResolvedValueOnce(
-        new Map([['del-waiting', waitDate]])
-      )
+      mockCourierRepository.findNamesByIds.mockResolvedValueOnce(new Map([['courier-1', 'Ana P.']]))
+      mockDeliveryRepository.findLatestNoCourierAvailableAt.mockResolvedValueOnce(new Map([['del-waiting', waitDate]]))
 
       const views = await service.getOfferViews(deliveries)
 
