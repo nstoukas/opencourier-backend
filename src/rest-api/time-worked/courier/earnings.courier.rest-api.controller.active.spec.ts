@@ -150,42 +150,70 @@ describe('EarningsCourierRestApiController (spec 0042 AC-6, AC-17)', () => {
   })
 
   describe('Verification that the five old routes no longer exist (AC-6, AC-17)', () => {
-    test('courier controller has no earnings routes (getMyEarningsSummary, getMyEarningsForDay, getMyEarningsForDelivery deleted)', () => {
+    test('courier controller has no earnings routes (PATH metadata check: earnings-summary, earnings/day, earnings/delivery/:deliveryId)', () => {
       const courierProto = CourierCourierRestApiController.prototype as any
 
       expect(courierProto.getMyEarningsSummary).toBeUndefined()
       expect(courierProto.getMyEarningsForDay).toBeUndefined()
       expect(courierProto.getMyEarningsForDelivery).toBeUndefined()
 
-      // Also verify no method in CourierCourierRestApiController has route metadata pointing to earnings
-      const methodNames = Object.getOwnPropertyNames(courierProto).filter((m) => m !== 'constructor')
+      // Reads the route PATH metadata for every handler on the prototype
+      const methodNames = Object.getOwnPropertyNames(courierProto).filter(
+        (m) => m !== 'constructor' && typeof courierProto[m] === 'function'
+      )
       for (const name of methodNames) {
-        const path = Reflect.getMetadata(PATH_METADATA, courierProto[name])
-        if (typeof path === 'string') {
-          expect(path).not.toContain('earnings')
+        const handler = courierProto[name]
+        const path = Reflect.getMetadata(PATH_METADATA, handler)
+        const paths = Array.isArray(path) ? path : [path]
+        expect(paths).not.toContain('earnings-summary')
+        expect(paths).not.toContain('earnings/day')
+        expect(paths).not.toContain('earnings/delivery/:deliveryId')
+        for (const p of paths) {
+          if (typeof p === 'string') {
+            expect(p).not.toContain('earnings')
+          }
         }
       }
     })
 
-    test('delivery courier controller has no getMyDoneDeliveries / done route', () => {
+    test('delivery courier controller has no getMyDoneDeliveries / done route (PATH metadata check: done)', () => {
       const deliveryProto = DeliveryCourierRestApiController.prototype as any
 
       expect(deliveryProto.getMyDoneDeliveries).toBeUndefined()
 
-      const methodNames = Object.getOwnPropertyNames(deliveryProto).filter((m) => m !== 'constructor')
+      const methodNames = Object.getOwnPropertyNames(deliveryProto).filter(
+        (m) => m !== 'constructor' && typeof deliveryProto[m] === 'function'
+      )
       for (const name of methodNames) {
-        const path = Reflect.getMetadata(PATH_METADATA, deliveryProto[name])
-        if (typeof path === 'string') {
-          expect(path).not.toBe('done')
-          expect(path).not.toContain('done')
+        const handler = deliveryProto[name]
+        const path = Reflect.getMetadata(PATH_METADATA, handler)
+        const paths = Array.isArray(path) ? path : [path]
+        expect(paths).not.toContain('done')
+        for (const p of paths) {
+          if (typeof p === 'string') {
+            expect(p).not.toContain('done')
+          }
         }
       }
     })
 
-    test('time-worked courier controller has no list route (rider GET time-worked?from&to deleted)', () => {
+    test('time-worked courier controller has no list route (PATH metadata check: a GET "" or "/" handler fails whatever its method name)', () => {
       const timeWorkedProto = TimeWorkedCourierRestApiController.prototype as any
 
       expect(timeWorkedProto.list).toBeUndefined()
+
+      // Reads the route PATH metadata (Reflect.getMetadata(PATH_METADATA, handler) for every handler on the prototype)
+      // so a GET '' (or '/') handler under time-worked fails whatever its method name
+      const methodNames = Object.getOwnPropertyNames(timeWorkedProto).filter(
+        (m) => m !== 'constructor' && typeof timeWorkedProto[m] === 'function'
+      )
+      for (const name of methodNames) {
+        const handler = timeWorkedProto[name]
+        const path = Reflect.getMetadata(PATH_METADATA, handler)
+        const paths = Array.isArray(path) ? path : [path]
+        expect(paths).not.toContain('')
+        expect(paths).not.toContain('/')
+      }
     })
   })
 })

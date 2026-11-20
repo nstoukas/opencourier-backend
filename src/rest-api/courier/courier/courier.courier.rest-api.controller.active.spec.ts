@@ -2,6 +2,7 @@ import { CourierCourierRestApiController } from './courier.courier.rest-api.cont
 import { CourierDomainService } from '../../../domains/courier/courier.domain.service'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
+import { PATH_METADATA } from '@nestjs/common/constants'
 import { EnumCourierDeliverySetting, EnumCourierStatus, EnumCourierStatusChangeCause, EnumUserRole } from '@prisma/types'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 
@@ -84,11 +85,23 @@ describe('CourierCourierRestApiController', () => {
       expect(Reflect.getMetadata('path', proto.updateDeliverySetting)).toBe('delivery-setting')
     })
 
-    test('old earnings routes no longer exist on CourierCourierRestApiController', () => {
+    test('old earnings routes no longer exist on CourierCourierRestApiController (PATH metadata check)', () => {
       const proto = CourierCourierRestApiController.prototype as any
       expect(proto.getMyEarningsSummary).toBeUndefined()
       expect(proto.getMyEarningsDay).toBeUndefined()
       expect(proto.getMyEarningsDeliveryDetail).toBeUndefined()
+
+      const methodNames = Object.getOwnPropertyNames(proto).filter(
+        (m) => m !== 'constructor' && typeof proto[m] === 'function'
+      )
+      for (const name of methodNames) {
+        const handler = proto[name]
+        const path = Reflect.getMetadata(PATH_METADATA, handler)
+        const paths = Array.isArray(path) ? path : [path]
+        expect(paths).not.toContain('earnings-summary')
+        expect(paths).not.toContain('earnings/day')
+        expect(paths).not.toContain('earnings/delivery/:deliveryId')
+      }
     })
   })
 })

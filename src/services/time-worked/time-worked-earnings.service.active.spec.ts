@@ -127,17 +127,21 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
       expect(currentWeek!.soFar).toBe(true)
     })
 
-    test('no job row accepted before reachFrom is returned in riderMonth', async () => {
-      const now = new Date('2026-11-20T10:00:00Z') // Athens: 2026-11-20, reachFrom: 2026-09-20
+    test('AC-8, AC-17, decision 75.25: a shift starting before asked range with jobs before and inside returns only the job inside, and jobsInNoShift is cut the same way', async () => {
+      const now = new Date('2026-11-20T10:00:00Z')
 
-      // In September, suppose there was an accept on 2026-09-18 (before reachFrom)
-      // and an accept on 2026-09-22 (inside reachFrom)
+      // Range: from 2026-11-05 to 2026-11-05
+      // Shift: 2026-11-04 22:00 Athens (2026-11-04T20:00:00Z) to 2026-11-05 06:00 Athens (2026-11-05T04:00:00Z)
+      // Job 1 inside shift: accepted 2026-11-04 23:00 Athens (2026-11-04T21:00:00Z) - before asked range
+      // Job 2 inside shift: accepted 2026-11-05 01:30 Athens (2026-11-04T23:30:00Z) - inside asked range
+      // Job 3 no shift: accepted 2026-11-04 20:00 Athens (2026-11-04T18:00:00Z) - before asked range
+      // Job 4 no shift: accepted 2026-11-05 07:00 Athens (2026-11-05T05:00:00Z) - inside asked range
       mockTimeWorkedRepository.findRecords.mockResolvedValue({
         statusChanges: [
           {
             id: 'sc-1',
             courierId,
-            createdAt: new Date('2026-09-18T08:00:00Z'),
+            createdAt: new Date('2026-11-04T20:00:00Z'),
             fromStatus: EnumCourierStatus.OFFLINE,
             toStatus: EnumCourierStatus.ONLINE,
             cause: EnumCourierStatusChangeCause.RIDER,
@@ -146,7 +150,7 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
           {
             id: 'sc-2',
             courierId,
-            createdAt: new Date('2026-09-22T18:00:00Z'),
+            createdAt: new Date('2026-11-05T04:00:00Z'),
             fromStatus: EnumCourierStatus.ONLINE,
             toStatus: EnumCourierStatus.OFFLINE,
             cause: EnumCourierStatusChangeCause.RIDER,
@@ -154,77 +158,307 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
           },
         ],
         statusBefore: new Map(),
-        acceptedDeliveries: new Map([[courierId, new Set(['del-before', 'del-inside'])]]),
+        acceptedDeliveries: new Map([[courierId, new Set(['del-shift-before', 'del-shift-inside', 'del-noshift-before', 'del-noshift-inside'])]]),
         events: [
           {
-            id: 'ev-before',
-            deliveryId: 'del-before',
+            id: 'ev-1',
+            deliveryId: 'del-shift-before',
             type: EnumDeliveryEventType.ACCEPTED,
             oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
             courierId,
-            occurredAt: new Date('2026-09-18T10:00:00Z'),
-            createdAt: new Date('2026-09-18T10:00:00Z'),
+            occurredAt: new Date('2026-11-04T21:00:00Z'),
+            createdAt: new Date('2026-11-04T21:00:00Z'),
           },
           {
-            id: 'ev-before-drop',
-            deliveryId: 'del-before',
+            id: 'ev-2',
+            deliveryId: 'del-shift-before',
             type: EnumDeliveryEventType.DROPPED_OFF,
             oldStatus: EnumDeliveryStatus.ON_THE_WAY,
             courierId,
-            occurredAt: new Date('2026-09-18T10:30:00Z'),
-            createdAt: new Date('2026-09-18T10:30:00Z'),
+            occurredAt: new Date('2026-11-04T21:30:00Z'),
+            createdAt: new Date('2026-11-04T21:30:00Z'),
           },
           {
-            id: 'ev-inside',
-            deliveryId: 'del-inside',
+            id: 'ev-3',
+            deliveryId: 'del-shift-inside',
             type: EnumDeliveryEventType.ACCEPTED,
             oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
             courierId,
-            occurredAt: new Date('2026-09-22T10:00:00Z'),
-            createdAt: new Date('2026-09-22T10:00:00Z'),
+            occurredAt: new Date('2026-11-04T23:30:00Z'),
+            createdAt: new Date('2026-11-04T23:30:00Z'),
           },
           {
-            id: 'ev-inside-drop',
-            deliveryId: 'del-inside',
+            id: 'ev-4',
+            deliveryId: 'del-shift-inside',
             type: EnumDeliveryEventType.DROPPED_OFF,
             oldStatus: EnumDeliveryStatus.ON_THE_WAY,
             courierId,
-            occurredAt: new Date('2026-09-22T10:30:00Z'),
-            createdAt: new Date('2026-09-22T10:30:00Z'),
+            occurredAt: new Date('2026-11-05T00:00:00Z'),
+            createdAt: new Date('2026-11-05T00:00:00Z'),
+          },
+          {
+            id: 'ev-5',
+            deliveryId: 'del-noshift-before',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-11-04T18:00:00Z'),
+            createdAt: new Date('2026-11-04T18:00:00Z'),
+          },
+          {
+            id: 'ev-6',
+            deliveryId: 'del-noshift-before',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-11-04T18:00:00Z'),
+            createdAt: new Date('2026-11-04T18:00:00Z'),
+          },
+          {
+            id: 'ev-7',
+            deliveryId: 'del-noshift-inside',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-11-05T05:00:00Z'),
+            createdAt: new Date('2026-11-05T05:00:00Z'),
+          },
+          {
+            id: 'ev-8',
+            deliveryId: 'del-noshift-inside',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-11-05T05:00:00Z'),
+            createdAt: new Date('2026-11-05T05:00:00Z'),
           },
         ],
         deliveries: [
           {
-            id: 'del-before',
+            id: 'del-shift-before',
             status: EnumDeliveryStatus.DROPPED_OFF,
             courierId,
             totalCompensation: 500,
             tips: 0,
-            pickupName: 'Restaurant Before',
+            pickupName: 'Restaurant 1',
             paidKm: 2.0,
             dropoffArea: 'Area 1',
           },
           {
-            id: 'del-inside',
+            id: 'del-shift-inside',
             status: EnumDeliveryStatus.DROPPED_OFF,
             courierId,
             totalCompensation: 600,
             tips: 0,
-            pickupName: 'Restaurant Inside',
+            pickupName: 'Restaurant 2',
             paidKm: 3.0,
             dropoffArea: 'Area 2',
           },
+          {
+            id: 'del-noshift-before',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 300,
+            tips: 0,
+            pickupName: 'Restaurant 3',
+            paidKm: 1.0,
+            dropoffArea: 'Area 3',
+          },
+          {
+            id: 'del-noshift-inside',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 400,
+            tips: 0,
+            pickupName: 'Restaurant 4',
+            paidKm: 1.5,
+            dropoffArea: 'Area 4',
+          },
         ],
         compensations: [],
-        everAccepted: new Set(['del-before', 'del-inside']),
+        everAccepted: new Set(['del-shift-before', 'del-shift-inside', 'del-noshift-before', 'del-noshift-inside']),
       })
 
-      const result = await service.riderMonth(courierId, '2026-09', now)
+      const result = await service.earnings(
+        courierId,
+        { from: '2026-11-05', to: '2026-11-05', reachFrom: null },
+        { withAdminLabels: false },
+        now
+      )
 
-      const returnedJobs = result.shifts.flatMap((s) => s.jobs)
+      expect(result.shifts).toHaveLength(1)
+      const shiftJobs = result.shifts[0]!.jobs
+      // Must contain only the job accepted inside the asked days
+      expect(shiftJobs.map((j) => j.deliveryId)).toEqual(['del-shift-inside'])
+      expect(shiftJobs.some((j) => j.deliveryId === 'del-shift-before')).toBe(false)
+
+      // jobsInNoShift must also be cut to the asked days
+      expect(result.jobsInNoShift.map((j) => j.deliveryId)).toEqual(['del-noshift-inside'])
+      expect(result.jobsInNoShift.some((j) => j.deliveryId === 'del-noshift-before')).toBe(false)
+    })
+
+    test('riderMonth returns no job accepted before reachFrom in shifts or in jobsInNoShift (AC-8, AC-17, decision 75.25)', async () => {
+      const now = new Date('2026-11-20T10:00:00Z') // Athens: 2026-11-20, reachFrom: 2026-09-20
+
+      // Month: 2026-09. Clamped range: 2026-09-20 to 2026-09-30.
+      // Shift starts 2026-09-19 22:00 Athens (2026-09-19T19:00:00Z) and ends 2026-09-20 06:00 Athens (2026-09-20T03:00:00Z)
+      // Job 1 inside shift: accepted 2026-09-19 23:00 Athens (2026-09-19T20:00:00Z) - before reachFrom
+      // Job 2 inside shift: accepted 2026-09-20 01:00 Athens (2026-09-19T22:00:00Z) - inside reachFrom
+      // Job 3 no shift: accepted 2026-09-19 21:00 Athens (2026-09-19T18:00:00Z) - before reachFrom
+      // Job 4 no shift: accepted 2026-09-20 08:00 Athens (2026-09-20T05:00:00Z) - inside reachFrom
+      mockTimeWorkedRepository.findRecords.mockResolvedValue({
+        statusChanges: [
+          {
+            id: 'sc-1',
+            courierId,
+            createdAt: new Date('2026-09-19T19:00:00Z'),
+            fromStatus: EnumCourierStatus.OFFLINE,
+            toStatus: EnumCourierStatus.ONLINE,
+            cause: EnumCourierStatusChangeCause.RIDER,
+            adminUserId: null,
+          },
+          {
+            id: 'sc-2',
+            courierId,
+            createdAt: new Date('2026-09-20T03:00:00Z'),
+            fromStatus: EnumCourierStatus.ONLINE,
+            toStatus: EnumCourierStatus.OFFLINE,
+            cause: EnumCourierStatusChangeCause.RIDER,
+            adminUserId: null,
+          },
+        ],
+        statusBefore: new Map(),
+        acceptedDeliveries: new Map([[courierId, new Set(['del-sep-before', 'del-sep-inside', 'del-sep-noshift-before', 'del-sep-noshift-inside'])]]),
+        events: [
+          {
+            id: 'ev-1',
+            deliveryId: 'del-sep-before',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-09-19T20:00:00Z'),
+            createdAt: new Date('2026-09-19T20:00:00Z'),
+          },
+          {
+            id: 'ev-2',
+            deliveryId: 'del-sep-before',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-19T20:30:00Z'),
+            createdAt: new Date('2026-09-19T20:30:00Z'),
+          },
+          {
+            id: 'ev-3',
+            deliveryId: 'del-sep-inside',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-09-19T22:00:00Z'),
+            createdAt: new Date('2026-09-19T22:00:00Z'),
+          },
+          {
+            id: 'ev-4',
+            deliveryId: 'del-sep-inside',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-19T22:30:00Z'),
+            createdAt: new Date('2026-09-19T22:30:00Z'),
+          },
+          {
+            id: 'ev-5',
+            deliveryId: 'del-sep-noshift-before',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-09-19T18:00:00Z'),
+            createdAt: new Date('2026-09-19T18:00:00Z'),
+          },
+          {
+            id: 'ev-6',
+            deliveryId: 'del-sep-noshift-before',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-19T18:00:00Z'),
+            createdAt: new Date('2026-09-19T18:00:00Z'),
+          },
+          {
+            id: 'ev-7',
+            deliveryId: 'del-sep-noshift-inside',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: new Date('2026-09-20T05:00:00Z'),
+            createdAt: new Date('2026-09-20T05:00:00Z'),
+          },
+          {
+            id: 'ev-8',
+            deliveryId: 'del-sep-noshift-inside',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-20T05:00:00Z'),
+            createdAt: new Date('2026-09-20T05:00:00Z'),
+          },
+        ],
+        deliveries: [
+          {
+            id: 'del-sep-before',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 500,
+            tips: 0,
+            pickupName: 'Restaurant Sep 1',
+            paidKm: 2.0,
+            dropoffArea: 'Area 1',
+          },
+          {
+            id: 'del-sep-inside',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 600,
+            tips: 0,
+            pickupName: 'Restaurant Sep 2',
+            paidKm: 3.0,
+            dropoffArea: 'Area 2',
+          },
+          {
+            id: 'del-sep-noshift-before',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 300,
+            tips: 0,
+            pickupName: 'Restaurant Sep 3',
+            paidKm: 1.0,
+            dropoffArea: 'Area 3',
+          },
+          {
+            id: 'del-sep-noshift-inside',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 400,
+            tips: 0,
+            pickupName: 'Restaurant Sep 4',
+            paidKm: 1.5,
+            dropoffArea: 'Area 4',
+          },
+        ],
+        compensations: [],
+        everAccepted: new Set(['del-sep-before', 'del-sep-inside', 'del-sep-noshift-before', 'del-sep-noshift-inside']),
+      })
+
+      const sepResult = await service.riderMonth(courierId, '2026-09', now)
+
+      expect(sepResult.shifts).toHaveLength(1)
+      const shiftJobs = sepResult.shifts[0]!.jobs
       // Only the job accepted on or after reachFrom (2026-09-20) is returned
-      expect(returnedJobs.some((j) => j.deliveryId === 'del-before')).toBe(false)
-      expect(returnedJobs.some((j) => j.deliveryId === 'del-inside')).toBe(true)
+      expect(shiftJobs.map((j) => j.deliveryId)).toEqual(['del-sep-inside'])
+      expect(shiftJobs.some((j) => j.deliveryId === 'del-sep-before')).toBe(false)
+
+      expect(sepResult.jobsInNoShift.map((j) => j.deliveryId)).toEqual(['del-sep-noshift-inside'])
+      expect(sepResult.jobsInNoShift.some((j) => j.deliveryId === 'del-sep-noshift-before')).toBe(false)
     })
   })
 
@@ -239,8 +473,8 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
       )
     })
 
-    test('deliveryDetail answers 404 when last job was accepted before reachFrom', async () => {
-      // Accept was on 2026-09-10 (before reachFrom: 2026-09-20)
+    test('deliveryDetail answers 404 when rider only (or last) job was accepted before reachFrom (AC-17)', async () => {
+      // Accept was on 2026-09-10 (before reachFrom: 2026-09-20 when now is 2026-11-20)
       const acceptDate = new Date('2026-09-10T10:00:00Z')
       mockTimeWorkedRepository.findAcceptTimes.mockResolvedValue([acceptDate])
 
@@ -257,16 +491,25 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
           },
         ],
         statusBefore: new Map(),
-        acceptedDeliveries: new Map(),
+        acceptedDeliveries: new Map([[courierId, new Set(['del-old'])]]),
         events: [
           {
-            id: 'ev-old',
+            id: 'ev-old-accept',
             deliveryId: 'del-old',
             type: EnumDeliveryEventType.ACCEPTED,
             oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
             courierId,
             occurredAt: acceptDate,
             createdAt: acceptDate,
+          },
+          {
+            id: 'ev-old-drop',
+            deliveryId: 'del-old',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-10T10:30:00Z'),
+            createdAt: new Date('2026-09-10T10:30:00Z'),
           },
         ],
         deliveries: [
@@ -277,13 +520,122 @@ describe('TimeWorkedService - Earnings & Merged History (spec 0042 AC-9, AC-10, 
             totalCompensation: 500,
             tips: 0,
             pickupName: 'Old Restaurant',
+            paidKm: 2.0,
+            dropoffArea: 'Old Area',
           },
         ],
         compensations: [],
         everAccepted: new Set(['del-old']),
       })
 
+      // Pay and timeline are mocked with valid data so 404 is strictly due to dateOf(last.acceptedAt) < reachFrom
+      mockTimeWorkedRepository.findDeliveryPay.mockResolvedValue({
+        id: 'del-old',
+        status: EnumDeliveryStatus.DROPPED_OFF,
+        courierId,
+        totalCompensation: 500,
+        tips: 0,
+        pickupName: 'Old Restaurant',
+        baseFee: 200,
+        distanceFee: 300,
+        paidKm: 2.0,
+        dropoffArea: 'Old Area',
+      })
+      mockTimeWorkedRepository.findTimelineEvents.mockResolvedValue([])
+
       await expect(service.deliveryDetail(courierId, 'del-old', now)).rejects.toThrow(
+        new NotFoundException('Delivery not found')
+      )
+    })
+
+    test('deliveryDetail answers 404 when rider held the delivery multiple times but the last hold was before reachFrom (AC-17)', async () => {
+      const tHold1 = new Date('2026-09-05T10:00:00Z')
+      const tHold2 = new Date('2026-09-10T10:00:00Z')
+      mockTimeWorkedRepository.findAcceptTimes.mockResolvedValue([tHold1, tHold2])
+
+      mockTimeWorkedRepository.findRecords.mockResolvedValue({
+        statusChanges: [
+          {
+            id: 'sc-1',
+            courierId,
+            createdAt: new Date('2026-09-05T08:00:00Z'),
+            fromStatus: EnumCourierStatus.OFFLINE,
+            toStatus: EnumCourierStatus.ONLINE,
+            cause: EnumCourierStatusChangeCause.RIDER,
+            adminUserId: null,
+          },
+        ],
+        statusBefore: new Map(),
+        acceptedDeliveries: new Map([[courierId, new Set(['del-multi-old'])]]),
+        events: [
+          {
+            id: 'ev-1',
+            deliveryId: 'del-multi-old',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: tHold1,
+            createdAt: tHold1,
+          },
+          {
+            id: 'ev-2',
+            deliveryId: 'del-multi-old',
+            type: EnumDeliveryEventType.HANDED_BACK,
+            oldStatus: EnumDeliveryStatus.ACCEPTED,
+            courierId,
+            occurredAt: new Date('2026-09-05T10:02:00Z'),
+            createdAt: new Date('2026-09-05T10:02:00Z'),
+          },
+          {
+            id: 'ev-3',
+            deliveryId: 'del-multi-old',
+            type: EnumDeliveryEventType.ACCEPTED,
+            oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+            courierId,
+            occurredAt: tHold2,
+            createdAt: tHold2,
+          },
+          {
+            id: 'ev-4',
+            deliveryId: 'del-multi-old',
+            type: EnumDeliveryEventType.DROPPED_OFF,
+            oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+            courierId,
+            occurredAt: new Date('2026-09-10T10:30:00Z'),
+            createdAt: new Date('2026-09-10T10:30:00Z'),
+          },
+        ],
+        deliveries: [
+          {
+            id: 'del-multi-old',
+            status: EnumDeliveryStatus.DROPPED_OFF,
+            courierId,
+            totalCompensation: 500,
+            tips: 0,
+            pickupName: 'Old Restaurant',
+            paidKm: 2.0,
+            dropoffArea: 'Old Area',
+          },
+        ],
+        compensations: [],
+        everAccepted: new Set(['del-multi-old']),
+      })
+
+      mockTimeWorkedRepository.findDeliveryPay.mockResolvedValue({
+        id: 'del-multi-old',
+        status: EnumDeliveryStatus.DROPPED_OFF,
+        courierId,
+        totalCompensation: 500,
+        tips: 0,
+        pickupName: 'Old Restaurant',
+        baseFee: 200,
+        distanceFee: 300,
+        paidKm: 2.0,
+        dropoffArea: 'Old Area',
+      })
+      mockTimeWorkedRepository.findTimelineEvents.mockResolvedValue([])
+
+      await expect(service.deliveryDetail(courierId, 'del-multi-old', now)).rejects.toThrow(
         new NotFoundException('Delivery not found')
       )
     })

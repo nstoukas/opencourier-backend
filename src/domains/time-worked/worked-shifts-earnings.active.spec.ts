@@ -102,6 +102,101 @@ describe('Worked Shifts - Earnings & History (Spec 0042 AC-2, AC-4, AC-8, decisi
       expect(pickupWaitSecondsOf(job)).toBe(240)
     })
 
+    test('a job with two successful ARRIVED_AT_PICKUP_LOCATION events inside it and then a PICKED_UP: wait runs from the FIRST arrival occurredAt (AC-4)', () => {
+      // First arrival tapped at 10:10:00 (occurredAt)
+      // Second arrival tapped at 10:15:00 (occurredAt)
+      // Pickup tapped at 10:20:00 (occurredAt)
+      // Wait must run from first arrival (10:10:00) to pickup (10:20:00) = 600s, NOT from second (10:15:00 = 300s)
+      const events = [
+        {
+          id: 'ev-1',
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId,
+          occurredAt: makeDate('2026-11-20T10:00:00.000Z'),
+          createdAt: makeDate('2026-11-20T10:00:00.000Z'),
+        },
+        {
+          id: 'ev-2',
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          courierId: null,
+          occurredAt: makeDate('2026-11-20T10:10:00.000Z'),
+          createdAt: makeDate('2026-11-20T10:10:00.000Z'),
+        },
+        {
+          id: 'ev-3',
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: null,
+          occurredAt: makeDate('2026-11-20T10:15:00.000Z'),
+          createdAt: makeDate('2026-11-20T10:15:00.000Z'),
+        },
+        {
+          id: 'ev-4',
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.PICKED_UP,
+          oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+          courierId: null,
+          occurredAt: makeDate('2026-11-20T10:20:00.000Z'),
+          createdAt: makeDate('2026-11-20T10:20:00.000Z'),
+        },
+        {
+          id: 'ev-5',
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.DROPPED_OFF,
+          oldStatus: EnumDeliveryStatus.ON_THE_WAY,
+          courierId: null,
+          occurredAt: makeDate('2026-11-20T10:30:00.000Z'),
+          createdAt: makeDate('2026-11-20T10:30:00.000Z'),
+        },
+      ]
+
+      const deliveries = [
+        {
+          id: 'del-1',
+          status: EnumDeliveryStatus.DROPPED_OFF,
+          courierId,
+          totalCompensation: 500,
+          tips: 0,
+          pickupName: 'Taverna',
+        },
+      ]
+
+      const jobs = pairJobs(courierId, events, deliveries, null)
+      expect(jobs).toHaveLength(1)
+      const job = jobs[0]!
+      expect(job.arrivedAt).toBe(makeDate('2026-11-20T10:10:00.000Z').getTime())
+      expect(job.pickedUpAt).toBe(makeDate('2026-11-20T10:20:00.000Z').getTime())
+      expect(pickupWaitSecondsOf(job)).toBe(600)
+
+      // Also through buildWorkedShifts:
+      const result = buildWorkedShifts({
+        courierId,
+        now: makeDate('2026-11-20T12:00:00.000Z'),
+        windowStart: makeDate('2026-11-20T00:00:00.000Z'),
+        windowEnd: makeDate('2026-11-20T23:59:59.000Z'),
+        rangeStart: makeDate('2026-11-20T00:00:00.000Z'),
+        rangeEnd: makeDate('2026-11-20T23:59:59.000Z'),
+        statusAtWindowStart: EnumCourierStatus.ONLINE,
+        statusChanges: [],
+        events,
+        deliveries,
+        compensations: [],
+        deliveriesWithAnyJob: new Set(['del-1']),
+        recordedFrom: null,
+        shiftBreakMinutes: 30,
+        currencyCode,
+        timezone,
+      })
+      expect(result.shifts).toHaveLength(1)
+      expect(result.shifts[0]!.jobs).toHaveLength(1)
+      expect(result.shifts[0]!.jobs[0]!.pickupWaitSeconds).toBe(600)
+    })
+
     test('an arrival received after the job ended is outside it (arrivedAt remains null)', () => {
       // The job ends at 10:30:00 (DROPPED_OFF, createdAt 10:30:00).
       // A delayed ARRIVED_AT_PICKUP_LOCATION event arrives with createdAt 10:35:00.

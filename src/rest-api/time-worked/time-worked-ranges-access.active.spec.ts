@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { PATH_METADATA } from '@nestjs/common/constants'
 import { EnumUserRole } from '@prisma/types'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import {
@@ -76,6 +77,18 @@ describe('Time Worked - Ranges and Access (spec 0040, AC-18)', () => {
       expect(Reflect.getMetadata(ROLES_KEY, courierProto.current)).toEqual([EnumUserRole.COURIER])
       expect(Reflect.getMetadata(ROLES_KEY, courierProto.coopTotals)).toEqual([EnumUserRole.COURIER])
       expect((courierProto as any).list).toBeUndefined()
+
+      // Reads the route PATH metadata for every handler on the prototype so a GET '' (or '/') handler fails whatever its method name
+      const methodNames = Object.getOwnPropertyNames(courierProto).filter(
+        (m) => m !== 'constructor' && typeof (courierProto as any)[m] === 'function'
+      )
+      for (const name of methodNames) {
+        const handler = (courierProto as any)[name]
+        const path = Reflect.getMetadata(PATH_METADATA, handler)
+        const paths = Array.isArray(path) ? path : [path]
+        expect(paths).not.toContain('')
+        expect(paths).not.toContain('/')
+      }
 
       // Verify none of the methods take an id in route path
       const currentPath = Reflect.getMetadata('path', courierProto.current)
