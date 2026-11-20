@@ -11,14 +11,8 @@ import {
   TimeWorkedService,
   parseDayRange,
 } from 'src/services/time-worked/time-worked.service'
-import {
-  TimeWorkedDto,
-  TimeWorkedRangeArgs,
-  TimeWorkedTotalsArgs,
-  TimeWorkedTotalsDto,
-  toTimeWorkedDto,
-  toTotalsRowDto,
-} from '../time-worked.dto'
+import { EarningsViewDto, toEarningsViewDto } from '../earnings.dto'
+import { TimeWorkedRangeArgs, TimeWorkedTotalsArgs, TimeWorkedTotalsDto, toTotalsRowDto } from '../time-worked.dto'
 
 // Spec 0040: what admins see. One named rider at a time, the same days and shifts the rider sees plus
 // which admin made an admin caused change (AC-15); and the co-op totals, which never carry a rider id
@@ -32,18 +26,24 @@ export class TimeWorkedAdminRestApiController {
     private readonly courierRepository: CourierRepository
   ) {}
 
+  // Spec 0042 (AC-15): the same days, weeks, figures and job rows the rider's Earnings screen shows,
+  // with no reach limit, one rider per call.
   @common.Get('courier/:id/time-worked')
-  @swagger.ApiOkResponse({ type: TimeWorkedDto })
+  @swagger.ApiOkResponse({ type: EarningsViewDto })
   @swagger.ApiBadRequestResponse({ description: 'A malformed date, from after to, or more than 31 days' })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiOperation({ summary: "One rider's time worked, at most 31 days" })
   @Roles(EnumUserRole.ADMIN)
-  async forRider(@common.Param('id') id: string, @common.Query() args: TimeWorkedRangeArgs): Promise<TimeWorkedDto> {
+  async forRider(@common.Param('id') id: string, @common.Query() args: TimeWorkedRangeArgs): Promise<EarningsViewDto> {
     const range = parseDayRange(args.from, args.to, RIDER_RANGE_MAX_DAYS)
     const courier = await this.courierRepository.findById(id)
     if (!courier) throw new errors.NotFoundException('Courier not found')
-    const result = await this.timeWorkedService.forRider(courier.id, range, { withAdminLabels: true })
-    return toTimeWorkedDto(result, true)
+    const view = await this.timeWorkedService.earnings(
+      courier.id,
+      { from: range.from, to: range.to, reachFrom: null },
+      { withAdminLabels: true }
+    )
+    return toEarningsViewDto(view, true)
   }
 
   @common.Get('time-worked-totals')

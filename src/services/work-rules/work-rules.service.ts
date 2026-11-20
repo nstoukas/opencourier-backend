@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PaginatedResult } from 'src/core/models/Pagination'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
-import {
-  SettingChangeRepository,
-  SettingChangeWithAdmin,
-} from 'src/persistence/repositories/setting-change.repository'
+import { SettingChangeRepository, SettingChangeWithAdmin } from 'src/persistence/repositories/setting-change.repository'
 import { REJECTED_LIST_TTL_SECONDS } from 'src/services/cache/rejected-couriers'
 import { InstanceConfigSettings } from 'src/shared-types/config'
 import {
@@ -16,6 +13,7 @@ import {
   formatCents,
   policyName,
 } from 'src/shared-types/rider-facing-settings'
+import { RIDER_REACH_MONTHS } from 'src/services/time-worked/time-worked.service'
 
 // The "How offers and pay work" page (spec 0038, AC-11): plain sentences built from the settings in
 // effect at the moment it is asked for, so it can never go stale. The sentences are fixed text tied
@@ -28,6 +26,8 @@ export type HowItWorks = {
   appRecords: string[]
   // Spec 0040 (AC-13): how time worked is counted, and who can see it.
   timeWorked: string[]
+  // Spec 0042 (AC-14): how the Earnings figures are counted, and who can see them.
+  earningsFigures: string[]
   reviewAnswerDays: number
 }
 
@@ -88,6 +88,21 @@ export function timeWorkedSentences(shiftBreakMinutes: number): string[] {
   ]
 }
 
+// Spec 0042 (AC-14): the Earnings figures, one sentence each, the day rule, the reach and who sees
+// them. Fixed text tied to summarisePeriod (period-figures.ts) and TimeWorkedService.riderMonth: a
+// change to how a figure is counted must update its sentence here in the same change.
+export function earningsFigureSentences(): string[] {
+  return [
+    '€ per hour worked is the money of a day or week divided by its time worked.',
+    '€ per hour on a job is the same money divided by your job time plus your paid waiting.',
+    '€ per paid km is the money of the jobs you delivered divided by their km from the restaurant to the customer. The ride to the restaurant is not in it.',
+    'The pickup wait is the typical time from arriving at a restaurant to picking up the food: the middle value of that period’s waits.',
+    'A job’s money counts on the day you accepted it, in Greek time, even when you deliver it after midnight. Pay added later, such as a review correction, counts on its job’s day too.',
+    `You can open your work from the last ${RIDER_REACH_MONTHS} months. For older work, ask the co-op.`,
+    'Admins can see these figures and your jobs on your own page. No one ranks or compares riders by them.',
+  ]
+}
+
 @Injectable()
 export class WorkRulesService {
   constructor(
@@ -120,7 +135,9 @@ export class WorkRulesService {
       )} minutes.`,
     ]
     if (settings.offerTimingEnabled) {
-      offers.push(`Offers go out about ${settings.offerLeadMinutes} minutes before the restaurant says the food is ready.`)
+      offers.push(
+        `Offers go out about ${settings.offerLeadMinutes} minutes before the restaurant says the food is ready.`
+      )
     }
 
     const paid = reasons.filter((reason) => reason.paidToRider).map((reason) => reason.label)
@@ -130,7 +147,9 @@ export class WorkRulesService {
         settings.quoteRatePerDistanceUnit
       )} per ${unit} of the route from the restaurant to the customer. The amount is fixed when the order is placed.`,
       settings.waitPayEnabled && settings.waitPayCentsPerMinute > 0
-        ? `If a restaurant keeps you waiting past the time it promised, the first ${settings.waitPayFreeMinutes} minutes are not paid, then each minute pays ${money(settings.waitPayCentsPerMinute)}.`
+        ? `If a restaurant keeps you waiting past the time it promised, the first ${
+            settings.waitPayFreeMinutes
+          } minutes are not paid, then each minute pays ${money(settings.waitPayCentsPerMinute)}.`
         : 'Waiting at a restaurant is not paid at the moment.',
       `You may leave a restaurant that is ${settings.waitLimitMinutes} minutes late.`,
       `If a job you accepted is cancelled, you are paid ${policy(settings.cancellationPayoutPolicy)}.`,
@@ -154,6 +173,7 @@ export class WorkRulesService {
       personDecides: PERSON_DECIDES,
       appRecords: APP_RECORDS,
       timeWorked: timeWorkedSentences(settings.shiftBreakMinutes),
+      earningsFigures: earningsFigureSentences(),
       reviewAnswerDays: settings.reviewAnswerDays,
     }
   }
@@ -161,10 +181,7 @@ export class WorkRulesService {
   // AC-13: the rider facing changes, newest first. Credited to "a representative" by the app, never
   // to a person. A removal reason edit that changed only what the restaurant pays reads the same to a
   // rider on both sides, so it is left out of the page.
-  async riderChanges(options: {
-    page?: number
-    perPage?: number
-  }): Promise<PaginatedResult<RiderSettingChange>> {
+  async riderChanges(options: { page?: number; perPage?: number }): Promise<PaginatedResult<RiderSettingChange>> {
     const context = formatContext(await this.configDomainService.instanceConfig.getInstanceConfigSettings())
     const page = await this.settingChangeRepository.findPage({ ...options, keys: RIDER_FACING_SETTING_KEYS })
     const lines = page.data
@@ -191,9 +208,7 @@ export class WorkRulesService {
         subject: change.subject,
         oldValue: change.oldValue,
         newValue: change.newValue,
-        changedBy: change.changedBy
-          ? change.changedBy.email ?? change.changedBy.username ?? change.changedBy.id
-          : null,
+        changedBy: change.changedBy ? change.changedBy.email ?? change.changedBy.username ?? change.changedBy.id : null,
       })),
       pagination: page.pagination,
       recordedSince: oldest?.createdAt ?? null,

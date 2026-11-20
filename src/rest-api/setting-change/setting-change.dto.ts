@@ -9,6 +9,8 @@ export class HowItWorksCourierDto {
   @ApiProperty({ type: [String] }) appRecords: string[]
   // Spec 0040 (AC-13): how time worked is counted.
   @ApiProperty({ type: [String] }) timeWorked: string[]
+  // Spec 0042 (AC-14): how the Earnings figures are counted.
+  @ApiProperty({ type: [String] }) earningsFigures: string[]
   @ApiProperty({ type: Number }) reviewAnswerDays: number
 }
 

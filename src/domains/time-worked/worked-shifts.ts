@@ -44,6 +44,10 @@ export interface JobDeliveryRow {
   totalCompensation: number | null
   tips: number
   pickupName: string
+  // Spec 0042, filled only when the read asks for job details (left out of the co-op totals):
+  // restaurant to customer km from the delivery's quote (AC-3) and the drop off area (AC-12).
+  paidKm?: number | null
+  dropoffArea?: string | null
 }
 
 export interface CompensationRow {
@@ -81,6 +85,19 @@ export interface WorkedShiftsInput {
 
 // ---- What comes out ----
 
+// Spec 0042 (AC-8): how a job ended, as a key the app turns into a plain label. Null means the job
+// ended in this rider's drop off.
+export enum EnumJobEndLabel {
+  CANCELLED_AFTER_PICKUP = 'CANCELLED_AFTER_PICKUP',
+  CANCELLED = 'CANCELLED',
+  REMOVED = 'REMOVED',
+  HANDED_BACK = 'HANDED_BACK',
+  REASSIGNED = 'REASSIGNED',
+  FAILED = 'FAILED',
+  ENDED = 'ENDED',
+  IN_PROGRESS = 'IN_PROGRESS',
+}
+
 export interface WorkedJob {
   deliveryId: string
   pickupName: string
@@ -93,12 +110,22 @@ export interface WorkedJob {
   deliveryMoneyCents: number
   paidWaitSeconds: number
   compensations: WorkedCompensation[]
+  // Spec 0042: null when the read did not ask for job details.
+  paidKm: number | null
+  dropoffArea: string | null
+  // Arrival at the restaurant to pickup, in whole seconds; null when the job has no such pair (AC-4).
+  pickupWaitSeconds: number | null
+  // A CANCELED from PICKED_UP or later ended it, or the trip back did (decision 75.23).
+  cancelledAfterPickup: boolean
+  endLabel: EnumJobEndLabel | null
 }
 
 export interface WorkedCompensation {
   id: string
   reason: EnumCourierCompensationReason
   amountCents: number
+  // On a WAITING payment, the minutes it paid for (spec 0042 AC-10); null otherwise.
+  waitMinutes: number | null
   createdAt: Date
   addedLater: boolean
 }
@@ -145,6 +172,9 @@ export interface WorkedDay {
   moneyCents: number
   centsPerHour: number | null
   unlinkedMoneyCents: number
+  // Spec 0042 (decision 75.31): the part of unlinkedMoneyCents that belongs to no recorded job at all.
+  // The rest of it is the money of jobs in no recorded shift, which the screen lists as job rows.
+  noJobMoneyCents: number
 }
 
 export interface WorkedShiftsResult {
@@ -153,6 +183,9 @@ export interface WorkedShiftsResult {
   // The shifts that overlap the asked range.
   shifts: WorkedShift[]
   days: WorkedDay[]
+  // Spec 0042: jobs inside the window that sit in no recorded shift (a zero length job while Offline),
+  // oldest first. Their money is in the day's unlinkedMoneyCents, as spec 0040 set.
+  jobsInNoShift: WorkedJob[]
   // Compensations left out because they are not in the instance currency (logged by id by the caller).
   otherCurrencyCompensationIds: string[]
 }
@@ -191,13 +224,20 @@ function overlapMs(intervals: Interval[], from: number, to: number): number {
 
 // ---- Jobs (AC-4) ----
 
-interface PairedJob {
+export interface PairedJob {
   deliveryId: string
   acceptCreatedAt: number
   start: number
   end: number | null
+  // When the server received the event that ended the job (createdAt); null while it is held.
+  endCreatedAt: number | null
   endEventType: EnumDeliveryEventType | null
   droppedOff: boolean
+  // Decision 75.23: a CANCELED from PICKED_UP or later ended it, or the trip back after one did.
+  cancelledAfterPickup: boolean
+  // The first successful arrival at the restaurant inside the job, and the first pickup after it (AC-4).
+  arrivedAt: number | null
+  pickedUpAt: number | null
 }
 
 // Pairs this rider's accepts with the first later end on the same delivery, in the order the server
@@ -226,6 +266,7 @@ export function pairJobs(
 
     const close = (job: PairedJob, ev: JobEventRow) => {
       job.end = Math.max(ev.occurredAt.getTime(), job.start)
+      job.endCreatedAt = ev.createdAt.getTime()
       job.endEventType = ev.type
       job.droppedOff = ev.type === EnumDeliveryEventType.DROPPED_OFF
       jobs.push(job)
@@ -250,10 +291,17 @@ export function pairJobs(
             waitingForReturn = true
             cancelEvent = ev
             open.endEventType = ev.type
+            open.cancelledAfterPickup = true
           } else {
             close(open, ev)
             open = null
           }
+        } else if (ev.type === EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION && open.arrivedAt === null) {
+          // Spec 0042 (AC-4): the pickup wait runs from the first arrival inside the job...
+          open.arrivedAt = ev.occurredAt.getTime()
+        } else if (ev.type === EnumDeliveryEventType.PICKED_UP && open.arrivedAt !== null && open.pickedUpAt === null) {
+          // ...to the first pickup after it, both timed by the tap.
+          open.pickedUpAt = ev.occurredAt.getTime()
         }
       }
       if (!open && ev.type === EnumDeliveryEventType.ACCEPTED && ev.courierId === courierId) {
@@ -262,8 +310,12 @@ export function pairJobs(
           acceptCreatedAt: ev.createdAt.getTime(),
           start: ev.occurredAt.getTime(),
           end: null,
+          endCreatedAt: null,
           endEventType: null,
           droppedOff: false,
+          cancelledAfterPickup: false,
+          arrivedAt: null,
+          pickedUpAt: null,
         }
       }
     }
@@ -298,10 +350,93 @@ export function pairJobs(
     .filter((j) => floor === undefined || j.end === null || j.end > floor || (j.start >= floor && j.end === floor))
     .map((j) =>
       floor !== undefined && j.start < floor
-        ? { ...j, start: floor, end: j.end === null ? null : Math.max(j.end, floor) }
+        ? {
+            ...j,
+            start: floor,
+            end: j.end === null ? null : Math.max(j.end, floor),
+            // A job moved up to recordedFrom keeps its wait only when both taps fall inside it (AC-4).
+            arrivedAt: j.arrivedAt !== null && j.arrivedAt >= floor ? j.arrivedAt : null,
+            pickedUpAt: j.pickedUpAt !== null && j.pickedUpAt >= floor ? j.pickedUpAt : null,
+          }
         : j
     )
     .sort((a, b) => a.start - b.start)
+}
+
+// Spec 0042 (AC-4): arrival to pickup in whole seconds, never below 0; null without both taps.
+export function pickupWaitSecondsOf(job: Pick<PairedJob, 'arrivedAt' | 'pickedUpAt'>): number | null {
+  if (job.arrivedAt === null || job.pickedUpAt === null) return null
+  return Math.max(0, Math.floor((job.pickedUpAt - job.arrivedAt) / 1000))
+}
+
+// Spec 0042 (AC-8, decision 75.23): the plain label key for how a job ended; null for this rider's
+// drop off. Read in order: still held, then the after pickup flag, then the end event itself.
+export function endLabelOf(
+  job: Pick<PairedJob, 'end' | 'endEventType' | 'droppedOff' | 'cancelledAfterPickup'>
+): EnumJobEndLabel | null {
+  if (job.end === null) return EnumJobEndLabel.IN_PROGRESS
+  if (job.droppedOff) return null
+  if (job.cancelledAfterPickup) return EnumJobEndLabel.CANCELLED_AFTER_PICKUP
+  switch (job.endEventType) {
+    case EnumDeliveryEventType.FOOD_RETURNED:
+    case EnumDeliveryEventType.FOOD_NOT_RETURNED:
+      return EnumJobEndLabel.CANCELLED_AFTER_PICKUP
+    case EnumDeliveryEventType.CANCELED:
+      return EnumJobEndLabel.CANCELLED
+    case EnumDeliveryEventType.REMOVAL_APPROVED:
+      return EnumJobEndLabel.REMOVED
+    case EnumDeliveryEventType.HANDED_BACK:
+      return EnumJobEndLabel.HANDED_BACK
+    case EnumDeliveryEventType.REASSIGNED:
+    case EnumDeliveryEventType.RETURNED_TO_WAITING:
+    case EnumDeliveryEventType.WAIT_UNDISPATCHED:
+    // A later ACCEPTED is another rider taking it (the rider's own second accept can only follow an end).
+    case EnumDeliveryEventType.ACCEPTED:
+      return EnumJobEndLabel.REASSIGNED
+    case EnumDeliveryEventType.FAILED:
+      return EnumJobEndLabel.FAILED
+    default:
+      return EnumJobEndLabel.ENDED
+  }
+}
+
+// One job as the screens show it. `shiftEndedAt` decides "added later": a payment written after the
+// shift ended; never while the shift is open, never for a job in no shift (null, spec 0042 AC-2).
+function toWorkedJob(
+  j: PairedJob,
+  delivery: JobDeliveryRow | undefined,
+  comps: CompensationRow[],
+  paidWaitSeconds: number,
+  shiftEndedAt: number | null
+): WorkedJob {
+  return {
+    deliveryId: j.deliveryId,
+    pickupName: delivery?.pickupName ?? '',
+    acceptedAt: new Date(j.start),
+    endedAt: j.end === null ? null : new Date(j.end),
+    endEventType: j.endEventType,
+    droppedOff: j.droppedOff,
+    deliveryMoneyCents: j.droppedOff && delivery ? (delivery.totalCompensation ?? 0) + delivery.tips : 0,
+    paidWaitSeconds,
+    compensations: comps.map((c) => ({
+      id: c.id,
+      reason: c.reason,
+      amountCents: c.amount,
+      waitMinutes: c.waitMinutes,
+      createdAt: c.createdAt,
+      addedLater: shiftEndedAt !== null && c.createdAt.getTime() > shiftEndedAt,
+    })),
+    paidKm: delivery?.paidKm ?? null,
+    dropoffArea: delivery?.dropoffArea ?? null,
+    pickupWaitSeconds: pickupWaitSecondsOf(j),
+    cancelledAfterPickup: j.cancelledAfterPickup,
+    endLabel: endLabelOf(j),
+  }
+}
+
+// Money a job brings: its delivery money plus every compensation linked to it (spec 0040 AC-6).
+export function jobMoneyCents(job: Pick<WorkedJob, 'deliveryMoneyCents' | 'compensations'>): number {
+  return job.compensations.reduce((sum, c) => sum + c.amountCents, job.deliveryMoneyCents)
 }
 
 // ---- Shifts ----
@@ -457,25 +592,13 @@ export function buildWorkedShifts(input: WorkedShiftsInput): WorkedShiftsResult 
       waitLeft -= paidWait
       effectiveWait.set(j, paidWait)
 
-      const deliveryMoneyCents = j.droppedOff && delivery ? (delivery.totalCompensation ?? 0) + delivery.tips : 0
-      money += deliveryMoneyCents
-      const compensations = comps.map((c) => {
-        const addedLater = endedAt !== null && c.createdAt.getTime() > endedAt
-        money += c.amount
-        if (addedLater) lateMoney += c.amount
-        return { id: c.id, reason: c.reason, amountCents: c.amount, createdAt: c.createdAt, addedLater }
-      })
-      return {
-        deliveryId: j.deliveryId,
-        pickupName: delivery?.pickupName ?? '',
-        acceptedAt: new Date(j.start),
-        endedAt: j.end === null ? null : new Date(j.end),
-        endEventType: j.endEventType,
-        droppedOff: j.droppedOff,
-        deliveryMoneyCents,
-        paidWaitSeconds: paidWait,
-        compensations,
+      const job = toWorkedJob(j, delivery, comps, paidWait, endedAt)
+      money += job.deliveryMoneyCents
+      for (const c of job.compensations) {
+        money += c.amountCents
+        if (c.addedLater) lateMoney += c.amountCents
       }
+      return job
     })
     const paidWaitSeconds = jobUnionSeconds - waitLeft
 
@@ -546,18 +669,25 @@ export function buildWorkedShifts(input: WorkedShiftsInput): WorkedShiftsResult 
   // A zero length job (clamped, AC-4) makes no work period, so when the rider was Offline at that
   // instant it sits in no shift. Its money still counts, as money not in a recorded shift, on its
   // accept day, so it never vanishes (review 2026-11-20, minor).
+  const jobsInNoShift: WorkedJob[] = []
   for (const j of paired) {
     if (shiftOfJob.has(j)) continue
     const acceptDay = dayOf(j.start, timezone)
     const delivery = deliveryById.get(j.deliveryId)
+    const comps = (compensationsByJob.get(j) ?? []).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     if (j.droppedOff && delivery) add(unlinkedByDay, acceptDay, (delivery.totalCompensation ?? 0) + delivery.tips)
-    for (const c of compensationsByJob.get(j) ?? []) add(unlinkedByDay, acceptDay, c.amount)
+    for (const c of comps) add(unlinkedByDay, acceptDay, c.amount)
+    jobsInNoShift.push(toWorkedJob(j, delivery, comps, 0, null))
   }
+  const noJobByDay = new Map<string, number>()
   for (const [deliveryId, list] of compensationsByDelivery) {
     if (input.deliveriesWithAnyJob.has(deliveryId)) continue
     for (const c of list) {
       const written = c.createdAt.getTime()
-      if (written >= rangeStart && written < rangeEnd) add(unlinkedByDay, dayOf(written, timezone), c.amount)
+      if (written >= rangeStart && written < rangeEnd) {
+        add(unlinkedByDay, dayOf(written, timezone), c.amount)
+        add(noJobByDay, dayOf(written, timezone), c.amount)
+      }
     }
   }
 
@@ -582,8 +712,9 @@ export function buildWorkedShifts(input: WorkedShiftsInput): WorkedShiftsResult 
       moneyCents: linkedMoney + unlinkedMoneyCents,
       centsPerHour: centsPerHour(linkedMoney, workSeconds),
       unlinkedMoneyCents,
+      noJobMoneyCents: noJobByDay.get(date) ?? 0,
     }
   })
 
-  return { allShifts, shifts, days, otherCurrencyCompensationIds }
+  return { allShifts, shifts, days, jobsInNoShift, otherCurrencyCompensationIds }
 }

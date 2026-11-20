@@ -1,14 +1,20 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common'
-import { EnumCourierStatus } from '@prisma/types'
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { EnumCourierCompensationReason, EnumCourierStatus } from '@prisma/types'
 import { INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { TimelineLine, buildTimeline } from 'src/domains/time-worked/delivery-timeline'
+import { PeriodFigures, summarisePeriod } from 'src/domains/time-worked/period-figures'
 import {
+  EnumJobEndLabel,
   WorkedDay,
+  WorkedJob,
   WorkedShift,
+  WorkedShiftsResult,
   buildWorkedShifts,
   centsPerHour,
   datesInRange,
+  pairJobs,
 } from 'src/domains/time-worked/worked-shifts'
 import { TimeWorkedRecords, TimeWorkedRepository } from 'src/persistence/repositories/time-worked.repository'
 
@@ -23,6 +29,64 @@ export const COOP_TOTALS_MIN_RIDERS = 3
 const LOOK_BACK_MS = 24 * 60 * 60 * 1000
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MONTH_PATTERN = /^\d{4}-\d{2}$/
+
+// Spec 0042 (AC-9, decision 75.9): a rider opens their own work back to the same date 2 calendar
+// months ago; older work is the co-op's to answer (and row 76's statements'). Admins have no limit.
+// A code constant, not a co-op setting: it shapes what a rider sees, never pay or assignment.
+export const RIDER_REACH_MONTHS = 2
+
+// Spec 0042: one day's or one week's Earnings figures (AC-1).
+export type EarningsDay = PeriodFigures & { date: string }
+export type EarningsWeek = PeriodFigures & {
+  weekStart: string
+  // The week holds today, so it runs to now (AC-5).
+  soFar: boolean
+  // The week holds the rider's first reachable day, so its figures start there (AC-5).
+  cutAtReach: boolean
+}
+
+export interface EarningsView {
+  from: string
+  to: string
+  recordedFrom: Date | null
+  currencyCode: string
+  days: EarningsDay[]
+  weeks: EarningsWeek[]
+  // Shifts that overlap [from, to], each with only the jobs accepted inside it.
+  shifts: WorkedShift[]
+  jobsInNoShift: WorkedJob[]
+}
+
+export interface EarningsDeliveryDetail {
+  deliveryId: string
+  currencyCode: string
+  pickupName: string
+  dropoffArea: string | null
+  paidKm: number
+  jobs: Array<{
+    acceptedAt: Date
+    endedAt: Date | null
+    endLabel: EnumJobEndLabel | null
+    minutes: number
+    pickupWaitSeconds: number | null
+  }>
+  breakdown: {
+    baseFeeCents: number | null
+    distanceFeeCents: number | null
+    deliveryPayCents: number
+    tipsCents: number
+    compensations: Array<{
+      reason: EnumCourierCompensationReason
+      amountCents: number
+      waitMinutes: number | null
+      createdAt: Date
+      addedLater: boolean
+    }>
+    totalCents: number
+  }
+  timeline: TimelineLine[]
+}
 
 export interface DayRange {
   from: string
@@ -74,6 +138,46 @@ export function todayIn(now: Date, timezone = INSTANCE_TIMEZONE): string {
   return dayjs(now).tz(timezone).format('YYYY-MM-DD')
 }
 
+// Spec 0042 (AC-9): the first day a rider can open. dayjs keeps the day of the month and falls back to
+// the month's last day when it doesn't exist, so on 31 January it is 30 November.
+export function reachFromOf(today: string): string {
+  return dayjs.utc(today).subtract(RIDER_REACH_MONTHS, 'month').format('YYYY-MM-DD')
+}
+
+function maxDate(a: string, b: string): string {
+  return a > b ? a : b
+}
+
+function minDate(a: string, b: string): string {
+  return a < b ? a : b
+}
+
+function dayStart(date: string): Date {
+  return dayjs.tz(date, INSTANCE_TIMEZONE).toDate()
+}
+
+function dateOf(at: Date): string {
+  return dayjs(at).tz(INSTANCE_TIMEZONE).format('YYYY-MM-DD')
+}
+
+// Accept to the job's end (or now, while held), in whole minutes (spec 0042 AC-8). The app rounds a
+// row's minutes the same way.
+export function jobMinutes(job: Pick<WorkedJob, 'acceptedAt' | 'endedAt'>, now: Date): number {
+  return Math.round(((job.endedAt ?? now).getTime() - job.acceptedAt.getTime()) / 60000)
+}
+
+// `YYYY-MM`, a real month (spec 0042 AC-17). Returns its first and last day.
+export function parseMonth(month: unknown): { first: string; last: string } {
+  if (typeof month !== 'string' || !MONTH_PATTERN.test(month)) {
+    throw new BadRequestException('month must be a month written as YYYY-MM.')
+  }
+  const first = `${month}-01`
+  if (dayjs.utc(first).format('YYYY-MM-DD') !== first) {
+    throw new BadRequestException('month must be a month written as YYYY-MM.')
+  }
+  return { first, last: dayjs.utc(first).endOf('month').format('YYYY-MM-DD') }
+}
+
 // `YYYY-MM-DD` days in the instance timezone; 400 with a sentence naming the limit (AC-18).
 export function parseDayRange(from: unknown, to: unknown, maxDays: number): DayRange {
   if (typeof from !== 'string' || typeof to !== 'string' || !isRealDate(from) || !isRealDate(to)) {
@@ -113,8 +217,8 @@ export class TimeWorkedService {
     now: Date,
     settings: { shiftBreakMinutes: number; currencyCode: string },
     recordedFrom: Date | null
-  ): Map<string, { shifts: WorkedShift[]; allShifts: WorkedShift[]; days: WorkedDay[] }> {
-    const results = new Map<string, { shifts: WorkedShift[]; allShifts: WorkedShift[]; days: WorkedDay[] }>()
+  ): Map<string, WorkedShiftsResult> {
+    const results = new Map<string, WorkedShiftsResult>()
     for (const courierId of riders) {
       const deliveryIds = records.acceptedDeliveries.get(courierId) ?? new Set<string>()
       const compensations = records.compensations.filter((c) => c.courierId === courierId)
@@ -156,7 +260,12 @@ export class TimeWorkedService {
   }
 
   // One rider's days and shifts over a range (AC-11, AC-15). The admin view adds admin labels.
-  async forRider(courierId: string, range: DayRange, options: { withAdminLabels: boolean }, now = new Date()) {
+  async forRider(
+    courierId: string,
+    range: { rangeStart: Date; rangeEnd: Date },
+    options: { withAdminLabels: boolean; withJobDetails?: boolean },
+    now = new Date()
+  ) {
     const settings = await this.settings()
     const recordedFrom = await this.timeWorkedRepository.findRecordedFrom()
     const window = this.windowFor(range, now)
@@ -164,6 +273,7 @@ export class TimeWorkedService {
       courierId,
       ...window,
       withAdminLabels: options.withAdminLabels,
+      withJobDetails: options.withJobDetails ?? false,
     })
     const result = this.computePerRider(records, [courierId], window, now, settings, recordedFrom).get(courierId)
     return {
@@ -171,6 +281,183 @@ export class TimeWorkedService {
       currencyCode: settings.currencyCode,
       days: result?.days ?? [],
       shifts: result?.shifts ?? [],
+      jobsInNoShift: result?.jobsInNoShift ?? [],
+    }
+  }
+
+  // Spec 0042: the Earnings view over the days [from, to]. Records are read for the whole weeks around
+  // them (decision 75.25), cut at `reachFrom` for a rider (null for an admin), so each week's figures are
+  // worked out over its own days on the server; the days, shifts and jobs returned are then cut back to
+  // [from, to].
+  async earnings(
+    courierId: string,
+    days: { from: string; to: string; reachFrom: string | null },
+    options: { withAdminLabels: boolean },
+    now = new Date()
+  ): Promise<EarningsView> {
+    const { from, to, reachFrom } = days
+    const today = todayIn(now)
+    const firstWeek = weekStartOf(from)
+    const lastWeekEnd = dayjs.utc(weekStartOf(to)).add(6, 'day').format('YYYY-MM-DD')
+    const readFrom = reachFrom ? maxDate(firstWeek, reachFrom) : firstWeek
+    const result = await this.forRider(
+      courierId,
+      { rangeStart: dayStart(readFrom), rangeEnd: dayStart(nextDate(lastWeekEnd)) },
+      { withAdminLabels: options.withAdminLabels, withJobDetails: true },
+      now
+    )
+
+    // Jobs in a recorded shift, by accept day: they feed the figures (jobs in no shift are unlinked
+    // money, AC-2). A job sits in exactly one shift.
+    const jobsByDate = new Map<string, WorkedJob[]>()
+    for (const shift of result.shifts) {
+      for (const job of shift.jobs) {
+        const date = dateOf(job.acceptedAt)
+        jobsByDate.set(date, [...(jobsByDate.get(date) ?? []), job])
+      }
+    }
+    const figuresOf = (period: WorkedDay[]) =>
+      summarisePeriod(
+        period.flatMap((day) => jobsByDate.get(day.date) ?? []),
+        period
+      )
+
+    const weekStarts = [...new Set(result.days.map((day) => weekStartOf(day.date)))]
+    const weeks = weekStarts
+      .filter((weekStart) => weekStart <= to && dayjs.utc(weekStart).add(6, 'day').format('YYYY-MM-DD') >= from)
+      .map((weekStart) => {
+        const weekEnd = dayjs.utc(weekStart).add(6, 'day').format('YYYY-MM-DD')
+        return {
+          ...figuresOf(result.days.filter((day) => weekStartOf(day.date) === weekStart)),
+          weekStart,
+          soFar: weekStart <= today && today <= weekEnd,
+          cutAtReach: reachFrom !== null && weekStart < reachFrom,
+        }
+      })
+
+    const inDays = (at: Date) => {
+      const date = dateOf(at)
+      return date >= from && date <= to
+    }
+    const fromStart = dayStart(from).getTime()
+    const toEnd = dayStart(nextDate(to)).getTime()
+    const shifts = result.shifts
+      .filter((s) => s.startedAt.getTime() < toEnd && (s.endedAt?.getTime() ?? now.getTime()) >= fromStart)
+      .map((s) => ({ ...s, jobs: s.jobs.filter((j) => inDays(j.acceptedAt)) }))
+
+    return {
+      from,
+      to,
+      recordedFrom: result.recordedFrom,
+      currencyCode: result.currencyCode,
+      days: result.days
+        .filter((day) => day.date >= from && day.date <= to)
+        .map((day) => ({ ...figuresOf([day]), date: day.date })),
+      weeks,
+      shifts,
+      jobsInNoShift: result.jobsInNoShift.filter((j) => inDays(j.acceptedAt)),
+    }
+  }
+
+  // Spec 0042 (AC-9, AC-17): a rider's own month, clamped to [reachFrom, today]. A month wholly outside
+  // that answers 400 with a sentence naming the limit.
+  async riderMonth(courierId: string, month: unknown, now = new Date()) {
+    const { first, last } = parseMonth(month)
+    const today = todayIn(now)
+    const reachFrom = reachFromOf(today)
+    if (last < reachFrom) {
+      throw new BadRequestException(
+        `You can open your work from ${reachFrom} on, ${RIDER_REACH_MONTHS} months back. For older work, ask the co-op.`
+      )
+    }
+    if (first > today) throw new BadRequestException('That month has not started yet.')
+    const view = await this.earnings(
+      courierId,
+      { from: maxDate(first, reachFrom), to: minDate(last, today), reachFrom },
+      { withAdminLabels: false },
+      now
+    )
+    return { ...view, month: first.slice(0, 7), reachFrom }
+  }
+
+  // Spec 0042 (AC-10, AC-11, AC-17, decision 75.28): one delivery as this rider held it. The rider's jobs
+  // on it are worked out over each job's accept day with the same function the rows use, so its minutes
+  // and "added later" always match the row. 404 when the rider never held a recorded job on it, or their
+  // last job on it was accepted before their reach.
+  async deliveryDetail(courierId: string, deliveryId: string, now = new Date()): Promise<EarningsDeliveryDetail> {
+    const notFound = () => new NotFoundException('Delivery not found')
+    const acceptTimes = await this.timeWorkedRepository.findAcceptTimes(courierId, deliveryId)
+    if (acceptTimes.length === 0) throw notFound()
+    const reachFrom = reachFromOf(todayIn(now))
+
+    const jobs = new Map<number, WorkedJob>()
+    for (const date of new Set(acceptTimes.map(dateOf))) {
+      const result = await this.forRider(
+        courierId,
+        { rangeStart: dayStart(date), rangeEnd: dayStart(nextDate(date)) },
+        { withAdminLabels: false, withJobDetails: true },
+        now
+      )
+      const found = [...result.shifts.flatMap((s) => s.jobs), ...result.jobsInNoShift]
+      for (const job of found) if (job.deliveryId === deliveryId) jobs.set(job.acceptedAt.getTime(), job)
+    }
+    const held = [...jobs.values()].sort((a, b) => a.acceptedAt.getTime() - b.acceptedAt.getTime())
+    const last = held[held.length - 1]
+    if (!last || dateOf(last.acceptedAt) < reachFrom) throw notFound()
+
+    const [pay, events, settings] = await Promise.all([
+      this.timeWorkedRepository.findDeliveryPay(deliveryId),
+      this.timeWorkedRepository.findTimelineEvents(deliveryId),
+      this.settings(),
+    ])
+    if (!pay) throw notFound()
+
+    // Delivery pay and tips only when one of this rider's jobs ended in their drop off (spec 0040 AC-6);
+    // base and distance only when they add up to what was paid, else one "Delivery pay" line.
+    const delivered = held.some((j) => j.droppedOff)
+    const deliveryPayCents = delivered ? pay.totalCompensation ?? 0 : 0
+    const tipsCents = delivered ? pay.tips : 0
+    const partsAddUp = delivered && pay.baseFee + pay.distanceFee === deliveryPayCents
+    const compensations = held
+      .flatMap((j) => j.compensations)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((c) => ({
+        reason: c.reason,
+        amountCents: c.amountCents,
+        waitMinutes: c.waitMinutes,
+        createdAt: c.createdAt,
+        addedLater: c.addedLater,
+      }))
+
+    // The rider's holds as the server received them, for the timeline (no recordedFrom floor: a hold
+    // from before recording still decides which steps were theirs).
+    const holds = pairJobs(courierId, events, [pay], null).map((j) => ({
+      acceptCreatedAt: j.acceptCreatedAt,
+      endCreatedAt: j.endCreatedAt,
+    }))
+
+    return {
+      deliveryId,
+      currencyCode: settings.currencyCode,
+      pickupName: pay.pickupName,
+      dropoffArea: pay.dropoffArea,
+      paidKm: pay.paidKm,
+      jobs: held.map((j) => ({
+        acceptedAt: j.acceptedAt,
+        endedAt: j.endedAt,
+        endLabel: j.endLabel,
+        minutes: jobMinutes(j, now),
+        pickupWaitSeconds: j.pickupWaitSeconds,
+      })),
+      breakdown: {
+        baseFeeCents: partsAddUp ? pay.baseFee : null,
+        distanceFeeCents: partsAddUp ? pay.distanceFee : null,
+        deliveryPayCents,
+        tipsCents,
+        compensations,
+        totalCents: compensations.reduce((sum, c) => sum + c.amountCents, deliveryPayCents + tipsCents),
+      },
+      timeline: buildTimeline(courierId, events, holds),
     }
   }
 
