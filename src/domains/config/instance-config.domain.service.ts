@@ -110,22 +110,6 @@ import { writeSettingChange } from 'src/persistence/repositories/setting-change.
 // below with `!== undefined`, never `if (data.x)`: a truthy check silently drops a 0.
 // Also give it @RefuseIfNotSentAsNumber() in InstanceConfigSettingsAdminInput, or an empty value saves as 0.
 // Exported so the tests can walk this table: each rule gets its own zero and negative checks.
-// Spec 0041 (AC-2 to AC-4): refuses a fee % above the ceiling. `ceilingOnly` is true when the save
-// sent a new ceiling and no fee, so the message tells the admin it is the ceiling that is too low.
-// A fee of null (a stored value that could not be read) is not checked: only a save of a fee is.
-// Exported so the tests can call it directly.
-export function assertFeeWithinCeiling(fee: number | null, ceiling: number, ceilingOnly: boolean): void {
-  if (fee === null || fee <= ceiling) return
-  if (ceilingOnly) {
-    throw new BadRequestException(
-      `feePercentageCeiling cannot be below the fee % in effect (${fee}). Lower feePercentageAmount first, or in the same save.`
-    )
-  }
-  throw new BadRequestException(
-    `feePercentageAmount can be at most ${ceiling}, the co-op's fee ceiling (feePercentageCeiling). Raise the ceiling first if the co-op decided a higher fee.`
-  )
-}
-
 export const NUMERIC_SETTING_RULES: {
   // keyof = the name of one of the input's fields, so a typo here fails typecheck.
   key: keyof InstanceConfigSettingsInput
@@ -312,6 +296,23 @@ export const NUMERIC_SETTING_RULES: {
     max: SHIFT_DROP_NOTICE_HOURS_MAX,
   },
 ]
+
+// Spec 0041 (AC-2 to AC-4): refuses a fee % above the ceiling. `ceilingOnly` is true when the save
+// sent a new ceiling and no new fee (left out, or the same as the fee in effect), so the message tells
+// the admin it is the ceiling that is too low. A fee that is not a finite number (a stored value that
+// could not be read, so NaN) is not checked: only a real fee can be compared with the ceiling.
+// Exported so the tests can call it directly.
+export function assertFeeWithinCeiling(fee: number | null, ceiling: number, ceilingOnly: boolean): void {
+  if (fee === null || !Number.isFinite(fee) || fee <= ceiling) return
+  if (ceilingOnly) {
+    throw new BadRequestException(
+      `feePercentageCeiling cannot be below the fee % in effect (${fee}). Lower feePercentageAmount first, or in the same save.`
+    )
+  }
+  throw new BadRequestException(
+    `feePercentageAmount can be at most ${ceiling}, the co-op's fee ceiling (feePercentageCeiling). Raise the ceiling first if the co-op decided a higher fee.`
+  )
+}
 
 // One settings write waiting for the save's transaction (spec 0038, AC-12).
 type StoredSettingValue = string | number | boolean | string[]
@@ -843,10 +844,15 @@ export class InstanceConfigDomainService {
       // Only a save that sends the fee or the ceiling is checked (decision 53.3): a stored fee above
       // the ceiling must not block a save of an unrelated setting.
       if (data.feePercentageAmount !== undefined || data.feePercentageCeiling !== undefined) {
+        // A full form that resends the fee unchanged is lowering the ceiling, not raising the fee
+        // (agy review): its message should say so.
+        const feeSentAndNew =
+          data.feePercentageAmount !== undefined &&
+          !isSameSettingValue(before.feePercentageAmount, data.feePercentageAmount)
         assertFeeWithinCeiling(
           data.feePercentageAmount ?? (before.feePercentageAmount as number | null),
           data.feePercentageCeiling ?? (before.feePercentageCeiling as number),
-          data.feePercentageCeiling !== undefined && data.feePercentageAmount === undefined
+          data.feePercentageCeiling !== undefined && !feeSentAndNew
         )
       }
       for (const write of writes) {
