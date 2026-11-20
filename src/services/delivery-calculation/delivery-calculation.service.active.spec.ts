@@ -232,4 +232,23 @@ describe('DeliveryCalculationService', () => {
       )
     })
   })
+
+  describe('Spec 0041 AC-6: Quoting with fee above ceiling', () => {
+    it('reads a stored fee above the ceiling without throwing and quotes successfully (spec 0041 AC-6)', async () => {
+      quoteCalculationService.calculateDeliveryQuote.mockResolvedValue({
+        baseFee: 200,
+        distanceFee: 100,
+        quoteRangeFrom: 300,
+        quoteRangeTo: 300,
+      })
+      // Stored fee is 40% (above default ceiling 25)
+      ;(configDomainService.instanceConfig.getFeePercentageAmount as jest.Mock).mockResolvedValue(40)
+
+      const quoteResult = await service.calculateDeliveryQuoteAmount(sampleInput)
+
+      expect(quoteResult.feePercentage).toBe(40)
+      expect(quoteResult.quoteRangeFrom).toBe(420) // 300 + round(300 * 0.40) = 300 + 120 = 420
+      expect(quoteResult.quoteRangeTo).toBe(420)
+    })
+  })
 })

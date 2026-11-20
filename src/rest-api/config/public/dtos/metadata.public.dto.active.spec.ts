@@ -26,6 +26,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     maxDriftDistance: 5,
     quoteExpirationMinutes: 15,
     feePercentageAmount: 10,
+    feePercentageCeiling: 25,
     quoteRatePerDistanceUnit: 150,
     quoteBaseFee: 200,
     defaultCourierPayRate: 300,

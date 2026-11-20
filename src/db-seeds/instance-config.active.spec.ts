@@ -163,4 +163,34 @@ describe('seedInitialInstanceConfig', () => {
     expect(noticeCall[0].data.value).toBe('12')
     expect(noticeCall[0].data.type).toBe('number')
   })
+
+  // Spec 0041 AC-1: feePercentageCeiling is seeded as '25' with type: 'number'
+  it('seeds feePercentageCeiling as 25 with number type (spec 0041 AC-1)', async () => {
+    await seedInitialInstanceConfig(prismaStub)
+
+    const ceilingCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'feePercentageCeiling'
+    )
+
+    expect(ceilingCall).toBeDefined()
+    expect(ceilingCall[0].data.value).toBe('25')
+    expect(ceilingCall[0].data.type).toBe('number')
+  })
+
+  it('does not overwrite an existing feePercentageCeiling config row if one already exists', async () => {
+    mockFindUnique.mockImplementation(async ({ where }: { where: { key: string } }) => {
+      if (where.key === 'feePercentageCeiling') {
+        return { key: 'feePercentageCeiling', value: '40', type: 'number' }
+      }
+      return null
+    })
+
+    await seedInitialInstanceConfig(prismaStub)
+
+    const ceilingCall = mockCreate.mock.calls.find(
+      ([arg]: any) => arg?.data?.key === 'feePercentageCeiling'
+    )
+
+    expect(ceilingCall).toBeUndefined()
+  })
 })

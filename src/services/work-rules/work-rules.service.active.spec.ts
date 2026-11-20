@@ -40,6 +40,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     maxDriftDistance: 5,
     quoteExpirationMinutes: 15,
     feePercentageAmount: 10,
+    feePercentageCeiling: 25,
     quoteRatePerDistanceUnit: 150,
     quoteBaseFee: 200,
     defaultCourierPayRate: 300,

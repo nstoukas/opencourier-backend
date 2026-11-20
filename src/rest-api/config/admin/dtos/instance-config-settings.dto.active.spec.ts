@@ -27,6 +27,7 @@ describe('InstanceConfigSettingsDto', () => {
     maxDriftDistance: 5,
     quoteExpirationMinutes: 15,
     feePercentageAmount: 10,
+    feePercentageCeiling: 25,
     quoteRatePerDistanceUnit: 150,
     quoteBaseFee: 200,
     defaultCourierPayRate: 300,
@@ -72,6 +73,7 @@ describe('InstanceConfigSettingsDto', () => {
       maxDriftDistance: 0,
       quoteExpirationMinutes: 0,
       feePercentageAmount: 0,
+      feePercentageCeiling: 0,
       quoteRatePerDistanceUnit: 0,
       quoteBaseFee: 0,
       defaultCourierPayRate: 0,
@@ -85,6 +87,7 @@ describe('InstanceConfigSettingsDto', () => {
     expect(dto.maxDriftDistance).toBe(0)
     expect(dto.quoteExpirationMinutes).toBe(0)
     expect(dto.feePercentageAmount).toBe(0)
+    expect(dto.feePercentageCeiling).toBe(0)
     expect(dto.quoteRatePerDistanceUnit).toBe(0)
     expect(dto.quoteBaseFee).toBe(0)
     expect(dto.defaultCourierPayRate).toBe(0)
@@ -200,5 +203,17 @@ describe('InstanceConfigSettingsDto', () => {
     const dto = new InstanceConfigSettingsDto(baseConfigData)
     expect(dto.reviewAnswerDays).toBe(14)
     expect(dto.reviewCorrectionMaxCents).toBe(5000)
+  })
+
+  // Spec 0041 (AC-1): InstanceConfigSettingsDto exposes feePercentageCeiling
+  it('exposes feePercentageCeiling (spec 0041 AC-1)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.feePercentageCeiling).toBe(25)
+
+    const dtoCustom = new InstanceConfigSettingsDto({
+      ...baseConfigData,
+      feePercentageCeiling: 40,
+    })
+    expect(dtoCustom.feePercentageCeiling).toBe(40)
   })
 })
