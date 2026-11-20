@@ -46,10 +46,10 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     const expectedKeys = [...OFFER_CARD_PAYLOAD_KEYS].sort()
 
     expect(payloadKeys).toEqual(expectedKeys)
-    expect(payloadKeys).toHaveLength(13)
+    expect(payloadKeys).toHaveLength(14)
   })
 
-  test('row 100: the allow list is exactly these thirteen keys (no customer field can be added silently)', () => {
+  test('row 100: the allow list is exactly these fourteen keys (no customer field can be added silently)', () => {
     expect([...OFFER_CARD_PAYLOAD_KEYS].sort()).toEqual(
       [
         'deliveryId',
@@ -65,6 +65,7 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
         'toDropoffMetres',
         'minutes',
         'insistent',
+        'boxSize',
       ].sort()
     )
   })
@@ -162,6 +163,7 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
       totalCompensation: 420,
       currencyCode: 'EUR',
       pickupBusinessName: 'Volos Souvlaki',
+      boxSize: 'MEDIUM',
       pickupName: 'Shop Manager',
       pickupPhoneNumber: '+302421012345',
       // Customer fields filled with distinctive marker values

@@ -117,6 +117,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
     | 'findById'
     | 'update'
     | 'updateIfMatches'
+    | 'claimOfferWithinBox'
     | 'findIdsWaitingForCourierOldestFirst'
     | 'findOpenOffersForCourier'
   >
@@ -151,6 +152,7 @@ describe('DeliveryEventService logs no contact details (row 95)', () => {
       findById: jest.fn().mockResolvedValue(null),
       update: jest.fn().mockResolvedValue({}),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
     }

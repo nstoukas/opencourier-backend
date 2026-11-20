@@ -61,6 +61,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       findById: jest.fn(),
       findByIdOrThrow: jest.fn(),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findOngoingDeliveriesForCourier: jest.fn().mockResolvedValue([]),
       findDeliveriesWaitingToBeOffered: jest.fn().mockResolvedValue([]),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
@@ -209,8 +210,9 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       expect(mockOsrmRoutingService.getRoute).not.toHaveBeenCalled()
 
       // The offer must be written (NOT held as NOT_DUE)
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-timing-off',
+        'courier-1',
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
         expect.objectContaining({ matchedCourierId: 'courier-1' })
       )
@@ -253,7 +255,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       expect(result).toBe('NOT_DUE')
 
       // 2. Delivery stays in ASSIGNING_COURIER with nobody offered
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalled()
       expect(mockWebsocketDispatcher.sendOfferToCourier).not.toHaveBeenCalled()
 
       // 3. AC-3: No event is recorded for holding it
@@ -360,8 +362,9 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       expect(result).toBe('OFFERED')
 
       // Delivery is offered
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-due-now',
+        'courier-1',
         expect.anything(),
         expect.objectContaining({ matchedCourierId: 'courier-1' })
       )
@@ -441,7 +444,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
 
       // Must offer now, never held
       expect(result).toBe('OFFERED')
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalled()
 
       // Makes NO second route call! Neither rider location nor OSRM is queried
       expect(mockCourierRepository.getCurrentLocation).not.toHaveBeenCalled()
@@ -488,7 +491,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
 
       // Timing applies: dueAt = 25m - 6m - 3m = 16 min in future -> held
       expect(result).toBe('NOT_DUE')
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalled()
     })
 
     it('offers now with travel unknown when matcher gives travelSeconds undefined and OSRM fails for chosen rider', async () => {
@@ -516,7 +519,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
 
       // Must offer now, never held!
       expect(result).toBe('OFFERED')
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalled()
 
       // Event message says travel unknown
       const readyClock = clock(delivery.readyAt!)
@@ -582,7 +585,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       const result = await (service as any).offerToNextCourier('del-no-ready')
 
       expect(result).toBe('OFFERED')
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalled()
 
       // Standard message without timing note
       const eventCall = mockDeliveryEventRepository.create.mock.calls[0][0]
@@ -642,7 +645,7 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       // First look at NOW_MS: held because due moment is 1 min in future
       const firstResult = await (service as any).offerToNextCourier('del-delayed-held')
       expect(firstResult).toBe('NOT_DUE')
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalled()
       expect(mockBullMQService.addJob).toHaveBeenCalledWith(
         'no-courier-retry',
         { deliveryId: 'del-delayed-held' },
@@ -677,8 +680,8 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
 
       // Held again!
       expect(secondResult).toBe('NOT_DUE')
-      // Nobody offered, no updateIfMatches called
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      // Nobody offered, no claim called
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalled()
       // Rescheduled with delay min(840_000, 30_000) = 30_000 ms
       expect(mockBullMQService.addJob).toHaveBeenCalledTimes(2)
       expect(mockBullMQService.addJob).toHaveBeenLastCalledWith(
@@ -702,8 +705,9 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       // Third look: now due! Offers now!
       const thirdResult = await (service as any).offerToNextCourier('del-delayed-held')
       expect(thirdResult).toBe('OFFERED')
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-delayed-held',
+        courier.id,
         expect.anything(),
         expect.objectContaining({ matchedCourierId: courier.id })
       )
@@ -763,15 +767,17 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       expect(mockDeliveryMatchingService.findCourierForDelivery).toHaveBeenCalledTimes(2)
 
       // Delivery 1 was held (NOT_DUE): no offer written for it
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalledWith(
         'del-waiting-1',
+        expect.anything(),
         expect.anything(),
         expect.anything()
       )
 
       // Delivery 2 was offered!
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-waiting-2',
+        'courier-2',
         expect.anything(),
         expect.objectContaining({ matchedCourierId: 'courier-2' })
       )
@@ -828,8 +834,9 @@ describe('DeliveryEventService - Offers Timed to Food Readiness (Spec 0031: AC-1
       // Should offer immediately!
       expect(result).toBeDefined()
       expect(result?.courier).toEqual(courier)
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-admin-test',
+        'courier-1',
         expect.anything(),
         expect.objectContaining({ matchedCourierId: 'courier-1' })
       )

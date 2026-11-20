@@ -59,10 +59,12 @@ describe('DeliveryDomainService', () => {
       offerDeliveryToCourierAsAdmin: jest.fn(),
       occurredAtForCourierTap: jest.fn(),
       hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
+      recordBoxEvent: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockCourierRepository = {
       findByIdOrThrow: jest.fn().mockResolvedValue({ id: 'courier-new' }),
+      heldBoxUnits: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<CourierRepository>
 
     mockCourierCompensationRepository = {
@@ -78,6 +80,10 @@ describe('DeliveryDomainService', () => {
           NO_COMPENSATION: 0,
         }),
         getReassignmentPayoutDefaultPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
+        getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
+        getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
+        getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
       },
     } as unknown as jest.Mocked<ConfigDomainService>
 

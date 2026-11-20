@@ -42,6 +42,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       totalCompensation: 450,
       currencyCode: 'EUR',
       pickupBusinessName: 'Volos Tavern',
+      boxSize: 'MEDIUM',
       ...overrides?.delivery,
     },
     // Row 100: the push routes from the pickup and drop off points, so the source carries both.

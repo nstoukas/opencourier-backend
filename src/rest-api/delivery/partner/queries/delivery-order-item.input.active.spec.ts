@@ -181,7 +181,18 @@ describe('DeliveryOrderItemInput.kind on partner delivery create (spec 0028 AC-1
       // the data handed to Prisma; only Prisma itself and the event service are fakes.
       prismaDeliveryCreate = jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'del-new', ...data }))
       const repository = new DeliveryRepository({ delivery: { create: prismaDeliveryCreate } } as any)
-      const deliveryEventService = { processDeliveryEvent: jest.fn().mockResolvedValue(undefined) }
+      const deliveryEventService = {
+        processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
+        recordBoxEvent: jest.fn().mockResolvedValue(undefined),
+      }
+      const mockConfigDomainService = {
+        instanceConfig: {
+          getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
+          getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
+          getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
+          getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
+        },
+      }
       const domain = new DeliveryDomainService(
         repository,
         {} as any,
@@ -189,7 +200,7 @@ describe('DeliveryOrderItemInput.kind on partner delivery create (spec 0028 AC-1
         deliveryEventService as any,
         {} as any,
         {} as any,
-        {} as any,
+        mockConfigDomainService as any,
         // Row 21: the domain service reads the restaurant's usual prep time on create.
         { findById: jest.fn().mockResolvedValue(null) } as any
       )

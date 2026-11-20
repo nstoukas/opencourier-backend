@@ -78,6 +78,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       findById: jest.fn(),
       update: jest.fn().mockImplementation((id, data) => Promise.resolve({ id, ...data })),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
       findLatestNoCourierAvailableAt: jest.fn().mockResolvedValue(new Map()),
@@ -193,16 +194,16 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         courierId: 'courier-1',
       })
 
-      // In the happy path the only write that sets matchedCourierId is the single updateIfMatches call
+      // In the happy path the only write that sets matchedCourierId is the claimOfferWithinBox call
       // made after calculateDeliveryAmountsForMatchedCourier resolved (mock invocationCallOrder).
-      // The status transition (CREATED -> ASSIGNING_COURIER) is also an updateIfMatches call now (decision 32.17).
-      const offerWrites = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
-        (call) => (call[2] as any)?.matchedCourierId !== undefined
+      // The status transition (CREATED -> ASSIGNING_COURIER) is an updateIfMatches call (decision 32.17).
+      const offerWrites = mockDeliveryRepository.claimOfferWithinBox.mock.calls.filter(
+        (call) => (call[3] as any)?.matchedCourierId !== undefined
       )
       expect(offerWrites).toHaveLength(1)
       const calcCallOrder =
         mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier.mock.invocationCallOrder[0]
-      const offerWriteCallOrder = mockDeliveryRepository.updateIfMatches.mock.invocationCallOrder.find(
+      const offerWriteCallOrder = mockDeliveryRepository.claimOfferWithinBox.mock.invocationCallOrder.find(
         (order) => order > calcCallOrder!
       )
       expect(calcCallOrder).toBeDefined()
@@ -228,9 +229,10 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         expect(data).not.toHaveProperty('offerExpiresAt')
       }
 
-      // 2. updateIfMatches is called once with conditional check and offer fields
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      // 2. claimOfferWithinBox is called once with conditional check and offer fields
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         deliveryId,
+        'courier-1',
         {
           status: EnumDeliveryStatus.ASSIGNING_COURIER,
           matchedCourierId: null,
@@ -248,7 +250,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       )
 
       // Verify offerExpiresAt is approximately offeredAt + 20 seconds
-      const updateData = offerWrites[0]![2] as any
+      const updateData = offerWrites[0]![3] as any
       const diffMs = updateData.offerExpiresAt.getTime() - updateData.offeredAt.getTime()
       expect(diffMs).toBe(20 * 1000)
 
@@ -315,10 +317,10 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
 
       await service.processDeliveryEvent(createdEvent)
 
-      // In expiry OFF mode, only updateIfMatches writes matchedCourierId; update never sets offer fields.
-      // One updateIfMatches is for status (CREATED -> ASSIGNING_COURIER), exactly one is for the offer fields.
-      const offerWrites = mockDeliveryRepository.updateIfMatches.mock.calls.filter(
-        (call) => (call[2] as any)?.matchedCourierId !== undefined
+      // In expiry OFF mode, claimOfferWithinBox writes matchedCourierId; update never sets offer fields.
+      // updateIfMatches is for status (CREATED -> ASSIGNING_COURIER), claimOfferWithinBox is for the offer fields.
+      const offerWrites = mockDeliveryRepository.claimOfferWithinBox.mock.calls.filter(
+        (call) => (call[3] as any)?.matchedCourierId !== undefined
       )
       expect(offerWrites).toHaveLength(1)
       expect(mockDeliveryRepository.update).not.toHaveBeenCalledWith(
@@ -331,8 +333,9 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         expect(data).not.toHaveProperty('offerExpiresAt')
       }
 
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         deliveryId,
+        'courier-2',
         expect.anything(),
         expect.objectContaining({
           matchedCourierId: 'courier-2',
@@ -377,8 +380,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       expect(mockCourierRepository.hasActiveSos).toHaveBeenCalledWith('courier-sos-active')
       // No amounts calculated
       expect(mockDeliveryCalculationService.calculateDeliveryAmountsForMatchedCourier).not.toHaveBeenCalled()
-      // No updateIfMatches claim
-      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      // No claim
+      expect(mockDeliveryRepository.claimOfferWithinBox).not.toHaveBeenCalled()
       // No OFFERED event
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.OFFERED })

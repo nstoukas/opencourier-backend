@@ -55,6 +55,7 @@ describe('DeliveryDomainService ready signals (spec 0023)', () => {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
       recordReadyEvent: jest.fn().mockResolvedValue(undefined),
       notifyReadyUpdated: jest.fn().mockResolvedValue(undefined),
+      recordBoxEvent: jest.fn().mockResolvedValue(undefined),
     }
 
     partnerRepository = {
@@ -64,7 +65,14 @@ describe('DeliveryDomainService ready signals (spec 0023)', () => {
     // Pay, rider and setting writers: none of them may be used by the ready actions (AC-10).
     courierRepository = { update: jest.fn(), findByIdOrThrow: jest.fn() }
     courierCompensationRepository = { create: jest.fn(), deleteById: jest.fn() }
-    configDomainService = {}
+    configDomainService = {
+      instanceConfig: {
+        getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
+        getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
+        getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
+        getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
+      },
+    }
     eventEmitter = { emit: jest.fn() }
     cacheService = { getOrDefault: jest.fn(), save: jest.fn() }
 

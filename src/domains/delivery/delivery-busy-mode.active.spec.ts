@@ -33,10 +33,20 @@ describe('DeliveryDomainService busy mode on creation (spec 0029, AC-2)', () => 
 
     deliveryEventService = {
       processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
+      recordBoxEvent: jest.fn().mockResolvedValue(undefined),
     }
 
     partnerRepository = {
       findById: jest.fn(),
+    }
+
+    const configDomainService = {
+      instanceConfig: {
+        getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
+        getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
+        getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
+        getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
+      },
     }
 
     service = new DeliveryDomainService(
@@ -46,7 +56,7 @@ describe('DeliveryDomainService busy mode on creation (spec 0029, AC-2)', () => 
       deliveryEventService as DeliveryEventService,
       { update: jest.fn(), findByIdOrThrow: jest.fn() } as any,
       { create: jest.fn(), deleteById: jest.fn() } as any,
-      {} as any,
+      configDomainService as any,
       partnerRepository as PartnerRepository
     )
   })

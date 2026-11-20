@@ -113,6 +113,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         )
       ),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findAllOpenOffers: jest.fn().mockResolvedValue([]),
       findAllHeldBeforePickup: jest.fn().mockResolvedValue([]),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
@@ -291,16 +292,15 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       expect(result).toBe('STOPPED')
       // Both gate checks happened
       expect(mockDispatchStopRepository.findOn).toHaveBeenCalledTimes(2)
-      // First updateIfMatches claimed the delivery
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
-        1,
+      // claimOfferWithinBox claimed the delivery
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         'del-race-1',
+        'courier-race',
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
         expect.objectContaining({ matchedCourierId: 'courier-race' })
       )
-      // Second updateIfMatches took the claim back on the exact claim written
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
-        2,
+      // updateIfMatches took the claim back on the exact claim written
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         'del-race-1',
         expect.objectContaining({
           status: EnumDeliveryStatus.ASSIGNING_COURIER,

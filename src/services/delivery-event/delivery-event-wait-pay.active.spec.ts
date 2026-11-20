@@ -115,6 +115,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
         callOrder.push('deliveryRepository.updateIfMatches')
         return true
       }),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 

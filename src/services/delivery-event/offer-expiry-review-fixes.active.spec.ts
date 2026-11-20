@@ -92,6 +92,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         courierId: null,
       } as any),
       updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
     mockDeliveryEventRepository = {
@@ -446,8 +447,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       const result = await service.offerWaitingDeliveryNow(deliveryId)
 
       expect(result).toEqual({ courier: courierEntity, delivery: deliveryEntity })
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
+      expect(mockDeliveryRepository.claimOfferWithinBox).toHaveBeenCalledWith(
         deliveryId,
+        'courier-matched',
         expect.objectContaining({ matchedCourierId: null, courierId: null }),
         expect.objectContaining({
           matchedCourierId: 'courier-matched',
@@ -498,7 +500,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         pickupLocation: {} as any,
         travelSeconds: null,
       } as any)
-      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+      mockDeliveryRepository.claimOfferWithinBox.mockResolvedValueOnce('NOT_WAITING')
 
       await expect(service.offerWaitingDeliveryNow('del-not-waiting')).rejects.toThrow(
         CantUpdateDeliveryStatusError

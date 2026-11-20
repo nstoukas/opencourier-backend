@@ -816,10 +816,14 @@ describe('InstanceConfigDomainService', () => {
         })
 
         it(`accepts exact min boundary value for ${rule.key} (${rule.min})`, async () => {
-          const payload =
-            rule.key === 'feePercentageCeiling'
-              ? { feePercentageCeiling: rule.min, feePercentageAmount: 0 }
-              : { [rule.key]: rule.min }
+          let payload: any = { [rule.key]: rule.min }
+          if (rule.key === 'feePercentageCeiling') {
+            payload = { feePercentageCeiling: rule.min, feePercentageAmount: 0 }
+          } else if (rule.key === 'boxUnitsMedium') {
+            payload = { boxUnitsSmall: 1, boxUnitsMedium: rule.min }
+          } else if (rule.key === 'boxUnitsLarge') {
+            payload = { boxUnitsSmall: 1, boxUnitsMedium: 1, boxUnitsLarge: rule.min }
+          }
           await service.setInstanceConfigSettings(payload)
           expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.min, mockTx)
         })
@@ -836,7 +840,13 @@ describe('InstanceConfigDomainService', () => {
         })
 
         it(`accepts exact max boundary value for ${rule.key} (${rule.max})`, async () => {
-          await service.setInstanceConfigSettings({ [rule.key]: rule.max })
+          let payload: any = { [rule.key]: rule.max }
+          if (rule.key === 'boxUnitsSmall') {
+            payload = { boxUnitsSmall: rule.max, boxUnitsMedium: 100, boxUnitsLarge: 100 }
+          } else if (rule.key === 'boxUnitsMedium') {
+            payload = { boxUnitsMedium: rule.max, boxUnitsLarge: 100 }
+          }
+          await service.setInstanceConfigSettings(payload)
           expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, rule.max, mockTx)
         })
       })
