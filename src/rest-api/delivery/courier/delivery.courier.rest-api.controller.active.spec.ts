@@ -1,5 +1,6 @@
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
 import { Logger, RequestMethod } from '@nestjs/common'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { EnumDeliveryIssueReason, EnumDeliveryStatus, EnumUserRole } from '@prisma/types'
 import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.controller'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
@@ -10,6 +11,7 @@ import { DeliveryNotFoundException } from 'src/errors'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 import { DeliveryIssueCourierDto } from './dtos/delivery-issue.courier.dto'
+import { DeliveryCourierDto } from './dtos/delivery.courier.dto'
 import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
 import { NewDeliveryCourier } from './types/new-delivery.courier.type'
 import { ArrivedCourierInput } from './queries/arrived.courier.input'
@@ -626,5 +628,217 @@ describe('DeliveryCourierRestApiController.acceptDelivery (Spec 0020 AC-1)', () 
     const method = Reflect.getMetadata(METHOD_METADATA, controller.acceptDelivery)
     expect(path).toBe(':deliveryId/accept')
     expect(method).toBe(RequestMethod.POST)
+  })
+})
+
+describe('DeliveryCourierRestApiController.getMyDeliveryById (Scope Row 119, Decision 75.40)', () => {
+  let controller: DeliveryCourierRestApiController
+  let mockDeliveryDomainService: { getByIdOrThrowWithLocation: jest.Mock }
+
+  const courier: CourierEntity = {
+    id: 'courier-r119',
+    firstName: 'Alexandros',
+    lastName: 'Iordanidis',
+  } as CourierEntity
+
+  // Helper producing a valid delivery payload for DeliveryCourierDto
+  const makeDeliveryData = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    status: EnumDeliveryStatus.ACCEPTED,
+    courierId: courier.id,
+    matchedCourierId: null,
+    createdAt: new Date('2026-11-20T10:00:00.000Z'),
+    handBackUntil: null,
+    totalCompensation: 500,
+    currencyCode: 'EUR',
+    pickupName: 'Volos Test Kitchen',
+    pickupBusinessName: 'Volos Test Kitchen',
+    pickupLocation: {
+      id: `p-${id}`,
+      latitude: 39.365,
+      longitude: 22.945,
+      street: 'Iasonos',
+      city: 'Volos',
+      state: 'Magnesia',
+    },
+    dropoffLocation: {
+      id: `d-${id}`,
+      latitude: 39.375,
+      longitude: 22.955,
+      street: 'Dimitriadis',
+      city: 'Volos',
+      state: 'Magnesia',
+    },
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    mockDeliveryDomainService = {
+      getByIdOrThrowWithLocation: jest.fn(),
+    }
+
+    controller = new DeliveryCourierRestApiController(
+      {} as unknown as DeliveryRestApiCourierService,
+      mockDeliveryDomainService as unknown as DeliveryDomainService,
+      { getRoute: jest.fn() } as unknown as OsrmRoutingService
+    )
+  })
+
+  test('getMyDeliveryById handler carries @Roles(COURIER) and is routed at GET :deliveryId', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, controller.getMyDeliveryById)
+    expect(roles).toEqual([EnumUserRole.COURIER])
+
+    const path = Reflect.getMetadata(PATH_METADATA, controller.getMyDeliveryById)
+    const method = Reflect.getMetadata(METHOD_METADATA, controller.getMyDeliveryById)
+    expect(path).toBe(':deliveryId')
+    expect(method).toBe(RequestMethod.GET)
+  })
+
+  describe('Clause 1: unknown delivery id answers 404 (DeliveryNotFoundException, code DELIVERY_NOT_FOUND, message "Delivery not found")', () => {
+    test('turns PrismaClientKnownRequestError P2025 into DeliveryNotFoundException with 404 and code DELIVERY_NOT_FOUND', async () => {
+      const p2025Error = new PrismaClientKnownRequestError(
+        'An operation failed because it depends on one or more records that were required but not found',
+        { code: 'P2025', clientVersion: '5.3.1' }
+      )
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(p2025Error)
+
+      const promise = controller.getMyDeliveryById('unknown-delivery-id', courier)
+
+      await expect(promise).rejects.toThrow(DeliveryNotFoundException)
+      const error = await promise.catch((err) => err)
+      expect(error).toBeInstanceOf(DeliveryNotFoundException)
+      expect(error.getStatus()).toBe(404)
+      expect(error.code).toBe('DELIVERY_NOT_FOUND')
+      expect(error.message).toBe('Delivery not found')
+    })
+
+    test('turns Error with name NotFoundError into DeliveryNotFoundException with 404 and code DELIVERY_NOT_FOUND', async () => {
+      const notFoundError = new Error('No Delivery found')
+      notFoundError.name = 'NotFoundError'
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(notFoundError)
+
+      const promise = controller.getMyDeliveryById('unknown-delivery-id', courier)
+
+      await expect(promise).rejects.toThrow(DeliveryNotFoundException)
+      const error = await promise.catch((err) => err)
+      expect(error).toBeInstanceOf(DeliveryNotFoundException)
+      expect(error.getStatus()).toBe(404)
+      expect(error.code).toBe('DELIVERY_NOT_FOUND')
+      expect(error.message).toBe('Delivery not found')
+    })
+  })
+
+  describe("Clause 2: another rider's delivery id answers 404 the same way", () => {
+    test('queries using OR filter on courierId and matchedCourierId, turning Prisma P2025 into 404 DeliveryNotFoundException', async () => {
+      const otherDeliveryId = 'del-other-rider'
+      const p2025Error = new PrismaClientKnownRequestError('Record not found', {
+        code: 'P2025',
+        clientVersion: '5.3.1',
+      })
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(p2025Error)
+
+      const promise = controller.getMyDeliveryById(otherDeliveryId, courier)
+
+      await expect(promise).rejects.toThrow(DeliveryNotFoundException)
+      const error = await promise.catch((err) => err)
+      expect(error).toBeInstanceOf(DeliveryNotFoundException)
+      expect(error.getStatus()).toBe(404)
+      expect(error.code).toBe('DELIVERY_NOT_FOUND')
+      expect(error.message).toBe('Delivery not found')
+
+      // Verifies the query uses the OR filter scoping to this rider
+      expect(mockDeliveryDomainService.getByIdOrThrowWithLocation).toHaveBeenCalledWith(otherDeliveryId, {
+        OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
+      })
+    })
+
+    test('queries using OR filter on courierId and matchedCourierId, turning NotFoundError into 404 DeliveryNotFoundException', async () => {
+      const otherDeliveryId = 'del-other-rider-2'
+      const notFoundError = new Error('Record not found')
+      notFoundError.name = 'NotFoundError'
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(notFoundError)
+
+      const promise = controller.getMyDeliveryById(otherDeliveryId, courier)
+
+      await expect(promise).rejects.toThrow(DeliveryNotFoundException)
+      const error = await promise.catch((err) => err)
+      expect(error).toBeInstanceOf(DeliveryNotFoundException)
+      expect(error.getStatus()).toBe(404)
+      expect(error.code).toBe('DELIVERY_NOT_FOUND')
+      expect(error.message).toBe('Delivery not found')
+
+      expect(mockDeliveryDomainService.getByIdOrThrowWithLocation).toHaveBeenCalledWith(otherDeliveryId, {
+        OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
+      })
+    })
+  })
+
+  describe("Clause 3: rider's own delivery still answers with DeliveryCourierDto and uses OR filter", () => {
+    test('answers with DeliveryCourierDto when rider is assigned (courierId matches)', async () => {
+      const ownDeliveryId = 'del-mine-assigned'
+      const deliveryData = makeDeliveryData(ownDeliveryId, {
+        courierId: courier.id,
+        status: EnumDeliveryStatus.ACCEPTED,
+      })
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockResolvedValueOnce(deliveryData)
+
+      const result = await controller.getMyDeliveryById(ownDeliveryId, courier)
+
+      expect(mockDeliveryDomainService.getByIdOrThrowWithLocation).toHaveBeenCalledWith(ownDeliveryId, {
+        OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
+      })
+      expect(result).toBeInstanceOf(DeliveryCourierDto)
+      expect(result.id).toBe(ownDeliveryId)
+      expect(result.status).toBe(EnumDeliveryStatus.ACCEPTED)
+    })
+
+    test('answers with DeliveryCourierDto when delivery is offered (matchedCourierId matches)', async () => {
+      const offeredDeliveryId = 'del-mine-offered'
+      const deliveryData = makeDeliveryData(offeredDeliveryId, {
+        courierId: null,
+        matchedCourierId: courier.id,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      })
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockResolvedValueOnce(deliveryData)
+
+      const result = await controller.getMyDeliveryById(offeredDeliveryId, courier)
+
+      expect(mockDeliveryDomainService.getByIdOrThrowWithLocation).toHaveBeenCalledWith(offeredDeliveryId, {
+        OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
+      })
+      expect(result).toBeInstanceOf(DeliveryCourierDto)
+      expect(result.id).toBe(offeredDeliveryId)
+      expect(result.status).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+    })
+  })
+
+  describe('Clause 4: fails if unknown/foreign id answers 500, and rethrows any other error unchanged', () => {
+    test('rethrows plain database Error (e.g. "db down") unchanged, NOT turned into a 404', async () => {
+      const dbError = new Error('db down')
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(dbError)
+
+      const promise = controller.getMyDeliveryById('del-any', courier)
+
+      await expect(promise).rejects.toThrow(dbError)
+      await expect(promise).rejects.not.toThrow(DeliveryNotFoundException)
+      const caught = await promise.catch((err) => err)
+      expect(caught).toBe(dbError)
+      expect(caught.message).toBe('db down')
+    })
+
+    test('rethrows other Prisma errors (e.g. connection timeout P1001) unchanged, NOT turned into a 404', async () => {
+      const prismaTimeoutError = new PrismaClientKnownRequestError('Connection timeout', {
+        code: 'P1001',
+        clientVersion: '5.3.1',
+      })
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockRejectedValueOnce(prismaTimeoutError)
+
+      const promise = controller.getMyDeliveryById('del-any', courier)
+
+      await expect(promise).rejects.toThrow(prismaTimeoutError)
+      await expect(promise).rejects.not.toThrow(DeliveryNotFoundException)
+      const caught = await promise.catch((err) => err)
+      expect(caught).toBe(prismaTimeoutError)
+    })
   })
 })
