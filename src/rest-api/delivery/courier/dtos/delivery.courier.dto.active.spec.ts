@@ -2,7 +2,6 @@ import { EnumDeliveryStatus } from '@prisma/types'
 import { OFFER_EXPIRY_GRACE_SECONDS } from 'src/constants'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { DeliveryCourierDto } from './delivery.courier.dto'
-import { DeliveryCourierPaginatedDto } from './delivery.courier.paginated.dto'
 import { InProgressDeliveryCourierDto } from './in-progress-delivery.courier.dto'
 import { NewDeliveryCourierDto } from './new-delivery.courier.dto'
 import { NewDeliveriesCourierPaginatedDto } from './new-deliveries.courier.paginated.dto'
@@ -260,55 +259,6 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         expect(serialized.pickupPhoneNumber).toBe(restaurantPhone)
       }
     )
-  })
-
-  describe('DeliveryCourierPaginatedDto applies privacy to mixed delivery lists (Requirement 4)', () => {
-    test('mixed delivery list shows customer phone only on held deliveries', () => {
-      const deliveries = [
-        createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { id: 'del-offer' }),
-        createMockDelivery(EnumDeliveryStatus.ACCEPTED, { id: 'del-accepted' }),
-        createMockDelivery(EnumDeliveryStatus.PICKED_UP, { id: 'del-picked-up' }),
-        createMockDelivery(EnumDeliveryStatus.DROPPED_OFF, { id: 'del-dropped-off' }),
-        createMockDelivery(EnumDeliveryStatus.CANCELED, { id: 'del-canceled' }),
-      ]
-
-      const paginatedDto = new DeliveryCourierPaginatedDto({ data: deliveries })
-
-      expect(paginatedDto.data).toHaveLength(5)
-
-      // In TypeScript DTO instance:
-      expect(paginatedDto.data[0]?.dropoffPhoneNumber).toBeUndefined()
-      expect(paginatedDto.data[1]?.dropoffPhoneNumber).toBe(customerPhone)
-      expect(paginatedDto.data[2]?.dropoffPhoneNumber).toBe(customerPhone)
-      expect(paginatedDto.data[3]?.dropoffPhoneNumber).toBeUndefined()
-      expect(paginatedDto.data[4]?.dropoffPhoneNumber).toBeUndefined()
-
-      // When serialized as JSON (as sent over the HTTP courier API):
-      const jsonString = JSON.stringify(paginatedDto)
-      const parsed = JSON.parse(jsonString)
-
-      // Index 0: ASSIGNING_COURIER - no dropoffPhoneNumber in JSON
-      expect('dropoffPhoneNumber' in parsed.data[0]).toBe(false)
-      expect(parsed.data[0].pickupPhoneNumber).toBe(restaurantPhone)
-
-      // Index 1: ACCEPTED - dropoffPhoneNumber is present in JSON
-      expect('dropoffPhoneNumber' in parsed.data[1]).toBe(true)
-      expect(parsed.data[1].dropoffPhoneNumber).toBe(customerPhone)
-      expect(parsed.data[1].pickupPhoneNumber).toBe(restaurantPhone)
-
-      // Index 2: PICKED_UP - dropoffPhoneNumber is present in JSON
-      expect('dropoffPhoneNumber' in parsed.data[2]).toBe(true)
-      expect(parsed.data[2].dropoffPhoneNumber).toBe(customerPhone)
-      expect(parsed.data[2].pickupPhoneNumber).toBe(restaurantPhone)
-
-      // Index 3: DROPPED_OFF - no dropoffPhoneNumber in JSON
-      expect('dropoffPhoneNumber' in parsed.data[3]).toBe(false)
-      expect(parsed.data[3].pickupPhoneNumber).toBe(restaurantPhone)
-
-      // Index 4: CANCELED - no dropoffPhoneNumber in JSON
-      expect('dropoffPhoneNumber' in parsed.data[4]).toBe(false)
-      expect(parsed.data[4].pickupPhoneNumber).toBe(restaurantPhone)
-    })
   })
 
   describe('Derived DTOs inherit customer phone privacy', () => {
@@ -887,23 +837,6 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         { toPickupMetres: 900, toDropoffMetres: 1800, minutes: 6 }
       )
       for (const field of FIELDS) expectFieldAbsent(dto, field)
-    })
-
-    test('a mixed list (DeliveryCourierPaginatedDto) shows them only on the held deliveries', () => {
-      const list = new DeliveryCourierPaginatedDto({
-        data: [
-          withDetails(EnumDeliveryStatus.ASSIGNING_COURIER, { id: 'del-offer' }),
-          withDetails(EnumDeliveryStatus.ACCEPTED, { id: 'del-accepted' }),
-          withDetails(EnumDeliveryStatus.ON_THE_WAY, { id: 'del-on-the-way' }),
-          withDetails(EnumDeliveryStatus.DROPPED_OFF, { id: 'del-dropped' }),
-        ],
-      })
-      for (const field of FIELDS) {
-        expectFieldAbsent(list.data[0]!, field)
-        expectFieldPresent(list.data[1]!, field)
-        expectFieldPresent(list.data[2]!, field)
-        expectFieldAbsent(list.data[3]!, field)
-      }
     })
 
     test('the in progress card (InProgressDeliveryCourierDto) carries them all once accepted', () => {

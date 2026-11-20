@@ -69,22 +69,20 @@ describe('Time Worked - Ranges and Access (spec 0040, AC-18)', () => {
   })
 
   describe('Route Access and Roles (AC-18)', () => {
-    test('the rider controller routes take no courier id and carry @Roles(COURIER)', () => {
+    test('the rider controller routes take no courier id and carry @Roles(COURIER), and old list route is gone', () => {
       const courierProto = TimeWorkedCourierRestApiController.prototype
 
       // Check Roles metadata
       expect(Reflect.getMetadata(ROLES_KEY, courierProto.current)).toEqual([EnumUserRole.COURIER])
       expect(Reflect.getMetadata(ROLES_KEY, courierProto.coopTotals)).toEqual([EnumUserRole.COURIER])
-      expect(Reflect.getMetadata(ROLES_KEY, courierProto.list)).toEqual([EnumUserRole.COURIER])
+      expect((courierProto as any).list).toBeUndefined()
 
       // Verify none of the methods take an id in route path
       const currentPath = Reflect.getMetadata('path', courierProto.current)
       const coopTotalsPath = Reflect.getMetadata('path', courierProto.coopTotals)
-      const listPath = Reflect.getMetadata('path', courierProto.list)
 
       expect(currentPath).toBe('current')
       expect(coopTotalsPath).toBe('coop-totals')
-      expect(listPath).toBe('/')
     })
 
     test('both admin routes carry @Roles(ADMIN)', () => {

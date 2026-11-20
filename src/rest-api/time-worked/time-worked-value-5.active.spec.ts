@@ -14,7 +14,13 @@ import {
   TimeWorkedService,
   TotalsRow,
 } from 'src/services/time-worked/time-worked.service'
-import { toShiftDto, toTotalsRowDto } from './time-worked.dto'
+import {
+  CurrentShiftDto,
+  TimeWorkedTotalsRowDto,
+  toCurrentShiftDto,
+  toShiftDto,
+  toTotalsRowDto,
+} from './time-worked.dto'
 import { WorkedShift } from 'src/domains/time-worked/worked-shifts'
 import { TimeWorkedAdminRestApiController } from './admin/time-worked.admin.rest-api.controller'
 import { TimeWorkedRecords } from 'src/persistence/repositories/time-worked.repository'
@@ -486,5 +492,133 @@ describe('Value 5 Guards (spec 0040, AC-12, AC-14, AC-16)', () => {
     // Admin view: withAdminLabels = true
     const adminDto = toShiftDto(shift, true)
     expect(adminDto.statusChanges[0]!.adminLabel).toBe('representative@coop.org')
+  })
+
+  describe('Spec 0042 Value 5 Guards (AC-15, AC-16, decision 75.41)', () => {
+    const FORBIDDEN_EARNINGS_FIGURE_KEYS = [
+      'activeCentsPerHour',
+      'centsPerPaidKm',
+      'medianPickupWaitSeconds',
+      'pickupWaitCount',
+      'pickupWaitSeconds',
+      'paidKm',
+      'dropOffCount',
+      'dropoffStreet',
+      'endLabel',
+      'jobs',
+      'weeks',
+    ]
+
+    test('CourierAdminDto never carries any of the 11 forbidden keys on instance or prototype', () => {
+      const courier = new CourierEntity({
+        id: 'c-admin-test-1',
+        node_uri: null,
+        firstName: 'Kostas',
+        lastName: 'Papadopoulos',
+        phoneNumber: '+306911111111',
+        status: EnumCourierStatus.ONLINE,
+        deliverySetting: EnumCourierDeliverySetting.AUTO_ACCEPT,
+        userId: 'user-c-1',
+        createdAt: new Date('2026-01-01T10:00:00Z'),
+      } as any)
+
+      const dto = new CourierAdminDto(courier)
+      const instanceKeys = Object.keys(dto)
+      const prototypeKeys = Object.getOwnPropertyNames(CourierAdminDto.prototype)
+
+      for (const key of FORBIDDEN_EARNINGS_FIGURE_KEYS) {
+        expect(instanceKeys).not.toContain(key)
+        expect(prototypeKeys).not.toContain(key)
+        expect((dto as any)[key]).toBeUndefined()
+      }
+    })
+
+    test('neither time-worked-totals rows nor time-worked/current DTO carry any of the forbidden keys', () => {
+      // 1. time-worked-totals row
+      const totalsRow: TotalsRow = {
+        period: '2026-11-19',
+        riderCount: 3,
+        workSeconds: 36000,
+        jobSeconds: 24000,
+        paidWaitSeconds: 2000,
+        unpaidSeconds: 10000,
+        moneyCents: 15000,
+        unlinkedMoneyCents: 500,
+        centsPerHour: 1450,
+      }
+      const totalsRowDto = toTotalsRowDto(totalsRow)
+      const totalsRowKeys = Object.keys(totalsRowDto)
+      const totalsRowProtoKeys = Object.getOwnPropertyNames(TimeWorkedTotalsRowDto.prototype)
+
+      for (const key of FORBIDDEN_EARNINGS_FIGURE_KEYS) {
+        expect(totalsRowKeys).not.toContain(key)
+        expect(totalsRowProtoKeys).not.toContain(key)
+        expect((totalsRowDto as any)[key]).toBeUndefined()
+      }
+
+      // 2. time-worked/current DTO (CurrentShiftDto)
+      const shift: WorkedShift = {
+        startedAt: new Date('2026-11-19T10:00:00Z'),
+        startedBeforeRange: false,
+        endedAt: null,
+        onBreakSince: null,
+        workSeconds: 7200,
+        jobSeconds: 5000,
+        paidWaitSeconds: 600,
+        unpaidSeconds: 1600,
+        breaks: [],
+        moneyCents: 2500,
+        lateMoneyCents: 0,
+        centsPerHour: 1250,
+        currencyCode: 'EUR',
+        statusChanges: [],
+        jobs: [],
+      }
+      const currentShiftDto = toCurrentShiftDto(shift)
+      expect(currentShiftDto).not.toBeNull()
+      const currentShiftKeys = Object.keys(currentShiftDto!)
+      const currentShiftProtoKeys = Object.getOwnPropertyNames(CurrentShiftDto.prototype)
+
+      for (const key of FORBIDDEN_EARNINGS_FIGURE_KEYS) {
+        expect(currentShiftKeys).not.toContain(key)
+        expect(currentShiftProtoKeys).not.toContain(key)
+        expect((currentShiftDto as any)![key]).toBeUndefined()
+      }
+    })
+
+    test('the admin rider route returns the same view with no reach limit (reachFrom null) and takes one rider id', async () => {
+      const mockCourierRepository = {
+        findById: jest.fn().mockResolvedValue({ id: 'courier-1', firstName: 'Nikos' }),
+      }
+      const mockTimeWorkedService = {
+        earnings: jest.fn().mockResolvedValue({
+          from: '2026-11-01',
+          to: '2026-11-19',
+          recordedFrom: null,
+          currencyCode: 'EUR',
+          days: [],
+          weeks: [],
+          shifts: [],
+          jobsInNoShift: [],
+        }),
+      }
+
+      const controller = new TimeWorkedAdminRestApiController(
+        mockTimeWorkedService as any,
+        mockCourierRepository as any
+      )
+
+      const result = await controller.forRider('courier-1', { from: '2026-11-01', to: '2026-11-19' })
+
+      expect(mockCourierRepository.findById).toHaveBeenCalledWith('courier-1')
+      expect(mockTimeWorkedService.earnings).toHaveBeenCalledWith(
+        'courier-1',
+        { from: '2026-11-01', to: '2026-11-19', reachFrom: null },
+        { withAdminLabels: true }
+      )
+      expect(result).toBeDefined()
+      expect(result.from).toBe('2026-11-01')
+      expect(result.to).toBe('2026-11-19')
+    })
   })
 })

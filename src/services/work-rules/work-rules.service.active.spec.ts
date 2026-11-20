@@ -10,7 +10,8 @@ import {
   InstanceConfigSettings,
   InstanceDetails,
 } from 'src/shared-types'
-import { WorkRulesService } from './work-rules.service'
+import { WorkRulesService, earningsFigureSentences } from './work-rules.service'
+import { RIDER_REACH_MONTHS } from 'src/services/time-worked/time-worked.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { SettingChangeRepository } from 'src/persistence/repositories/setting-change.repository'
@@ -196,6 +197,46 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       result = await service.howItWorks()
       expect(result.offers.some((line) => line.includes('45 seconds'))).toBe(true)
       expect(result.offers[0]).toBe('Dispatch chooses the rider for each order by hand.')
+    })
+  })
+
+  describe('earningsFigures (spec 0042, AC-14)', () => {
+    it('How it works includes earningsFigures naming the four figures, day rule, paid km without restaurant ride, 2 month reach with co-op for older work, admin view and no ranking', async () => {
+      const result = await service.howItWorks()
+
+      expect(result.earningsFigures).toBeDefined()
+      expect(result.earningsFigures).toHaveLength(7)
+
+      // 1. € per hour worked
+      expect(result.earningsFigures[0]).toBe(
+        '€ per hour worked is the money of a day or week divided by its time worked.'
+      )
+      // 2. € per hour on a job
+      expect(result.earningsFigures[1]).toBe(
+        '€ per hour on a job is the same money divided by your job time plus your paid waiting.'
+      )
+      // 3. € per paid km leaving out the ride to the restaurant
+      expect(result.earningsFigures[2]).toBe(
+        '€ per paid km is the money of the jobs you delivered divided by their km from the restaurant to the customer. The ride to the restaurant is not in it.'
+      )
+      // 4. Typical pickup wait (middle value)
+      expect(result.earningsFigures[3]).toBe(
+        'The pickup wait is the typical time from arriving at a restaurant to picking up the food: the middle value of that period’s waits.'
+      )
+      // 5. Day rule (Greek time, midnight, pay added later)
+      expect(result.earningsFigures[4]).toBe(
+        'A job’s money counts on the day you accepted it, in Greek time, even when you deliver it after midnight. Pay added later, such as a review correction, counts on its job’s day too.'
+      )
+      // 6. 2 month reach (from RIDER_REACH_MONTHS) and ask the co-op for older work
+      expect(result.earningsFigures[5]).toBe(
+        `You can open your work from the last ${RIDER_REACH_MONTHS} months. For older work, ask the co-op.`
+      )
+      // 7. Admins can see them, no one ranks riders
+      expect(result.earningsFigures[6]).toBe(
+        'Admins can see these figures and your jobs on your own page. No one ranks or compares riders by them.'
+      )
+
+      expect(result.earningsFigures).toEqual(earningsFigureSentences())
     })
   })
 

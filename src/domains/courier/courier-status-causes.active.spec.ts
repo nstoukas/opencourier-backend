@@ -38,8 +38,6 @@ describe('Courier Status Change Causes (spec 0040, AC-1)', () => {
   test("the rider's PATCH courier/status calls changeStatus with RIDER", async () => {
     const controller = new CourierCourierRestApiController(
       mockCourierDomainService as unknown as CourierDomainService,
-      {} as any,
-      {} as any,
       mockDeliveryEventService as unknown as DeliveryEventService
     )
 

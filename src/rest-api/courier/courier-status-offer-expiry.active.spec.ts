@@ -36,8 +36,6 @@ describe('Courier Controllers - Offer Expiry Hooks (Spec 0002, AC-6)', () => {
     beforeEach(() => {
       controller = new CourierCourierRestApiController(
         mockCourierDomainService,
-        {} as any,
-        {} as any,
         mockDeliveryEventService
       )
     })
