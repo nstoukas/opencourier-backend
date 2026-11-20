@@ -23,6 +23,7 @@ import { MarkDeliveryAsPickedUpCourierInput } from './queries/mark-delivery-as-p
 import { NewDeliveriesCourierPaginatedDto } from './dtos/new-deliveries.courier.paginated.dto'
 import { InProgressDeliveriesCourierPaginatedDto } from './dtos/in-progress-deliveries.courier.paginated.dto'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { isRecordNotFoundError } from 'src/prisma.util'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('deliveries')
@@ -105,9 +106,19 @@ export class DeliveryCourierRestApiController {
     @common.Param('deliveryId') deliveryId: string,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryCourierDto> {
-    const delivery = await this.deliveryDomainService.getByIdOrThrowWithLocation(deliveryId, {
-      OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
-    })
+    // Prisma's "no such row" (an unknown id, or a delivery that is not this rider's) is a 404 here,
+    // not the 500 it would otherwise become (decision 75.40). The same catch as `getRoute` in
+    // route.courier.service.ts, with the same exception, so both routes answer the same 404 body.
+    const delivery = await this.deliveryDomainService
+      .getByIdOrThrowWithLocation(deliveryId, {
+        OR: [{ courierId: courier.id }, { matchedCourierId: courier.id }],
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && isRecordNotFoundError(error)) {
+          throw new errors.DeliveryNotFoundException('Delivery not found')
+        }
+        throw error
+      })
 
     const dto = new DeliveryCourierDto(delivery)
     return dto
