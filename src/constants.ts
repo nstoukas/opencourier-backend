@@ -104,6 +104,12 @@ export const DEFAULT_DELIVERY_DURATION_CALCULATION_TYPE = 'DEFAULT_DELIVERY_DURA
 export const DELIVERY_QUOTE_EXPIRATION_MINUTES = 'DELIVERY_QUOTE_EXPIRATION_MINUTES'
 export const DEFAULT_FEE_PERCENTAGE_AMOUNT = 'DEFAULT_FEE_PERCENTAGE_AMOUNT'
 
+// Spec 0041: the highest co-op fee % a save accepts, so a typo (100 for 10) cannot multiply every
+// customer's price. A co-op setting (feePercentageCeiling); these are its fallback and its range.
+export const DEFAULT_FEE_PERCENTAGE_CEILING = 25
+export const FEE_PERCENTAGE_CEILING_MIN = 0
+export const FEE_PERCENTAGE_CEILING_MAX = 100
+
 // Offer expiry (spec 0002). Unlike the DEFAULT_* names above, which are env var names, these are
 // the fallback VALUES used only when the Config row is missing. The operative values are co-op
 // settings in the Config table (offerExpiryEnabled, offerExpirySeconds, noCourierRetrySeconds).

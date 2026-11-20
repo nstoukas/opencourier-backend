@@ -49,6 +49,10 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number, nullable: true })
   feePercentageAmount: number | null
 
+  // Spec 0041: the highest fee % a save accepts.
+  @ApiProperty({ type: Number })
+  feePercentageCeiling: number
+
   @ApiProperty({ type: Number, nullable: true })
   quoteRatePerDistanceUnit: number | null
 
@@ -171,6 +175,7 @@ export class InstanceConfigSettingsDto {
     this.maxDriftDistance = data.maxDriftDistance ?? null
     this.quoteExpirationMinutes = data.quoteExpirationMinutes ?? null
     this.feePercentageAmount = data.feePercentageAmount ?? null
+    this.feePercentageCeiling = data.feePercentageCeiling
     this.quoteRatePerDistanceUnit = data.quoteRatePerDistanceUnit ?? null
     this.quoteBaseFee = data.quoteBaseFee ?? null
 

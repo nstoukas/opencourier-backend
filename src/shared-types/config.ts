@@ -18,6 +18,8 @@ export type InstanceConfigSettings = {
   maxDriftDistance: number | null
   quoteExpirationMinutes: number | null
   feePercentageAmount: number | null
+  // Spec 0041: the highest fee % a save accepts, a whole number from 0 to 100.
+  feePercentageCeiling: number
   // Price of one Config.distanceUnit of travel, in minor currency units (e.g. 150 = EUR 1.50
   // per kilometre when distanceUnit is KILOMETERS). A fairness parameter: it lives here, in
   // the Config table, so members can vote it — never in code.
@@ -124,6 +126,7 @@ export enum ConfigKey {
   GEO_CALCULATION_TYPE = 'geoCalculationType',
   COURIER_COMPENSATION_CALCULATION_TYPE = 'courierCompensationCalculationType',
   FEE_PERCENTAGE_AMOUNT = 'feePercentageAmount',
+  FEE_PERCENTAGE_CEILING = 'feePercentageCeiling',
   MAX_ASSIGNMENT_DISTANCE = 'maxAssignmentDistance',
   QUOTE_EXPIRATION_MINUTES = 'quoteExpirationMinutes',
   DEFAULT_COURIER_PAY_RATE = 'defaultCourierPayRate',

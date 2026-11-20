@@ -8,6 +8,9 @@ import {
   DEFAULT_DELIVERY_DURATION_CALCULATION_TYPE,
   DEFAULT_DISTANCE_UNIT,
   DEFAULT_FEE_PERCENTAGE_AMOUNT,
+  DEFAULT_FEE_PERCENTAGE_CEILING,
+  FEE_PERCENTAGE_CEILING_MAX,
+  FEE_PERCENTAGE_CEILING_MIN,
   DEFAULT_GEO_CALCULATION_TYPE,
   DEFAULT_MAX_ASSIGNMENT_DISTANCE,
   DEFAULT_QUOTE_BASE_FEE,
@@ -107,6 +110,22 @@ import { writeSettingChange } from 'src/persistence/repositories/setting-change.
 // below with `!== undefined`, never `if (data.x)`: a truthy check silently drops a 0.
 // Also give it @RefuseIfNotSentAsNumber() in InstanceConfigSettingsAdminInput, or an empty value saves as 0.
 // Exported so the tests can walk this table: each rule gets its own zero and negative checks.
+// Spec 0041 (AC-2 to AC-4): refuses a fee % above the ceiling. `ceilingOnly` is true when the save
+// sent a new ceiling and no fee, so the message tells the admin it is the ceiling that is too low.
+// A fee of null (a stored value that could not be read) is not checked: only a save of a fee is.
+// Exported so the tests can call it directly.
+export function assertFeeWithinCeiling(fee: number | null, ceiling: number, ceilingOnly: boolean): void {
+  if (fee === null || fee <= ceiling) return
+  if (ceilingOnly) {
+    throw new BadRequestException(
+      `feePercentageCeiling cannot be below the fee % in effect (${fee}). Lower feePercentageAmount first, or in the same save.`
+    )
+  }
+  throw new BadRequestException(
+    `feePercentageAmount can be at most ${ceiling}, the co-op's fee ceiling (feePercentageCeiling). Raise the ceiling first if the co-op decided a higher fee.`
+  )
+}
+
 export const NUMERIC_SETTING_RULES: {
   // keyof = the name of one of the input's fields, so a typo here fails typecheck.
   key: keyof InstanceConfigSettingsInput
@@ -123,6 +142,15 @@ export const NUMERIC_SETTING_RULES: {
   zeroSwitchesOff?: string
 }[] = [
   { key: 'feePercentageAmount', whyZeroIsRefused: null },
+  // Spec 0041 (AC-1): 0 is allowed (it holds the fee at 0). The fee itself is checked against it
+  // inside the save's transaction, where both values in effect are known (AC-2 to AC-5).
+  {
+    key: 'feePercentageCeiling',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FEE_PERCENTAGE_CEILING_MIN,
+    max: FEE_PERCENTAGE_CEILING_MAX,
+  },
   { key: 'quoteRatePerDistanceUnit', whyZeroIsRefused: null },
   // 0 is allowed: a base fee of 0 is a real (if poor) choice the members may vote.
   { key: 'quoteBaseFee', whyZeroIsRefused: null, mustBeWholeCents: true },
@@ -327,6 +355,7 @@ export class InstanceConfigDomainService {
     const maxDriftDistance = await this.getMaxDriftDistance()
     const quoteExpirationMinutes = await this.getQuoteExpirationMinutes()
     const feePercentageAmount = await this.getFeePercentageAmount()
+    const feePercentageCeiling = await this.getFeePercentageCeiling()
     const quoteRatePerDistanceUnit = await this.getQuoteRatePerDistanceUnit()
     // A bad stored base fee must stop quoting (getQuoteBaseFee throws), but not this reader:
     // it feeds the admin settings page, where the value gets fixed, and the public metadata.
@@ -385,6 +414,7 @@ export class InstanceConfigDomainService {
       maxDriftDistance,
       quoteExpirationMinutes,
       feePercentageAmount,
+      feePercentageCeiling,
       quoteRatePerDistanceUnit,
       quoteBaseFee,
       defaultCourierPayRate,
@@ -658,6 +688,9 @@ export class InstanceConfigDomainService {
     if (data.feePercentageAmount !== undefined) {
       save(ConfigKey.FEE_PERCENTAGE_AMOUNT, data.feePercentageAmount)
     }
+    if (data.feePercentageCeiling !== undefined) {
+      save(ConfigKey.FEE_PERCENTAGE_CEILING, data.feePercentageCeiling)
+    }
     if (data.quoteRatePerDistanceUnit !== undefined) {
       save(ConfigKey.QUOTE_RATE_PER_DISTANCE_UNIT, data.quoteRatePerDistanceUnit)
     }
@@ -804,6 +837,14 @@ export class InstanceConfigDomainService {
       // values this one wrote, so its "before" is never stale and no change is recorded twice.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('instance-config-save'))`
       const before: Record<string, unknown> = { ...(await this.getInstanceConfigSettings()) }
+      // Spec 0041 (AC-2 to AC-5): the fee % may not end up above the ceiling. Checked here, after the
+      // lock and before any write, against the values in effect after this save (what it sends, else
+      // what is stored), so two saves at once cannot together pass it. A throw rolls back everything.
+      assertFeeWithinCeiling(
+        data.feePercentageAmount ?? (before.feePercentageAmount as number | null),
+        data.feePercentageCeiling ?? (before.feePercentageCeiling as number),
+        data.feePercentageCeiling !== undefined && data.feePercentageAmount === undefined
+      )
       for (const write of writes) {
         await this.configRepository.saveByKey(write.key, write.stored, tx)
         if (!isSameSettingValue(before[write.key], write.value)) {
@@ -1119,6 +1160,16 @@ export class InstanceConfigDomainService {
     const enabled = await this.getConfigValueOrDefault(ConfigKey.WAIT_PAY_ENABLED, DEFAULT_WAIT_PAY_ENABLED)
 
     return enabled.value === true
+  }
+
+  // Spec 0041: the highest fee % a save accepts. Read only by the save check and the settings page.
+  async getFeePercentageCeiling(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FEE_PERCENTAGE_CEILING,
+      DEFAULT_FEE_PERCENTAGE_CEILING,
+      FEE_PERCENTAGE_CEILING_MIN,
+      FEE_PERCENTAGE_CEILING_MAX
+    )
   }
 
   // Spec 0040 (AC-17): the break limit of a worked shift, read once per time worked request.

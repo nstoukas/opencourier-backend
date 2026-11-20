@@ -19,6 +19,7 @@ export class InstanceConfigSettingsInput {
   maxAssignmentDistance?: number
   quoteExpirationMinutes?: number
   feePercentageAmount?: number
+  feePercentageCeiling?: number
   quoteRatePerDistanceUnit?: number
   quoteBaseFee?: number
   maxDriftDistance?: number

@@ -77,6 +77,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   feePercentageAmount?: number
 
+  // Spec 0041: whole numbers, 0 to 100. The fee % may not be saved above it.
+  @ApiProperty({ required: false, type: Number })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  feePercentageCeiling?: number
+
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()
