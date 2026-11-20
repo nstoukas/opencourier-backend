@@ -504,6 +504,11 @@ model DeliveryEvent {
   updatedAt  DateTime @updatedAt
 
   @@index([newStatus, occurredAt])
+  // Time worked (spec 0040) asks for a rider's ACCEPTED events, then for every event of those
+  // deliveries, and the rider's home counter repeats that every few minutes. Without these two
+  // indexes each of those reads walks the whole table (decision 36.47).
+  @@index([courierId, type])
+  @@index([deliveryId])
 }
 
 model LocationNote {
