@@ -173,6 +173,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `OfferReason` (`saveOfferedEvent`'s last argument): a new way to make an offer must pass a reason, or an error is
   logged and the offer has none. `OfferReason.candidates` holds other riders' figures: admin only, never a courier route.
   Quotes ask the nearest matcher (they only need to know someone is free).
+- Why this offer (spec 0045): a rider reads an `OfferReason` only through `whyYouFrom` (`src/domains/matching/why-you.ts`), an
+  allow list per strategy of the rider's own raw values and the weights above 0, via `findOwnLatest` (selects no `candidates`).
+  A new matcher or reason key reaches riders only once it is added there; a `centsPerHour` that was the co-op mean (assumed or
+  equal) is never sent, since with one qualifying rider it is another rider's pay.
 
 ## Agent skills
 
