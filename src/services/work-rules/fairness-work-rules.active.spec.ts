@@ -139,6 +139,49 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     expect(result.offers.join(' ')).not.toContain('a representative can show you them for any of your offers')
   })
 
+  // Review ruling 2026-11-21 (decision 14.5, AC-4): every matcher records why, so the link back follows
+  // every matcher's text, not the fairness matcher's alone.
+  describe('the link back sentence under every matcher (decision 14.5, AC-4)', () => {
+    const LINK_BACK = 'See why a job came to you on its page in Earnings.'
+    const NEXT_PART = 'A rider already on a job gets no second offer.'
+
+    test.each([
+      [EnumCourierMatcherType.NEAREST_COURIER, 'offered to the nearest free rider'],
+      [EnumCourierMatcherType.COURIER_SENIORITY, 'whose account is the oldest'],
+      [EnumCourierMatcherType.FAIRNESS, 'Each offer records the figures that chose its rider.'],
+    ])('howItWorks under %s shows it once, after the matcher text', async (matcherType, matcherWords) => {
+      ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...fairnessSettings,
+        courierMatcherType: matcherType,
+      })
+
+      const result = await service.howItWorks()
+
+      // Once in the whole offers part...
+      const withLink = result.offers.filter((sentence) => sentence.includes(LINK_BACK))
+      expect(withLink).toHaveLength(1)
+      // ...as the end of the matching part: after the matcher's own words, before the general offer rules.
+      const linkAt = result.offers.findIndex((sentence) => sentence.endsWith(LINK_BACK))
+      const matcherAt = result.offers.findIndex((sentence) => sentence.includes(matcherWords))
+      const nextAt = result.offers.indexOf(NEXT_PART)
+      expect(matcherAt).toBeGreaterThanOrEqual(0)
+      expect(linkAt).toBeGreaterThanOrEqual(matcherAt)
+      expect(nextAt).toBe(linkAt + 1)
+    })
+
+    test('under NEAREST_COURIER and COURIER_SENIORITY the matcher sentence itself is unchanged', async () => {
+      for (const matcherType of [EnumCourierMatcherType.NEAREST_COURIER, EnumCourierMatcherType.COURIER_SENIORITY]) {
+        ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+          ...fairnessSettings,
+          courierMatcherType: matcherType,
+        })
+        const result = await service.howItWorks()
+        expect(result.offers[0]).toMatch(/^Each order is offered to .* within 20 km of the restaurant\.$/)
+        expect(result.offers[1]).toBe(LINK_BACK)
+      }
+    })
+  })
+
   test('fairnessSentences ends with the link back sentence (spec 0045 AC-4)', () => {
     const sentences = fairnessSentences(fairnessSettings, '20 km')
     expect(sentences[sentences.length - 1]).toMatch(/See why a job came to you on its page in Earnings\.$/)

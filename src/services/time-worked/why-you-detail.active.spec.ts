@@ -9,7 +9,8 @@ import { TimeWorkedService } from './time-worked.service'
 import { toEarningsDeliveryDto } from 'src/rest-api/time-worked/earnings.dto'
 
 // Spec 0045 (AC-1, AC-5, cross check 1 and 4; decision 14.2): the earnings delivery detail carries
-// `whyYou`, from the rider's own latest reason up to their last accept plus a minute.
+// `whyYou`, from the rider's own latest reason up to their last accept plus five seconds (review ruling
+// 2026-11-21, decision 14.5: a minute could pick a later offer that was never accepted).
 describe('TimeWorkedService.deliveryDetail whyYou (spec 0045: AC-1, AC-5, cross check 4)', () => {
   const courierId = 'courier-why-me'
   const deliveryId = 'del-why-1'
@@ -218,7 +219,7 @@ describe('TimeWorkedService.deliveryDetail whyYou (spec 0045: AC-1, AC-5, cross 
     expect(result.jobs.map((j) => j.acceptedAt)).toEqual([firstAccept, lastAccept])
   })
 
-  test("asks for this rider's own reason on this delivery, up to their LAST accept plus 60 seconds", async () => {
+  test("asks for this rider's own reason on this delivery, up to their LAST accept plus 5 seconds", async () => {
     await makeService().deliveryDetail(courierId, deliveryId, now)
 
     expect(mockOfferReasonRepository.findOwnLatest).toHaveBeenCalledTimes(1)
@@ -226,7 +227,9 @@ describe('TimeWorkedService.deliveryDetail whyYou (spec 0045: AC-1, AC-5, cross 
     expect(askedCourier).toBe(courierId)
     expect(askedDelivery).toBe(deliveryId)
     expect(upTo).toBeInstanceOf(Date)
-    expect((upTo as Date).toISOString()).toBe('2026-10-16T13:01:00.000Z')
+    // Five seconds of grace, no more: a reason written for a later offer must stay outside the bound.
+    expect((upTo as Date).getTime() - lastAccept.getTime()).toBe(5_000)
+    expect((upTo as Date).toISOString()).toBe('2026-10-16T13:00:05.000Z')
   })
 
   test('returns whyYou from the reason found: own raw values, the weights in force then, estimated', async () => {
@@ -263,6 +266,40 @@ describe('TimeWorkedService.deliveryDetail whyYou (spec 0045: AC-1, AC-5, cross 
 
     expect(result).toHaveProperty('whyYou')
     expect(result.whyYou).toBeNull()
+  })
+
+  // Review ruling 2026-11-21 (decision 14.5, AC-5): an assumed or equal rider's stored centsPerHour is the
+  // co-op mean, made of other riders' pay. It must not reach the rider's answer.
+  describe('centsPerHour through the courier answer (decision 14.5, AC-5)', () => {
+    // 1730 stands for a colleague's exact rate, stored as this rider's figure by the matcher.
+    const answerFor = async (flags: { earningsAssumed: boolean; earningsEqual: boolean }) => {
+      mockOfferReasonRepository.findOwnLatest.mockResolvedValue({
+        ...fullStoredRow,
+        values: { ...fullStoredRow.values, ...flags, centsPerHour: 1730 },
+      })
+      const detail = await makeService().deliveryDetail(courierId, deliveryId, now)
+      return JSON.parse(JSON.stringify(toEarningsDeliveryDto(detail)))
+    }
+
+    test.each([
+      ['earningsAssumed', { earningsAssumed: true, earningsEqual: false }],
+      ['earningsEqual', { earningsAssumed: false, earningsEqual: true }],
+    ])('not sent when %s is true, and the flag is', async (flag, flags) => {
+      const json = await answerFor(flags)
+
+      expect(json.whyYou.values).not.toHaveProperty('centsPerHour')
+      expect(collectAllKeys(json.whyYou)).not.toContain('centsPerHour')
+      expect(JSON.stringify(json.whyYou)).not.toContain('1730')
+      expect(json.whyYou.values[flag]).toBe(true)
+      // The rest of the rider's own reason is still there.
+      expect(json.whyYou.values.roadSeconds).toBe(480)
+      expect(json.whyYou.values.waitingSeconds).toBe(1320)
+    })
+
+    test("sent when the rate is the rider's own (neither flag true)", async () => {
+      const json = await answerFor({ earningsAssumed: false, earningsEqual: false })
+      expect(json.whyYou.values.centsPerHour).toBe(1730)
+    })
   })
 
   test('AC-5: even if the whole stored row with five candidates came back, nothing of the others reaches the rider', async () => {

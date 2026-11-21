@@ -132,6 +132,56 @@ describe('whyYouFrom (spec 0045: AC-1, AC-5, cross check 1 and 3)', () => {
     expect(result!.values).toEqual({})
   })
 
+  // Review ruling 2026-11-21 (decision 14.5, AC-5): when the rider's pay counted as the co-op average, or
+  // counted equal for everyone, the stored centsPerHour is made of other riders' pay (with one qualifying
+  // rider, exactly theirs). It is never sent then; the flags say what counted.
+  describe("centsPerHour when it is not the rider's own figure (decision 14.5, AC-5)", () => {
+    const withValues = (extra: Record<string, unknown>) =>
+      whyYouFrom({ ...fairnessStored, values: { ...fairnessStored.values, ...extra } })!
+
+    test('not sent when earningsAssumed is true: the stored figure is the mean of the other riders', () => {
+      // 1730 stands for the one qualifying colleague's exact rate, stored as this rider's assumed figure.
+      const result = withValues({ earningsAssumed: true, centsPerHour: 1730 })
+      expect(result.values).not.toHaveProperty('centsPerHour')
+      expect(JSON.stringify(result)).not.toContain('1730')
+      // The flag still says what counted, and the other own values stay.
+      expect(result.values.earningsAssumed).toBe(true)
+      expect(result.values).toEqual({
+        roadSeconds: 480,
+        roadEstimated: false,
+        earningsAssumed: true,
+        earningsEqual: false,
+        waitingSeconds: 1320,
+        straightMetres: 1200,
+      })
+    })
+
+    test('not sent when earningsEqual is true', () => {
+      const result = withValues({ earningsEqual: true, centsPerHour: 1730 })
+      expect(result.values).not.toHaveProperty('centsPerHour')
+      expect(JSON.stringify(result)).not.toContain('1730')
+      expect(result.values.earningsEqual).toBe(true)
+      expect(result.values.earningsAssumed).toBe(false)
+    })
+
+    test('not sent when both flags are true, not even a centsPerHour of 0', () => {
+      const result = withValues({ earningsAssumed: true, earningsEqual: true, centsPerHour: 0 })
+      expect(result.values).not.toHaveProperty('centsPerHour')
+    })
+
+    test("sent when both flags are false: it is the rider's own rate", () => {
+      const result = withValues({ earningsAssumed: false, earningsEqual: false, centsPerHour: 940 })
+      expect(result.values.centsPerHour).toBe(940)
+    })
+
+    test('sent when the flags are missing from the stored values', () => {
+      const { earningsAssumed, earningsEqual, ...withoutFlags } = fairnessStored.values
+      expect([earningsAssumed, earningsEqual]).toEqual([false, false])
+      const result = whyYouFrom({ ...fairnessStored, values: withoutFlags })!
+      expect(result.values.centsPerHour).toBe(940)
+    })
+  })
+
   describe('weights (cross check 3)', () => {
     test('keeps only the weights above 0, in the order roadTime, earnings, waiting, shift', () => {
       const result = whyYouFrom({
