@@ -121,10 +121,74 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     expect(result.offers[2]).toContain('Until you have been online 30 minutes today')
     expect(result.offers[2]).toContain('Tips never affect who gets offers, and the day starts again at midnight.')
 
-    // 4. Offer records
-    expect(result.offers[3]).toBe(
+    // 4. Spec 0049: this fixture has shifts on, so the shift sentence comes before the offer records one.
+    expect(result.offers[3]).toContain('While shifts are on, being on a booked shift counts too (weight 0).')
+
+    // 5. Offer records
+    expect(result.offers[4]).toBe(
       'Each offer records the figures that chose its rider. See why a job came to you on its page in Earnings.'
     )
+  })
+
+  // Spec 0049 (cross check 5 and 6): the shift sentence is there only while shifts are on.
+  describe('the shift sentence (spec 0049)', () => {
+    const LINK_BACK =
+      'Each offer records the figures that chose its rider. See why a job came to you on its page in Earnings.'
+
+    function withSettings(overrides: Partial<InstanceConfigSettings>) {
+      ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...fairnessSettings,
+        ...overrides,
+      })
+    }
+
+    test('shifts off: no sentence mentions a shift, and the matching part is the four sentences of spec 0044', async () => {
+      withSettings({ shiftsEnabled: false, fairnessWeightShift: 40 })
+
+      const result = await service.howItWorks()
+
+      expect(result.offers[3]).toBe(LINK_BACK)
+      expect(result.offers.slice(0, 4).join(' ')).not.toMatch(/shift/i)
+      expect(result.offers.join(' ')).not.toContain('being on a booked shift counts too')
+      expect(
+        fairnessSentences({ ...fairnessSettings, shiftsEnabled: false, fairnessWeightShift: 40 }, '20 km')
+      ).toHaveLength(4)
+    })
+
+    test('shifts on: the sentence carries the saved weight, says it is a fixed yes or no, and that going Offline changes nothing', async () => {
+      withSettings({ shiftsEnabled: true, fairnessWeightShift: 40 })
+
+      const result = await service.howItWorks()
+
+      const sentence = result.offers[3]!
+      expect(sentence).toContain('being on a booked shift counts too (weight 40)')
+      // Cross check 6: a fixed 0 or 1, so the same amount every time, unlike the other three.
+      expect(sentence).toContain('It is a fixed yes or no, so it moves your place by the same amount every time')
+      expect(sentence).toContain('while the other three depend on how different the riders are')
+      expect(sentence).toContain('it changes nothing about your offers or pay')
+      expect(result.offers[4]).toBe(LINK_BACK)
+    })
+
+    test('fairnessSentences with no shift settings at all (an older caller) words no shift', () => {
+      const { shiftsEnabled, fairnessWeightShift, ...older } = fairnessSettings
+      void shiftsEnabled
+      void fairnessWeightShift
+      const sentences = fairnessSentences(older, '20 km')
+      expect(sentences).toHaveLength(4)
+      expect(sentences.join(' ')).not.toMatch(/shift/i)
+    })
+
+    test('under another matcher, shifts on words no shift weight', async () => {
+      withSettings({
+        shiftsEnabled: true,
+        fairnessWeightShift: 40,
+        courierMatcherType: EnumCourierMatcherType.NEAREST_COURIER,
+      })
+
+      const result = await service.howItWorks()
+
+      expect(result.offers.join(' ')).not.toContain('being on a booked shift counts too')
+    })
   })
 
   // Spec 0045 (AC-4, decision 14.3): the matching part links back to the job's page in Earnings.
@@ -133,7 +197,8 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
 
     // The matching part is the fairness sentences, which open the offers list; its last one links back.
     const matchingPart = result.offers.slice(0, fairnessSentences(fairnessSettings, '20 km').length)
-    expect(matchingPart).toHaveLength(4)
+    // Five since spec 0049: this fixture has shifts on, which adds the shift sentence.
+    expect(matchingPart).toHaveLength(5)
     const lastMatchingSentence = matchingPart[matchingPart.length - 1]!
     expect(lastMatchingSentence.endsWith('See why a job came to you on its page in Earnings.')).toBe(true)
     // The old sentence sent riders to a representative for this; the app now shows it to them.

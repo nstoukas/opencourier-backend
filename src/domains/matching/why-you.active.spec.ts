@@ -231,4 +231,52 @@ describe('whyYouFrom (spec 0045: AC-1, AC-5, cross check 1 and 3)', () => {
       expect(whyYouFrom({ ...fairnessStored, values: { ...withoutFlag, roadEstimated: 1 } })!.estimated).toBe(false)
     })
   })
+
+  // Spec 0049 (AC-3): the rider reads whether they were on a booked shift, and the shift weight when it
+  // applied. Recorded only while shifts are on.
+  describe('spec 0049: onShift and the shift weight', () => {
+    const withShift = (onShift: unknown, shift: unknown) => ({
+      ...fairnessStored,
+      values: { ...fairnessStored.values, onShift, scaled: { roadTime: 0, earnings: 1, waiting: 0.5, shift: 0 } },
+      weights: { ...fairnessStored.weights, shift },
+    })
+
+    test('keeps onShift: true, and the shift weight when it is above 0', () => {
+      const result = whyYouFrom(withShift(true, 40))!
+      expect(result.values.onShift).toBe(true)
+      expect(result.weights).toEqual({ roadTime: 50, earnings: 30, waiting: 20, shift: 40 })
+    })
+
+    test('keeps onShift: false as false, not dropped', () => {
+      const result = whyYouFrom(withShift(false, 40))!
+      expect(result.values).toHaveProperty('onShift', false)
+    })
+
+    test('a shift weight of 0 is not sent (only the weights above 0), while onShift still is', () => {
+      const result = whyYouFrom(withShift(true, 0))!
+      expect(result.weights).toEqual({ roadTime: 50, earnings: 30, waiting: 20 })
+      expect(result.values.onShift).toBe(true)
+    })
+
+    test('a reason recorded with shifts off has no onShift and no shift weight', () => {
+      const result = whyYouFrom(fairnessStored)!
+      expect(result.values).not.toHaveProperty('onShift')
+      expect(result.weights).not.toHaveProperty('shift')
+    })
+
+    test('the scaled shift value and the score still never reach the rider', () => {
+      const result = whyYouFrom(withShift(true, 40))!
+      expect(result.values).not.toHaveProperty('scaled')
+      expect(result.values).not.toHaveProperty('score')
+      expect(JSON.stringify(result)).not.toContain('scaled')
+    })
+
+    test.each(['NEAREST_COURIER', 'COURIER_SENIORITY', 'ADMIN', 'STATIC'])(
+      'under %s an onShift value is not read (shifts change nothing under another matcher)',
+      (strategy) => {
+        const result = whyYouFrom({ ...withShift(true, 40), strategy })!
+        expect(result.values).not.toHaveProperty('onShift')
+      }
+    )
+  })
 })

@@ -25,6 +25,9 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
       getFairnessWeightRoadTime: jest.fn().mockResolvedValue(50),
       getFairnessWeightEarnings: jest.fn().mockResolvedValue(30),
       getFairnessWeightWaiting: jest.fn().mockResolvedValue(20),
+      // Spec 0049: shifts are off in this file, so every reason here is the spec 0044 one, unchanged.
+      getShiftsEnabled: jest.fn().mockResolvedValue(false),
+      getFairnessWeightShift: jest.fn().mockResolvedValue(0),
     }
 
     mockConfigDomainService = {

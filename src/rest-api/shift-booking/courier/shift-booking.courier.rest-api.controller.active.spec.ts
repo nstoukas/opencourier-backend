@@ -12,13 +12,19 @@ import { COURIER_API_V1_PREFIX } from 'src/constants'
 import { IS_PUBLIC_KEY } from 'src/decorators/public.decorator'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
-import { MyShiftBooking, ShiftBookingService, ShiftOccurrence } from 'src/services/shift-booking/shift-booking.service'
+import {
+  MyShiftBooking,
+  ShiftBookingService,
+  ShiftOccurrence,
+  ShiftOfflineRecord,
+} from 'src/services/shift-booking/shift-booking.service'
 import { AdminRestApiModule } from '../../admin.rest-api.module'
 import { CourierRestApiModule } from '../../courier.rest-api.module'
 import { PartnerRestApiModule } from '../../partner.rest-api.module'
 import {
   MyShiftBookingCourierDto,
   ShiftOccurrenceCourierDto,
+  ShiftOfflineRecordCourierDto,
   ShiftScheduleCourierDto,
 } from './dtos/shift-schedule.courier.dto'
 import { ShiftBookingCourierRestApiController } from './shift-booking.courier.rest-api.controller'
@@ -59,7 +65,21 @@ describe('ShiftBookingCourierRestApiController (spec 0027)', () => {
 
   beforeEach(() => {
     service = {
-      schedule: jest.fn().mockResolvedValue({ serverNow: new Date(), occurrences: [occurrence], myBookings: [mine] }),
+      schedule: jest.fn().mockResolvedValue({
+        serverNow: new Date(),
+        occurrences: [occurrence],
+        myBookings: [mine],
+        // Spec 0049: one of the rider's own Offline records.
+        offlineRecords: [
+          {
+            id: 'event-1',
+            offlineAt: new Date('2026-11-20T19:10:00.000Z'),
+            sentence:
+              'You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00: you switched to Offline.',
+            noEffect: 'This changes nothing about your offers or pay.',
+          },
+        ],
+      }),
       book: jest.fn().mockResolvedValue(mine),
       drop: jest.fn().mockResolvedValue(mine),
       offerSwap: jest.fn().mockResolvedValue(mine),
@@ -76,6 +96,8 @@ describe('ShiftBookingCourierRestApiController (spec 0027)', () => {
       expect(result).toBeInstanceOf(ShiftScheduleCourierDto)
       expect(result.occurrences[0]).toBeInstanceOf(ShiftOccurrenceCourierDto)
       expect(result.myBookings[0]).toBeInstanceOf(MyShiftBookingCourierDto)
+      expect(result.offlineRecords[0]).toBeInstanceOf(ShiftOfflineRecordCourierDto)
+      expect(result.offlineRecords[0]!.id).toBe('event-1')
     })
 
     it("book passes the body's slot and date", async () => {
@@ -239,9 +261,67 @@ describe('ShiftBookingCourierRestApiController (spec 0027)', () => {
       )
     })
 
-    it('the schedule answer has serverNow, occurrences and myBookings only', () => {
-      const dto = new ShiftScheduleCourierDto({ serverNow: new Date(), occurrences: [occurrence], myBookings: [mine] })
-      expect(Object.keys(dto).sort()).toEqual(['myBookings', 'occurrences', 'serverNow'])
+    // Spec 0049 (decision 79.4): the rider's own Offline records join the schedule as offlineRecords.
+    it('the schedule answer has serverNow, occurrences, myBookings and offlineRecords only', () => {
+      const dto = new ShiftScheduleCourierDto({
+        serverNow: new Date(),
+        occurrences: [occurrence],
+        myBookings: [mine],
+        offlineRecords: [],
+      })
+      expect(Object.keys(dto).sort()).toEqual(['myBookings', 'occurrences', 'offlineRecords', 'serverNow'])
+      expect(dto.offlineRecords).toEqual([])
+    })
+
+    // Spec 0049 (AC-5, cross check 4): a record is its id, its time and the two sentences, nothing else.
+    describe('spec 0049: an Offline record a rider reads', () => {
+      const record = {
+        id: 'event-1',
+        offlineAt: new Date('2026-11-20T19:10:00.000Z'),
+        sentence: 'You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00: you switched to Offline.',
+        noEffect: 'This changes nothing about your offers or pay.',
+      }
+
+      it('has exactly id, offlineAt, sentence and noEffect, with the values it was given', () => {
+        const dto = new ShiftOfflineRecordCourierDto(record)
+        expect(Object.keys(dto).sort()).toEqual(['id', 'noEffect', 'offlineAt', 'sentence'])
+        expect(dto).toEqual(record)
+      })
+
+      it('drops everything else the service object might hold (other rider, swap, admin, cause, follow up)', () => {
+        const leaky = {
+          ...record,
+          courierId: 'x-courier',
+          otherCourierId: 'x-other',
+          shiftBookingId: 'x-booking',
+          cause: 'ADMIN',
+          adminUserId: 'x-admin',
+          followedUpAt: new Date('2026-11-21T08:00:00.000Z'),
+          followedUpByUserId: 'x-followed',
+          followedUpByEmail: 'x-admin@example.org',
+          courierStatusChangeId: 'x-change',
+          type: 'WENT_OFFLINE_MID_SHIFT',
+        }
+        const dto = new ShiftOfflineRecordCourierDto(leaky as unknown as ShiftOfflineRecord)
+        expect(Object.keys(dto).sort()).toEqual(['id', 'noEffect', 'offlineAt', 'sentence'])
+        expect(JSON.stringify(dto)).not.toMatch(/x-|otherCourierId|followedUp|cause|WENT_OFFLINE/)
+      })
+
+      it('the schedule copies each record through that DTO, in the order given', () => {
+        const second = { ...record, id: 'event-2', otherCourierId: 'x-other' }
+        const dto = new ShiftScheduleCourierDto({
+          serverNow: new Date(),
+          occurrences: [],
+          myBookings: [],
+          offlineRecords: [record, second as unknown as ShiftOfflineRecord],
+        })
+        expect(dto.offlineRecords.map((r) => r.id)).toEqual(['event-1', 'event-2'])
+        for (const item of dto.offlineRecords) {
+          expect(item).toBeInstanceOf(ShiftOfflineRecordCourierDto)
+          expect(Object.keys(item).sort()).toEqual(['id', 'noEffect', 'offlineAt', 'sentence'])
+        }
+        expect(JSON.stringify(dto)).not.toContain('x-other')
+      })
     })
   })
 })

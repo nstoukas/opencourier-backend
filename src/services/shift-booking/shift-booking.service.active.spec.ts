@@ -68,6 +68,8 @@ describe('ShiftBookingService (spec 0027)', () => {
       placesTaken: tracked('placesTaken', () => new Map()),
       currentBookingsOf: tracked('currentBookingsOf', () => []),
       openSwapsNotBy: tracked('openSwapsNotBy', () => []),
+      // Spec 0049: the rider's own Offline records; none unless a test gives some.
+      ownOfflineRecords: tracked('ownOfflineRecords', () => []),
       findBooking: tracked('findBooking', () => booking()),
       overlapping: tracked('overlapping', () => null),
       alreadyBooked: tracked('alreadyBooked', () => false),
@@ -119,6 +121,108 @@ describe('ShiftBookingService (spec 0027)', () => {
 
     it("the sentence is the spec's", () => {
       expect(SHIFT_SENTENCES.off).toBe('Shifts are off.')
+    })
+  })
+
+  // Spec 0049 (AC-5, cross check 4, decision 79.4): the rider's own Offline records ride on the schedule.
+  describe('spec 0049: offlineRecords on the schedule', () => {
+    // Offline at 21:10 Athens on Fri 20 Nov, in a 20:00 to 24:00 shift (Athens is UTC+2 in November).
+    function ownRecord(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'event-1',
+        offlineAt: new Date('2026-11-20T19:10:00.000Z'),
+        cause: 'RIDER',
+        shiftStartsAt: new Date('2026-11-20T18:00:00.000Z'),
+        shiftEndsAt: new Date('2026-11-20T22:00:00.000Z'),
+        shiftDate: '2026-11-20',
+        ...overrides,
+      }
+    }
+    const at = new Date('2026-11-21T10:00:00.000Z')
+
+    it('is an empty list when the rider has none', async () => {
+      const result = await service.schedule(RIDER, at)
+      expect(result.offlineRecords).toEqual([])
+    })
+
+    it("asks only for the asking rider's own records, of the last 7 days", async () => {
+      await service.schedule(RIDER, at)
+      expect(bookings.ownOfflineRecords).toHaveBeenCalledTimes(1)
+      expect(bookings.ownOfflineRecords).toHaveBeenCalledWith(RIDER, new Date('2026-11-14T10:00:00.000Z'))
+    })
+
+    it('each record is exactly id, offlineAt, sentence and noEffect', async () => {
+      bookings.ownOfflineRecords.mockResolvedValue([ownRecord()])
+      const result = await service.schedule(RIDER, at)
+      expect(result.offlineRecords).toEqual([
+        {
+          id: 'event-1',
+          offlineAt: new Date('2026-11-20T19:10:00.000Z'),
+          sentence:
+            'You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00: you switched to Offline.',
+          noEffect: 'This changes nothing about your offers or pay.',
+        },
+      ])
+      expect(Object.keys(result.offlineRecords[0]!).sort()).toEqual(['id', 'noEffect', 'offlineAt', 'sentence'])
+    })
+
+    it('never passes on another rider, a swap, an admin or the follow up, even if the repository row held them', async () => {
+      bookings.ownOfflineRecords.mockResolvedValue([
+        ownRecord({
+          otherCourierId: 'x-other',
+          courierId: 'x-courier',
+          adminUserId: 'x-admin',
+          followedUpAt: new Date('2026-11-21T08:00:00.000Z'),
+          followedUpByUserId: 'x-followed',
+          followedUpByEmail: 'x-admin@example.org',
+          shiftBookingId: 'x-booking',
+        }),
+      ])
+      const result = await service.schedule(RIDER, at)
+      expect(Object.keys(result.offlineRecords[0]!).sort()).toEqual(['id', 'noEffect', 'offlineAt', 'sentence'])
+      expect(JSON.stringify(result.offlineRecords)).not.toMatch(/x-|followedUp|otherCourierId/)
+    })
+
+    it.each([
+      ['RIDER', 'you switched to Offline'],
+      ['ADMIN', 'an admin set you Offline'],
+      ['CUT_OFF', 'your sessions were ended by a password change'],
+      ['LAST_CALL_ACCEPTED', 'you went Offline after your Last Call job'],
+      ['SYSTEM_START', 'the system set you Offline'],
+    ])('the sentence says the cause %s in plain words', async (cause, words) => {
+      bookings.ownOfflineRecords.mockResolvedValue([ownRecord({ cause })])
+      const result = await service.schedule(RIDER, at)
+      const sentence = result.offlineRecords[0]!.sentence
+      expect(sentence).toBe(`You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00: ${words}.`)
+      // Plain words, never the stored code.
+      expect(sentence).not.toContain(cause)
+    })
+
+    it('a record with no cause still gives the time and the shift', async () => {
+      bookings.ownOfflineRecords.mockResolvedValue([ownRecord({ cause: null })])
+      const result = await service.schedule(RIDER, at)
+      expect(result.offlineRecords[0]!.sentence).toBe(
+        'You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00.'
+      )
+    })
+
+    it('keeps the order the repository gave (newest first) and gives every record the no effect line', async () => {
+      bookings.ownOfflineRecords.mockResolvedValue([
+        ownRecord({ id: 'newer', offlineAt: new Date('2026-11-20T20:30:00.000Z') }),
+        ownRecord({ id: 'older' }),
+      ])
+      const result = await service.schedule(RIDER, at)
+      expect(result.offlineRecords.map((r) => r.id)).toEqual(['newer', 'older'])
+      expect(result.offlineRecords[0]!.sentence).toContain('You went Offline at 22:30')
+      for (const record of result.offlineRecords) {
+        expect(record.noEffect).toBe('This changes nothing about your offers or pay.')
+      }
+    })
+
+    it('with shifts off the schedule is refused before any record is read', async () => {
+      instanceConfig.getShiftsEnabled.mockResolvedValue(false)
+      await expect(service.schedule(RIDER, at)).rejects.toThrow()
+      expect(bookings.ownOfflineRecords).not.toHaveBeenCalled()
     })
   })
 
