@@ -40,4 +40,15 @@ export class OfferReasonRepository extends EntityRepository {
     // agy review: the id breaks a tie between two reasons written in the same millisecond.
     return this.prisma.offerReason.findMany({ where: { deliveryId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })
   }
+
+  // Spec 0045 (AC-1, cross check 4): the reason a rider read for their own job: the latest one for this
+  // rider and delivery written up to `upTo` (their accept). Never selects `candidates` (AC-5): other
+  // riders' figures must not even be loaded on a courier path.
+  async findOwnLatest(courierId: string, deliveryId: string, upTo: Date) {
+    return this.prisma.offerReason.findFirst({
+      where: { courierId, deliveryId, createdAt: { lte: upTo } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { strategy: true, kind: true, values: true, weights: true },
+    })
+  }
 }

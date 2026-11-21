@@ -170,6 +170,7 @@ describe('Earnings Privacy (spec 0042 AC-11, AC-12)', () => {
 
   test('toEarningsDeliveryDto never contains forbidden address fields or message anywhere in its response object tree', () => {
     const mockDetail: EarningsDeliveryDetail = {
+      whyYou: null,
       deliveryId: 'del-priv-detail',
       currencyCode: 'EUR',
       pickupName: 'Taverna Nosh',

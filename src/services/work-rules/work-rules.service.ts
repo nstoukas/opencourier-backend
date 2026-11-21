@@ -76,7 +76,7 @@ export function fairnessSentences(
     `Each order is offered among the ${settings.fairnessCandidateLimit} nearest free riders who are Online or on Last Call, within ${distance} of the restaurant.`,
     `Among them, the co-op weighs three things: road time to the restaurant (weight ${settings.fairnessWeightRoadTime}), what the co-op has paid you per hour online today (weight ${settings.fairnessWeightEarnings}, the less you have earned, the sooner you are offered), and how long you have waited since your last job (weight ${settings.fairnessWeightWaiting}, the longer, the sooner).`,
     `Until you have been online ${settings.fairnessMinOnlineMinutes} minutes today, your pay per hour counts as the co-op's average. Tips never affect who gets offers, and the day starts again at midnight.`,
-    'Each offer records the figures that chose its rider; a representative can show you them for any of your offers.',
+    'Each offer records the figures that chose its rider. See why a job came to you on its page in Earnings.',
   ]
 }
 

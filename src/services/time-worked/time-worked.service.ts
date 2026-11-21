@@ -1,3 +1,5 @@
+import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
+import { WhyYou, whyYouFrom } from 'src/domains/matching/why-you'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { EnumCourierCompensationReason, EnumCourierStatus } from '@prisma/types'
 import { INSTANCE_TIMEZONE } from 'src/constants'
@@ -62,6 +64,8 @@ export interface EarningsView {
 export interface EarningsDeliveryDetail {
   deliveryId: string
   currencyCode: string
+  // Spec 0045: why this job came to the rider, own figures only; null before spec 0044 or on a failed write.
+  whyYou: WhyYou | null
   pickupName: string
   dropoffArea: string | null
   paidKm: number
@@ -215,7 +219,9 @@ export class TimeWorkedService {
 
   constructor(
     private readonly timeWorkedRepository: TimeWorkedRepository,
-    private readonly configDomainService: ConfigDomainService
+    private readonly configDomainService: ConfigDomainService,
+    // Spec 0045: last and optional for TypeScript only, like decision 12.6; Nest always injects it.
+    private readonly offerReasonRepository?: OfferReasonRepository
   ) {}
 
   private async settings() {
@@ -426,10 +432,14 @@ export class TimeWorkedService {
     const last = held[held.length - 1]
     if (!last || dateOf(last.acceptedAt) < reachFrom) throw notFound()
 
-    const [pay, events, settings] = await Promise.all([
+    // Spec 0045 (AC-1, cross check 4): the reason for the offer this rider accepted last, read up to their
+    // accept (a minute's grace for a tap whose time was set on the phone). Own figures only (AC-5).
+    const upTo = new Date(last.acceptedAt.getTime() + 60_000)
+    const [pay, events, settings, ownReason] = await Promise.all([
       this.timeWorkedRepository.findDeliveryPay(deliveryId),
       this.timeWorkedRepository.findTimelineEvents(deliveryId),
       this.settings(),
+      this.offerReasonRepository ? this.offerReasonRepository.findOwnLatest(courierId, deliveryId, upTo) : null,
     ])
     if (!pay) throw notFound()
 
@@ -460,6 +470,7 @@ export class TimeWorkedService {
     return {
       deliveryId,
       currencyCode: settings.currencyCode,
+      whyYou: whyYouFrom(ownReason),
       pickupName: pay.pickupName,
       dropoffArea: pay.dropoffArea,
       paidKm: pay.paidKm,

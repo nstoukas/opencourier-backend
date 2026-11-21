@@ -115,7 +115,19 @@ export class EarningsTimelineLineDto {
   @ApiProperty({ type: Boolean, description: 'Another rider took it; never says who' }) anotherRider: boolean
 }
 
+// Spec 0045 (AC-1): why this job came to the rider. Own raw figures only; never another rider's.
+export class EarningsWhyYouDto {
+  // FAIRNESS, NEAREST_COURIER, COURIER_SENIORITY, STATIC or ADMIN.
+  @ApiProperty({ type: String }) strategy: string
+  // SINGLE today; spec 0048 adds STACK and ADD_ON.
+  @ApiProperty({ type: String }) kind: string
+  @ApiProperty({ type: Object }) values: Record<string, number | boolean | string | null>
+  @ApiProperty({ type: Object }) weights: Record<string, number>
+  @ApiProperty({ type: Boolean }) estimated: boolean
+}
+
 export class EarningsDeliveryDto {
+  @ApiProperty({ type: () => EarningsWhyYouDto, nullable: true }) whyYou: EarningsWhyYouDto | null
   @ApiProperty({ type: String }) deliveryId: string
   @ApiProperty({ type: String }) currencyCode: string
   @ApiProperty({ type: String }) pickupName: string
@@ -204,6 +216,16 @@ export function toEarningsMonthDto(view: EarningsView & { month: string; reachFr
 
 export function toEarningsDeliveryDto(detail: EarningsDeliveryDetail): EarningsDeliveryDto {
   return {
+    // Field by field again: nothing beyond the allow list in why-you.ts reaches the rider.
+    whyYou: detail.whyYou
+      ? {
+          strategy: detail.whyYou.strategy,
+          kind: detail.whyYou.kind,
+          values: { ...detail.whyYou.values },
+          weights: { ...detail.whyYou.weights },
+          estimated: detail.whyYou.estimated,
+        }
+      : null,
     deliveryId: detail.deliveryId,
     currencyCode: detail.currencyCode,
     pickupName: detail.pickupName,

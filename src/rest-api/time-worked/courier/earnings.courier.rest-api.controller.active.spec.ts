@@ -114,6 +114,7 @@ describe('EarningsCourierRestApiController (spec 0042 AC-6, AC-17)', () => {
 
     test('delivery delegates to timeWorkedService.deliveryDetail with courier.id and deliveryId', async () => {
       mockTimeWorkedService.deliveryDetail.mockResolvedValue({
+        whyYou: null,
         deliveryId: 'del-999',
         pickupName: 'Souvlaki Bar',
         dropoffArea: 'Downtown',
