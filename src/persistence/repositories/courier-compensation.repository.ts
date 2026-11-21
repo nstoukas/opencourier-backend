@@ -52,6 +52,21 @@ export class CourierCompensationRepository extends EntityRepository implements I
     }
   }
 
+  // Spec 0047 (AC-3): the wait while dispatch split the order, paid once per split request.
+  async createSplitWaitPayOnce(
+    input: ICourierCompensationCreateInput & { splitWaitOf: string }
+  ): Promise<CourierCompensation> {
+    try {
+      return await this.create(input)
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.prisma.courierCompensation.findUnique({ where: { splitWaitOf: input.splitWaitOf } })
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
+
   // Writes a removal's pay once (spec 0035). A second writer gets the row that is already there.
   async createRemovalPayOnce(
     input: ICourierCompensationCreateInput & { removalOf: string }

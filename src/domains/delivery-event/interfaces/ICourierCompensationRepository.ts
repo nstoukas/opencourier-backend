@@ -18,6 +18,8 @@ export interface ICourierCompensationCreateInput {
   removalOf?: string
   // Set only on a RETURN_TRIP row (spec 0035): the delivery id.
   returnOf?: string
+  // Set only on the WAITING row for a split wait (spec 0047): the split request's id.
+  splitWaitOf?: string
 }
 
 export interface ICourierCompensationRepository {

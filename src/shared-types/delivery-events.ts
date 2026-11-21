@@ -213,6 +213,40 @@ export interface DeliveryBoxOverCapacityConfirmedEvent extends BaseDeliveryEvent
   type: typeof EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED
   courierId: string
 }
+// Spec 0047: split at pickup. Written by DeliveryEventService.recordSplitEvent with the old status equal to
+// the new, never through processDeliveryEvent. The request, the answer and the close name the rider;
+// the restaurant's charge and its voiding do not depend on who rode. A message names the legs and sizes,
+// never the admin's sentence.
+export interface DeliverySplitRequestedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.SPLIT_REQUESTED
+  courierId: string
+}
+export interface DeliverySplitConfirmedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.SPLIT_CONFIRMED
+  courierId: string
+}
+export interface DeliverySplitRefusedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.SPLIT_REFUSED
+  courierId: string
+}
+export interface DeliverySplitClosedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.SPLIT_CLOSED
+  courierId: string
+}
+export interface DeliveryPartnerChargedForSplitEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.PARTNER_CHARGED_FOR_SPLIT
+}
+export interface DeliveryPartnerSplitChargeVoidedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED
+}
+export type DeliverySplitEvent =
+  | DeliverySplitRequestedEvent
+  | DeliverySplitConfirmedEvent
+  | DeliverySplitRefusedEvent
+  | DeliverySplitClosedEvent
+  | DeliveryPartnerChargedForSplitEvent
+  | DeliveryPartnerSplitChargeVoidedEvent
+
 export type DeliveryBoxEvent =
   | DeliveryBoxSizeAssumedEvent
   | DeliveryBoxSizeChangedEvent
@@ -278,6 +312,7 @@ export type DeliveryEvent =
   | DeliveryRemovalEvent
   | DeliveryReviewEvent
   | DeliveryBoxEvent
+  | DeliverySplitEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

@@ -25,6 +25,7 @@ import { DeliveryIssueRepository } from './repositories/delivery-issue.repositor
 import { DispatchBoardRepository } from './repositories/dispatch-board.repository'
 import { SavedCustomerRepository } from './repositories/saved-customer.repository'
 import { RemovalRequestRepository } from './repositories/removal-request.repository'
+import { SplitRequestRepository } from './repositories/split-request.repository'
 import { SettingChangeRepository } from './repositories/setting-change.repository'
 import { TimeWorkedRepository } from './repositories/time-worked.repository'
 import { ReviewRequestRepository } from './repositories/review-request.repository'
@@ -60,6 +61,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SavedCustomerRepository,
     SosIncidentRepository,
     RemovalRequestRepository,
+    SplitRequestRepository,
     SettingChangeRepository,
     TimeWorkedRepository,
     ReviewRequestRepository,
@@ -93,6 +95,7 @@ import { ChatRepository } from './repositories/chat.repository'
     SavedCustomerRepository,
     SosIncidentRepository,
     RemovalRequestRepository,
+    SplitRequestRepository,
     SettingChangeRepository,
     TimeWorkedRepository,
     ReviewRequestRepository,

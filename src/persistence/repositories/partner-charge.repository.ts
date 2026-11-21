@@ -52,6 +52,28 @@ export class PartnerChargeRepository extends EntityRepository {
     }
   }
 
+  // Spec 0047 (AC-3): the split wait's charge, once per split request.
+  async createSplitWaitChargeOnce(input: IPartnerChargeCreateInput & { splitWaitOf: string }): Promise<PartnerCharge> {
+    try {
+      return await this.prisma.partnerCharge.create({ data: input })
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) {
+        const existing = await this.prisma.partnerCharge.findUnique({ where: { splitWaitOf: input.splitWaitOf } })
+        if (existing) return existing
+      }
+      throw error
+    }
+  }
+
+  // Spec 0047 (cross check 5): a new leg's charge is taken back when the leg ends without ever being
+  // accepted, unless it was already billed (then it stays, and the caller says so). The row, or null.
+  async deleteUnbilledSplitLegCharge(legDeliveryId: string): Promise<PartnerCharge | null> {
+    const charge = await this.prisma.partnerCharge.findUnique({ where: { splitLegOf: legDeliveryId } })
+    if (!charge || charge.billId) return null
+    const removed = await this.prisma.partnerCharge.deleteMany({ where: { id: charge.id, billId: null } })
+    return removed.count === 1 ? charge : null
+  }
+
   // Spec 0035: one approved removal's charge, once.
   async createRemovalChargeOnce(input: IPartnerChargeCreateInput & { removalOf: string }): Promise<PartnerCharge> {
     try {
