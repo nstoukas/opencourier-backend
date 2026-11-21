@@ -433,8 +433,9 @@ export class TimeWorkedService {
     if (!last || dateOf(last.acceptedAt) < reachFrom) throw notFound()
 
     // Spec 0045 (AC-1, cross check 4): the reason for the offer this rider accepted last, read up to their
-    // accept (a minute's grace for a tap whose time was set on the phone). Own figures only (AC-5).
-    const upTo = new Date(last.acceptedAt.getTime() + 60_000)
+    // accept (five seconds' grace for rounding; review fix: a minute could pick a later offer that was never
+    // accepted). The reason is written before the offer is sent, so it always precedes the tap. Own figures only (AC-5).
+    const upTo = new Date(last.acceptedAt.getTime() + 5_000)
     const [pay, events, settings, ownReason] = await Promise.all([
       this.timeWorkedRepository.findDeliveryPay(deliveryId),
       this.timeWorkedRepository.findTimelineEvents(deliveryId),

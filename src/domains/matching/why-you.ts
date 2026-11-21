@@ -52,6 +52,10 @@ export function whyYouFrom(reason: StoredOfferReason | null): WhyYou | null {
     const value = stored[key]
     if (isPlainValue(value)) values[key] = value
   }
+  // Review fix (AC-5): when the rider's pay counted as the co-op average (or counted equal for all), the
+  // stored centsPerHour is that average, made of other riders' pay (with one qualifying rider, exactly
+  // theirs). It is never sent then; the flags say what counted.
+  if (stored.earningsAssumed === true || stored.earningsEqual === true) delete values.centsPerHour
   const storedWeights = (reason.weights ?? {}) as Record<string, unknown>
   const weights: Record<string, number> = {}
   for (const key of WEIGHT_ORDER) {

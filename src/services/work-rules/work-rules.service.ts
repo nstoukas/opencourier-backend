@@ -150,7 +150,8 @@ export class WorkRulesService {
     const offers = [
       ...(settings.courierMatcherType === EnumCourierMatcherType.FAIRNESS
         ? fairnessSentences(settings, distance)
-        : [matcher(distance)]),
+        : // Review fix (AC-4): every matcher records why; the link back is not the fairness matcher's alone.
+          [matcher(distance), 'See why a job came to you on its page in Earnings.']),
       'A rider already on a job gets no second offer.',
       settings.offerExpiryEnabled
         ? `You have ${settings.offerExpirySeconds} seconds to answer an offer; then it goes to the next rider.`
