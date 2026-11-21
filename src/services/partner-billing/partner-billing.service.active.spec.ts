@@ -47,6 +47,8 @@ describe('PartnerBillingService (Spec 0036, AC-1 to AC-14)', () => {
     billId: null,
     waitOf: null,
     removalOf: null,
+    // Spec 0047: null unless the row is a split wait's charge.
+    splitWaitOf: null,
     waitMinutes: null,
     partner: { name: 'Nosh' },
     delivery: { orderReference: 'ORD-101', cancelledAt: new Date('2026-11-10T11:55:00Z') },

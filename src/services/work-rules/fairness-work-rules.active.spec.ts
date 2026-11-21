@@ -63,6 +63,8 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    // Spec 0047: the split answer time is a setting too.
+    splitAnswerMinutes: 10,
     shiftBreakMinutes: 30,
     returnTripPayPercent: 100,
     chatQuickRepliesDispatch: ['Preset 1'],

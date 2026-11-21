@@ -1714,6 +1714,8 @@ describe('DeliveryDomainService', () => {
       it('returns wait rules with payOn false when delay pay is off', async () => {
         const config = (mockConfigDomainService as any).instanceConfig
         config.getWaitLimitMinutes = jest.fn().mockResolvedValue(10)
+        // Spec 0047: the rules now carry the split answer time too.
+        config.getSplitAnswerMinutes = jest.fn().mockResolvedValue(7)
         config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(10)
         config.getWaitPayEnabled = jest.fn().mockResolvedValue(false)
         config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(15)
@@ -1723,12 +1725,15 @@ describe('DeliveryDomainService', () => {
           leaveMinutes: 10,
           freeMinutes: 10,
           payOn: false,
+          splitAnswerMinutes: 7,
         })
       })
 
       it('returns wait rules with payOn false when rate is 0', async () => {
         const config = (mockConfigDomainService as any).instanceConfig
         config.getWaitLimitMinutes = jest.fn().mockResolvedValue(15)
+        // Spec 0047: the rules now carry the split answer time too.
+        config.getSplitAnswerMinutes = jest.fn().mockResolvedValue(7)
         config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(5)
         config.getWaitPayEnabled = jest.fn().mockResolvedValue(true)
         config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(0)
@@ -1738,12 +1743,15 @@ describe('DeliveryDomainService', () => {
           leaveMinutes: 15,
           freeMinutes: 5,
           payOn: false,
+          splitAnswerMinutes: 7,
         })
       })
 
       it('returns wait rules with payOn true when enabled and rate > 0', async () => {
         const config = (mockConfigDomainService as any).instanceConfig
         config.getWaitLimitMinutes = jest.fn().mockResolvedValue(10)
+        // Spec 0047: the rules now carry the split answer time too.
+        config.getSplitAnswerMinutes = jest.fn().mockResolvedValue(7)
         config.getWaitPayFreeMinutes = jest.fn().mockResolvedValue(10)
         config.getWaitPayEnabled = jest.fn().mockResolvedValue(true)
         config.getWaitPayCentsPerMinute = jest.fn().mockResolvedValue(10)
@@ -1753,6 +1761,7 @@ describe('DeliveryDomainService', () => {
           leaveMinutes: 10,
           freeMinutes: 10,
           payOn: true,
+          splitAnswerMinutes: 7,
         })
       })
     })

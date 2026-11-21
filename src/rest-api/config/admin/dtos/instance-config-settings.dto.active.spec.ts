@@ -56,6 +56,8 @@ describe('InstanceConfigSettingsDto', () => {
     waitPayFreeMinutes: 5,
     waitPayCentsPerMinute: 10,
     waitLimitMinutes: 10,
+    // Spec 0047: the split answer time is a setting too.
+    splitAnswerMinutes: 10,
     shiftBreakMinutes: 30,
     returnTripPayPercent: 100,
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],

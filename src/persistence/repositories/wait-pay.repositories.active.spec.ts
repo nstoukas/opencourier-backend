@@ -215,6 +215,11 @@ describe('Repositories for Wait Pay (Spec 0033 AC-3, AC-4, AC-8)', () => {
               EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
               ...WAIT_END_EVENTS,
               ...HAND_OVER_EVENTS,
+              // Spec 0047 (cross check 2): the split events, so the split window is left out of the wait.
+              EnumDeliveryEventType.SPLIT_REQUESTED,
+              EnumDeliveryEventType.SPLIT_CONFIRMED,
+              EnumDeliveryEventType.SPLIT_REFUSED,
+              EnumDeliveryEventType.SPLIT_CLOSED,
             ],
           },
         },

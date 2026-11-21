@@ -71,6 +71,8 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         'services/delivery-event/delivery-event.service.ts',
         'services/pushNotification/offer-push.service.ts',
         'shared-types/notification.ts',
+        // Spec 0047 (cross check 10): a leg made by a split is created ready (the food is there).
+        'services/split-request/split-request.service.ts',
       ].sort()
     )
   })
