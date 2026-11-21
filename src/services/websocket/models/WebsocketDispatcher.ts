@@ -8,6 +8,7 @@ import {
   JobReadyUpdatedMessage,
   OfferEndedMessage,
   RemovalRequestDecidedMessage,
+  SplitRequestDecidedMessage,
 } from 'src/shared-types/notification'
 
 export abstract class WebsocketDispatcher {
@@ -24,6 +25,8 @@ export abstract class WebsocketDispatcher {
   abstract sendJobReadyUpdated(courierUserId: string, message: JobReadyUpdatedMessage): Promise<void> | void
   // Tells a rider dispatch's answer to their removal request (spec 0035).
   abstract sendRemovalRequestDecided(courierUserId: string, message: RemovalRequestDecidedMessage): Promise<void> | void
+  // Tells a rider dispatch's answer to their split request (spec 0047).
+  abstract sendSplitRequestDecided(courierUserId: string, message: SplitRequestDecidedMessage): Promise<void> | void
   // Chat (spec 0034): a message in this rider's thread, and dispatch reading it (AC-6, AC-8).
   abstract sendChatMessageToCourier(courierUserId: string, message: ChatMessageToCourier): Promise<void> | void
   abstract sendChatReadByDispatch(courierUserId: string, message: ChatReadByDispatchMessage): Promise<void> | void

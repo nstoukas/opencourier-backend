@@ -1,3 +1,4 @@
+import { EnumQuoteSource } from '@prisma/types'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { addMinutes } from 'src/core/utils/time'
 import { QuoteCalculationService } from '../quote-calculation/quote-calculation.service'
@@ -103,6 +104,13 @@ export class DeliveryCalculationService implements IDeliveryCalculationService {
     if (!quote) {
       this.logger.error(`Delivery quote not found: ${delivery.deliveryQuoteId}`)
       throw new BadRequestException('Delivery quote not found')
+    }
+
+    // Spec 0047 (cross check 4): a leg made by a split has a copied quote with customer price 0. The rider's
+    // pay is unchanged; the customer pays nothing more and the co-op takes no fee, so the fee is 0 rather
+    // than the negative number the line below would give.
+    if (quote.source === EnumQuoteSource.SPLIT) {
+      return { deliveryId, totalCompensation: courierCompensation, totalCost: 0, fee: 0, feePercentage: 0 }
     }
 
     return {

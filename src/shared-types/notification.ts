@@ -21,6 +21,8 @@ export enum NotificationEventType {
   JOB_READY_UPDATED = 'JOB_READY_UPDATED',
   // A rider's removal request was answered (spec 0035): the app refetches and shows the outcome.
   REMOVAL_REQUEST_DECIDED = 'REMOVAL_REQUEST_DECIDED',
+  // Spec 0047: dispatch confirmed or refused this rider's split request.
+  SPLIT_REQUEST_DECIDED = 'SPLIT_REQUEST_DECIDED',
   // Chat (spec 0034): a new message in a thread. To a rider it carries their message; to admins
   // (room `dispatch` on the `admins` namespace) the thread id and the message.
   CHAT_MESSAGE = 'CHAT_MESSAGE',
@@ -55,6 +57,17 @@ export interface JobReadyUpdatedMessage {
 
 // Spec 0035 (AC-11): what the rider is told when dispatch answers their request. `payAmount` is null
 // when the reason is not paid. `decisionNote` is dispatch's own sentence: never logged.
+// Spec 0047 (AC-7, cross check 12): dispatch's answer to a split request. On a confirm, the rider keeps leg
+// `legNumber` of `legCount` in the size `boxSize`; on a refusal, the admin's sentence, if any.
+export interface SplitRequestDecidedMessage {
+  deliveryId: string
+  outcome: 'CONFIRMED' | 'REFUSED'
+  adminNote: string | null
+  legNumber: number | null
+  legCount: number | null
+  boxSize: string | null
+}
+
 export interface RemovalRequestDecidedMessage {
   deliveryId: string
   outcome: 'APPROVED' | 'DECLINED'

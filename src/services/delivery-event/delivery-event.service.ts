@@ -16,7 +16,11 @@ import type {
 } from 'src/shared-types/delivery-events'
 import { splitWaitMinutes } from 'src/domains/split/split'
 import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
-import type { JobReadyUpdatedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
+import type {
+  JobReadyUpdatedMessage,
+  RemovalRequestDecidedMessage,
+  SplitRequestDecidedMessage,
+} from 'src/shared-types/notification'
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { OnEvent } from '@nestjs/event-emitter'
@@ -2441,6 +2445,20 @@ export class DeliveryEventService {
 
   // Spec 0035 (AC-11): tells the rider dispatch's answer, over the live connection and by push. Never
   // throws: the decision already happened and is on the record.
+  // Spec 0047 (AC-7, cross check 12): tells the rider dispatch's answer to their split request, over the live
+  // connection and by push. Never throws: the answer is already on the record.
+  async notifySplitDecided(courierId: string, message: SplitRequestDecidedMessage): Promise<void> {
+    try {
+      const courier = await this.courierRepository.findById(courierId)
+      if (courier?.userId) {
+        await this.websocketDispatcher.sendSplitRequestDecided(courier.userId, message)
+      }
+    } catch (error) {
+      this.logger.error(`Could not tell the rider of delivery ${message.deliveryId} the split outcome: ${error}`)
+    }
+    this.offerPushService.splitRequestDecided(courierId, message)
+  }
+
   async notifyRemovalDecided(courierId: string, message: RemovalRequestDecidedMessage): Promise<void> {
     try {
       const courier = await this.courierRepository.findById(courierId)

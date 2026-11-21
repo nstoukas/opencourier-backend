@@ -4,7 +4,13 @@ import { CHAT_PUSH_TTL_SECONDS, OFFER_INSIST_AFTER_SECONDS, PUSH_DEFAULT_TTL_SEC
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
-import { JobReadyUpdatedMessage, NotificationEventType, OfferEndedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
+import {
+  JobReadyUpdatedMessage,
+  NotificationEventType,
+  OfferEndedMessage,
+  RemovalRequestDecidedMessage,
+  SplitRequestDecidedMessage,
+} from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
 import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
@@ -119,6 +125,30 @@ export class OfferPushService {
 
   // A rider's removal request was answered (spec 0035, AC-11), to their own phones. Strings ('' for
   // unknown), as for jobReadyUpdated. Fire and forget, never throws; logs ids, never the sentence.
+  // Spec 0047 (cross check 12): dispatch's answer to a split request, as removal answers are sent. Data only.
+  splitRequestDecided(courierId: string, message: SplitRequestDecidedMessage): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendSplitRequestDecided(courierId, message).catch((error) =>
+      this.logger.error(`Split decided push for delivery ${message.deliveryId} failed: ${error}`)
+    )
+  }
+
+  async sendSplitRequestDecided(courierId: string, message: SplitRequestDecidedMessage): Promise<void> {
+    const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+    if (tokens.length === 0) return
+    const data: Record<string, string> = {
+      type: NotificationEventType.SPLIT_REQUEST_DECIDED,
+      deliveryId: message.deliveryId,
+      outcome: message.outcome,
+      adminNote: message.adminNote ?? '',
+      legNumber: message.legNumber === null ? '' : String(message.legNumber),
+      legCount: message.legCount === null ? '' : String(message.legCount),
+      boxSize: message.boxSize ?? '',
+    }
+    const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
+    await this.handleSendResult(message.deliveryId, NotificationEventType.SPLIT_REQUEST_DECIDED, result)
+  }
+
   removalRequestDecided(courierId: string, message: RemovalRequestDecidedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendRemovalRequestDecided(courierId, message).catch((error) =>
