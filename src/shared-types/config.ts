@@ -52,6 +52,8 @@ export type InstanceConfigSettings = {
   waitPayFreeMinutes: number
   waitPayCentsPerMinute: number
   waitLimitMinutes: number
+  // Spec 0047 (AC-2): minutes after a split flag before the rider may leave, if no admin answered.
+  splitAnswerMinutes: number
   // Time worked (spec 0040): the longest Offline that still counts as a break inside a shift.
   shiftBreakMinutes: number
   returnTripPayPercent: number
@@ -163,6 +165,7 @@ export enum ConfigKey {
   SHIFT_BREAK_MINUTES = 'shiftBreakMinutes',
   WAIT_PAY_CENTS_PER_MINUTE = 'waitPayCentsPerMinute',
   WAIT_LIMIT_MINUTES = 'waitLimitMinutes',
+  SPLIT_ANSWER_MINUTES = 'splitAnswerMinutes',
   RETURN_TRIP_PAY_PERCENT = 'returnTripPayPercent',
   BOX_UNITS_SMALL = 'boxUnitsSmall',
   BOX_UNITS_MEDIUM = 'boxUnitsMedium',

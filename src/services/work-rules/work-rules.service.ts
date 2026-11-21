@@ -189,6 +189,7 @@ export class WorkRulesService {
           } minutes are not paid, then each minute pays ${money(settings.waitPayCentsPerMinute)}.`
         : 'Waiting at a restaurant is not paid at the moment.',
       `You may leave a restaurant that is ${settings.waitLimitMinutes} minutes late.`,
+      `If an order does not fit one box, tell dispatch from the restaurant: you are paid while you wait for the split, and may leave after ${settings.splitAnswerMinutes} minutes without an answer.`,
       `If a job you accepted is cancelled, you are paid ${policy(settings.cancellationPayoutPolicy)}.`,
       `If a job is taken off you, you are usually paid ${policy(settings.reassignmentPayoutDefaultPolicy)}.`,
       `Taking food back to the restaurant after a cancellation pays ${settings.returnTripPayPercent}% of the order's distance pay.`,

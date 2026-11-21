@@ -45,6 +45,9 @@ model User {
   // Removal requests this admin approved or declined (spec 0035).
   removalRequestsDecided DeliveryRemovalRequest[]
 
+  // Split requests this admin answered (spec 0047).
+  splitRequestsAnswered SplitRequest[]
+
   // Chat messages this user wrote, as dispatch, a rider or a restaurant (spec 0034, chat).
   chatMessagesSent ChatMessage[]
 
@@ -120,6 +123,8 @@ model Courier {
   courierCompensations  CourierCompensation[]
   deliveryIssues        DeliveryIssue[]
   removalRequests       DeliveryRemovalRequest[]
+  // Split requests this rider sent (spec 0047).
+  splitRequests         SplitRequest[]
   // Events that name this rider (OFFERED, OFFER_EXPIRED), spec 0002. Read only on a
   // delivery's own timeline; never grouped by rider (binding value 5).
   deliveryEvents        DeliveryEvent[]
@@ -312,6 +317,8 @@ model DeliveryQuote {
   quoteRangeFrom Int
   quoteRangeTo   Int
   feePercentage  Float            @default(0)
+  // Spec 0047: PARTNER for a restaurant's own quote, SPLIT for a copy made for a new leg (price 0).
+  source         EnumQuoteSource  @default(PARTNER)
   // The two parts the rider is paid, in whole cents, fixed when the quote is made.
   baseFee        Int
   distanceFee    Int
@@ -485,6 +492,8 @@ model Delivery {
   courierCompensations CourierCompensation[]
   issues               DeliveryIssue[]
   removalRequests      DeliveryRemovalRequest[]
+  // Spec 0047: the rider's requests to split this order at pickup.
+  splitRequests        SplitRequest[]
   // Review requests about this delivery (spec 0038).
   reviewRequests       ReviewRequest[]
   partnerCharges       PartnerCharge[]
@@ -821,6 +830,15 @@ enum EnumDeliveryEventType {
   BOX_SIZE_ASSUMED
   BOX_SIZE_CHANGED
   BOX_OVER_CAPACITY_CONFIRMED
+  // Spec 0047: a rider flagged an order that does not fit one box, an admin confirmed or refused the
+  // split, the request closed another way (the rider left, or the delivery ended), and the restaurant
+  // was charged a new leg's rider pay (or that charge voided). No status change, never in STATE_MACHINE.
+  SPLIT_REQUESTED
+  SPLIT_CONFIRMED
+  SPLIT_REFUSED
+  SPLIT_CLOSED
+  PARTNER_CHARGED_FOR_SPLIT
+  PARTNER_SPLIT_CHARGE_VOIDED
 }
 
 // Spec 0043: the size of an order's bag, picked by the restaurant. Co-op settings map each size to
@@ -924,6 +942,50 @@ enum EnumPartnerChargeReason {
   CANCELLATION
   WAITING
   REMOVAL
+  // Spec 0047: a new leg's full rider pay, made when an admin split an order that did not fit one box.
+  SPLIT_LEG
+}
+
+// Spec 0047: a split request's life. OPEN until an admin confirms or refuses it, the rider leaves after
+// the limit (LEFT), or the delivery ends or the rider is taken off another way (VOID).
+enum EnumSplitRequestStatus {
+  OPEN
+  CONFIRMED
+  REFUSED
+  LEFT
+  VOID
+}
+
+// Spec 0047: where a quote came from. A SPLIT quote is a copy made for a new leg: same distance and
+// rider pay, customer price 0, so nothing is billed to the customer twice.
+enum EnumQuoteSource {
+  PARTNER
+  SPLIT
+}
+
+// Spec 0047 (row 11): a rider at the restaurant flags an order that does not fit one box and proposes
+// the legs; an admin confirms (possibly changed) or refuses. The one human exception queue.
+model SplitRequest {
+  id             String                 @id @default(cuid())
+  deliveryId     String
+  delivery       Delivery               @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  courierId      String
+  courier        Courier                @relation(fields: [courierId], references: [id])
+  // [{ boxSize }] per leg, the rider's proposal and the legs the admin confirmed.
+  proposedLegs   Json
+  finalLegs      Json?
+  status         EnumSplitRequestStatus @default(OPEN)
+  // The delivery id while OPEN, null otherwise: one open request per delivery (removal requests' pattern).
+  openFor        String?                @unique
+  createdAt      DateTime               @default(now())
+  answeredAt     DateTime?
+  answeredByUserId String?
+  answeredBy     User?                  @relation(fields: [answeredByUserId], references: [id], onDelete: SetNull)
+  // The admin's sentence with a refusal, shown to the rider. Never logged.
+  adminNote      String?                @postgres.VarChar(300)
+
+  @@index([status, createdAt])
+  @@index([deliveryId, createdAt])
 }
 
 // Spec 0035: the co-op's list of reasons a rider can give for asking off an order. Whether each
@@ -1002,6 +1064,10 @@ model PartnerCharge {
   waitOf       String?                 @unique
   // The request's id on a REMOVAL row (spec 0035): one approved removal bills once.
   removalOf    String?                 @unique
+  // Spec 0047: the new leg's delivery id on a SPLIT_LEG row (one leg bills once), and the split request's
+  // id on a WAITING row for the wait while dispatch split the order (one split wait bills once).
+  splitLegOf   String?                 @unique
+  splitWaitOf  String?                 @unique
   delivery     Delivery                @relation(fields: [deliveryId], references: [id])
   amount       Int // cents
   currencyCode String                  @postgres.VarChar(255)
@@ -1087,6 +1153,8 @@ model CourierCompensation {
   returnOf       String?                       @unique
   // The review request's id on a REVIEW row (spec 0038): one review pays at most once.
   reviewOf       String?                       @unique
+  // Spec 0047: the split request's id on the WAITING row for the wait while dispatch split the order.
+  splitWaitOf    String?                       @unique
   // On a WAITING row: the minutes paid for (spec 0036). Null otherwise, and on an old row whose
   // message could not be read.
   waitMinutes    Int?

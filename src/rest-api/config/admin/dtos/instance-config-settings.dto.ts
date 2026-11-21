@@ -114,6 +114,10 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   waitLimitMinutes: number
 
+  // Spec 0047 (AC-2).
+  @ApiProperty({ type: Number })
+  splitAnswerMinutes: number
+
   @ApiProperty({ type: Number })
   returnTripPayPercent: number
 
@@ -229,6 +233,7 @@ export class InstanceConfigSettingsDto {
     this.shiftBreakMinutes = data.shiftBreakMinutes
     this.waitPayCentsPerMinute = data.waitPayCentsPerMinute
     this.waitLimitMinutes = data.waitLimitMinutes
+    this.splitAnswerMinutes = data.splitAnswerMinutes
     this.returnTripPayPercent = data.returnTripPayPercent
     this.boxUnitsSmall = data.boxUnitsSmall
     this.boxUnitsMedium = data.boxUnitsMedium

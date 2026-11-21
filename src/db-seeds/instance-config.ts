@@ -15,6 +15,7 @@ import {
   DEFAULT_NO_COURIER_RETRY_SECONDS,
   DEFAULT_OFFER_EXPIRY_ENABLED,
   DEFAULT_WAIT_LIMIT_MINUTES,
+  DEFAULT_SPLIT_ANSWER_MINUTES,
   DEFAULT_RETURN_TRIP_PAY_PERCENT,
   DEFAULT_BOX_UNITS_SMALL,
   DEFAULT_BOX_UNITS_MEDIUM,
@@ -104,6 +105,7 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     shiftBreakMinutes: DEFAULT_SHIFT_BREAK_MINUTES,
     waitPayCentsPerMinute: DEFAULT_WAIT_PAY_CENTS_PER_MINUTE,
     waitLimitMinutes: DEFAULT_WAIT_LIMIT_MINUTES,
+    splitAnswerMinutes: DEFAULT_SPLIT_ANSWER_MINUTES,
     returnTripPayPercent: DEFAULT_RETURN_TRIP_PAY_PERCENT,
     // Spec 0043: placeholders until the field study (row 7).
     boxUnitsSmall: DEFAULT_BOX_UNITS_SMALL,

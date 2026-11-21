@@ -125,6 +125,10 @@ export const WAIT_PAY_CENTS_PER_MINUTE_MAX = 200
 export const DEFAULT_WAIT_LIMIT_MINUTES = 10
 export const WAIT_LIMIT_MINUTES_MIN = 1
 export const WAIT_LIMIT_MINUTES_MAX = 60
+// Spec 0047 (AC-2): minutes after a split flag before the rider may leave, if no admin answered.
+export const DEFAULT_SPLIT_ANSWER_MINUTES = 10
+export const SPLIT_ANSWER_MINUTES_MIN = 1
+export const SPLIT_ANSWER_MINUTES_MAX = 60
 
 // Spec 0040 (AC-17): an Offline with no job shorter than this is a break inside the same worked shift;
 // this long or longer ends the shift. 0 means every Offline with no job ends it. A co-op setting.

@@ -1,4 +1,4 @@
-import { DeliveryQuote, EnumDistanceUnit } from '@prisma/types'
+import { DeliveryQuote, EnumDistanceUnit, EnumQuoteSource } from '@prisma/types'
 
 export class DeliveryQuoteEntity implements DeliveryQuote {
   id: string
@@ -6,6 +6,8 @@ export class DeliveryQuoteEntity implements DeliveryQuote {
   quoteRangeFrom: number
   quoteRangeTo: number
   feePercentage: number
+  // Spec 0047: PARTNER, or SPLIT for a new leg's copy (customer price 0, fee 0).
+  source: EnumQuoteSource
   // The two parts the rider is paid, in whole cents (spec 0001).
   baseFee: number
   distanceFee: number
@@ -44,6 +46,7 @@ export class DeliveryQuoteEntity implements DeliveryQuote {
     this.quoteRangeFrom = data.quoteRangeFrom
     this.quoteRangeTo = data.quoteRangeTo
     this.feePercentage = data.feePercentage
+    this.source = data.source ?? EnumQuoteSource.PARTNER
     this.baseFee = data.baseFee
     this.distanceFee = data.distanceFee
     this.currency = data.currency

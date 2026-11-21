@@ -44,6 +44,7 @@ export class InstanceConfigSettingsInput {
   shiftBreakMinutes?: number
   waitPayCentsPerMinute?: number
   waitLimitMinutes?: number
+  splitAnswerMinutes?: number
   returnTripPayPercent?: number
   boxUnitsSmall?: number
   boxUnitsMedium?: number

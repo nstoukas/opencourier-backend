@@ -26,6 +26,9 @@ import {
   DEFAULT_WAIT_PAY_FREE_MINUTES,
   WAIT_LIMIT_MINUTES_MAX,
   WAIT_LIMIT_MINUTES_MIN,
+  DEFAULT_SPLIT_ANSWER_MINUTES,
+  SPLIT_ANSWER_MINUTES_MAX,
+  SPLIT_ANSWER_MINUTES_MIN,
   DEFAULT_RETURN_TRIP_PAY_PERCENT,
   DEFAULT_BOX_UNITS_SMALL,
   DEFAULT_BOX_UNITS_MEDIUM,
@@ -210,6 +213,14 @@ export const NUMERIC_SETTING_RULES: {
     mustBeInteger: true,
     min: WAIT_LIMIT_MINUTES_MIN,
     max: WAIT_LIMIT_MINUTES_MAX,
+  },
+  {
+    // Spec 0047 (AC-2): 0 would let a rider leave the moment they flag a split.
+    key: 'splitAnswerMinutes',
+    whyZeroIsRefused: 'a rider could leave the moment they flag a split',
+    mustBeInteger: true,
+    min: SPLIT_ANSWER_MINUTES_MIN,
+    max: SPLIT_ANSWER_MINUTES_MAX,
   },
   {
     // Spec 0035: 0 stops paying the trip back, which is a real choice of the members.
@@ -470,6 +481,7 @@ export class InstanceConfigDomainService {
     const shiftBreakMinutes = await this.getShiftBreakMinutes()
     const waitPayCentsPerMinute = await this.getWaitPayCentsPerMinute()
     const waitLimitMinutes = await this.getWaitLimitMinutes()
+    const splitAnswerMinutes = await this.getSplitAnswerMinutes()
     const returnTripPayPercent = await this.getReturnTripPayPercent()
     const boxUnitsSmall = await this.getBoxUnitsSmall()
     const boxUnitsMedium = await this.getBoxUnitsMedium()
@@ -535,6 +547,7 @@ export class InstanceConfigDomainService {
       shiftBreakMinutes,
       waitPayCentsPerMinute,
       waitLimitMinutes,
+      splitAnswerMinutes,
       returnTripPayPercent,
       boxUnitsSmall,
       boxUnitsMedium,
@@ -876,6 +889,9 @@ export class InstanceConfigDomainService {
     }
     if (data.waitLimitMinutes !== undefined) {
       save(ConfigKey.WAIT_LIMIT_MINUTES, data.waitLimitMinutes)
+    }
+    if (data.splitAnswerMinutes !== undefined) {
+      save(ConfigKey.SPLIT_ANSWER_MINUTES, data.splitAnswerMinutes)
     }
     if (data.returnTripPayPercent !== undefined) {
       save(ConfigKey.RETURN_TRIP_PAY_PERCENT, data.returnTripPayPercent)
@@ -1379,6 +1395,16 @@ export class InstanceConfigDomainService {
       DEFAULT_WAIT_PAY_CENTS_PER_MINUTE,
       WAIT_PAY_CENTS_PER_MINUTE_MIN,
       WAIT_PAY_CENTS_PER_MINUTE_MAX
+    )
+  }
+
+  // Spec 0047 (AC-2): minutes after a split flag before the rider may leave.
+  async getSplitAnswerMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.SPLIT_ANSWER_MINUTES,
+      DEFAULT_SPLIT_ANSWER_MINUTES,
+      SPLIT_ANSWER_MINUTES_MIN,
+      SPLIT_ANSWER_MINUTES_MAX
     )
   }
 

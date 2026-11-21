@@ -128,6 +128,8 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     format: (value, context) => (isMissing(value) ? NO_VALUE : `${formatCents(value, context.currency)} per minute`),
   },
   waitLimitMinutes: { label: 'Minutes before you may leave a late restaurant', format: withUnit('minutes') },
+  // Spec 0047 (AC-2).
+  splitAnswerMinutes: { label: 'Minutes before you may leave an order dispatch has not split', format: withUnit('minutes') },
   // Spec 0040 (AC-13): 0 reads as its meaning, not as a length of break.
   shiftBreakMinutes: {
     label: 'Longest break inside one shift of time worked',
