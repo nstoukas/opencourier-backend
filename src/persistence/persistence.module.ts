@@ -16,6 +16,7 @@ import { DispatchStopRepository } from './repositories/dispatch-stop.repository'
 import { OfferReasonRepository } from './repositories/offer-reason.repository'
 import { PartnerAvailabilityChangeRepository } from './repositories/partner-availability-change.repository'
 import { ProductReportRepository } from './repositories/product-report.repository'
+import { ComplaintRepository } from './repositories/complaint.repository'
 import { ShiftSlotRepository } from './repositories/shift-slot.repository'
 import { ShiftBookingRepository } from './repositories/shift-booking.repository'
 import { CourierAccountRepository } from './repositories/courier-account.repository'
@@ -67,6 +68,7 @@ import { ChatRepository } from './repositories/chat.repository'
     ReviewRequestRepository,
     ChatRepository,
     PartnerBillingRepository,
+    ComplaintRepository,
   ],
   exports: [
     ConfigRepository,
@@ -101,6 +103,7 @@ import { ChatRepository } from './repositories/chat.repository'
     ReviewRequestRepository,
     ChatRepository,
     PartnerBillingRepository,
+    ComplaintRepository,
   ],
 })
 export class PersistenceModule {}
