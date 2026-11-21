@@ -47,6 +47,22 @@ export class ShiftBookingRepository extends EntityRepository {
     })
   }
 
+  // Spec 0049 (AC-2): which of these riders have a BOOKED booking covering `now` (startsAt <= now < endsAt).
+  // "Booked now" is all the matcher ever reads of bookings: never their history or events (AC-7).
+  async onShiftNow(courierIds: string[], now: Date): Promise<Set<string>> {
+    if (courierIds.length === 0) return new Set()
+    const rows = await this.prisma.shiftBooking.findMany({
+      where: {
+        courierId: { in: courierIds },
+        status: EnumShiftBookingStatus.BOOKED,
+        startsAt: { lte: now },
+        endsAt: { gt: now },
+      },
+      select: { courierId: true },
+    })
+    return new Set(rows.map((row) => row.courierId))
+  }
+
   // Open swaps by other riders on occurrences that have not started, oldest offer first.
   async openSwapsNotBy(courierId: string, now: Date): Promise<ShiftBooking[]> {
     return this.prisma.shiftBooking.findMany({

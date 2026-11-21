@@ -151,6 +151,8 @@ export const DEFAULT_BOX_DEFAULT_SIZE = 'MEDIUM'
 export const DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME = 50
 export const DEFAULT_FAIRNESS_WEIGHT_EARNINGS = 30
 export const DEFAULT_FAIRNESS_WEIGHT_WAITING = 20
+// Spec 0049 (row 79): the shift weight starts at 0, so nothing changes until the assembly sets it.
+export const DEFAULT_FAIRNESS_WEIGHT_SHIFT = 0
 export const FAIRNESS_WEIGHT_MIN = 0
 export const FAIRNESS_WEIGHT_MAX = 100
 export const DEFAULT_FAIRNESS_CANDIDATE_LIMIT = 10

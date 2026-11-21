@@ -69,6 +69,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     fairnessWeightRoadTime: 50,
     fairnessWeightEarnings: 30,
     fairnessWeightWaiting: 20,
+    fairnessWeightShift: 0,
     fairnessCandidateLimit: 10,
     fairnessMinOnlineMinutes: 30,
   }

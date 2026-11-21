@@ -7,8 +7,10 @@ import { ICourierMatcherService } from './interfaces/ICourierMatcherService'
 import { ICourierMatcherInput } from './interfaces/ICourierMatcherInput'
 import { ICourierMatcherResult } from './interfaces/ICourierMatcherResult'
 import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
+import { ShiftBookingRepository } from 'src/persistence/repositories/shift-booking.repository'
 import {
   FairnessCandidate,
+  FairnessWeights,
   coopMeanCentsPerHour,
   estimatedRoadSeconds,
   scoreCandidates,
@@ -29,22 +31,30 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     private readonly courierDomainService: CourierDomainService,
     private readonly configDomainService: ConfigDomainService,
     private readonly osrmRoutingService: OsrmRoutingService,
-    private readonly timeWorkedService: TimeWorkedService
+    private readonly timeWorkedService: TimeWorkedService,
+    // Spec 0049. Optional (`?`) only so older tests that build the matcher by hand keep compiling; Nest
+    // always injects it (decision 12.6's pattern).
+    private readonly shiftBookingRepository?: ShiftBookingRepository
   ) {}
 
   async findCourierForDelivery(input: ICourierMatcherInput): Promise<ICourierMatcherResult | null> {
     const { pickupLocation, rejectedCourierIds, boxUnits } = input
     const config = this.configDomainService.instanceConfig
     // Read at offer time, so a saved change applies to the next offer (AC-5).
-    const [maxDistanceInKM, limit, minOnlineMinutes, roadTime, earnings, waiting] = await Promise.all([
-      config.getMaxAssignmentDistanceInKM(),
-      config.getFairnessCandidateLimit(),
-      config.getFairnessMinOnlineMinutes(),
-      config.getFairnessWeightRoadTime(),
-      config.getFairnessWeightEarnings(),
-      config.getFairnessWeightWaiting(),
-    ])
-    const weights = { roadTime, earnings, waiting }
+    const [maxDistanceInKM, limit, minOnlineMinutes, roadTime, earnings, waiting, shiftsEnabled, shift] =
+      await Promise.all([
+        config.getMaxAssignmentDistanceInKM(),
+        config.getFairnessCandidateLimit(),
+        config.getFairnessMinOnlineMinutes(),
+        config.getFairnessWeightRoadTime(),
+        config.getFairnessWeightEarnings(),
+        config.getFairnessWeightWaiting(),
+        config.getShiftsEnabled(),
+        config.getFairnessWeightShift(),
+      ])
+    // Spec 0049 (AC-2, cross check 5): the shift weight joins only while shifts are on; off, it is out of
+    // the score, its sum and the recorded weights.
+    const weights: FairnessWeights = shiftsEnabled ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting }
 
     const inRange = await this.courierDomainService.getNearestAvailableCandidates(
       { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits },
@@ -71,6 +81,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       today = new Map()
       figuresKnown = false
     }
+    const onShift = shiftsEnabled ? await this.ridersOnShift(shortlist.map((c) => c.courierId), now) : null
     const minSeconds = minOnlineMinutes * 60
     // AC-3, cross check 3: the mean of the rates of every rider with enough time online today.
     const mean = coopMeanCentsPerHour(
@@ -100,6 +111,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
         earningsAssumed,
         earningsEqual: mean === null || !figuresKnown,
         waitingSeconds: Math.max(0, Math.round((now.getTime() - waitFrom) / 1000)),
+        ...(onShift ? { onShift: onShift.has(candidate.courierId) } : {}),
       }
     })
 
@@ -116,6 +128,8 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       earningsEqual: c.earningsEqual,
       waitingSeconds: c.waitingSeconds,
       straightMetres: c.straightMetres,
+      // Spec 0049 (AC-3): recorded only while shifts are on.
+      ...(c.onShift !== undefined ? { onShift: c.onShift } : {}),
       scaled: c.scaled,
       score: c.score,
     })
@@ -129,13 +143,26 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       travelSeconds: best.roadEstimated ? undefined : best.roadSeconds,
       reason: {
         strategy: EnumCourierMatcherType.FAIRNESS,
-        weights,
+        // The weights that applied: the shift weight only while shifts are on (spec 0049, AC-3).
+        weights: shiftsEnabled ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting },
         values,
         score: best.score,
         candidateCount: scored.length,
         ridersInRange: inRange.length,
         candidates: scored.map(describe),
       },
+    }
+  }
+
+  // Spec 0049 (AC-2): who among the shortlist is on a booked shift now. A failed read counts nobody as on
+  // shift, so the factor is equal for everyone and changes no one's place (logged, never thrown).
+  private async ridersOnShift(courierIds: string[], now: Date): Promise<Set<string>> {
+    if (!this.shiftBookingRepository) return new Set()
+    try {
+      return await this.shiftBookingRepository.onShiftNow(courierIds, now)
+    } catch (error) {
+      this.logger.error(`Booked shifts could not be read for the fairness matcher; nobody counts as on shift: ${error}`)
+      return new Set()
     }
   }
 

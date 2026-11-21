@@ -19,13 +19,17 @@ export interface FairnessCandidate {
   earningsEqual: boolean
   // Since the later of the rider's last job end today and the start of their current Online spell.
   waitingSeconds: number
+  // Spec 0049 (AC-2): on a BOOKED shift covering now. Set only while shifts are on and the weight applies.
+  onShift?: boolean
 }
 
 // The three core weights (AC-5), whole numbers 0 to 100. Only their ratio matters.
+// `shift` (spec 0049) is present only while shifts are on; absent, it is out of the score and its sum.
 export interface FairnessWeights {
   roadTime: number
   earnings: number
   waiting: number
+  shift?: number
 }
 
 // Each factor scaled 0 to 1 across the candidates; lower is better on every factor.
@@ -33,6 +37,7 @@ export interface FairnessScaled {
   roadTime: number
   earnings: number
   waiting: number
+  shift?: number
 }
 
 export interface ScoredCandidate extends FairnessCandidate {
@@ -98,14 +103,25 @@ export function scoreCandidates(candidates: FairnessCandidate[], weights: Fairne
         EARNINGS_DEAD_BAND_CENTS_PER_HOUR
       )
 
-  const weightSum = weights.roadTime + weights.earnings + weights.waiting
+  // Spec 0049 (AC-2, cross check 6): the shift factor is already 0 or 1 (0 on a booked shift), never
+  // scaled across the riders, so its weight moves a score by the same amount every time.
+  const shiftWeight = weights.shift
+  const weightSum = weights.roadTime + weights.earnings + weights.waiting + (shiftWeight ?? 0)
   const scored = candidates.map((candidate, index) => {
     // `?? 0`: the three lists have one entry per candidate; TypeScript cannot know that.
-    const scaled = { roadTime: road[index] ?? 0, earnings: earnings[index] ?? 0, waiting: waiting[index] ?? 0 }
+    const scaled: FairnessScaled = {
+      roadTime: road[index] ?? 0,
+      earnings: earnings[index] ?? 0,
+      waiting: waiting[index] ?? 0,
+    }
+    if (shiftWeight !== undefined) scaled.shift = candidate.onShift ? 0 : 1
     const score =
       weightSum === 0
         ? 0
-        : (weights.roadTime * scaled.roadTime + weights.earnings * scaled.earnings + weights.waiting * scaled.waiting) /
+        : (weights.roadTime * scaled.roadTime +
+            weights.earnings * scaled.earnings +
+            weights.waiting * scaled.waiting +
+            (shiftWeight ?? 0) * (scaled.shift ?? 0)) /
           weightSum
     return { ...candidate, scaled, score }
   })

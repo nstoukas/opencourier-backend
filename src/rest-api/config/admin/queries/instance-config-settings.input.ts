@@ -52,6 +52,7 @@ export class InstanceConfigSettingsInput {
   fairnessWeightRoadTime?: number
   fairnessWeightEarnings?: number
   fairnessWeightWaiting?: number
+  fairnessWeightShift?: number
   fairnessCandidateLimit?: number
   fairnessMinOnlineMinutes?: number
   savedCustomerRetentionMonths?: number

@@ -77,6 +77,7 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     fairnessWeightRoadTime: 50,
     fairnessWeightEarnings: 30,
     fairnessWeightWaiting: 20,
+    fairnessWeightShift: 0,
     fairnessCandidateLimit: 10,
     fairnessMinOnlineMinutes: 30,
   }

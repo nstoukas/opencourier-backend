@@ -64,6 +64,7 @@ export type InstanceConfigSettings = {
   fairnessWeightRoadTime: number
   fairnessWeightEarnings: number
   fairnessWeightWaiting: number
+  fairnessWeightShift: number
   fairnessCandidateLimit: number
   fairnessMinOnlineMinutes: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
@@ -170,6 +171,7 @@ export enum ConfigKey {
   FAIRNESS_WEIGHT_ROAD_TIME = 'fairnessWeightRoadTime',
   FAIRNESS_WEIGHT_EARNINGS = 'fairnessWeightEarnings',
   FAIRNESS_WEIGHT_WAITING = 'fairnessWeightWaiting',
+  FAIRNESS_WEIGHT_SHIFT = 'fairnessWeightShift',
   FAIRNESS_CANDIDATE_LIMIT = 'fairnessCandidateLimit',
   FAIRNESS_MIN_ONLINE_MINUTES = 'fairnessMinOnlineMinutes',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',

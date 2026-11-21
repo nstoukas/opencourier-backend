@@ -212,6 +212,12 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsOptional()
   @IsNumber()
   @RefuseIfNotSentAsNumber()
+  fairnessWeightShift?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
   fairnessCandidateLimit?: number
 
   @ApiProperty({ type: Number, required: false })

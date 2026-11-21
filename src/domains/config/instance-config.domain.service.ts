@@ -38,6 +38,7 @@ import {
   DEFAULT_FAIRNESS_WEIGHT_EARNINGS,
   DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME,
   DEFAULT_FAIRNESS_WEIGHT_WAITING,
+  DEFAULT_FAIRNESS_WEIGHT_SHIFT,
   FAIRNESS_CANDIDATE_LIMIT_MAX,
   FAIRNESS_CANDIDATE_LIMIT_MIN,
   FAIRNESS_MIN_ONLINE_MINUTES_MAX,
@@ -257,6 +258,15 @@ export const NUMERIC_SETTING_RULES: {
     min: FAIRNESS_WEIGHT_MIN,
     max: FAIRNESS_WEIGHT_MAX,
   },
+  // Spec 0049 (AC-1, cross check 5): the shift weight, 0 to 100, default 0. It never counts toward the
+  // "not all three at 0" rule, because it only applies while shifts are on.
+  {
+    key: 'fairnessWeightShift',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FAIRNESS_WEIGHT_MIN,
+    max: FAIRNESS_WEIGHT_MAX,
+  },
   {
     key: 'fairnessCandidateLimit',
     whyZeroIsRefused: 'no rider could be compared at all',
@@ -468,6 +478,7 @@ export class InstanceConfigDomainService {
     const fairnessWeightRoadTime = await this.getFairnessWeightRoadTime()
     const fairnessWeightEarnings = await this.getFairnessWeightEarnings()
     const fairnessWeightWaiting = await this.getFairnessWeightWaiting()
+    const fairnessWeightShift = await this.getFairnessWeightShift()
     const fairnessCandidateLimit = await this.getFairnessCandidateLimit()
     const fairnessMinOnlineMinutes = await this.getFairnessMinOnlineMinutes()
     const offerTimingEnabled = await this.getOfferTimingEnabled()
@@ -532,6 +543,7 @@ export class InstanceConfigDomainService {
       fairnessWeightRoadTime,
       fairnessWeightEarnings,
       fairnessWeightWaiting,
+      fairnessWeightShift,
       fairnessCandidateLimit,
       fairnessMinOnlineMinutes,
       offerTimingEnabled,
@@ -888,6 +900,9 @@ export class InstanceConfigDomainService {
     }
     if (data.fairnessWeightWaiting !== undefined) {
       save(ConfigKey.FAIRNESS_WEIGHT_WAITING, data.fairnessWeightWaiting)
+    }
+    if (data.fairnessWeightShift !== undefined) {
+      save(ConfigKey.FAIRNESS_WEIGHT_SHIFT, data.fairnessWeightShift)
     }
     if (data.fairnessCandidateLimit !== undefined) {
       save(ConfigKey.FAIRNESS_CANDIDATE_LIMIT, data.fairnessCandidateLimit)
@@ -1441,6 +1456,16 @@ export class InstanceConfigDomainService {
     return this.getWholeNumberInRange(
       ConfigKey.FAIRNESS_WEIGHT_WAITING,
       DEFAULT_FAIRNESS_WEIGHT_WAITING,
+      FAIRNESS_WEIGHT_MIN,
+      FAIRNESS_WEIGHT_MAX
+    )
+  }
+
+  // Spec 0049 (AC-1): the weight of being on a booked shift, used only while shifts are on.
+  async getFairnessWeightShift(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_WEIGHT_SHIFT,
+      DEFAULT_FAIRNESS_WEIGHT_SHIFT,
       FAIRNESS_WEIGHT_MIN,
       FAIRNESS_WEIGHT_MAX
     )

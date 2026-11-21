@@ -58,6 +58,8 @@ model User {
   settingChanges         SettingChange[]
   // Rider status changes this admin made, directly or through a password change (spec 0040).
   courierStatusChanges   CourierStatusChange[]
+  // Spec 0049: offline mid shift events this admin followed up.
+  shiftEventsFollowedUp  ShiftBookingEvent[]   @relation("ShiftEventFollowedUpBy")
 }
 
 model Comment {
@@ -1330,6 +1332,9 @@ enum EnumShiftBookingEventType {
   SWAP_OFFERED
   SWAP_WITHDRAWN
   SWAP_TAKEN
+  // Spec 0049 (row 79): still Offline past the break limit during this booked shift. A record both the
+  // rider and an admin see; nothing counts, ranks or reads it for matching or pay (value 5).
+  WENT_OFFLINE_MID_SHIFT
 }
 
 // Spec 0027 (row 78): a rider's booking of one occurrence of a weekly slot. Its date, times and the cap
@@ -1371,7 +1376,17 @@ model ShiftBookingEvent {
   otherCourierId String?
   createdAt      DateTime                  @default(now())
 
+  // Spec 0049, WENT_OFFLINE_MID_SHIFT only: the status change it came from (one event per change), its
+  // cause and time, and an admin's follow up in person.
+  courierStatusChangeId String?                       @unique
+  cause                 EnumCourierStatusChangeCause?
+  offlineAt             DateTime?
+  followedUpAt          DateTime?
+  followedUpByUserId    String?
+  followedUpBy          User?                         @relation("ShiftEventFollowedUpBy", fields: [followedUpByUserId], references: [id], onDelete: SetNull)
+
   @@index([shiftBookingId, createdAt])
+  @@index([type, followedUpAt])
 }
 
 // Spec 0034, chat. Who wrote a chat message. SYSTEM is a line the server writes (a rider report).

@@ -30,6 +30,8 @@ const OWN_KEYS: Record<string, string[]> = {
     'earningsEqual',
     'waitingSeconds',
     'straightMetres',
+    // Spec 0049 (AC-3): whether this rider was on a booked shift, recorded only while shifts are on.
+    'onShift',
   ],
   NEAREST_COURIER: ['straightMetres', 'roadSeconds'],
   COURIER_SENIORITY: ['memberSince'],

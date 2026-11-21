@@ -84,6 +84,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     fairnessWeightRoadTime: 50,
     fairnessWeightEarnings: 30,
     fairnessWeightWaiting: 20,
+    fairnessWeightShift: 0,
     fairnessCandidateLimit: 10,
     fairnessMinOnlineMinutes: 30,
   }

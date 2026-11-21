@@ -140,6 +140,9 @@ export class InstanceConfigSettingsDto {
   fairnessWeightWaiting: number
 
   @ApiProperty({ type: Number })
+  fairnessWeightShift: number
+
+  @ApiProperty({ type: Number })
   fairnessCandidateLimit: number
 
   @ApiProperty({ type: Number })
@@ -234,6 +237,7 @@ export class InstanceConfigSettingsDto {
     this.fairnessWeightRoadTime = data.fairnessWeightRoadTime
     this.fairnessWeightEarnings = data.fairnessWeightEarnings
     this.fairnessWeightWaiting = data.fairnessWeightWaiting
+    this.fairnessWeightShift = data.fairnessWeightShift
     this.fairnessCandidateLimit = data.fairnessCandidateLimit
     this.fairnessMinOnlineMinutes = data.fairnessMinOnlineMinutes
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths

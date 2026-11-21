@@ -153,6 +153,10 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     label: 'Weight of how long you have waited since your last job, when choosing who gets an offer',
     format: withUnit('of 100'),
   },
+  fairnessWeightShift: {
+    label: 'Weight of being on a booked shift, when choosing who gets an offer (only while shifts are on)',
+    format: withUnit('of 100'),
+  },
   fairnessCandidateLimit: { label: 'Nearest riders compared for each offer', format: withUnit('riders') },
   fairnessMinOnlineMinutes: {
     label: 'Minutes online today before your own earnings count (before that, the co-op average)',

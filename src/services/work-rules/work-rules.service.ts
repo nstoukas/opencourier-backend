@@ -69,13 +69,24 @@ export function fairnessSentences(
     fairnessWeightWaiting: number
     fairnessCandidateLimit: number
     fairnessMinOnlineMinutes: number
+    // Spec 0049: the shift factor is worded only while shifts are on.
+    shiftsEnabled?: boolean
+    fairnessWeightShift?: number
   },
   distance: string
 ): string[] {
+  // Spec 0049 (cross check 6): the shift factor is a fixed yes or no, so its weight moves a rider's place
+  // by the same amount every time, unlike the other three.
+  const shift = settings.shiftsEnabled
+    ? [
+        `While shifts are on, being on a booked shift counts too (weight ${settings.fairnessWeightShift ?? 0}). It is a fixed yes or no, so it moves your place by the same amount every time, while the other three depend on how different the riders are. Going Offline during a booked shift is written on that shift, for you and a representative to see; it changes nothing about your offers or pay.`,
+      ]
+    : []
   return [
     `Each order is offered among the ${settings.fairnessCandidateLimit} nearest free riders who are Online or on Last Call, within ${distance} of the restaurant.`,
     `Among them, the co-op weighs three things: road time to the restaurant (weight ${settings.fairnessWeightRoadTime}), what the co-op has paid you per hour online today (weight ${settings.fairnessWeightEarnings}, the less you have earned, the sooner you are offered), and how long you have waited since your last job (weight ${settings.fairnessWeightWaiting}, the longer, the sooner).`,
     `Until you have been online ${settings.fairnessMinOnlineMinutes} minutes today, your pay per hour counts as the co-op's average. Tips never affect who gets offers, and the day starts again at midnight.`,
+    ...shift,
     'Each offer records the figures that chose its rider. See why a job came to you on its page in Earnings.',
   ]
 }
