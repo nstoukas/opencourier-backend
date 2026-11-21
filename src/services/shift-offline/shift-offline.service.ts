@@ -1,5 +1,6 @@
-import { ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { EnumCourierStatusChangeCause } from '@prisma/types'
+import * as errors from 'src/errors'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import {
   FOLLOWED_UP_SHOWN_DAYS,
@@ -102,7 +103,8 @@ export class ShiftOfflineService implements OnModuleInit {
   // AC-6: records the admin and the time; once only.
   async followUp(id: string, adminUserId: string, now: Date): Promise<void> {
     const outcome = await this.bookings.markFollowedUp(id, adminUserId, now)
-    if (outcome === 'missing') throw new NotFoundException(OFFLINE_EVENT_SENTENCES.missing)
+    // The project's NotFoundException: an expected 404 is not logged as an error with a stack (row 121).
+    if (outcome === 'missing') throw new errors.NotFoundException(OFFLINE_EVENT_SENTENCES.missing)
     if (outcome === 'already') throw new ConflictException(OFFLINE_EVENT_SENTENCES.already)
   }
 }
