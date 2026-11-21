@@ -198,6 +198,13 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   (`siblingLegCondition`, fed `siblingOfDeliveryId` by every matcher), the locked claim (`SIBLING_LEG`) and the admin paths. A new
   way to give a rider work goes through `claimForRiderWithinBox` or calls `refuseIfCourierHoldsSiblingLeg`; `confirmOverCapacity`
   never bypasses it. A leg order's `orderReference` cannot change, and a leg number used with it stays taken (even cancelled).
+- Split at pickup (spec 0047): the one place the backend creates deliveries (the Path A exception in `memory.md`'s ledger), only in
+  `SplitRequestService.confirm`'s transaction (the claim, the kept leg, each new leg with a `SPLIT` quote copy, price 0, and its
+  `SPLIT_LEG` charge). The rules are pure functions in `src/domains/split/split.ts`. One OPEN request per delivery through
+  `openFor`; every close is `closeIfOpen` (conditional on OPEN) and stores `waitOwedAt` when the wait earns pay then;
+  `settleSplitWait(requestId)` pays from the stored row and the minute sweep retries a stamp for a day. `saveDeliveryEvent` voids
+  an open request on any successful move off `COURIER_ARRIVED_AT_PICKUP_LOCATION`, so a new way to move a delivery needs no extra
+  code. The six split events are refused by `processDeliveryEvent`; the ordinary wait leaves out split windows (`splitWindowsUntil`).
 
 ## Agent skills
 
