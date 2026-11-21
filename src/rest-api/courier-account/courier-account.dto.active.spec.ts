@@ -242,9 +242,10 @@ describe('Rider account upkeep inputs and answers (spec 0051)', () => {
       })
     })
 
-    test('the four kinds are DEACTIVATED, REACTIVATED, FIELD_EDITED and PASSWORD_CHANGED (AC-5)', () => {
+    // Spec 0050 (cross check 14) added the fifth: an admin downloaded the rider's monthly statement.
+    test('the five kinds are DEACTIVATED, REACTIVATED, FIELD_EDITED, PASSWORD_CHANGED (spec 0051 AC-5) and STATEMENT_DOWNLOADED (spec 0050)', () => {
       expect(Object.values(EnumCourierAccountChangeKind).sort()).toEqual(
-        ['DEACTIVATED', 'FIELD_EDITED', 'PASSWORD_CHANGED', 'REACTIVATED'].sort()
+        ['DEACTIVATED', 'FIELD_EDITED', 'PASSWORD_CHANGED', 'REACTIVATED', 'STATEMENT_DOWNLOADED'].sort()
       )
     })
   })
