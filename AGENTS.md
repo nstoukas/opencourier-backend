@@ -177,6 +177,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   allow list per strategy of the rider's own raw values and the weights above 0, via `findOwnLatest` (selects no `candidates`).
   A new matcher or reason key reaches riders only once it is added there; a `centsPerHour` that was the co-op mean (assumed or
   equal) is never sent, since with one qualifying rider it is another rider's pay.
+- Shift priority (spec 0049): `fairnessWeightShift` joins the score only while Shifts is on and the bookings could be read
+  (`onShiftNow`, "booked now" only); otherwise it is out of the score and the reason. Going Offline mid shift is written only
+  by the minute sweep `ShiftOfflineService` (`shift-offline-sweep`) from `CourierStatusChange`, once per change
+  (`courierStatusChangeId` unique), never from before Shifts was last switched on. Nothing that matches or pays may read
+  `WENT_OFFLINE_MID_SHIFT` (a source guard test fails), and no route counts it per rider.
 
 ## Agent skills
 
