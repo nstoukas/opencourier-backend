@@ -193,6 +193,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `__dirname`, because webpack bundles the code: start the server from the repo root, and ship `assets/` with it. `csvCell`
   guards text that starts like a formula but leaves plain numbers alone. An admin download writes `StatementDownload` and
   the rider's `STATEMENT_DOWNLOADED` change in one transaction.
+- Multi leg orders (spec 0046): the rules are the pure functions in `src/domains/delivery/legs.ts`; "a rider holds another leg"
+  is `siblingLegHeldSql` (`courier.repository.ts`, built on `heldBoxDeliveriesWhere`), used by the matcher queries
+  (`siblingLegCondition`, fed `siblingOfDeliveryId` by every matcher), the locked claim (`SIBLING_LEG`) and the admin paths. A new
+  way to give a rider work goes through `claimForRiderWithinBox` or calls `refuseIfCourierHoldsSiblingLeg`; `confirmOverCapacity`
+  never bypasses it. A leg order's `orderReference` cannot change, and a leg number used with it stays taken (even cancelled).
 
 ## Agent skills
 
