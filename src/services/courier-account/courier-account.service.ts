@@ -4,6 +4,7 @@ import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
   EnumCourierStatusChangeCause,
+  EnumUserRole,
 } from '@prisma/types'
 import * as errors from 'src/errors'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -100,6 +101,18 @@ export class CourierAccountService {
     const result = await this.accounts.reactivate(courierId, adminUserId, reason, new Date())
     if (result.outcome === 'MISSING') throw new errors.NotFoundException('Courier not found')
     if (result.outcome === 'NOT_DEACTIVATED') throw new ConflictException(ACCOUNT_SENTENCES.notDeactivated)
+    // Cross check 9 (review fix): back Offline, whatever a failed cut off or a status change in flight left.
+    try {
+      await this.courierDomainService.changeStatus(
+        courierId,
+        EnumCourierStatus.OFFLINE,
+        EnumCourierStatusChangeCause.ADMIN,
+        adminUserId
+      )
+      await this.deliveryEventService.handleCourierStatusChanged(courierId, EnumCourierStatus.OFFLINE)
+    } catch (error) {
+      this.logger.error(`Could not set reactivated courier ${courierId} Offline`, error as Error)
+    }
     this.logger.log(`Admin ${adminUserId} reactivated courier ${courierId}`)
     return this.courierDomainService.getByIdOrThrow(courierId)
   }
@@ -109,7 +122,7 @@ export class CourierAccountService {
   async editByAdmin(courierId: string, input: CourierAccountEdit, adminUserId: string): Promise<CourierEntity> {
     const current = await this.prisma.courier.findUnique({
       where: { id: courierId },
-      include: { user: { select: { id: true, email: true } } },
+      include: { user: { select: { id: true, email: true, role: true } } },
     })
     if (!current) throw new errors.NotFoundException('Courier not found')
 
@@ -151,9 +164,14 @@ export class CourierAccountService {
     consider('deliverySetting', input.deliverySetting, current.deliverySetting)
 
     // Cross check 11: the email trimmed and lower cased, unique ignoring case.
-    const email = input.email === undefined ? undefined : input.email.trim().toLowerCase()
-    const emailChanged = email !== undefined && email !== '' && email !== (current.user.email ?? '')
+    // Review fixes: `null` reads as not sent (it was a 500), and a stored email with capitals is not a change
+    // (it signed the rider out on an unchanged save).
+    const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : undefined
+    const emailChanged =
+      email !== undefined && email !== '' && email !== (current.user.email ?? '').trim().toLowerCase()
     if (emailChanged) {
+      // Review fix: a login that is also an admin is never signed out by this route, as the set password route.
+      if (current.user.role.includes(EnumUserRole.ADMIN)) throw new ConflictException(ACCOUNT_SENTENCES.isAdmin)
       const other = await this.userDomainService.findUserWithEmailIgnoringCase(email)
       if (other && other.id !== current.user.id) throw new errors.CourierEmailTakenException()
       changes.push({
@@ -206,15 +224,20 @@ export class CourierAccountService {
   }
 
   // AC-5, cross check 10: an admin's set password and a rider's reset by email leave a row too.
+  // Review fix: logged, never thrown, because the password is already saved when this runs.
   async recordPasswordChange(courierId: string, actor: { adminUserId: string } | 'rider'): Promise<void> {
-    await this.accounts.record([
-      {
-        courierId,
-        actorUserId: actor === 'rider' ? null : actor.adminUserId,
-        actorIsRider: actor === 'rider',
-        kind: EnumCourierAccountChangeKind.PASSWORD_CHANGED,
-      },
-    ])
+    try {
+      await this.accounts.record([
+        {
+          courierId,
+          actorUserId: actor === 'rider' ? null : actor.adminUserId,
+          actorIsRider: actor === 'rider',
+          kind: EnumCourierAccountChangeKind.PASSWORD_CHANGED,
+        },
+      ])
+    } catch (error) {
+      this.logger.error(`Could not record the password change of courier ${courierId}`, error as Error)
+    }
   }
 
   // AC-8, cross check 13: the rider's own change. Wrong current passwords are limited per hour; the new

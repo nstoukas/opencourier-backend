@@ -1027,6 +1027,14 @@ export class DeliveryEventService {
     if (courier?.deactivatedAt) throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
   }
 
+  // Spec 0051 (row 108 review): after an accept's take. A deactivation holds the rider's row lock from its
+  // checks to its commit; this read waits for it. Either the deactivation committed first (true here, and
+  // the take is given back), or this read came first and the deactivation then sees the taken delivery as
+  // a held job and is refused.
+  async isCourierDeactivatedAfterTake(courierId: string): Promise<boolean> {
+    return this.courierRepository.isDeactivatedWaitingForLock(courierId)
+  }
+
   async refuseIfCourierInSos(courierId: string): Promise<void> {
     if (await this.courierRepository.hasActiveSos(courierId)) {
       throw new CantUpdateDeliveryStatusError(SOS_SENTENCES.courierInSos)

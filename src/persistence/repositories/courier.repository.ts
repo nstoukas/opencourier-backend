@@ -608,6 +608,15 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return courier?.deactivatedAt != null
   }
 
+  // Spec 0051 (row 108 review): whether the rider is deactivated, read with FOR SHARE, which waits for a
+  // deactivation that holds the rider's row lock to commit. The accept uses it after its take.
+  async isDeactivatedWaitingForLock(courierId: string): Promise<boolean> {
+    const rows = await this.prisma.$queryRaw<Array<{ deactivated: boolean }>>`
+      SELECT ("deactivatedAt" IS NOT NULL) AS "deactivated" FROM "Courier" WHERE "id" = ${courierId} FOR SHARE
+    `
+    return rows[0]?.deactivated === true
+  }
+
   async findByUserId(userId: string) {
     const result = await this.prisma.courier.findUniqueOrThrow({
       where: {

@@ -1,4 +1,5 @@
 import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
+import { RIDER_DEACTIVATED_SENTENCE } from 'src/domains/courier/account-upkeep'
 import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import {
@@ -386,12 +387,13 @@ export class DeliveryDomainService {
     // No rider takes work during a heat or storm stop (spec 0014; row 29 review): an offer that
     // slipped past the stop's start cannot be accepted.
     await this.deliveryEventService.refuseIfDispatchStopped()
+    // Spec 0051: a deactivated rider takes no work (checked again after the take, below).
+    await this.deliveryEventService.refuseIfCourierDeactivated(courierId)
     // A rider in an active SOS takes no job, not even an offer that was already on their screen at
     // the hold: a mis-tap or the phone's auto accept would give a rider in danger work (decision
     // 73.10). The offer is left to expire as usual (spec 0022, AC-7). This is a check before the
     // write: an SOS that starts in the same few milliseconds is not caught, and the rider can still
     // hand the job back.
-    await this.deliveryEventService.refuseIfCourierDeactivated(courierId)
     await this.deliveryEventService.refuseIfCourierInSos(courierId)
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
@@ -419,10 +421,14 @@ export class DeliveryDomainService {
       throw new OfferHasEndedException()
     }
 
-    // A stop that began between the first check and the claim: give the offer back and refuse. The
-    // stop's minute sweep catches what slips past even this (agy review of row 29).
+    // A stop that began between the first check and the claim, or (spec 0051, row 108 review) a
+    // deactivation that committed meanwhile: give the offer back and refuse. The stop's minute sweep
+    // catches what slips past even this (agy review of row 29).
     try {
       await this.deliveryEventService.refuseIfDispatchStopped()
+      if (await this.deliveryEventService.isCourierDeactivatedAfterTake(courierId)) {
+        throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
+      }
     } catch (error) {
       await this.deliveryRepository.updateIfMatches(
         deliveryId,

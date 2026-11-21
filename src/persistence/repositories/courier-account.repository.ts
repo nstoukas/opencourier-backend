@@ -34,7 +34,8 @@ export type AccountChangeWithActor = CourierAccountChange & { actorEmail: string
 
 // Spec 0051 (row 108): deactivating and reactivating a rider, and the record of every account action.
 // Each action runs in one transaction under the rider's row lock, the same lock every offer claim takes
-// (claimForRiderWithinBox), so no offer or accept can slip between the checks and the writes.
+// (claimForRiderWithinBox), so no offer can slip between the checks and the writes. An accept already
+// past auth re-reads the rider under FOR SHARE after its take and gives it back (row 108 review).
 @Injectable()
 export class CourierAccountRepository extends EntityRepository {
   constructor(prisma: PrismaService) {
@@ -130,9 +131,10 @@ export class CourierAccountRepository extends EntityRepository {
         actorIsRider: change.actorIsRider,
         kind: change.kind,
         field: change.field ?? null,
-        oldValue: change.oldValue ?? null,
-        newValue: change.newValue ?? null,
-        reason: change.reason ?? null,
+        // Review fix: the columns hold 300 characters; a longer value was a 500.
+        oldValue: cut(change.oldValue),
+        newValue: cut(change.newValue),
+        reason: cut(change.reason),
       })),
     })
   }
@@ -150,4 +152,10 @@ export class CourierAccountRepository extends EntityRepository {
     const emailOf = new Map(admins.map((admin) => [admin.id, admin.email]))
     return rows.map((row) => ({ ...row, actorEmail: row.actorUserId ? emailOf.get(row.actorUserId) ?? null : null }))
   }
+}
+
+// At most the 300 characters the record's columns hold.
+function cut(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null
+  return value.length > 300 ? value.slice(0, 300) : value
 }
