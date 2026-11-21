@@ -21,6 +21,7 @@ import { SettingChangeAdminRestApiModule } from './setting-change/admin/setting-
 import { ChatAdminRestApiModule } from './chat/admin/chat.admin.rest-api.module'
 import { PartnerChargeAdminRestApiModule } from './partner-charge/admin/partner-charge.admin.rest-api.module'
 import { TimeWorkedAdminRestApiModule } from './time-worked/admin/time-worked.admin.rest-api.module'
+import { ComplaintAdminRestApiModule } from './complaint/admin/complaint.admin.rest-api.module'
 
 @Module({
   imports: [
@@ -44,6 +45,8 @@ import { TimeWorkedAdminRestApiModule } from './time-worked/admin/time-worked.ad
     // A rider's request to come off an order (spec 0035).
     RemovalRequestAdminRestApiModule,
     ReviewRequestAdminRestApiModule,
+    // Complaints both ways, with no ratings (spec 0052).
+    ComplaintAdminRestApiModule,
     SplitRequestAdminRestApiModule,
     SettingChangeAdminRestApiModule,
     TimeWorkedAdminRestApiModule,

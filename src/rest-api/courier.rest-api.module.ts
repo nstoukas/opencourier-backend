@@ -17,6 +17,7 @@ import { ReviewRequestCourierRestApiModule } from './review-request/courier/revi
 import { SettingChangeCourierRestApiModule } from './setting-change/courier/setting-change.courier.rest-api.module'
 import { ChatCourierRestApiModule } from './chat/courier/chat.courier.rest-api.module'
 import { TimeWorkedCourierRestApiModule } from './time-worked/courier/time-worked.courier.rest-api.module'
+import { ComplaintCourierRestApiModule } from './complaint/courier/complaint.courier.rest-api.module'
 
 @Module({
   imports: [
@@ -38,6 +39,8 @@ import { TimeWorkedCourierRestApiModule } from './time-worked/courier/time-worke
     RemovalRequestCourierRestApiModule,
     SplitRequestCourierRestApiModule,
     ReviewRequestCourierRestApiModule,
+    // Complaints both ways, with no ratings (spec 0052).
+    ComplaintCourierRestApiModule,
     SettingChangeCourierRestApiModule,
     TimeWorkedCourierRestApiModule,
     // A rider's chat with dispatch (spec 0034).

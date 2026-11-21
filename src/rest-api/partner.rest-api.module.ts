@@ -6,6 +6,7 @@ import { DeliveryQuotePartnerRestApiModule } from './delivery-quote/partner/deli
 import { DeliveryPartnerRestApiModule } from './delivery/partner/delivery.partner.rest-api.module'
 import { AuthPartnerRestApiModule } from './auth/partner/auth.partner.rest-api.module'
 import { PartnerPartnerRestApiModule } from './partner/partner/partner.partner.rest-api.module'
+import { ComplaintPartnerRestApiModule } from './complaint/partner/complaint.partner.rest-api.module'
 
 @Module({
   imports: [
@@ -18,6 +19,8 @@ import { PartnerPartnerRestApiModule } from './partner/partner/partner.partner.r
     DispatchStopPartnerRestApiModule,
     // A restaurant's chat with dispatch (spec 0034, AC-14).
     ChatPartnerRestApiModule,
+    // A restaurant's complaints about a rider, and their outcomes (spec 0052).
+    ComplaintPartnerRestApiModule,
   ],
 })
 export class PartnerRestApiModule {}
