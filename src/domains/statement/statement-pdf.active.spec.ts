@@ -159,10 +159,6 @@ describe('statementPdf (spec 0050 AC-4)', () => {
   // Review ruling (2026-11-21): the Greek "Cancelled after pickup" label was cut in the Ended column; the fix
   // is a shorter label in a wider column. This reads the words pdfkit really draws in the job row.
   //
-  // KNOWN RED, marked with test.failing so the suite says so out loud: at the fix commit (9a5c626) the
-  // column is 72 points and the label is 83.5 points wide at this size, so it is still drawn as
-  // "Ακύρωση μετά…". When the column fits the label this test starts passing, Jest then reports it as a
-  // failure, and `.failing` must be removed.
   describe('review fix: the end label of a job cancelled after pickup is drawn whole', () => {
     // pdfkit's own drawing step: every piece of text it puts on the page goes through it.
     const drawnBy = async (model: Parameters<typeof statementPdf>[0]) => {
@@ -177,17 +173,13 @@ describe('statementPdf (spec 0050 AC-4)', () => {
       }
     }
     const cancelled = [statementRow({ end: EnumJobEndLabel.CANCELLED_AFTER_PICKUP, paidKm: null })]
-    // Jest 29 has test.failing (it passes while the test fails); this repo's older @types/jest does not
-    // know it yet, hence the cast.
-    const knownRed = (test as unknown as { failing: typeof test }).failing
-
-    knownRed('in Greek', async () => {
+    test('in Greek', async () => {
       const drawn = await drawnBy(statementModel({ lang: 'el', jobs: cancelled }))
 
       expect(drawn).toContain('Ακύρωση μετά παραλαβή')
     })
 
-    knownRed('in English', async () => {
+    test('in English', async () => {
       const drawn = await drawnBy(statementModel({ lang: 'en', jobs: cancelled }))
 
       expect(drawn).toContain('Cancelled after pickup')
