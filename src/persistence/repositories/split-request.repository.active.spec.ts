@@ -71,6 +71,20 @@ describe('SplitRequestRepository (spec 0047)', () => {
       await expect(repository.closeIfOpen('split-1', { status: EnumSplitRequestStatus.CONFIRMED })).resolves.toBe(false)
     })
 
+    // Row 11 review: the stamp that says the wait is owed goes into the same write as the close.
+    it('stores the waitOwedAt stamp it is given in the same write as the close', async () => {
+      const answeredAt = new Date('2026-11-21T12:05:00.000Z')
+
+      await repository.closeIfOpen('split-1', { status: EnumSplitRequestStatus.LEFT, answeredAt, waitOwedAt: answeredAt })
+
+      expect(prisma.splitRequest.updateMany).toHaveBeenCalledTimes(1)
+      expect(prisma.splitRequest.updateMany.mock.calls[0][0].data).toMatchObject({
+        status: EnumSplitRequestStatus.LEFT,
+        waitOwedAt: answeredAt,
+        openFor: null,
+      })
+    })
+
     it("writes through the transaction client when one is given, so a rollback undoes the claim too", async () => {
       const tx = { splitRequest: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } }
 
@@ -78,6 +92,34 @@ describe('SplitRequestRepository (spec 0047)', () => {
 
       expect(tx.splitRequest.updateMany).toHaveBeenCalledTimes(1)
       expect(prisma.splitRequest.updateMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the split wait still owed (row 11 review)', () => {
+    const since = new Date('2026-11-20T13:00:00.000Z')
+    const before = new Date('2026-11-21T12:59:00.000Z')
+
+    it('findOwingWait reads the stamped requests closed inside the window, oldest close first, 50 at most', async () => {
+      prisma.splitRequest.findMany.mockResolvedValue([{ id: 'split-1' }])
+
+      await expect(repository.findOwingWait(since, before)).resolves.toEqual([{ id: 'split-1' }])
+
+      expect(prisma.splitRequest.findMany).toHaveBeenCalledWith({
+        where: { waitOwedAt: { not: null }, answeredAt: { gt: since, lt: before } },
+        orderBy: { answeredAt: 'asc' },
+        take: 50,
+      })
+    })
+
+    it('clearWaitOwed clears the stamp it was given and only that one (a newer stamp is left)', async () => {
+      const stamp = new Date('2026-11-21T12:05:00.000Z')
+
+      await repository.clearWaitOwed('split-1', stamp)
+
+      expect(prisma.splitRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'split-1', waitOwedAt: stamp },
+        data: { waitOwedAt: null },
+      })
     })
   })
 
@@ -163,6 +205,24 @@ describe('SplitRequestRepository (spec 0047)', () => {
         id: { in: deliveries.map((delivery) => delivery.deliveryQuoteId) },
         source: EnumQuoteSource.SPLIT,
       })
+    })
+
+    // Row 11 review: a delivery can have more than one answered request (left, sent again... or confirmed
+    // after an earlier one). The newest one is what the restaurant is told.
+    it('the newest answered request of a delivery wins: read oldest first, the later row overwrites', async () => {
+      // As the database returns them for orderBy createdAt asc.
+      prisma.splitRequest.findMany.mockResolvedValue([
+        { deliveryId: 'kept-leg', status: EnumSplitRequestStatus.LEFT },
+        { deliveryId: 'kept-leg', status: EnumSplitRequestStatus.CONFIRMED },
+        { deliveryId: 'left-order', status: EnumSplitRequestStatus.CONFIRMED },
+        { deliveryId: 'left-order', status: EnumSplitRequestStatus.LEFT },
+      ])
+
+      const outcomes = await repository.findOutcomesForDeliveries(deliveries)
+
+      expect(prisma.splitRequest.findMany.mock.calls[0][0].orderBy).toEqual({ createdAt: 'asc' })
+      expect(outcomes.get('kept-leg')).toBe('SPLIT')
+      expect(outcomes.get('left-order')).toBe('LEFT')
     })
 
     it('asks nothing for an empty list', async () => {
@@ -268,28 +328,41 @@ describe('the once only writers of the split wait and the split leg charge (spec
 
       expect(prisma.partnerCharge.findUnique).toHaveBeenCalledWith({ where: { splitLegOf: 'new-leg-2' } })
       expect(prisma.partnerCharge.deleteMany).toHaveBeenCalledWith({ where: { id: 'charge-leg', billId: null } })
-      expect(result).toEqual(legCharge)
+      expect(result).toEqual({ removed: legCharge, kept: null })
     })
 
-    it('leaves a charge that is already on a bill, and answers null', async () => {
+    // Row 11 review: a billed charge stays, and the answer names it (`kept`) so the caller can log it.
+    it('leaves a charge that is already on a bill: nothing is deleted, and the charge is named as kept', async () => {
+      const billed = { ...legCharge, billId: 'bill-1' }
       const prisma = {
-        partnerCharge: { findUnique: jest.fn().mockResolvedValue({ ...legCharge, billId: 'bill-1' }), deleteMany: jest.fn() },
+        partnerCharge: { findUnique: jest.fn().mockResolvedValue(billed), deleteMany: jest.fn() },
       }
-      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('new-leg-2')).resolves.toBeNull()
+      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('new-leg-2')).resolves.toEqual({
+        removed: null,
+        kept: billed,
+      })
       expect(prisma.partnerCharge.deleteMany).not.toHaveBeenCalled()
     })
 
-    it('answers null for a delivery with no split leg charge (an ordinary order)', async () => {
+    it('answers nothing removed and nothing kept for a delivery with no split leg charge (an ordinary order)', async () => {
       const prisma = { partnerCharge: { findUnique: jest.fn().mockResolvedValue(null), deleteMany: jest.fn() } }
-      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('plain-order')).resolves.toBeNull()
+      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('plain-order')).resolves.toEqual({
+        removed: null,
+        kept: null,
+      })
       expect(prisma.partnerCharge.deleteMany).not.toHaveBeenCalled()
     })
 
-    it('answers null when the charge was billed between the read and the delete (nothing was removed)', async () => {
+    it('when the charge was billed between the read and the delete nothing was removed: it is named as kept', async () => {
       const prisma = {
         partnerCharge: { findUnique: jest.fn().mockResolvedValue(legCharge), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       }
-      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('new-leg-2')).resolves.toBeNull()
+      await expect(new PartnerChargeRepository(prisma as any).deleteUnbilledSplitLegCharge('new-leg-2')).resolves.toEqual({
+        removed: null,
+        kept: legCharge,
+      })
+      // The delete itself only ever matches an unbilled row.
+      expect(prisma.partnerCharge.deleteMany).toHaveBeenCalledWith({ where: { id: 'charge-leg', billId: null } })
     })
   })
 
@@ -329,6 +402,13 @@ describe('schema.prisma keeps the unique keys the split rules rest on (spec 0047
     model(modelName)
       .split('\n')
       .find((line) => line.trim().startsWith(`${fieldName} `)) ?? ''
+
+  it('SplitRequest.waitOwedAt exists, optional and indexed, for the sweep that settles a wait again (row 11 review)', () => {
+    const model = schema.slice(schema.indexOf('model SplitRequest {'))
+    const body = model.slice(0, model.indexOf('\n}'))
+    expect(body).toMatch(/\n\s+waitOwedAt\s+DateTime\?/)
+    expect(body).toMatch(/@@index\(\[waitOwedAt\]\)/)
+  })
 
   it('SplitRequest.openFor is unique: one open request per delivery', () => {
     expect(field('SplitRequest', 'openFor')).toContain('@unique')

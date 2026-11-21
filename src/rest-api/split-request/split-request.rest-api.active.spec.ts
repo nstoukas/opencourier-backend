@@ -3,6 +3,7 @@ import { RequestMethod, ValidationPipe, BadRequestException } from '@nestjs/comm
 import { EnumSplitRequestStatus, EnumUserRole } from '@prisma/types'
 import { ADMIN_API_V1_PREFIX, COURIER_API_V1_PREFIX } from 'src/constants'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
+import { splitLeaveFrom } from 'src/domains/split/split'
 import { SplitRequestAdminRestApiController } from './admin/split-request.admin.rest-api.controller'
 import { SplitRequestCourierRestApiController } from './courier/split-request.courier.rest-api.controller'
 import {
@@ -106,6 +107,8 @@ describe('split request routes (spec 0047)', () => {
         countOpen: jest.fn().mockResolvedValue(4),
         confirm: jest.fn().mockResolvedValue(undefined),
         refuse: jest.fn().mockResolvedValue(undefined),
+        // The co-op's answer limit in minutes (row 11 review: the queue shows when the rider may leave).
+        answerMinutes: jest.fn().mockResolvedValue(10),
       }
       return { controller: new SplitRequestAdminRestApiController(splitRequestService as any), splitRequestService }
     }
@@ -170,8 +173,33 @@ describe('split request routes (spec 0047)', () => {
           createdAt: FLAGGED_AT,
           // 6 min 40 s since the flag: whole minutes, rounded down, as the wait is paid.
           waitedMinutes: 6,
+          // Row 11 review: the flag time plus the co-op's 10 minutes.
+          leaveFrom: new Date('2026-11-21T12:10:00.000Z'),
         },
       ])
+    })
+
+    // Row 11 review: each row of the queue says when the rider may leave without an answer.
+    it("list: each row's leave time is its own flag time plus the co-op's answer minutes (a setting, not a fixed 10)", async () => {
+      const { controller, splitRequestService } = setup()
+      splitRequestService.answerMinutes.mockResolvedValue(4)
+      const queueRow = (id: string, createdAt: Date) => ({
+        id,
+        deliveryId: `del-${id}`,
+        courierId: 'rider-1',
+        proposedLegs: [],
+        createdAt,
+        courier: { firstName: 'Nikos', lastName: 'Rider' },
+        delivery: { orderReference: null, pickupBusinessName: 'Kitchen', boxSize: 'LARGE', legNumber: null, legCount: null, status: 'X' },
+      })
+      splitRequestService.listOpen.mockResolvedValue([
+        queueRow('a', FLAGGED_AT),
+        queueRow('b', new Date('2026-11-21T12:03:30.000Z')),
+      ])
+
+      const rows = await controller.list()
+
+      expect(rows.map((row) => row.leaveFrom)).toEqual([new Date('2026-11-21T12:04:00.000Z'), new Date('2026-11-21T12:07:30.000Z')])
     })
   })
 
@@ -230,13 +258,35 @@ describe('split request routes (spec 0047)', () => {
     } as any
 
     it('is 0 in the first minute and never negative', () => {
-      expect(new SplitRequestAdminDto(row, new Date('2026-11-21T12:00:59.000Z')).waitedMinutes).toBe(0)
-      expect(new SplitRequestAdminDto(row, new Date('2026-11-21T11:59:00.000Z')).waitedMinutes).toBe(0)
+      expect(new SplitRequestAdminDto(row, new Date('2026-11-21T12:00:59.000Z'), 10).waitedMinutes).toBe(0)
+      expect(new SplitRequestAdminDto(row, new Date('2026-11-21T11:59:00.000Z'), 10).waitedMinutes).toBe(0)
     })
 
     it('shows the leg labels of a delivery that is already a leg', () => {
-      const dto = new SplitRequestAdminDto(row, new Date('2026-11-21T12:11:00.000Z'))
+      const dto = new SplitRequestAdminDto(row, new Date('2026-11-21T12:11:00.000Z'), 10)
       expect(dto).toMatchObject({ legNumber: 1, legCount: 2, waitedMinutes: 11 })
+    })
+
+    // Row 11 review.
+    describe('leaveFrom: when the rider may leave without an answer', () => {
+      it('is the flag time plus the answer minutes', () => {
+        expect(new SplitRequestAdminDto(row, new Date('2026-11-21T12:02:00.000Z'), 10).leaveFrom).toEqual(
+          new Date('2026-11-21T12:10:00.000Z')
+        )
+        expect(new SplitRequestAdminDto(row, new Date('2026-11-21T12:02:00.000Z'), 3).leaveFrom).toEqual(
+          new Date('2026-11-21T12:03:00.000Z')
+        )
+      })
+
+      it('does not move with the time the queue is read: it counts from the flag, not from now', () => {
+        const early = new SplitRequestAdminDto(row, new Date('2026-11-21T12:01:00.000Z'), 10)
+        const late = new SplitRequestAdminDto(row, new Date('2026-11-21T12:25:00.000Z'), 10)
+        expect(early.leaveFrom).toEqual(late.leaveFrom)
+      })
+
+      it("is the same moment the rider is told (the domain's splitLeaveFrom), so the two screens agree", () => {
+        expect(new SplitRequestAdminDto(row, new Date(), 7).leaveFrom).toEqual(splitLeaveFrom(FLAGGED_AT, 7))
+      })
     })
   })
 

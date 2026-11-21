@@ -43,6 +43,15 @@ function makeFakePrisma(seed: Tables) {
   let nextId = 1
   // What the test can switch on to make a write fail in the middle of the transaction.
   const failures = { partnerChargeCreate: false, deliveryCreate: false }
+  // The statuses in which a delivery's food is in (or on its way into) its rider's box (spec 0043).
+  const HELD = [
+    EnumDeliveryStatus.ACCEPTED,
+    EnumDeliveryStatus.DISPATCHED,
+    EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+    EnumDeliveryStatus.PICKED_UP,
+    EnumDeliveryStatus.ON_THE_WAY,
+    EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+  ] as string[]
   // Which writes happened through the transaction client, to prove nothing is written outside it.
   const log: string[] = []
 
@@ -86,6 +95,15 @@ function makeFakePrisma(seed: Tables) {
         create: async ({ data }: any) => {
           note('delivery.create')
           if (failures.deliveryCreate) throw new Error('The database refused the new leg')
+          // The schema's unique key (restaurant, order reference, leg number): one delivery per leg number.
+          if (
+            data.legNumber != null &&
+            tables.delivery.some(
+              (row) => row.partnerId === data.partnerId && row.orderReference === data.orderReference && row.legNumber === data.legNumber
+            )
+          ) {
+            throw uniqueError()
+          }
           const row = { id: `new-leg-${nextId++}`, status: EnumDeliveryStatus.CREATED, courierId: null, ...data }
           tables.delivery.push(row)
           return { id: row.id }
@@ -103,6 +121,16 @@ function makeFakePrisma(seed: Tables) {
           tables.deliveryQuote.push(row)
           return { ...row }
         },
+      },
+      // The one raw query the confirm sends: the box units a rider holds (spec 0043's heldBoxUnitsSql). The
+      // rider's id is the query's bound value; the sum is worked out from the tables as the SQL would.
+      $queryRaw: async (query: any) => {
+        note('heldUnits.read')
+        const riderId = (query?.values ?? []).find((value: unknown) => tables.delivery.some((row) => row.courierId === value))
+        const held = tables.delivery
+          .filter((row) => row.courierId === riderId && HELD.includes(row.status))
+          .reduce((sum, row) => sum + (row.boxUnits ?? 0), 0)
+        return [{ held }]
       },
       partnerCharge: {
         create: async ({ data }: any) => {
@@ -185,6 +213,14 @@ describe('SplitRequestService (spec 0047)', () => {
     tips: 250,
     totalCompensation: 356,
     idempotencyKey: 'idem-original',
+    customerNotes: ['Allergic to nuts', 'Call on arrival'],
+    deliveryTypes: ['FOOD'],
+    pickupTypes: ['BAG'],
+    pickupVerification: { pin: '1234' },
+    dropoffVerification: { signature: true },
+    pickupDeadlineAt: new Date('2026-11-21T12:40:00.000Z'),
+    dropoffDeadlineAt: new Date('2026-11-21T13:10:00.000Z'),
+    dropoffReadyAt: new Date('2026-11-21T12:30:00.000Z'),
     ...overrides,
   })
 
@@ -224,6 +260,7 @@ describe('SplitRequestService (spec 0047)', () => {
     answeredAt: null,
     answeredByUserId: null,
     adminNote: null,
+    waitOwedAt: null,
     ...overrides,
   })
 
@@ -236,6 +273,7 @@ describe('SplitRequestService (spec 0047)', () => {
       partnerCharge: seed.partnerCharge ?? [],
     })
     const order = fake.log
+    const settled: Row[] = []
     const repository = new SplitRequestRepository(fake.prisma as any)
     const findDelivery = async (id: string) => {
       const row = fake.tables().delivery.find((delivery) => delivery.id === id)
@@ -256,8 +294,13 @@ describe('SplitRequestService (spec 0047)', () => {
       recordBoxEvent: jest.fn(async (event: any) => {
         order.push(`event:${event.type}`)
       }),
-      settleSplitWait: jest.fn(async () => {
+      // Row 11 review: what the closing write stores as "the wait is owed". Owed by default (the close time).
+      splitWaitOwedAt: jest.fn(async (_flaggedAt: Date, endedAt: Date): Promise<Date | null> => endedAt),
+      // The wait is settled from the stored request, by its id. `settled` keeps the row as it was stored at
+      // that moment: its status decides who pays, its stamp whether anything is paid.
+      settleSplitWait: jest.fn(async (requestId: string) => {
         order.push('settleSplitWait')
+        settled.push({ ...(fake.tables().splitRequest.find((row) => row.id === requestId) ?? {}) })
       }),
       processDeliveryEvent: jest.fn(async (event: any) => {
         order.push(`process:${event.type}`)
@@ -284,7 +327,7 @@ describe('SplitRequestService (spec 0047)', () => {
     const delivery = (id: string) => tables().delivery.find((row) => row.id === id)
     const newLegs = () => tables().delivery.filter((row) => row.id !== DELIVERY_ID && String(row.id).startsWith('new-leg-'))
     const request = (id = 'split-open-1') => tables().splitRequest.find((row) => row.id === id)
-    return { service, fake, order, repository, deliveryRepository, deliveryEventService, instanceConfig, tables, delivery, newLegs, request }
+    return { service, fake, order, settled, repository, deliveryRepository, deliveryEventService, instanceConfig, tables, delivery, newLegs, request }
   }
 
   beforeEach(() => {
@@ -369,6 +412,39 @@ describe('SplitRequestService (spec 0047)', () => {
       expect(deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
     })
 
+    // Row 11 review: a flag no answer could confirm is refused at the flag, not left for dispatch to find.
+    describe('an order that cannot take another leg (at most 4 in all)', () => {
+      it.each([
+        ['a leg of an order already in 4, asking for 2 boxes', 4, [large, small]],
+        ['a leg of an order in 3, asking for 3 boxes', 3, [large, small, small]],
+        ['a leg of an order in 2, asking for 4 boxes', 2, [large, small, small, small]],
+      ])('%s: 409 with the 4 legs sentence, no request and no event', async (_name, legCount, legs) => {
+        const { service, deliveryEventService, tables } = setup({
+          delivery: [baseDelivery({ legNumber: 1, legCount, orderReference: 'ORDER-REF' })],
+        })
+
+        const attempt = service.request(COURIER_ID, DELIVERY_ID, legs)
+
+        await expect(attempt).rejects.toBeInstanceOf(ConflictException)
+        await expect(attempt).rejects.toThrow(SPLIT_SENTENCES.tooManyLegs)
+        expect(tables().splitRequest).toHaveLength(0)
+        expect(deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ['a leg of an order in 3, asking for 2 boxes (4 in all)', 3, [large, small]],
+        ['a leg of an order in 2, asking for 3 boxes (4 in all)', 2, [large, small, small]],
+        ['a single delivery asking for 4 boxes', null, [large, small, small, small]],
+      ])('%s is accepted', async (_name, legCount, legs) => {
+        const { service, tables } = setup({
+          delivery: [baseDelivery(legCount === null ? {} : { legNumber: 1, legCount, orderReference: 'ORDER-REF' })],
+        })
+
+        await expect(service.request(COURIER_ID, DELIVERY_ID, legs)).resolves.toMatchObject({ status: EnumSplitRequestStatus.OPEN })
+        expect(tables().splitRequest).toHaveLength(1)
+      })
+    })
+
     it('lets the rider flag again once the earlier request was answered', async () => {
       const { service, tables } = setup({
         splitRequest: [openRequest({ status: EnumSplitRequestStatus.REFUSED, openFor: null })],
@@ -415,7 +491,7 @@ describe('SplitRequestService (spec 0047)', () => {
     })
 
     it('at the limit: closes the request as LEFT, pays the split wait charged to the restaurant, and cancels as the restaurant', async () => {
-      const { service, deliveryEventService, request, order } = setup({ splitRequest: [openRequest()] })
+      const { service, deliveryEventService, request, order, settled } = setup({ splitRequest: [openRequest()] })
       const now = minutesAfterFlag(10)
 
       await service.leave(COURIER_ID, DELIVERY_ID, now)
@@ -434,8 +510,11 @@ describe('SplitRequestService (spec 0047)', () => {
       expect(closedStatus).toBe(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION)
 
       // AC-3 with AC-8: the wait from the flag to leaving, charged to the restaurant (it picked the size).
+      // The wait is settled from the stored request: LEFT is what charges the restaurant, the stamp what pays.
       expect(deliveryEventService.settleSplitWait).toHaveBeenCalledTimes(1)
-      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith(expect.objectContaining({ id: 'split-open-1' }), now, true)
+      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+      expect(settled[0]).toMatchObject({ status: EnumSplitRequestStatus.LEFT, answeredAt: now, waitOwedAt: now })
+      expect(deliveryEventService.splitWaitOwedAt).toHaveBeenCalledWith(FLAGGED_AT, now)
 
       // Spec 0015's path: an ordinary CANCELED event, cancelled by the restaurant.
       expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledTimes(1)
@@ -451,6 +530,53 @@ describe('SplitRequestService (spec 0047)', () => {
       // (which closes an open request as VOID with no charge) finds nothing left to close.
       expect(order.indexOf('settleSplitWait')).toBeGreaterThan(-1)
       expect(order.indexOf('settleSplitWait')).toBeLessThan(order.indexOf('process:CANCELED'))
+    })
+
+    // ---- Row 11 review ----
+    it('stores no stamp when the wait earns no pay under the settings at the close (wait pay off)', async () => {
+      const { service, deliveryEventService, request } = setup({ splitRequest: [openRequest()] })
+      deliveryEventService.splitWaitOwedAt.mockResolvedValue(null)
+
+      await service.leave(COURIER_ID, DELIVERY_ID, minutesAfterFlag(10))
+
+      expect(request()).toMatchObject({ status: EnumSplitRequestStatus.LEFT, waitOwedAt: null })
+    })
+
+    it.each([
+      ['an admin posted the pickup', EnumDeliveryStatus.PICKED_UP],
+      ['it is on its way to the customer', EnumDeliveryStatus.ON_THE_WAY],
+      ['it was delivered', EnumDeliveryStatus.DROPPED_OFF],
+      ['the rider has not arrived', EnumDeliveryStatus.DISPATCHED],
+    ])('answers 409 when the order is no longer at the restaurant (%s): nothing is cancelled, closed or paid', async (_name, status) => {
+      const { service, deliveryEventService, request } = setup({
+        splitRequest: [openRequest()],
+        delivery: [baseDelivery({ status })],
+      })
+
+      const attempt = service.leave(COURIER_ID, DELIVERY_ID, minutesAfterFlag(30))
+
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException)
+      await expect(attempt).rejects.toThrow(SPLIT_SENTENCES.notAtPickup)
+      // An order already on its way is never cancelled by a leave.
+      expect(deliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      expect(request()?.status).toBe(EnumSplitRequestStatus.OPEN)
+      expect(deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
+      expect(deliveryEventService.settleSplitWait).not.toHaveBeenCalled()
+    })
+
+    it('a record that cannot be written does not keep the rider from leaving: the wait is settled and the order cancelled', async () => {
+      const error = jest.spyOn(Logger.prototype, 'error')
+      const { service, deliveryEventService, request } = setup({ splitRequest: [openRequest()] })
+      deliveryEventService.recordSplitEvent.mockRejectedValue(new Error('database is down'))
+
+      await expect(service.leave(COURIER_ID, DELIVERY_ID, minutesAfterFlag(10))).resolves.toBeUndefined()
+
+      expect(request()?.status).toBe(EnumSplitRequestStatus.LEFT)
+      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+      expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.CANCELED, cancelledBy: EnumCancelledBy.RESTAURANT })
+      )
+      expect(error).toHaveBeenCalled()
     })
 
     it('answers 409 when there is no open request (already answered by an admin)', async () => {
@@ -545,12 +671,49 @@ describe('SplitRequestService (spec 0047)', () => {
     })
 
     it('pays the split wait from the co-op: the restaurant is NOT charged (cross check 1)', async () => {
-      const { service, deliveryEventService } = setup({ splitRequest: [openRequest()] })
+      const { service, deliveryEventService, settled } = setup({ splitRequest: [openRequest()] })
 
       await service.refuse(ADMIN, 'split-open-1', null, now)
 
+      // Settled from the stored request: REFUSED is the status that leaves the restaurant uncharged.
       expect(deliveryEventService.settleSplitWait).toHaveBeenCalledTimes(1)
-      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith(expect.objectContaining({ id: 'split-open-1' }), now, false)
+      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+      expect(settled[0]).toMatchObject({ status: EnumSplitRequestStatus.REFUSED, answeredAt: now, waitOwedAt: now })
+    })
+
+    // ---- Row 11 review ----
+    it('the closing write stores the stamp the settings at the close call for: owed, or nothing', async () => {
+      const owed = setup({ splitRequest: [openRequest()] })
+      await owed.service.refuse(ADMIN, 'split-open-1', null, now)
+      expect(owed.deliveryEventService.splitWaitOwedAt).toHaveBeenCalledWith(FLAGGED_AT, now)
+      expect(owed.request()).toMatchObject({ status: EnumSplitRequestStatus.REFUSED, waitOwedAt: now })
+
+      const notOwed = setup({ splitRequest: [openRequest()] })
+      notOwed.deliveryEventService.splitWaitOwedAt.mockResolvedValue(null)
+      await notOwed.service.refuse(ADMIN, 'split-open-1', null, now)
+      expect(notOwed.request()).toMatchObject({ status: EnumSplitRequestStatus.REFUSED, waitOwedAt: null })
+    })
+
+    it('a record that cannot be written does not skip the wait pay or the answer to the rider', async () => {
+      const error = jest.spyOn(Logger.prototype, 'error')
+      const { service, deliveryEventService } = setup({ splitRequest: [openRequest()] })
+      deliveryEventService.recordSplitEvent.mockRejectedValue(new Error('database is down'))
+
+      await expect(service.refuse(ADMIN, 'split-open-1', 'It fits', now)).resolves.toBeUndefined()
+
+      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+      expect(deliveryEventService.notifySplitDecided).toHaveBeenCalledWith(COURIER_ID, expect.objectContaining({ outcome: 'REFUSED' }))
+      expect(error).toHaveBeenCalled()
+    })
+
+    it('an answer that cannot be sent to the rider does not fail the refusal (it is already on the record)', async () => {
+      const { service, deliveryEventService, request } = setup({ splitRequest: [openRequest()] })
+      deliveryEventService.notifySplitDecided.mockRejectedValue(new Error('socket is down'))
+
+      await expect(service.refuse(ADMIN, 'split-open-1', null, now)).resolves.toBeUndefined()
+
+      expect(request()?.status).toBe(EnumSplitRequestStatus.REFUSED)
+      expect(deliveryEventService.settleSplitWait).toHaveBeenCalledTimes(1)
     })
 
     it("tells the rider the answer with the admin's sentence (AC-7)", async () => {
@@ -665,12 +828,42 @@ describe('SplitRequestService (spec 0047)', () => {
         })
       })
 
+      // Row 11 review (cross check 10 says notes): the customer's notes, the order's type lists, the
+      // verification steps and the deadlines come with the order onto the new leg.
+      it("the new leg carries the customer's notes, the type lists, the verification steps and the deadlines", async () => {
+        const { service, newLegs } = setup({ splitRequest: [openRequest()] })
+
+        await service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        const original = baseDelivery()
+        const leg = newLegs()[0] as Row
+        expect(leg.customerNotes).toEqual(['Allergic to nuts', 'Call on arrival'])
+        expect(leg.deliveryTypes).toEqual(original.deliveryTypes)
+        expect(leg.pickupTypes).toEqual(original.pickupTypes)
+        expect(leg.pickupVerification).toEqual(original.pickupVerification)
+        expect(leg.dropoffVerification).toEqual(original.dropoffVerification)
+        expect(leg.requiresDropoffSignature).toBe(original.requiresDropoffSignature)
+        expect(leg.requiresId).toBe(original.requiresId)
+        expect(leg.pickupDeadlineAt).toEqual(original.pickupDeadlineAt)
+        expect(leg.dropoffDeadlineAt).toEqual(original.dropoffDeadlineAt)
+        expect(leg.dropoffReadyAt).toEqual(original.dropoffReadyAt)
+      })
+
+      it('every new leg of a split in three carries the notes', async () => {
+        const { service, newLegs } = setup({ splitRequest: [openRequest({ proposedLegs: [large, small, small] })] })
+
+        await service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        expect(newLegs()).toHaveLength(2)
+        for (const leg of newLegs()) expect(leg.customerNotes).toEqual(['Allergic to nuts', 'Call on arrival'])
+      })
+
       it('the new leg is ready now, carries no tip and no idempotency key (cross check 10)', async () => {
         const { service, newLegs } = setup({ splitRequest: [openRequest()] })
 
         await service.confirm(ADMIN, 'split-open-1', undefined, now)
 
-        const leg = newLegs()[0]
+        const leg = newLegs()[0] as Row
         expect(leg?.foodReadyAt).toEqual(now)
         expect(leg?.promisedReadyAt).toEqual(now)
         expect(leg?.tips).toBe(0)
@@ -713,7 +906,7 @@ describe('SplitRequestService (spec 0047)', () => {
 
         await service.confirm(ADMIN, 'split-open-1', undefined, now)
 
-        const leg = newLegs()[0]
+        const leg = newLegs()[0] as Row
         expect(tables().partnerCharge).toHaveLength(1)
         expect(tables().partnerCharge[0]).toMatchObject({
           partnerId: PARTNER_ID,
@@ -907,10 +1100,73 @@ describe('SplitRequestService (spec 0047)', () => {
       })
 
       it('pays the split wait charged to the restaurant (AC-3 on a confirm)', async () => {
-        const { service, deliveryEventService } = setup({ splitRequest: [openRequest()] })
+        const { service, deliveryEventService, settled } = setup({ splitRequest: [openRequest()] })
         await service.confirm(ADMIN, 'split-open-1', undefined, now)
+        // Settled from the stored request: CONFIRMED is what charges the restaurant, the stamp what pays.
         expect(deliveryEventService.settleSplitWait).toHaveBeenCalledTimes(1)
-        expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith(expect.objectContaining({ id: 'split-open-1' }), now, true)
+        expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+        expect(settled[0]).toMatchObject({ status: EnumSplitRequestStatus.CONFIRMED, answeredAt: now, waitOwedAt: now })
+        expect(deliveryEventService.splitWaitOwedAt).toHaveBeenCalledWith(FLAGGED_AT, now)
+      })
+
+      // ---- Row 11 review: the stamp, and each step after the commit on its own ----
+      it('stores no stamp when the wait earns no pay under the settings at the confirm', async () => {
+        const { service, deliveryEventService, request } = setup({ splitRequest: [openRequest()] })
+        deliveryEventService.splitWaitOwedAt.mockResolvedValue(null)
+
+        await service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        expect(request()).toMatchObject({ status: EnumSplitRequestStatus.CONFIRMED, waitOwedAt: null })
+      })
+
+      it('the stamp is written with the claim inside the transaction, so a rollback takes it back too', async () => {
+        const { service, fake, request } = setup({ splitRequest: [openRequest()] })
+        fake.failures.partnerChargeCreate = true
+
+        await expect(service.confirm(ADMIN, 'split-open-1', undefined, now)).rejects.toThrow('The database refused the charge')
+
+        expect(request()).toMatchObject({ status: EnumSplitRequestStatus.OPEN, waitOwedAt: null })
+      })
+
+      it('a SPLIT_CONFIRMED record that cannot be written skips nothing: the wait, the legs and the answer still go', async () => {
+        const error = jest.spyOn(Logger.prototype, 'error')
+        const { service, deliveryEventService, newLegs } = setup({ splitRequest: [openRequest({ proposedLegs: [medium, small] })] })
+        deliveryEventService.recordSplitEvent.mockImplementation(async (event: any) => {
+          if (event.type === EnumDeliveryEventType.SPLIT_CONFIRMED) throw new Error('database is down')
+        })
+
+        await expect(service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+
+        expect(deliveryEventService.recordBoxEvent).toHaveBeenCalledTimes(1)
+        expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+        expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ deliveryId: newLegs()[0]?.id, type: EnumDeliveryEventType.CREATED })
+        )
+        expect(deliveryEventService.notifySplitDecided).toHaveBeenCalledTimes(1)
+        expect(error).toHaveBeenCalled()
+      })
+
+      it('a size change record that cannot be written skips nothing after it', async () => {
+        const { service, deliveryEventService, newLegs } = setup({ splitRequest: [openRequest({ proposedLegs: [medium, small] })] })
+        deliveryEventService.recordBoxEvent.mockRejectedValue(new Error('database is down'))
+
+        await expect(service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+
+        expect(deliveryEventService.settleSplitWait).toHaveBeenCalledWith('split-open-1')
+        expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ deliveryId: newLegs()[0]?.id, type: EnumDeliveryEventType.CREATED })
+        )
+        expect(deliveryEventService.notifySplitDecided).toHaveBeenCalledTimes(1)
+      })
+
+      it('an answer that cannot be sent to the rider does not fail the confirm (the split is made)', async () => {
+        const { service, deliveryEventService, newLegs, request } = setup({ splitRequest: [openRequest()] })
+        deliveryEventService.notifySplitDecided.mockRejectedValue(new Error('socket is down'))
+
+        await expect(service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+
+        expect(request()?.status).toBe(EnumSplitRequestStatus.CONFIRMED)
+        expect(newLegs()).toHaveLength(1)
       })
 
       it('writes BOX_SIZE_CHANGED (actor the admin) when the kept leg changes size', async () => {
@@ -1012,6 +1268,151 @@ describe('SplitRequestService (spec 0047)', () => {
 
         expect(ctx.delivery('sibling-2')?.legCount).toBe(2)
         expect(ctx.delivery(DELIVERY_ID)?.legCount).toBe(2)
+      })
+    })
+
+    // Row 11 review, cross check 9: the kept leg's size change is the stated exception to "no size change
+    // once offered", so the rider's box is checked again with the new size, inside the transaction.
+    describe("the kept size is checked against the rider's box (cross check 9)", () => {
+      // The order was sent as Small (30 units); the rider also carries another order.
+      const withOtherOrder = (otherUnits: number, otherStatus: EnumDeliveryStatus = EnumDeliveryStatus.PICKED_UP) => [
+        baseDelivery({ boxSize: 'SMALL', boxUnits: 30 }),
+        baseDelivery({ id: 'other-order', deliveryQuoteId: 'quote-other', boxSize: 'MEDIUM', boxUnits: otherUnits, status: otherStatus }),
+      ]
+
+      it('a kept size that puts the box past full is 409 with a sentence naming the size and the units, and nothing is written', async () => {
+        // 60 already in the box; keeping this order as Medium (60) makes 120 of 100.
+        const ctx = setup({ splitRequest: [openRequest({ proposedLegs: [medium, small] })], delivery: withOtherOrder(60) })
+
+        const attempt = ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        await expect(attempt).rejects.toBeInstanceOf(ConflictException)
+        await expect(attempt).rejects.toThrow(SPLIT_SENTENCES.keptSizeOverfills('Medium', 120))
+        // All of it rolled back: no leg, no quote, no charge, the request still open, the order as it was.
+        expect(ctx.newLegs()).toHaveLength(0)
+        expect(ctx.tables().partnerCharge).toHaveLength(0)
+        expect(ctx.tables().deliveryQuote).toHaveLength(1)
+        expect(ctx.request()).toMatchObject({ status: EnumSplitRequestStatus.OPEN, finalLegs: null, waitOwedAt: null, openFor: DELIVERY_ID })
+        expect(ctx.delivery(DELIVERY_ID)).toMatchObject({ boxSize: 'SMALL', boxUnits: 30, legNumber: null, legCount: null })
+        // And nothing on the record, no pay, no leg sent to matching, no answer to the rider.
+        expect(ctx.deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.settleSplitWait).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.notifySplitDecided).not.toHaveBeenCalled()
+      })
+
+      it("the sentence is the admin's to read: it says what to do", () => {
+        expect(SPLIT_SENTENCES.keptSizeOverfills('Medium', 120)).toContain('120 of 100')
+        expect(SPLIT_SENTENCES.keptSizeOverfills('Medium', 120)).toContain('Medium')
+      })
+
+      it('the same refusal when the admin sets the bigger size by hand', async () => {
+        const ctx = setup({ splitRequest: [openRequest({ proposedLegs: [small, small] })], delivery: withOtherOrder(60) })
+
+        await expect(ctx.service.confirm(ADMIN, 'split-open-1', [large, small], now)).rejects.toThrow(
+          SPLIT_SENTENCES.keptSizeOverfills('Large', 160)
+        )
+        expect(ctx.newLegs()).toHaveLength(0)
+      })
+
+      it('a kept size that fills the box exactly (100 of 100) is allowed', async () => {
+        const ctx = setup({ splitRequest: [openRequest({ proposedLegs: [medium, small] })], delivery: withOtherOrder(40) })
+
+        await expect(ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+
+        expect(ctx.delivery(DELIVERY_ID)).toMatchObject({ boxSize: 'MEDIUM', boxUnits: 60 })
+        expect(ctx.newLegs()).toHaveLength(1)
+      })
+
+      it('the check is read inside the transaction, after the kept leg got its new size', async () => {
+        const ctx = setup({ splitRequest: [openRequest({ proposedLegs: [medium, small] })], delivery: withOtherOrder(40) })
+
+        await ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        const read = ctx.order.indexOf('tx:heldUnits.read')
+        expect(read).toBeGreaterThan(ctx.order.indexOf('tx:delivery.updateMany'))
+        expect(read).toBeLessThan(ctx.order.indexOf('transaction:commit'))
+        expect(ctx.order).not.toContain('outside:heldUnits.read')
+      })
+
+      it("another rider's orders, and this rider's finished ones, do not count", async () => {
+        const ctx = setup({
+          splitRequest: [openRequest({ proposedLegs: [medium, small] })],
+          delivery: [
+            baseDelivery({ boxSize: 'SMALL', boxUnits: 30 }),
+            baseDelivery({ id: 'done', deliveryQuoteId: 'quote-done', boxUnits: 100, status: EnumDeliveryStatus.DROPPED_OFF }),
+            baseDelivery({ id: 'someone-elses', deliveryQuoteId: 'quote-else', boxUnits: 100, courierId: 'rider-2', status: EnumDeliveryStatus.PICKED_UP }),
+          ],
+        })
+
+        await expect(ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+        expect(ctx.newLegs()).toHaveLength(1)
+      })
+    })
+
+    // Row 11 review: two splits of two legs of one order at the same moment both pick the same next leg
+    // number. The order's unique key lets one in; the other must be told to look again, not get a 500.
+    describe('two splits of one order clash on a leg number', () => {
+      const legOrder = () => [
+        baseDelivery({ legNumber: 1, legCount: 2, orderReference: 'ORDER-REF' }),
+        baseDelivery({ id: 'sibling-2', courierId: 'rider-2', legNumber: 2, legCount: 2, orderReference: 'ORDER-REF', deliveryQuoteId: 'quote-2' }),
+      ]
+      // The other split commits its leg 3 after this confirm read the order and before it writes.
+      const otherSplitWinsLegThree = (ctx: ReturnType<typeof setup>) => {
+        const original = ctx.fake.prisma.$transaction
+        ctx.fake.prisma.$transaction = async (work: any) => {
+          ctx.tables().delivery.push(
+            baseDelivery({ id: 'their-leg-3', courierId: null, status: EnumDeliveryStatus.CREATED, legNumber: 3, legCount: 2, orderReference: 'ORDER-REF', deliveryQuoteId: 'quote-theirs' })
+          )
+          return original(work)
+        }
+      }
+
+      it('answers 409 "This order changed", not a server error, and leaves nothing half made', async () => {
+        const ctx = setup({ splitRequest: [openRequest()], delivery: legOrder() })
+        otherSplitWinsLegThree(ctx)
+
+        const attempt = ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        await expect(attempt).rejects.toBeInstanceOf(ConflictException)
+        await expect(attempt).rejects.toThrow(SPLIT_SENTENCES.deliveryChanged)
+        // Only the other split's leg is there; this one made none, charged nothing and claimed nothing.
+        expect(ctx.newLegs()).toHaveLength(0)
+        expect(ctx.tables().partnerCharge).toHaveLength(0)
+        expect(ctx.request()).toMatchObject({ status: EnumSplitRequestStatus.OPEN, finalLegs: null, waitOwedAt: null })
+        expect(ctx.delivery(DELIVERY_ID)).toMatchObject({ legNumber: 1, legCount: 2 })
+        expect(ctx.deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.settleSplitWait).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+        expect(ctx.deliveryEventService.notifySplitDecided).not.toHaveBeenCalled()
+      })
+
+      it('the admin can confirm again afterwards: the next free number is taken', async () => {
+        const ctx = setup({ splitRequest: [openRequest()], delivery: legOrder() })
+        const plainTransaction = ctx.fake.prisma.$transaction
+        otherSplitWinsLegThree(ctx)
+        await expect(ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)).rejects.toBeInstanceOf(ConflictException)
+        // The other split finished: its leg is one of the order's three now.
+        ctx.fake.prisma.$transaction = plainTransaction
+        ctx.tables().delivery.forEach((row) => {
+          if (row.orderReference === 'ORDER-REF') row.legCount = 3
+        })
+
+        await expect(ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)).resolves.toBeUndefined()
+
+        expect(ctx.newLegs()).toHaveLength(1)
+        expect(ctx.newLegs()[0]).toMatchObject({ legNumber: 4, legCount: 4 })
+      })
+
+      it('any other database error is not dressed up as "this order changed"', async () => {
+        const ctx = setup({ splitRequest: [openRequest()], delivery: legOrder() })
+        ctx.fake.failures.deliveryCreate = true
+
+        const attempt = ctx.service.confirm(ADMIN, 'split-open-1', undefined, now)
+
+        await expect(attempt).rejects.toThrow('The database refused the new leg')
+        await expect(attempt).rejects.not.toBeInstanceOf(ConflictException)
       })
     })
 
@@ -1170,6 +1571,12 @@ describe('SplitRequestService (spec 0047)', () => {
     })
   })
 
+  it("answerMinutes is the co-op's setting, for the admin queue's leave time (row 11 review)", async () => {
+    const { service, instanceConfig } = setup()
+    instanceConfig.getSplitAnswerMinutes.mockResolvedValue(7)
+    await expect(service.answerMinutes()).resolves.toBe(7)
+  })
+
   // ---------------------------------------------------------------------------------------------
   describe('startUnstartedLegs: the minute sweep (cross check 7)', () => {
     const now = new Date('2026-11-21T13:00:00.000Z')
@@ -1230,6 +1637,31 @@ describe('SplitRequestService (spec 0047)', () => {
       await service.startUnstartedLegs(now)
       expect(deliveryEventService.recordSplitEvent).not.toHaveBeenCalled()
       expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledTimes(1)
+    })
+
+    // Row 11 review: the sweep says how many legs it started, not how many rows it found.
+    it('counts only the legs it really started: one of two that cannot start is not counted, and is logged', async () => {
+      const error = jest.spyOn(Logger.prototype, 'error')
+      const { service, deliveryEventService } = sweepSetup([strandedLeg, { ...strandedLeg, id: 'leg-stranded-2', legNumber: 3 }], null, null)
+      deliveryEventService.processDeliveryEvent.mockRejectedValueOnce(new Error('matching is down'))
+
+      await expect(service.startUnstartedLegs(now)).resolves.toBe(1)
+
+      // Both were tried.
+      expect(deliveryEventService.processDeliveryEvent).toHaveBeenCalledTimes(2)
+      expect(error.mock.calls.some((call) => String(call[0]).includes('leg-stranded'))).toBe(true)
+    })
+
+    it('answers 0 when every stranded leg fails to start', async () => {
+      const { service, deliveryEventService } = sweepSetup([strandedLeg], null, null)
+      deliveryEventService.processDeliveryEvent.mockRejectedValue(new Error('matching is down'))
+
+      await expect(service.startUnstartedLegs(now)).resolves.toBe(0)
+    })
+
+    it('counts every leg when all start', async () => {
+      const { service } = sweepSetup([strandedLeg, { ...strandedLeg, id: 'leg-stranded-2', legNumber: 3 }], null, null)
+      await expect(service.startUnstartedLegs(now)).resolves.toBe(2)
     })
 
     it('answers 0 and starts nothing when no leg is stranded', async () => {

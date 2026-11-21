@@ -1,5 +1,5 @@
 import { EnumDeliveryEventType } from '@prisma/types'
-import { SPLIT_WINDOW_END, SPLIT_WINDOW_START, WaitEvent, completedWaits, paidWaitMinutes } from './wait-pay'
+import { SPLIT_WINDOW_END, SPLIT_WINDOW_START, WaitEvent, completedWaits, paidWaitMinutes, splitWindowsUntil } from './wait-pay'
 
 // Spec 0047, cross check 2: "No double wait pay". The minutes from a split flag to its answer (or to the
 // rider leaving, or the request closing another way) are paid only as the split wait, so the ordinary
@@ -142,6 +142,80 @@ describe('ordinary wait pay leaves out the split window (spec 0047, cross check 
       expect(completedWaits(events, promisedReadyAt, null, 5)).toEqual([
         { endEventId: 'pickup', courierId: 'rider-1', minutes: 15 },
       ])
+    })
+  })
+
+  // Row 11 review: the same windows, read before the wait has ended, for the stamp that says a wait is owed.
+  // They must match what completedWaits leaves out afterwards, or the stamp promises a wait the trail
+  // cannot show.
+  describe('splitWindowsUntil: the split windows on a trail up to a moment', () => {
+    const event = (id: string, type: EnumDeliveryEventType, occurredAt: Date): WaitEvent => ({ id, type, occurredAt, courierId: 'rider-1' })
+
+    it('no split events: no windows', () => {
+      const events = [event('arr', EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, at(12, 0))]
+      expect(splitWindowsUntil(events, at(12, 20))).toEqual([])
+      expect(splitWindowsUntil([], at(12, 20))).toEqual([])
+    })
+
+    it.each([
+      ['a confirm', EnumDeliveryEventType.SPLIT_CONFIRMED],
+      ['a refusal', EnumDeliveryEventType.SPLIT_REFUSED],
+      ['a close', EnumDeliveryEventType.SPLIT_CLOSED],
+    ])('a window closed by %s runs from the flag to that event', (_name, closeType) => {
+      const events = [event('flag', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 5)), event('end', closeType, at(12, 13))]
+      expect(splitWindowsUntil(events, at(12, 20))).toEqual([{ from: at(12, 5), to: at(12, 13) }])
+    })
+
+    it('a window still open is counted up to the moment asked about', () => {
+      const events = [event('flag', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 5))]
+      expect(splitWindowsUntil(events, at(12, 20))).toEqual([{ from: at(12, 5), to: at(12, 20) }])
+    })
+
+    it('a refused request and then a second, still open: both windows', () => {
+      const events = [
+        event('flag-1', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 2)),
+        event('refused', EnumDeliveryEventType.SPLIT_REFUSED, at(12, 5)),
+        event('flag-2', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 10)),
+      ]
+      expect(splitWindowsUntil(events, at(12, 20))).toEqual([
+        { from: at(12, 2), to: at(12, 5) },
+        { from: at(12, 10), to: at(12, 20) },
+      ])
+    })
+
+    it('events after the moment asked about are not read: a close that came later leaves the window open up to the moment', () => {
+      const events = [
+        event('flag', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 5)),
+        event('end', EnumDeliveryEventType.SPLIT_REFUSED, at(12, 30)),
+        event('flag-2', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 40)),
+      ]
+      expect(splitWindowsUntil(events, at(12, 20))).toEqual([{ from: at(12, 5), to: at(12, 20) }])
+    })
+
+    it('a close with no flag before it makes no window', () => {
+      expect(splitWindowsUntil([event('end', EnumDeliveryEventType.SPLIT_CLOSED, at(12, 13))], at(12, 20))).toEqual([])
+    })
+
+    it('agrees with completedWaits: the minutes it leaves in are the minutes the settle will find', () => {
+      const events = [
+        event('arr', EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, at(12, 0)),
+        event('flag', EnumDeliveryEventType.SPLIT_REQUESTED, at(12, 5)),
+        event('answer', EnumDeliveryEventType.SPLIT_REFUSED, at(12, 13)),
+      ]
+      const pickup = event('pickup', EnumDeliveryEventType.PICKED_UP, at(12, 20))
+
+      const before = paidWaitMinutes({
+        arrivedAt: at(12, 0),
+        promisedReadyAt,
+        foodReadyAt: null,
+        freeMinutes: noFreeMinutes,
+        endedAt: at(12, 20),
+        excluded: splitWindowsUntil(events, at(12, 20)),
+      })
+      const after = completedWaits([...events, pickup], promisedReadyAt, null, noFreeMinutes)
+
+      expect(before).toBe(12)
+      expect(after).toEqual([{ endEventId: 'pickup', courierId: 'rider-1', minutes: 12 }])
     })
   })
 })
