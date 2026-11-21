@@ -21,7 +21,7 @@ const SIZE = 7
 
 // The columns, left to right, with their widths in points (A4 landscape is 842 wide).
 // Wide enough that each Greek heading word fits on a line (they wrap at spaces, never inside a word).
-const COLUMN_WIDTHS = [60, 78, 68, 46, 36, 62, 52, 62, 44, 46, 44, 46, 48, 38, 50]
+const COLUMN_WIDTHS = [60, 72, 64, 46, 36, 72, 52, 62, 44, 46, 44, 46, 48, 38, 50]
 
 const clock = (at: Date) => dayjs(at).tz(INSTANCE_TIMEZONE).format('DD/MM HH:mm')
 const hm = (seconds: number | null, notRecorded: string) => {

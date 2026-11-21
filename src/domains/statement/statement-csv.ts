@@ -12,7 +12,10 @@ const BOM = '﻿'
 // Every cell quoted, as adminweb's restaurant statement does (chargesCsv.ts); a leading = + - @ tab or
 // carriage return is prefixed with an apostrophe so a spreadsheet never runs a restaurant's name as a formula.
 export function csvCell(value: string): string {
-  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  // Review fix: a plain number (an amount like -0.55, a decimal comma in Greek) stays a number, so the
+  // spreadsheet can calculate with it; only other text is guarded.
+  const plainNumber = /^-?\d+([.,]\d+)?$/.test(value)
+  const guarded = !plainNumber && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
   return `"${guarded.replace(/"/g, '""')}"`
 }
 

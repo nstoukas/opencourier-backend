@@ -92,7 +92,8 @@ export function jobRow(job: WorkedJob, tipsCents: number, now: Date): StatementJ
     acceptedAt: job.acceptedAt,
     pickupName: job.pickupName,
     dropoffArea: job.dropoffArea,
-    paidKm: job.paidKm,
+    // Review fix: km are paid only on a job that ended in this rider's drop off.
+    paidKm: job.droppedOff ? job.paidKm : null,
     minutes: Math.round(((job.endedAt ?? now).getTime() - job.acceptedAt.getTime()) / 60000),
     end: job.endLabel ?? 'DELIVERED',
     deliveryPayCents: job.deliveryMoneyCents - tips,

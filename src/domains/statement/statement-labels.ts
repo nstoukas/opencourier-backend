@@ -96,7 +96,8 @@ export const STATEMENT_LABELS: Record<StatementLang, StatementLabels> = {
       paidKm: 'Πληρωμένα χλμ',
     },
     notRecorded: 'δεν καταγράφηκε',
-    notRecordedNote: 'Ο χρόνος εργασίας δεν καταγραφόταν ακόμη για όλο τον μήνα, οπότε οι ώρες δεν εμφανίζονται.',
+    notRecordedNote:
+      'Η εργασία δεν καταγραφόταν ακόμη για όλο τον μήνα: οι διανομές και οι ώρες πριν από την έναρξη της καταγραφής δεν εμφανίζονται.',
     addedLater: (monthEnd, amount) => `Προστέθηκε μετά τις ${monthEnd}: ${amount}`,
     footer: 'Το αρχείο της εργασίας σας. Δεν είναι τιμολόγιο.',
     reasons: {
@@ -109,7 +110,7 @@ export const STATEMENT_LABELS: Record<StatementLang, StatementLabels> = {
     },
     ends: {
       DELIVERED: 'Παραδόθηκε',
-      CANCELLED_AFTER_PICKUP: 'Ακυρώθηκε μετά την παραλαβή',
+      CANCELLED_AFTER_PICKUP: 'Ακύρωση μετά παραλαβή',
       CANCELLED: 'Ακυρώθηκε',
       REMOVED: 'Αφαιρέθηκε',
       HANDED_BACK: 'Επιστράφηκε',
@@ -158,7 +159,8 @@ export const STATEMENT_LABELS: Record<StatementLang, StatementLabels> = {
       paidKm: 'Paid km',
     },
     notRecorded: 'not recorded',
-    notRecordedNote: 'Time worked was not yet recorded for the whole month, so the hours are not shown.',
+    notRecordedNote:
+      'Work was not yet recorded for the whole month: jobs and hours from before the record began are not shown.',
     addedLater: (monthEnd, amount) => `Added after ${monthEnd}: ${amount}`,
     footer: 'Your record of work. It is not an invoice.',
     reasons: {

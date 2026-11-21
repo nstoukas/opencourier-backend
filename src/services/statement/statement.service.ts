@@ -10,6 +10,7 @@ import { statementCsv } from 'src/domains/statement/statement-csv'
 import { statementPdf } from 'src/domains/statement/statement-pdf'
 import { CourierAccountRepository } from 'src/persistence/repositories/courier-account.repository'
 import { PrismaService } from 'src/services/prisma/prisma.service'
+import { TimeWorkedRepository } from 'src/persistence/repositories/time-worked.repository'
 import { TimeWorkedService, parseMonth, todayIn } from 'src/services/time-worked/time-worked.service'
 
 export type StatementFormat = 'pdf' | 'csv'
@@ -61,7 +62,9 @@ export class StatementService {
     private readonly timeWorkedService: TimeWorkedService,
     private readonly configDomainService: ConfigDomainService,
     private readonly accounts: CourierAccountRepository,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    // Optional only so tests that build the service by hand keep compiling; Nest always injects it.
+    private readonly timeWorkedRepository?: TimeWorkedRepository
   ) {}
 
   // AC-1, cross check 2: from the month of the earlier of the rider's creation and their first accepted job,
@@ -79,7 +82,10 @@ export class StatementService {
       .utc(`${todayIn(now).slice(0, 7)}-01`)
       .subtract(1, 'month')
       .format('YYYY-MM')
-    const first = monthOf(firstAt)
+    // Review fix: a month before the time record began holds no recorded jobs, so it is not offered.
+    const recordedFrom = (await this.timeWorkedRepository?.findRecordedFrom()) ?? null
+    const firstMonth = monthOf(firstAt)
+    const first = recordedFrom && monthOf(recordedFrom) > firstMonth ? monthOf(recordedFrom) : firstMonth
     return first > last ? [] : monthsBetween(first, last)
   }
 
@@ -113,7 +119,9 @@ export class StatementService {
       month: asked,
       monthStart: dayjs.tz(first, INSTANCE_TIMEZONE).toDate(),
       monthEnd: last,
-      nextMonthStart: dayjs.tz(first, INSTANCE_TIMEZONE).add(1, 'month').toDate(),
+      // Review fix: the next month's own first day in Athens time (adding a month to an instant is an hour off
+      // in October and March when the server is not on Athens time).
+      nextMonthStart: dayjs.tz(dayjs.utc(first).add(1, 'month').format('YYYY-MM-DD'), INSTANCE_TIMEZONE).toDate(),
       lang,
       coopName: storedName || (lang === 'el' ? 'Ο συνεταιρισμός' : 'The co-op'),
       riderName: `${courier.firstName} ${courier.lastName}`.trim(),
@@ -160,21 +168,23 @@ export class StatementService {
   ): Promise<StatementFile> {
     const file = await this.file(courierId, month, format, lang, now)
     const asked = file.filename.slice('statement-'.length, 'statement-'.length + 7)
-    await this.prisma.statementDownload.create({ data: { adminUserId, courierId, month: asked, format } })
-    try {
-      await this.accounts.record([
-        {
-          courierId,
-          actorUserId: adminUserId,
-          actorIsRider: false,
-          kind: EnumCourierAccountChangeKind.STATEMENT_DOWNLOADED,
-          field: 'statement',
-          newValue: `${asked} ${format.toUpperCase()}`,
-        },
-      ])
-    } catch (error) {
-      this.logger.error(`Could not record the statement download for courier ${courierId}`, error as Error)
-    }
+    // Review fix: the download row and the rider's notice are written together, or neither (then no file).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.statementDownload.create({ data: { adminUserId, courierId, month: asked, format } })
+      await this.accounts.record(
+        [
+          {
+            courierId,
+            actorUserId: adminUserId,
+            actorIsRider: false,
+            kind: EnumCourierAccountChangeKind.STATEMENT_DOWNLOADED,
+            field: 'statement',
+            newValue: `${asked} ${format.toUpperCase()}`,
+          },
+        ],
+        tx
+      )
+    })
     this.logger.log(`Admin ${adminUserId} downloaded the ${asked} ${format} statement of courier ${courierId}`)
     return file
   }
@@ -184,6 +194,8 @@ export class StatementService {
     const rows = await this.prisma.statementDownload.findMany({
       where: { courierId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      // Review fix: the newest 50.
+      take: 50,
       include: { admin: { select: { email: true } } },
     })
     return rows.map((row) => ({
