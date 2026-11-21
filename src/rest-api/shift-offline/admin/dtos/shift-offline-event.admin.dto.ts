@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumCourierStatusChangeCause } from '@prisma/types'
+import { INSTANCE_TIMEZONE } from 'src/constants'
+import { dayjs } from 'src/core/utils/time'
 import { ADMIN_CAUSE_WORDS, athensClockOf, athensDayOf } from 'src/domains/shift/shift-offline'
 import { OfflineEventForAdmin } from 'src/persistence/repositories/shift-booking.repository'
 
@@ -25,9 +27,12 @@ export class ShiftOfflineEventAdminDto {
     this.offlineAt = event.offlineAt
     this.offlineTime = event.offlineAt ? athensClockOf(event.offlineAt) : null
     this.shiftDate = event.shiftDate
-    this.shiftText = `${athensDayOf(event.shiftStartsAt)}, ${athensClockOf(event.shiftStartsAt)} to ${athensClockOf(
-      event.shiftEndsAt
-    )}`
+    // Review fix: a shift ending at midnight reads "24:00", as the rider's sentence does.
+    const end = athensClockOf(event.shiftEndsAt)
+    const endsNextDay = dayjs(event.shiftEndsAt).tz(INSTANCE_TIMEZONE).format('YYYY-MM-DD') !== event.shiftDate
+    this.shiftText = `${athensDayOf(event.shiftStartsAt)}, ${athensClockOf(event.shiftStartsAt)} to ${
+      end === '00:00' && endsNextDay ? '24:00' : end
+    }`
     this.cause = event.cause
     this.causeText = event.cause ? ADMIN_CAUSE_WORDS[event.cause] : 'Cause not recorded'
     this.followedUpAt = event.followedUpAt

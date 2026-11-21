@@ -178,6 +178,17 @@ export class ShiftBookingRepository extends EntityRepository {
     return changes.filter((change) => !seen.has(change.id))
   }
 
+  // Review fix (row 79): when Shifts was last switched on, from the settings record, so the sweep never
+  // looks back into a time Shifts was off. null when the record has no such change (on since setup).
+  async shiftsLastSwitchedOnAt(): Promise<Date | null> {
+    const change = await this.prisma.settingChange.findFirst({
+      where: { key: 'shiftsEnabled', subject: null },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { newValue: true, createdAt: true },
+    })
+    return change && change.newValue === true ? change.createdAt : null
+  }
+
   // Whether the rider left Offline after `after`, up to `upTo` (a break, not a stop).
   async leftOfflineBetween(courierId: string, after: Date, upTo: Date): Promise<boolean> {
     const change = await this.prisma.courierStatusChange.findFirst({

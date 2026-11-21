@@ -52,9 +52,6 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
         config.getShiftsEnabled(),
         config.getFairnessWeightShift(),
       ])
-    // Spec 0049 (AC-2, cross check 5): the shift weight joins only while shifts are on; off, it is out of
-    // the score, its sum and the recorded weights.
-    const weights: FairnessWeights = shiftsEnabled ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting }
 
     const inRange = await this.courierDomainService.getNearestAvailableCandidates(
       { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits },
@@ -82,6 +79,11 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       figuresKnown = false
     }
     const onShift = shiftsEnabled ? await this.ridersOnShift(shortlist.map((c) => c.courierId), now) : null
+    // Spec 0049 (AC-2, cross check 5): the shift weight joins only while shifts are on and the bookings
+    // could be read; otherwise it is out of the score, its sum and the recorded weights (review fix: a failed
+    // read no longer records everyone as off shift).
+    const shiftApplies = onShift !== null
+    const weights: FairnessWeights = shiftApplies ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting }
     const minSeconds = minOnlineMinutes * 60
     // AC-3, cross check 3: the mean of the rates of every rider with enough time online today.
     const mean = coopMeanCentsPerHour(
@@ -144,7 +146,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       reason: {
         strategy: EnumCourierMatcherType.FAIRNESS,
         // The weights that applied: the shift weight only while shifts are on (spec 0049, AC-3).
-        weights: shiftsEnabled ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting },
+        weights: shiftApplies ? { roadTime, earnings, waiting, shift } : { roadTime, earnings, waiting },
         values,
         score: best.score,
         candidateCount: scored.length,
@@ -154,15 +156,15 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     }
   }
 
-  // Spec 0049 (AC-2): who among the shortlist is on a booked shift now. A failed read counts nobody as on
-  // shift, so the factor is equal for everyone and changes no one's place (logged, never thrown).
-  private async ridersOnShift(courierIds: string[], now: Date): Promise<Set<string>> {
-    if (!this.shiftBookingRepository) return new Set()
+  // Spec 0049 (AC-2): who among the shortlist is on a booked shift now. null when the bookings cannot be
+  // read: that offer is then made as with Shifts off (logged, never thrown), so its record stays true.
+  private async ridersOnShift(courierIds: string[], now: Date): Promise<Set<string> | null> {
+    if (!this.shiftBookingRepository) return null
     try {
       return await this.shiftBookingRepository.onShiftNow(courierIds, now)
     } catch (error) {
-      this.logger.error(`Booked shifts could not be read for the fairness matcher; nobody counts as on shift: ${error}`)
-      return new Set()
+      this.logger.error(`Booked shifts could not be read for the fairness matcher; this offer leaves shifts out: ${error}`)
+      return null
     }
   }
 

@@ -63,7 +63,10 @@ export class ShiftOfflineService implements OnModuleInit {
     if (!(await config.getShiftsEnabled())) return 0
     const breakMs = (await config.getShiftBreakMinutes()) * 60_000
     const upTo = new Date(now.getTime() - breakMs)
-    const from = new Date(upTo.getTime() - OFFLINE_SWEEP_LOOKBACK_HOURS * 3_600_000)
+    const lookback = new Date(upTo.getTime() - OFFLINE_SWEEP_LOOKBACK_HOURS * 3_600_000)
+    // Review fix: never before Shifts was last switched on, so an Offline while Shifts was off leaves nothing.
+    const switchedOnAt = await this.bookings.shiftsLastSwitchedOnAt()
+    const from = switchedOnAt && switchedOnAt > lookback ? switchedOnAt : lookback
     let written = 0
     for (const change of await this.bookings.offlineChangesWithoutEvent(from, upTo)) {
       try {
