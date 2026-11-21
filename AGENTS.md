@@ -188,6 +188,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   both candidate queries and `claimForRiderWithinBox` refuses them under the row lock; an accept re-reads the rider with
   FOR SHARE after its take. The admin courier PATCH reads named fields only, because the ValidationPipe has no whitelist and
   would pass any column to an update; every account action writes a `CourierAccountChange` row.
+- Monthly statements (spec 0050): the figures are `earnings()` for the month (`StatementService`), never a second sum, so
+  they equal the Earnings screen. The PDF's fonts load from `assets/fonts` under the working directory (`FONT_DIR`), not
+  `__dirname`, because webpack bundles the code: start the server from the repo root, and ship `assets/` with it. `csvCell`
+  guards text that starts like a formula but leaves plain numbers alone. An admin download writes `StatementDownload` and
+  the rider's `STATEMENT_DOWNLOADED` change in one transaction.
 
 ## Agent skills
 
