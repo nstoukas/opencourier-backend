@@ -4,6 +4,7 @@ import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
 import { BoxSize } from '@prisma/types'
 import type { SplitRequestForQueue } from 'src/persistence/repositories/split-request.repository'
+import { splitLeaveFrom } from 'src/domains/split/split'
 
 // Spec 0047: one box of a proposed or confirmed split. @ValidateNested + @Type check each item as this class.
 export class SplitLegInput {
@@ -85,8 +86,10 @@ export class SplitRequestAdminDto {
   @ApiProperty({ type: Object, isArray: true }) proposedLegs: { boxSize: BoxSize }[]
   @ApiProperty({ type: Date }) createdAt: Date
   @ApiProperty({ type: Number }) waitedMinutes: number
+  // Row 11 review: when the rider may leave without an answer (the co-op's limit from the flag).
+  @ApiProperty({ type: Date }) leaveFrom: Date
 
-  constructor(request: SplitRequestForQueue, now: Date) {
+  constructor(request: SplitRequestForQueue, now: Date, answerMinutes: number) {
     this.id = request.id
     this.deliveryId = request.deliveryId
     this.courierId = request.courierId
@@ -99,5 +102,6 @@ export class SplitRequestAdminDto {
     this.proposedLegs = legsOf(request.proposedLegs)
     this.createdAt = request.createdAt
     this.waitedMinutes = Math.max(0, Math.floor((now.getTime() - request.createdAt.getTime()) / 60_000))
+    this.leaveFrom = splitLeaveFrom(request.createdAt, answerMinutes)
   }
 }

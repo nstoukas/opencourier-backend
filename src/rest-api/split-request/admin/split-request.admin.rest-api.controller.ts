@@ -24,7 +24,8 @@ export class SplitRequestAdminRestApiController {
   @Roles(EnumUserRole.ADMIN)
   async list(): Promise<SplitRequestAdminDto[]> {
     const now = new Date()
-    return (await this.splitRequestService.listOpen()).map((request) => new SplitRequestAdminDto(request, now))
+    const answerMinutes = await this.splitRequestService.answerMinutes()
+    return (await this.splitRequestService.listOpen()).map((request) => new SplitRequestAdminDto(request, now, answerMinutes))
   }
 
   // Declared before ':id', so "count" is never read as an id.

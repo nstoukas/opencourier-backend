@@ -162,6 +162,11 @@ export class SplitRequestService {
     return this.splitRequestRepository.countOpen()
   }
 
+  // The co-op's answer limit, for the admin queue's leave time (row 11 review).
+  async answerMinutes(): Promise<number> {
+    return this.configDomainService.instanceConfig.getSplitAnswerMinutes()
+  }
+
   // AC-7. The request closes; the rider carries the order as is. The wait is paid by the co-op, and the
   // restaurant is not charged for it (cross check 1).
   async refuse(admin: Admin, requestId: string, note: string | null, now = new Date()): Promise<void> {
