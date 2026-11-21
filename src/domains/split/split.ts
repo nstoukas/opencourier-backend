@@ -72,7 +72,8 @@ export const SPLIT_SENTENCES = {
   notAtPickup: 'You can ask to split an order only at the restaurant, before you pick it up.',
   alreadyOpen: 'This order already has a split request waiting for dispatch.',
   notOpen: 'This split request was already answered or closed.',
-  tooSoon: (minutes: number) => `You can leave after ${minutes} minutes without an answer from dispatch.`,
+  tooSoon: (minutes: number) =>
+    `You can leave after ${minutes} minute${minutes === 1 ? '' : 's'} without an answer from dispatch.`,
   noOpenRequest: 'This order has no split request waiting.',
   tooManyLegs: `An order has at most ${MAX_LEG_COUNT} legs in all.`,
   pickupBlocked: 'Dispatch is splitting this order. Wait for the answer before you pick it up.',
