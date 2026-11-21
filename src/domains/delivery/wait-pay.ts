@@ -91,6 +91,9 @@ export type CourierWaitRules = {
   leaveMinutes: number
   freeMinutes: number
   payOn: boolean
+  // Spec 0047 (AC-2): minutes after a split flag before the rider may leave. Optional: an older caller
+  // that builds the rules by hand leaves the split's leave time unset.
+  splitAnswerMinutes?: number
 }
 
 // Every wait in this delivery's history that earned pay, in time order. A delivery can change hands,

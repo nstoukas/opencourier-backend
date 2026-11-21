@@ -1,3 +1,5 @@
+import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
+import { SPLIT_SENTENCES } from 'src/domains/split/split'
 import { ConflictException, Injectable } from '@nestjs/common'
 import { EnumDeliveryStatus } from '@prisma/types'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -20,7 +22,9 @@ export class LeaveWaitCourierService {
   constructor(
     private readonly deliveryRepository: DeliveryRepository,
     private readonly configDomainService: ConfigDomainService,
-    private readonly deliveryEventService: DeliveryEventService
+    private readonly deliveryEventService: DeliveryEventService,
+    // Spec 0047: optional for the tests that build this service by hand; Nest always injects it.
+    private readonly splitRequestRepository?: SplitRequestRepository
   ) {}
 
   async leave(deliveryId: string, courierId: string, tapAgeMs?: number): Promise<{ status: EnumDeliveryStatus }> {
@@ -30,6 +34,10 @@ export class LeaveWaitCourierService {
     }
     if (delivery.status !== EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION) {
       throw new ConflictException(NOT_WAITING_MESSAGE)
+    }
+    // Spec 0047 (cross check 6): an open split request has its own leave, after its own limit.
+    if (await this.splitRequestRepository?.findOpenForDelivery(deliveryId)) {
+      throw new ConflictException(SPLIT_SENTENCES.leaveWaitBlocked)
     }
 
     // The tap time, when the phone held the request back for signal (spec 0009).

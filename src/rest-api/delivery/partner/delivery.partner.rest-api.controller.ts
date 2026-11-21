@@ -1,3 +1,4 @@
+import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
 import { DeliveryReadyDelayPartnerInput } from './queries/delivery-ready-delay.partner.input'
 import * as common from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
@@ -25,8 +26,22 @@ import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
 export class DeliveryPartnerRestApiController {
   constructor(
     private readonly deliveryPartnerRestApiService: DeliveryPartnerRestApiService,
-    private readonly deliveryEventService: DeliveryEventService
+    private readonly deliveryEventService: DeliveryEventService,
+    // Spec 0047: optional for the tests that build this controller by hand; Nest always injects it.
+    private readonly splitRequestRepository?: SplitRequestRepository
   ) {}
+
+  // Spec 0047 (AC-8, AC-10): tells the restaurant which of these orders were split at pickup or left unsplit.
+  private async withSplitOutcomes<T extends { id: string; quoteId: string; splitOutcome: 'SPLIT' | 'LEFT' | null }>(
+    dtos: T[]
+  ): Promise<T[]> {
+    if (!this.splitRequestRepository) return dtos
+    const outcomes = await this.splitRequestRepository.findOutcomesForDeliveries(
+      dtos.map((dto) => ({ id: dto.id, deliveryQuoteId: dto.quoteId }))
+    )
+    for (const dto of dtos) dto.splitOutcome = outcomes.get(dto.id) ?? null
+    return dtos
+  }
 
   @common.Get('')
   @swagger.ApiBody({ type: DeliveryFindManyPartnerArgs })
@@ -47,6 +62,7 @@ export class DeliveryPartnerRestApiController {
     const result = await this.deliveryPartnerRestApiService.getManyByPartnerId(partner.id, args.page, args.perPage)
 
     const dto = new DeliveryPartnerPaginatedDto(result, result.historyDays)
+    await this.withSplitOutcomes(dto.data)
 
     return dto
   }
@@ -75,6 +91,7 @@ export class DeliveryPartnerRestApiController {
       pickupLocation: result.pickupLocation,
       dropoffLocation: result.dropoffLocation,
     })
+    await this.withSplitOutcomes([dto])
 
     return dto
   }
@@ -94,17 +111,15 @@ export class DeliveryPartnerRestApiController {
     @CurrentUserPartner() partner: PartnerEntity
   ): Promise<DeliveryOrderLegsPartnerDto> {
     const result = await this.deliveryPartnerRestApiService.getOrderLegsWithRelations(deliveryId, partner.id)
-    return {
-      legs: result.legs.map(
-        (leg) =>
-          new DeliveryPartnerDto(leg.delivery, {
-            courierWithSettings: leg.courierWithSettings,
-            pickupLocation: leg.pickupLocation,
-            dropoffLocation: leg.dropoffLocation,
-          })
-      ),
-      missingLegNumbers: result.missingLegNumbers,
-    }
+    const legs = result.legs.map(
+      (leg) =>
+        new DeliveryPartnerDto(leg.delivery, {
+          courierWithSettings: leg.courierWithSettings,
+          pickupLocation: leg.pickupLocation,
+          dropoffLocation: leg.dropoffLocation,
+        })
+    )
+    return { legs: await this.withSplitOutcomes(legs), missingLegNumbers: result.missingLegNumbers }
   }
 
   @common.Post('')

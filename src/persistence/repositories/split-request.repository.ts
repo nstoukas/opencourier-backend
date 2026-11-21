@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { EnumSplitRequestStatus, Prisma, SplitRequest } from '@prisma/types'
+import { EnumQuoteSource, EnumSplitRequestStatus, Prisma, SplitRequest } from '@prisma/types'
 import { isUniqueConstraintError } from 'src/prisma.util'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -83,15 +83,29 @@ export class SplitRequestRepository extends EntityRepository {
     return [...newest.values()]
   }
 
-  // The newest request that ended this delivery by the rider leaving, for the restaurant (AC-8, AC-10).
-  async findOutcomesForDeliveries(deliveryIds: string[]): Promise<{ deliveryId: string; status: EnumSplitRequestStatus }[]> {
-    if (deliveryIds.length === 0) return []
-    return this.prisma.splitRequest.findMany({
+  // AC-8, AC-10: what the restaurant is told about these deliveries. SPLIT for the kept leg of a confirmed
+  // split and for every leg a split made (their quote is a SPLIT copy), LEFT for one the rider left unsplit.
+  async findOutcomesForDeliveries(
+    deliveries: { id: string; deliveryQuoteId: string }[]
+  ): Promise<Map<string, 'SPLIT' | 'LEFT'>> {
+    const outcomes = new Map<string, 'SPLIT' | 'LEFT'>()
+    if (deliveries.length === 0) return outcomes
+    const requests = await this.prisma.splitRequest.findMany({
       where: {
-        deliveryId: { in: deliveryIds },
+        deliveryId: { in: deliveries.map((delivery) => delivery.id) },
         status: { in: [EnumSplitRequestStatus.CONFIRMED, EnumSplitRequestStatus.LEFT] },
       },
       select: { deliveryId: true, status: true },
     })
+    for (const request of requests) {
+      outcomes.set(request.deliveryId, request.status === EnumSplitRequestStatus.LEFT ? 'LEFT' : 'SPLIT')
+    }
+    const splitQuotes = await this.prisma.deliveryQuote.findMany({
+      where: { id: { in: deliveries.map((delivery) => delivery.deliveryQuoteId) }, source: EnumQuoteSource.SPLIT },
+      select: { id: true },
+    })
+    const splitQuoteIds = new Set(splitQuotes.map((quote) => quote.id))
+    for (const delivery of deliveries) if (splitQuoteIds.has(delivery.deliveryQuoteId)) outcomes.set(delivery.id, 'SPLIT')
+    return outcomes
   }
 }

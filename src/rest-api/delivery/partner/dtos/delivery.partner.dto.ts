@@ -54,6 +54,11 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Number, nullable: true })
   legCount: number | null
 
+  // Spec 0047 (AC-8, AC-10): SPLIT when the order was split at pickup (this is one of its legs), LEFT when the
+  // rider left it unsplit and it was cancelled to send again with the right sizes; null otherwise.
+  @ApiProperty({ type: String, nullable: true, enum: ['SPLIT', 'LEFT'] })
+  splitOutcome: 'SPLIT' | 'LEFT' | null = null
+
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
 

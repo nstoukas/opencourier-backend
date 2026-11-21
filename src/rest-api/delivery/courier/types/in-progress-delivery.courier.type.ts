@@ -1,7 +1,7 @@
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { LocationNoteWithReactionCounts } from './location-note-with-reaction-counts.type'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
-import { DeliveryRemovalRequest } from '@prisma/types'
+import { DeliveryRemovalRequest, SplitRequest } from '@prisma/types'
 
 export type InProgressDeliveryCourier = DeliveryEntity & {
   pickupLocation: LocationEntity
@@ -10,4 +10,6 @@ export type InProgressDeliveryCourier = DeliveryEntity & {
   pickupLocationNotes: LocationNoteWithReactionCounts[]
   // Spec 0035: this rider's newest request while open or refused, null otherwise.
   removalRequest?: DeliveryRemovalRequest | null
+  // Spec 0047: this rider's newest split request while open, refused or confirmed, null otherwise.
+  splitRequest?: SplitRequest | null
 }

@@ -18,6 +18,8 @@ export const BILLING_CHARGE_SELECT = {
   billId: true,
   waitOf: true,
   removalOf: true,
+  // Spec 0047 (cross check 3): a split wait's key, so its line has its own words.
+  splitWaitOf: true,
   waitMinutes: true,
   partner: { select: { name: true } },
   delivery: { select: { orderReference: true, cancelledAt: true } },

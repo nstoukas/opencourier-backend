@@ -6,6 +6,7 @@ import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/index'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { RemovalRequestService } from 'src/services/removal-request/removal-request.service'
+import { SplitRequestService } from 'src/services/split-request/split-request.service'
 
 // Spec 0015, AC-10. Every minute, completes the settlement of any cancellation still missing a piece
 // (the rider's award, its event, a restaurant's charge): a write that failed when the job was
@@ -29,7 +30,9 @@ export class CancellationSweepService implements OnModuleInit {
     private readonly taskBusService: TaskBusService,
     // Spec 0035: the same minute job completes removals and return trips.
     private readonly removalRequestRepository: RemovalRequestRepository,
-    private readonly removalRequestService: RemovalRequestService
+    private readonly removalRequestService: RemovalRequestService,
+    // Spec 0047: optional for the tests that build this service by hand; Nest always injects it.
+    private readonly splitRequestService?: SplitRequestService
   ) {
     this.taskBusService.registerTaskHandler(CANCELLATION_SWEEP_JOB, async () => {
       await this.sweep(new Date())
@@ -54,6 +57,19 @@ export class CancellationSweepService implements OnModuleInit {
     await this.settleWaits(now)
     await this.settleRemovals(now)
     await this.settleReturnTrips(now)
+    await this.startSplitLegs(now)
+  }
+
+  // Spec 0047 (cross check 7): split legs left in CREATED a minute after a confirm (the process stopped
+  // between the commit and their start) are started now. Guarded, so it never stops the other steps.
+  private async startSplitLegs(now: Date): Promise<void> {
+    if (!this.splitRequestService) return
+    try {
+      const started = await this.splitRequestService.startUnstartedLegs(now)
+      if (started > 0) this.logger.warn(`Started ${started} split leg(s) that were left in CREATED`)
+    } catch (error) {
+      this.logger.error(`The split leg sweep failed: ${error}`)
+    }
   }
 
   // Spec 0035 (AC-18): an approval whose money is not all written, or an interrupted one.

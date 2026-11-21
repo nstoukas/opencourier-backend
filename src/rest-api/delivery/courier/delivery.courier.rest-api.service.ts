@@ -1,3 +1,5 @@
+import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
+import { SPLIT_SENTENCES } from 'src/domains/split/split'
 import { ConflictException, Injectable, Logger } from '@nestjs/common'
 import {
   EnumDeliveryIssueReason,
@@ -29,7 +31,7 @@ import { ICourierTap } from 'src/domains/delivery/interfaces/ICourierTap'
 import { CourierJobStepCourierInput } from './queries/courier-job-step.courier.input'
 import { ArrivedCourierInput } from './queries/arrived.courier.input'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
-import { DeliveryRemovalRequest, EnumRemovalRequestStatus } from '@prisma/types'
+import { DeliveryRemovalRequest, EnumRemovalRequestStatus, EnumSplitRequestStatus, SplitRequest } from '@prisma/types'
 
 // The tap of a job step the app sent with `tapAgeMs` (spec 0009), stamped with the moment this
 // server received it; undefined for a step sent without one, whose event then happened on arrival.
@@ -46,7 +48,9 @@ export class DeliveryRestApiCourierService {
     private locationNoteReactionDomainService: LocationNoteReactionDomainService,
     private deliveryIssueDomainService: DeliveryIssueDomainService,
     private productReportDomainService: ProductReportDomainService,
-    private removalRequestRepository: RemovalRequestRepository
+    private removalRequestRepository: RemovalRequestRepository,
+    // Spec 0047: optional for the tests that build this service by hand; Nest always injects it.
+    private splitRequestRepository?: SplitRequestRepository
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -134,6 +138,21 @@ export class DeliveryRestApiCourierService {
         : null
     }
 
+    // Spec 0047: the newest split request on each job, shown while open, refused or confirmed.
+    const splitRequests =
+      (await this.splitRequestRepository?.findNewestByCourierForDeliveries(
+        courierId,
+        deliveries.data.map((delivery) => delivery.id)
+      )) ?? []
+    const shownSplit = (deliveryId: string): SplitRequest | null =>
+      splitRequests.find(
+        (request) =>
+          request.deliveryId === deliveryId &&
+          (request.status === EnumSplitRequestStatus.OPEN ||
+            request.status === EnumSplitRequestStatus.REFUSED ||
+            request.status === EnumSplitRequestStatus.CONFIRMED)
+      ) ?? null
+
     const deliveriesWithNotes = deliveries.data.map((delivery) => {
       const dropoffLocationNotes = locationNotesWithReactions.filter(
         (note) => note.locationId === delivery.dropoffLocationId
@@ -147,6 +166,7 @@ export class DeliveryRestApiCourierService {
         dropoffLocationNotes,
         pickupLocationNotes,
         removalRequest: shownRequest(delivery.id),
+        splitRequest: shownSplit(delivery.id),
       } as InProgressDeliveryCourier
     })
 
@@ -259,6 +279,11 @@ export class DeliveryRestApiCourierService {
 
     if (!delivery) {
       throw new DeliveryNotFoundException('Delivery not found')
+    }
+
+    // Spec 0047 (cross check 6): not while dispatch is splitting this order.
+    if (await this.splitRequestRepository?.findOpenForDelivery(deliveryId)) {
+      throw new ConflictException(SPLIT_SENTENCES.pickupBlocked)
     }
 
     const updatedDelivery = await this.deliveryDomainService.markAsPickedUp(deliveryId, tap)

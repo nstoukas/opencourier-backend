@@ -178,6 +178,7 @@ export class DeliveryDomainService {
       leaveMinutes: await config.getWaitLimitMinutes(),
       freeMinutes: await config.getWaitPayFreeMinutes(),
       payOn: (await config.getWaitPayEnabled()) && (await config.getWaitPayCentsPerMinute()) > 0,
+      splitAnswerMinutes: await config.getSplitAnswerMinutes(),
     }
   }
 

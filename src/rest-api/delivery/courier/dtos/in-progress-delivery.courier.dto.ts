@@ -1,3 +1,6 @@
+import { SplitRequestCourierDto } from 'src/rest-api/split-request/dtos/split-request.dto'
+import { splitLeaveFrom } from 'src/domains/split/split'
+import { DEFAULT_SPLIT_ANSWER_MINUTES } from 'src/constants'
 import { DeliveryCourierDto } from './delivery.courier.dto'
 import { ApiProperty } from '@nestjs/swagger'
 import { LocationNoteCourierWithReactionCountsDto } from 'src/rest-api/location-note/courier/dtos/location-note-with-reaction-counts.courier.dto'
@@ -32,6 +35,11 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
   @ApiProperty({ type: RemovalRequestCourierDto, nullable: true })
   removalRequest: RemovalRequestCourierDto | null
 
+  // Spec 0047 (AC-2, AC-7): the rider's split request on this job while open, refused or confirmed, with
+  // when they may leave without an answer (the server's clock).
+  @ApiProperty({ type: SplitRequestCourierDto, nullable: true })
+  splitRequest: SplitRequestCourierDto | null
+
   constructor(data: InProgressDeliveryCourier, waitRules: CourierWaitRules) {
     super(data)
 
@@ -50,6 +58,12 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
         : null
 
     this.removalRequest = data.removalRequest ? new RemovalRequestCourierDto(data.removalRequest) : null
+    this.splitRequest = data.splitRequest
+      ? new SplitRequestCourierDto(
+          data.splitRequest,
+          splitLeaveFrom(data.splitRequest.createdAt, waitRules.splitAnswerMinutes ?? DEFAULT_SPLIT_ANSWER_MINUTES)
+        )
+      : null
 
     this.pickupLocation = new LocationCourierDto(data.pickupLocation)
     this.dropoffLocation = new LocationCourierDto(data.dropoffLocation)

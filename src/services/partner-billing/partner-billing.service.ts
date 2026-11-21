@@ -35,6 +35,9 @@ export interface ChargeLine {
   reason: EnumPartnerChargeReason
   waitMinutes: number | null
   removalLabel: string | null
+  // Spec 0047 (cross check 3): a WAITING line for the wait while dispatch split the order, worded
+  // "Waiting while dispatch split the order" rather than as a delay.
+  splitWait: boolean
   amount: number // cents
   currencyCode: string
   deliveryId: string
@@ -299,6 +302,7 @@ export class PartnerBillingService {
         reason: row.reason,
         waitMinutes: row.waitMinutes,
         removalLabel: row.reason === EnumPartnerChargeReason.REMOVAL ? removal?.label ?? null : null,
+        splitWait: row.splitWaitOf !== null,
         amount: row.amount,
         currencyCode: row.currencyCode,
         deliveryId: row.deliveryId,
