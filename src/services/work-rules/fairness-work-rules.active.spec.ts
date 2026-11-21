@@ -122,8 +122,26 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
 
     // 4. Offer records
     expect(result.offers[3]).toBe(
-      'Each offer records the figures that chose its rider; a representative can show you them for any of your offers.'
+      'Each offer records the figures that chose its rider. See why a job came to you on its page in Earnings.'
     )
+  })
+
+  // Spec 0045 (AC-4, decision 14.3): the matching part links back to the job's page in Earnings.
+  test('howItWorks under FAIRNESS ends its matching part with the link back sentence (spec 0045 AC-4)', async () => {
+    const result = await service.howItWorks()
+
+    // The matching part is the fairness sentences, which open the offers list; its last one links back.
+    const matchingPart = result.offers.slice(0, fairnessSentences(fairnessSettings, '20 km').length)
+    expect(matchingPart).toHaveLength(4)
+    const lastMatchingSentence = matchingPart[matchingPart.length - 1]!
+    expect(lastMatchingSentence.endsWith('See why a job came to you on its page in Earnings.')).toBe(true)
+    // The old sentence sent riders to a representative for this; the app now shows it to them.
+    expect(result.offers.join(' ')).not.toContain('a representative can show you them for any of your offers')
+  })
+
+  test('fairnessSentences ends with the link back sentence (spec 0045 AC-4)', () => {
+    const sentences = fairnessSentences(fairnessSettings, '20 km')
+    expect(sentences[sentences.length - 1]).toMatch(/See why a job came to you on its page in Earnings\.$/)
   })
 
   test('fairnessSentences updates dynamically when weights and limits change', () => {
