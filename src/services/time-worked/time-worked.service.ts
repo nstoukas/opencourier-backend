@@ -196,6 +196,11 @@ export function parseDayRange(from: unknown, to: unknown, maxDays: number): DayR
 }
 
 // Spec 0044: one rider's figures for today, as the fairness matcher reads them.
+// The start of `now`'s day in the instance's zone (Athens).
+export function instanceDayStart(now: Date): Date {
+  return dayjs.tz(todayIn(now), INSTANCE_TIMEZONE).toDate()
+}
+
 export interface FairnessDayFigures {
   workSeconds: number
   // Linked money per hour worked today, tips left out; null under a minute of work.
@@ -521,15 +526,16 @@ export class TimeWorkedService {
     for (const [courierId, result] of results) {
       const day = result.days.find((d) => d.date === today)
       const jobs = [...result.allShifts.flatMap((shift) => shift.jobs), ...result.jobsInNoShift]
-      const endsToday = jobs
-        .map((job) => job.endedAt)
-        .filter((at): at is Date => at !== null && at.getTime() >= todayStart.getTime())
+      // Review fix: the newest job end in the look back, not only today's. Earnings reset at midnight
+      // (cross check 2), waiting does not: a rider who dropped off at 23:55 has waited minutes at 00:10.
+      const endsToday = jobs.map((job) => job.endedAt).filter((at): at is Date => at !== null)
       // Cross check 5: the spell is the last move to Online from Offline; Last Call continues it.
       const spellStarts = records.statusChanges
         .filter(
           (c) =>
             c.courierId === courierId &&
-            c.toStatus === EnumCourierStatus.ONLINE &&
+            // agy review: a move from Offline straight to Last Call starts a spell too.
+            (c.toStatus === EnumCourierStatus.ONLINE || c.toStatus === EnumCourierStatus.LAST_CALL) &&
             c.fromStatus === EnumCourierStatus.OFFLINE
         )
         .map((c) => c.createdAt)
@@ -537,8 +543,14 @@ export class TimeWorkedService {
         workSeconds: day?.workSeconds ?? 0,
         centsPerHour: day?.centsPerHour ?? null,
         lastJobEndAt: endsToday.length > 0 ? new Date(Math.max(...endsToday.map((at) => at.getTime()))) : null,
-        onlineSpellStartAt:
-          spellStarts.length > 0 ? new Date(Math.max(...spellStarts.map((at) => at.getTime()))) : window.windowStart,
+        // agy review: Online since before the look back (no move recorded) waits from today's start, not
+        // from yesterday's, so waiting never reaches into a past day.
+        onlineSpellStartAt: new Date(
+          Math.max(
+            spellStarts.length > 0 ? Math.max(...spellStarts.map((at) => at.getTime())) : 0,
+            todayStart.getTime()
+          )
+        ),
       })
     }
     return figures

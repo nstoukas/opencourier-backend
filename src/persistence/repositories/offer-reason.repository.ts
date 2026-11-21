@@ -37,6 +37,7 @@ export class OfferReasonRepository extends EntityRepository {
 
   // AC-8: a delivery's offer reasons, oldest first, for the admin delivery page.
   async findByDeliveryId(deliveryId: string): Promise<OfferReason[]> {
-    return this.prisma.offerReason.findMany({ where: { deliveryId }, orderBy: { createdAt: 'asc' } })
+    // agy review: the id breaks a tie between two reasons written in the same millisecond.
+    return this.prisma.offerReason.findMany({ where: { deliveryId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })
   }
 }

@@ -1,3 +1,4 @@
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { Injectable, Logger } from '@nestjs/common'
@@ -102,17 +103,22 @@ export class DeliveryQuotePartnerRestApiService {
       }
     }
 
-    const result = await this.courierMatcherService.findCourierForDelivery({
-      pickupLocation: {
-        latitude: pickupLocation.latitude,
-        longitude: pickupLocation.longitude,
+    const result = await this.courierMatcherService.findCourierForDelivery(
+      {
+        pickupLocation: {
+          latitude: pickupLocation.latitude,
+          longitude: pickupLocation.longitude,
+        },
+        dropoffLocation: {
+          latitude: dropoffLocation.latitude,
+          longitude: dropoffLocation.longitude,
+        },
+        rejectedCourierIds: [],
       },
-      dropoffLocation: {
-        latitude: dropoffLocation.latitude,
-        longitude: dropoffLocation.longitude,
-      },
-      rejectedCourierIds: [],
-    })
+      // Review fix (spec 0044): a quote only asks whether anyone is free, so it uses the plain nearest
+      // matcher whatever the co-op chose; the fairness matcher's figures and road table are for offers.
+      EnumCourierMatcherType.NEAREST_COURIER
+    )
 
     if (!result) {
       return {

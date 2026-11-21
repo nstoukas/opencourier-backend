@@ -76,7 +76,7 @@ export function fairnessSentences(
     `Each order is offered among the ${settings.fairnessCandidateLimit} nearest free riders who are Online or on Last Call, within ${distance} of the restaurant.`,
     `Among them, the co-op weighs three things: road time to the restaurant (weight ${settings.fairnessWeightRoadTime}), what the co-op has paid you per hour online today (weight ${settings.fairnessWeightEarnings}, the less you have earned, the sooner you are offered), and how long you have waited since your last job (weight ${settings.fairnessWeightWaiting}, the longer, the sooner).`,
     `Until you have been online ${settings.fairnessMinOnlineMinutes} minutes today, your pay per hour counts as the co-op's average. Tips never affect who gets offers, and the day starts again at midnight.`,
-    'Each offer records the figures that chose its rider; you can see them for your own offers, and a representative can show the whole comparison.',
+    'Each offer records the figures that chose its rider; a representative can show you them for any of your offers.',
   ]
 }
 
@@ -88,13 +88,13 @@ export const PERSON_DECIDES = [
 export const APP_RECORDS = [
   'Your position is stored only while you are Online or on a job, and it is erased when you go Offline.',
   // Spec 0044 (decision 12.4): the fairness matcher compares riders for each offer, so this says how.
-  'There are no ratings and no score is kept about you. Riders are compared only to choose who gets each offer, by road time, today’s pay per hour and waiting, never by behaviour.',
+  'There are no ratings and no running score about you. Riders are compared only to choose who gets each offer, by what the offer rules above say, never by behaviour; each offer keeps the figures it used.',
   'Every step that affects an offer or your pay is written on that delivery’s record, which a representative can show you.',
 ]
 
 // Spec 0040 (AC-13): who sees a rider's time worked, and why. Fixed text, tied to AC-15 and AC-16.
 export const TIME_WORKED_ADMIN_VIEW =
-  'Admins can see your time worked on your own page, to answer your questions and review requests. No one ranks riders by it. Only the offer matcher compares today’s pay per hour, for each offer, so that work goes first to whoever has earned least; the co-op totals never name a rider.'
+  'Admins can see your time worked on your own page, to answer your questions and review requests. No one ranks riders by it. When the co-op uses the fairness offer rules, today’s pay per hour is compared for each offer, so that work goes first to whoever has earned least; the co-op totals never name a rider.'
 
 // Spec 0040 (AC-13): the time worked sentences, from the live break setting.
 export function timeWorkedSentences(shiftBreakMinutes: number): string[] {

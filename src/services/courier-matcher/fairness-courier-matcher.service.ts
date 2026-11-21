@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { OsrmRoutingService } from '../osrm/osrm-routing.service'
-import { TimeWorkedService } from '../time-worked/time-worked.service'
+import { FairnessDayFigures, TimeWorkedService, instanceDayStart } from '../time-worked/time-worked.service'
 import { ICourierMatcherService } from './interfaces/ICourierMatcherService'
 import { ICourierMatcherInput } from './interfaces/ICourierMatcherInput'
 import { ICourierMatcherResult } from './interfaces/ICourierMatcherResult'
@@ -60,7 +60,17 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     )
 
     const now = new Date()
-    const today = await this.timeWorkedService.todayForFairness(now)
+    // Review fix: a failed read of today's figures must not stop every offer. Without them, pay per hour
+    // counts equal for everyone and so does waiting, so road time decides, and the reason says so.
+    let today: Map<string, FairnessDayFigures>
+    let figuresKnown = true
+    try {
+      today = await this.timeWorkedService.todayForFairness(now)
+    } catch (error) {
+      this.logger.error(`Today's figures could not be read for the fairness matcher; road time decides: ${error}`)
+      today = new Map()
+      figuresKnown = false
+    }
     const minSeconds = minOnlineMinutes * 60
     // AC-3, cross check 3: the mean of the rates of every rider with enough time online today.
     const mean = coopMeanCentsPerHour(
@@ -73,10 +83,14 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       const figures = today.get(candidate.courierId)
       const own = figures && figures.workSeconds >= minSeconds ? figures.centsPerHour : null
       const earningsAssumed = own === null
-      // A rider the records do not know (no status change since the look back) waits from now: 0.
-      const waitFrom = figures
-        ? Math.max(figures.lastJobEndAt?.getTime() ?? 0, figures.onlineSpellStartAt.getTime())
-        : now.getTime()
+      // Review fix (binding value 4): a rider the records do not know has been Online since before the
+      // look back, so waits from today's start, like a rider known only from before it; never 0. With no
+      // figures at all (the read failed), everyone waits the same.
+      const waitFrom = !figuresKnown
+        ? now.getTime()
+        : figures
+          ? Math.max(figures.lastJobEndAt?.getTime() ?? 0, figures.onlineSpellStartAt.getTime())
+          : instanceDayStart(now).getTime()
       return {
         courierId: candidate.courierId,
         straightMetres: Math.round(candidate.distance),
@@ -84,7 +98,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
         roadEstimated: roads.estimated,
         centsPerHour: earningsAssumed ? mean ?? 0 : (own as number),
         earningsAssumed,
-        earningsEqual: mean === null,
+        earningsEqual: mean === null || !figuresKnown,
         waitingSeconds: Math.max(0, Math.round((now.getTime() - waitFrom) / 1000)),
       }
     })
@@ -110,8 +124,9 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     return {
       courierId: best.courierId,
       distance: best.straightMetres,
-      // Offer timing (spec 0031) reads a real road time only; an estimate leaves it to ask again.
-      travelSeconds: best.roadEstimated ? null : best.roadSeconds,
+      // Offer timing (spec 0031) reads a real road time only; an estimate leaves it undefined, so timing
+      // asks the router itself (review fix: null means "tried and could not" there, and sent the offer at once).
+      travelSeconds: best.roadEstimated ? undefined : best.roadSeconds,
       reason: {
         strategy: EnumCourierMatcherType.FAIRNESS,
         weights,

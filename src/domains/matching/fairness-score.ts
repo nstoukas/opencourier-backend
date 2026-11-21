@@ -56,12 +56,16 @@ export function estimatedRoadSeconds(straightMetres: number): number {
 
 // How far each value is from the best one, scaled 0 to 1 across the candidates. `distances` are
 // already "how much worse than the best" (0 for the best); a distance within the dead band counts as 0,
-// and the rest is scaled by the largest distance left. All within the band: everyone 0 (all equal).
+// and the rest is scaled by the largest distance left (never by less than the band). All within the
+// band: everyone 0 (all equal).
+// agy review: the excess over the band is scaled by at least the band itself, so a rider 1 s past it is
+// not given the whole weight when everyone else sits inside it (60 s inside, 61 s: about 0.02, not 1).
 function scaleWithDeadBand(distances: number[], deadBand: number): number[] {
   const shifted = distances.map((distance) => Math.max(0, distance - deadBand))
   const largest = Math.max(0, ...shifted)
   if (largest === 0) return distances.map(() => 0)
-  return shifted.map((value) => value / largest)
+  const scale = Math.max(largest, deadBand)
+  return shifted.map((value) => value / scale)
 }
 
 // AC-4: scales each factor (shorter road time is better, lower earnings is better, longer waiting is
