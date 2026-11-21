@@ -1,6 +1,7 @@
 import { Delivery, DeliveryQuote, Location } from '@prisma/types'
 import { convertToKM } from 'src/shared-types/distance-unit'
 import { OfferTrip } from './offer-trip'
+import { legPayload } from './legs'
 
 // The facts an offer shows a rider, and nothing else (spec 0003, AC-10). The push message is built
 // from this. The in app offer card (row 70, spec 0019) reuses its drop off area (dropoffAreaOf),
@@ -27,6 +28,10 @@ export const OFFER_CARD_PAYLOAD_KEYS = [
   'insistent',
   // Spec 0043 (AC-7): 'SMALL', 'MEDIUM' or 'LARGE'; the app words it ("Medium order").
   'boxSize',
+  // Spec 0046 (AC-7): "Leg 1 of 2" of a multi leg order, as '1' and '2'; '' for a single delivery
+  // (every key is sent, and '' means "not known" here, decision 10.2).
+  'legNumber',
+  'legCount',
 ] as const
 
 // `(typeof X)[number]` is "any one element of the array X": the union 'deliveryId' | 'offeredAt' | ...
@@ -42,7 +47,7 @@ export type OfferCardPayload = Record<OfferCardPayloadKey, string>
 export interface OfferCardSource {
   delivery: Pick<
     Delivery,
-    'id' | 'offeredAt' | 'offerExpiresAt' | 'totalCompensation' | 'currencyCode' | 'pickupBusinessName' | 'boxSize'
+    'id' | 'offeredAt' | 'offerExpiresAt' | 'totalCompensation' | 'currencyCode' | 'pickupBusinessName' | 'boxSize' | 'legNumber' | 'legCount'
   >
   dropoffLocation: Pick<Location, 'street' | 'houseNumber' | 'city'> | null
   // The quote the delivery was priced from: its distance is restaurant to customer, in the unit the
@@ -83,6 +88,7 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     minutes: numberOrEmpty(source.trip.minutes),
     insistent: options.insistent ? '1' : '',
     boxSize: delivery.boxSize,
+    ...legPayload(delivery),
   }
 
   return payload

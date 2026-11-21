@@ -66,6 +66,14 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ enum: BoxSize })
   boxSize: BoxSize
 
+  // Spec 0046 (AC-7): "Leg 1 of 2" when the order was sent as legs, so the rider knows a colleague
+  // carries the rest to the same door. Both null for a single delivery.
+  @ApiProperty({ type: Number, nullable: true })
+  legNumber: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  legCount: number | null
+
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
 
@@ -250,6 +258,8 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.readyAt = data.readyAt ?? null
     this.foodReadyAt = data.foodReadyAt ?? null
     this.boxSize = data.boxSize
+    this.legNumber = data.legNumber ?? null
+    this.legCount = data.legCount ?? null
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     // Spec 0020 (AC-3): the end of the free hand back, while it is still ahead and the rider has not

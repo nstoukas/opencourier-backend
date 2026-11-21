@@ -1,4 +1,18 @@
-import { ConflictException, ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common'
+import {
+  LEG_LABELS_LOCKED_SENTENCE,
+  LEG_TAKEN_SENTENCE,
+  legLabelsProblem,
+  siblingConflict,
+} from 'src/domains/delivery/legs'
+import { isUniqueConstraintError } from 'src/prisma.util'
 import { ProductReportDomainService, ProductReportInput } from 'src/domains/product-report/product-report.domain.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
@@ -127,6 +141,17 @@ export class DeliveryPartnerRestApiService {
       throw new ServiceUnavailableException(restaurantStoppedMessage(stop, now))
     }
 
+    // Spec 0046 (AC-1, key invariants): the leg labels, checked before anything is read or created. One
+    // without the other or out of range is 400; a leg that disagrees with the legs already sent is 409.
+    const legProblem = legLabelsProblem(input)
+    if (legProblem) throw new BadRequestException(legProblem)
+    const leg = input.legNumber != null && input.legCount != null ? { legNumber: input.legNumber, legCount: input.legCount } : null
+    if (leg) {
+      const siblings = await this.deliveryDomainService.getOrderLegsOf(partnerId, input.orderReference)
+      const conflict = siblingConflict(leg, siblings)
+      if (conflict) throw new ConflictException(conflict)
+    }
+
     const deliveryQuote = await this.deliveryQuoteDomainService.getByIdOrThrow(input.quoteId)
     // check if the quote has expired
     if (!deliveryQuote.expiresAt || deliveryQuote.expiresAt < new Date()) {
@@ -191,7 +216,7 @@ export class DeliveryPartnerRestApiService {
       longitude: input.dropoffLongitude,
     })
 
-    const delivery = await this.deliveryDomainService.create({
+    const delivery = await this.createUnlessLegTaken(leg, {
       pickupName: input.pickupName,
       pickupLocationId: pickupLocation.id,
       pickupPhoneNumber: input.pickupPhoneNumber,
@@ -240,9 +265,32 @@ export class DeliveryPartnerRestApiService {
 
       // Spec 0043 (AC-3): the restaurant's size, or none (create then uses the default, marked assumed).
       boxSize: input.boxSize ?? null,
+
+      // Spec 0046 (AC-1): "leg 1 of 2", or both null for a single delivery.
+      legNumber: leg?.legNumber ?? null,
+      legCount: leg?.legCount ?? null,
     })
 
     return delivery
+  }
+
+  // Spec 0046 (cross check 1): two creates of the same leg racing past the sibling check both reach the
+  // insert; the unique index on (partnerId, orderReference, legNumber) lets one through and the other
+  // gets this 409, not the generic unique constraint answer. Any other error goes on unchanged.
+  private async createUnlessLegTaken(
+    leg: { legNumber: number; legCount: number } | null,
+    data: Parameters<DeliveryDomainService['create']>[0]
+  ) {
+    try {
+      return await this.deliveryDomainService.create(data)
+    } catch (error) {
+      const target = (error as { meta?: { target?: unknown } }).meta?.target
+      const onLegIndex = Array.isArray(target) ? target.includes('legNumber') : String(target ?? '').includes('legNumber')
+      if (leg && error instanceof Error && isUniqueConstraintError(error) && onLegIndex) {
+        throw new ConflictException(LEG_TAKEN_SENTENCE(leg.legNumber, leg.legCount))
+      }
+      throw error
+    }
   }
 
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
@@ -302,6 +350,11 @@ export class DeliveryPartnerRestApiService {
           })
         ).id
       : delivery.dropoffLocationId
+
+    // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg.
+    if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
+      throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
+    }
 
     // Spec 0043 (AC-3, cross check 4): a new size, after the update's own checks (review fix: a refused
     // update must not leave the size changed) and before the rest is written, so a refused size change

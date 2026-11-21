@@ -1,5 +1,6 @@
 import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
 import { RIDER_DEACTIVATED_SENTENCE } from 'src/domains/courier/account-upkeep'
+import { SIBLING_LEG_HELD_SENTENCE } from 'src/domains/delivery/legs'
 import { OfferReasonInput, adminOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
 import type {
@@ -652,6 +653,10 @@ export class DeliveryEventService {
     if (claim.outcome === 'DEACTIVATED') {
       throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
     }
+    // Spec 0046 (AC-4): the rider holds another leg of this order, measured under the lock.
+    if (claim.outcome === 'SIBLING_LEG') {
+      throw new ConflictException(SIBLING_LEG_HELD_SENTENCE)
+    }
     if (claim.outcome === 'NOT_WAITING') {
       throw new CantUpdateDeliveryStatusError(
         `Delivery ${deliveryId} changed while you were offering it (a rider answered or it moved on); reload and try again`
@@ -1025,6 +1030,15 @@ export class DeliveryEventService {
   async refuseIfCourierDeactivated(courierId: string): Promise<void> {
     const courier = await this.courierRepository.findById(courierId)
     if (courier?.deactivatedAt) throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
+  }
+
+  // Spec 0046 (AC-4, cross check 3): an admin path that would give a rider a second leg of an order they
+  // already hold a leg of answers 409 before anything is written. The hand offer checks again under the
+  // rider's lock (claimForRiderWithinBox); confirmOverCapacity never lets it through.
+  async refuseIfCourierHoldsSiblingLeg(courierId: string, deliveryId: string): Promise<void> {
+    if (await this.deliveryRepository.holdsSiblingLeg(courierId, deliveryId)) {
+      throw new ConflictException(SIBLING_LEG_HELD_SENTENCE)
+    }
   }
 
   // Spec 0051 (row 108 review): after an accept's take. A deactivation holds the rider's row lock from its
@@ -1574,6 +1588,12 @@ export class DeliveryEventService {
     if (claim === 'DEACTIVATED') {
       // Spec 0051: only the Static matcher can name a deactivated rider; the delivery waits as if none were free.
       this.logger.log(`Courier ${courier.id} is deactivated; delivery ${deliveryId} is not offered to them`)
+      return 'NO_COURIER'
+    }
+    if (claim === 'SIBLING_LEG') {
+      // Spec 0046 (AC-4): only the Static matcher can name a rider who holds another leg of this order (the
+      // others skip busy riders). The leg waits as if none were free; the backstop tries again later.
+      this.logger.log(`Courier ${courier.id} holds another leg of this order; delivery ${deliveryId} is not offered to them`)
       return 'NO_COURIER'
     }
     if (claim === 'BOX_FULL') {

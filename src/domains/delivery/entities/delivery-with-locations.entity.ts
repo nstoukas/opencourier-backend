@@ -57,6 +57,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
   requiresId: boolean
   orderReference: string | null
   orderTotalValue: number | null
+  // Spec 0046: "leg 1 of 2" of a multi leg order, both null for a single delivery.
+  legNumber: number | null
+  legCount: number | null
   orderItems: Prisma.JsonValue | null
   status: EnumDeliveryStatus
   customerNotes: string[]
@@ -155,6 +158,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.requiresId = data.requiresId
     this.orderReference = data.orderReference
     this.orderTotalValue = data.orderTotalValue
+    this.legNumber = data.legNumber ?? null
+    this.legCount = data.legCount ?? null
     this.orderItems = data.orderItems
     this.status = data.status
     this.customerNotes = data.customerNotes

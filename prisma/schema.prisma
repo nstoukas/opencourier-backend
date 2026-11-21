@@ -411,6 +411,11 @@ model Delivery {
   orderReference  String?
   orderTotalValue Int?
   orderItems      Json?   @postgres.Json
+  // Spec 0046: one leg of an order too big for one box ("leg 1 of 2"). Both null for a single delivery,
+  // or both set with 1 <= legNumber <= legCount and 2 <= legCount <= 4 (a CHECK in the migration). The
+  // legs of one order share partnerId and orderReference; the storefront sets them (Path A).
+  legNumber       Int?
+  legCount        Int?
 
   // Delivery data
   status             EnumDeliveryStatus @default(CREATED)
@@ -491,6 +496,9 @@ model Delivery {
   searchFold           String?
 
   @@unique([idempotencyKey, partnerId])
+  // Spec 0046 (cross check 1): one leg number per order. Postgres counts NULLs as distinct, so a single
+  // delivery (legNumber null) or one with no reference never collides; only two legs with the same number do.
+  @@unique([partnerId, orderReference, legNumber])
   // A rider's cancelled jobs of the last 24 hours (spec 0015).
   @@index([courierId, cancelledAt])
 }

@@ -10,8 +10,35 @@ import {
   Prisma,
 } from '@prisma/types'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { OrderLeg } from 'src/domains/delivery/legs'
 import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/delivery-quote.entity'
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
+
+// Spec 0046 (AC-6): one leg of the order, as the delivery page lists it.
+export class OrderLegAdminDto {
+  @ApiProperty({ type: String })
+  id: string
+
+  @ApiProperty({ type: Number })
+  legNumber: number
+
+  @ApiProperty({ enum: EnumDeliveryStatus })
+  status: EnumDeliveryStatus
+
+  @ApiProperty({ type: String, nullable: true })
+  courierId: string | null
+
+  @ApiProperty({ type: String, nullable: true })
+  courierName: string | null
+
+  constructor(leg: OrderLeg) {
+    this.id = leg.id
+    this.legNumber = leg.legNumber
+    this.status = leg.status
+    this.courierId = leg.courierId
+    this.courierName = leg.courierName
+  }
+}
 
 export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
@@ -50,6 +77,22 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
 
   @ApiProperty({ type: Boolean })
   boxSizeAssumed: boolean
+
+  // Spec 0046 (AC-6): "Leg 1 of 2" on the list and the page. Both null for a single delivery.
+  @ApiProperty({ type: Number, nullable: true })
+  legNumber: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  legCount: number | null
+
+  // Spec 0046 (AC-6, cross check 5): every leg of this order (same restaurant and orderReference), this
+  // one included, with its status and rider; and the leg numbers never created. Only the delivery page
+  // sends them; empty elsewhere and for a single delivery.
+  @ApiProperty({ type: () => OrderLegAdminDto, isArray: true })
+  orderLegs: OrderLegAdminDto[] = []
+
+  @ApiProperty({ type: Number, isArray: true })
+  missingLegNumbers: number[] = []
 
   @ApiProperty({ type: String })
   dropoffName: string
@@ -266,6 +309,8 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.boxSize = data.boxSize
     this.boxUnits = data.boxUnits
     this.boxSizeAssumed = data.boxSizeAssumed
+    this.legNumber = data.legNumber ?? null
+    this.legCount = data.legCount ?? null
 
     this.dropoffName = data.dropoffName
     this.dropoffPhoneNumber = data.dropoffPhoneNumber

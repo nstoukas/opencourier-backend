@@ -85,6 +85,25 @@ export function heldBoxDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
       )`
 }
 
+// Spec 0046 (AC-4, cross check 3): whether the rider holds another leg of the same order as `deliveryId`
+// (same restaurant and orderReference, both legs labelled), in the box sense of heldBoxDeliveriesWhere: an
+// open offer, a job up to the drop off, or food being taken back. False for a single delivery. Each leg
+// goes to a different rider at the same time; a rider who finished leg 1 may later carry leg 2.
+export function siblingLegHeldSql(riderId: Prisma.Sql, deliveryId: string): Prisma.Sql {
+  return Prisma.sql`SELECT EXISTS (
+        SELECT 1
+        FROM "Delivery" AS "target"
+        JOIN "Delivery"
+          ON "Delivery"."partnerId" = "target"."partnerId"
+          AND "Delivery"."orderReference" = "target"."orderReference"
+          AND "Delivery"."id" <> "target"."id"
+          AND "Delivery"."legCount" IS NOT NULL
+        WHERE "target"."id" = ${deliveryId}
+          AND "target"."legCount" IS NOT NULL
+          AND (${heldBoxDeliveriesWhere(riderId)})
+      )`
+}
+
 // The box units a rider holds, summed over heldBoxDeliveriesWhere. A whole number (SUM gives bigint).
 export function heldBoxUnitsSql(riderId: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`SELECT COALESCE(SUM("Delivery"."boxUnits"), 0)::int FROM "Delivery" WHERE ${heldBoxDeliveriesWhere(

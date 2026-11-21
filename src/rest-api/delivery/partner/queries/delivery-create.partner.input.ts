@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsBoolean, IsDate, IsEnum, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
 import { DeliveryAddressInput } from './delivery-address-input'
 import { DeliveryCreationDetails } from 'src/shared-types/index'
 import { DeliveryOrderItemInput } from './delivery-order-item.input'
@@ -284,4 +285,19 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   @IsOptional()
   @IsEnum(BoxSize)
   boxSize?: BoxSize
+
+  // Spec 0046 (AC-1): one leg of an order too big for one box, "leg 1 of 2". Both or neither; the
+  // service answers 400 for one without the other or a number out of range. @RefuseIfNotSentAsNumber:
+  // the ValidationPipe would otherwise turn "" or true into a number before @IsInt runs.
+  @ApiProperty({ required: false, type: Number, nullable: true, minimum: 1, maximum: 4 })
+  @IsOptional()
+  @RefuseIfNotSentAsNumber()
+  @IsInt()
+  legNumber?: number | null
+
+  @ApiProperty({ required: false, type: Number, nullable: true, minimum: 2, maximum: 4 })
+  @IsOptional()
+  @RefuseIfNotSentAsNumber()
+  @IsInt()
+  legCount?: number | null
 }

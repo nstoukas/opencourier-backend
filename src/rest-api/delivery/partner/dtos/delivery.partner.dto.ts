@@ -46,6 +46,14 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
   @ApiProperty({ enum: BoxSize })
   boxSize: BoxSize
 
+  // Spec 0046 (AC-6): the leg labels the restaurant sent, so its order history can group the legs of
+  // one order (same orderReference) and see a leg that was never sent. Both null for a single delivery.
+  @ApiProperty({ type: Number, nullable: true })
+  legNumber: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  legCount: number | null
+
   @ApiProperty({ type: Date })
   pickupDeadlineAt?: Date | null
 
@@ -144,6 +152,8 @@ export class DeliveryPartnerDto implements Partial<DeliveryEntity> {
     this.readyAt = data.readyAt ?? null
     this.foodReadyAt = data.foodReadyAt ?? null
     this.boxSize = data.boxSize
+    this.legNumber = data.legNumber ?? null
+    this.legCount = data.legCount ?? null
     this.pickupDeadlineAt = data.pickupDeadlineAt
 
     this.dropoffReadyAt = data.dropoffReadyAt

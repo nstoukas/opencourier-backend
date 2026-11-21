@@ -9,7 +9,7 @@ import { ADMIN_API_V1_PREFIX } from 'src/constants'
 import { DeliveryAdminPaginatedDto } from './dtos/delivery.admin.paginated.dto'
 import { adminDeliveryListWhere } from './queries/delivery-list-filter'
 import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
-import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
+import { DeliveryAdminDto, OrderLegAdminDto } from './dtos/delivery.admin.dto'
 import { OfferReasonAdminDto } from './dtos/offer-reason.admin.dto'
 import { DeliveryEventAdminDto } from './dtos/delivery-event.admin.dto'
 import { DeliveryIssueAdminDto } from './dtos/delivery-issue.admin.dto'
@@ -90,6 +90,10 @@ export class DeliveryAdminRestApiController {
       waitCharges,
       offerReasons
     )
+    // Spec 0046 (AC-6, cross check 5): the order's legs with their status and rider, and any leg never sent.
+    const order = await this.deliveryDomainService.getOrderLegs(delivery)
+    dto.orderLegs = order.legs.map((leg) => new OrderLegAdminDto(leg))
+    dto.missingLegNumbers = order.missingLegNumbers
     return dto
   }
 

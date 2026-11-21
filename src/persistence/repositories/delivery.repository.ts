@@ -21,7 +21,8 @@ import { DeliveryWhereUniqueArgs } from 'src/domains/delivery/types/delivery-whe
 import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
-import { heldBoxUnitsSql } from './courier.repository'
+import { heldBoxUnitsSql, siblingLegHeldSql } from './courier.repository'
+import { OrderLeg } from 'src/domains/delivery/legs'
 import { wouldOverfillBox } from 'src/domains/delivery/box'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
 import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
@@ -84,7 +85,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     courierId: string,
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate
-  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED'> {
+  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG'> {
     const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false)
     return claim.outcome
   }
@@ -103,7 +104,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     data: IDeliveryUpdate,
     allowOverCapacity: boolean
   ): Promise<{
-    outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED'
+    outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG'
     heldUnits: number
     deliveryUnits: number
   }> {
@@ -114,6 +115,13 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         SELECT ("deactivatedAt" IS NOT NULL) AS "deactivated" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE
       `
       if (locked[0]?.deactivated) return { outcome: 'DEACTIVATED', heldUnits: 0, deliveryUnits: 0 }
+      // Spec 0046 (AC-4, cross check 3): never two legs of one order to one rider at once, under the same
+      // lock, so two legs offered to one rider in the same instant cannot both land. An admin's
+      // confirmOverCapacity never bypasses it: one rider carrying the whole order is what legs exist to stop.
+      const sibling = await tx.$queryRaw<Array<{ exists: boolean }>>(
+        siblingLegHeldSql(Prisma.sql`${courierId}`, deliveryId)
+      )
+      if (sibling[0]?.exists) return { outcome: 'SIBLING_LEG', heldUnits: 0, deliveryUnits: 0 }
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
       if (!delivery) return { outcome: 'NOT_WAITING', heldUnits: 0, deliveryUnits: 0 }
       const rows = await tx.$queryRaw<Array<{ held: number }>>(
@@ -220,6 +228,40 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       take: 200,
     })
     return rows.map((row) => row.id)
+  }
+
+  // Spec 0046 (AC-4): the same question as the claim's, without the lock, for an admin path to answer
+  // 409 before it writes anything (reassign, the hand offer's early check).
+  async holdsSiblingLeg(courierId: string, deliveryId: string): Promise<boolean> {
+    const rows = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(
+      siblingLegHeldSql(Prisma.sql`${courierId}`, deliveryId)
+    )
+    return rows[0]?.exists === true
+  }
+
+  // Spec 0046 (AC-6, key invariants): every leg of one order, the legs sharing the restaurant and the
+  // orderReference with legCount set, by leg number, with its status and rider.
+  async findOrderLegs(partnerId: string, orderReference: string): Promise<OrderLeg[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: { partnerId, orderReference, legCount: { not: null } },
+      select: {
+        id: true,
+        legNumber: true,
+        legCount: true,
+        status: true,
+        courierId: true,
+        courier: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { legNumber: 'asc' },
+    })
+    return rows.map((row) => ({
+      id: row.id,
+      legNumber: row.legNumber ?? 0,
+      legCount: row.legCount ?? 0,
+      status: row.status,
+      courierId: row.courierId,
+      courierName: row.courier ? `${row.courier.firstName} ${row.courier.lastName}`.trim() : null,
+    }))
   }
 
   // Spec 0033: what the restaurant was charged for keeping riders waiting, oldest first.

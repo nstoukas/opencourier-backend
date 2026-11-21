@@ -18,6 +18,7 @@ import type {
   DeliveryReadyDelayedEvent,
 } from 'src/shared-types/delivery-events'
 import { BOX_SIZE_WORDS, boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
+import { OrderLeg, missingLegNumbers } from './legs'
 import { adminLabel } from 'src/domains/partner-billing/billing-month'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
@@ -181,6 +182,19 @@ export class DeliveryDomainService {
   }
 
   // Spec 0044 (AC-8): why each offer of this delivery went to its rider, oldest first.
+  // Spec 0046 (AC-6): every leg of a restaurant's order, by leg number. Empty for no reference.
+  async getOrderLegsOf(partnerId: string, orderReference: string | null | undefined): Promise<OrderLeg[]> {
+    if (!orderReference) return []
+    return this.deliveryRepository.findOrderLegs(partnerId, orderReference)
+  }
+
+  // Spec 0046 (AC-6, cross check 5): this delivery's order, its legs and the leg numbers never created.
+  async getOrderLegs(delivery: DeliveryEntity): Promise<{ legs: OrderLeg[]; missingLegNumbers: number[] }> {
+    if (delivery.legCount == null || !delivery.partnerId) return { legs: [], missingLegNumbers: [] }
+    const legs = await this.getOrderLegsOf(delivery.partnerId, delivery.orderReference)
+    return { legs, missingLegNumbers: missingLegNumbers(delivery.legCount, legs) }
+  }
+
   async getOfferReasons(deliveryId: string) {
     return this.offerReasonRepository ? this.offerReasonRepository.findByDeliveryId(deliveryId) : []
   }
@@ -763,6 +777,9 @@ export class DeliveryDomainService {
 
     await this.courierRepository.findByIdOrThrow(newCourierId)
 
+    // Spec 0046 (AC-4): never a second leg of one order to the same rider at once, whatever the box says.
+    await this.deliveryEventService.refuseIfCourierHoldsSiblingLeg(newCourierId, deliveryId)
+
     // Spec 0043 (AC-6, cross check 1): before the award is written, so a refused move leaves nothing.
     const overCapacityHeldUnits = await this.refuseBoxOverCapacityUnlessConfirmed(
       newCourierId,
@@ -1042,6 +1059,8 @@ export class DeliveryDomainService {
           // out to the rider (above) adds nothing to their box: an open offer is already counted.
           // The check before the write answers at once; the write itself checks again under a lock on
           // the rider (review fix), and its numbers are the ones recorded.
+          // Spec 0046 (AC-4): a second leg of one order to the same rider is refused first, confirm or not.
+          await this.deliveryEventService.refuseIfCourierHoldsSiblingLeg(event.courierId, event.deliveryId)
           await this.refuseBoxOverCapacityUnlessConfirmed(event.courierId, delivery.boxUnits, event.confirmOverCapacity)
           const atWrite = await this.deliveryEventService.offerDeliveryToCourierAsAdmin(
             event.deliveryId,
