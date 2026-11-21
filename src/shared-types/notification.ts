@@ -33,6 +33,9 @@ export enum NotificationEventType {
   // Spec 0038 (AC-9): a person answered this rider's review request. Data only, the request id alone;
   // the phone shows "Your review request has an answer" on the chat's quiet channel.
   REVIEW_ANSWERED = 'REVIEW_ANSWERED',
+  // Spec 0052 (AC-4): a complaint about this rider needs their reply. Data only, the complaint id alone;
+  // the phone shows "A complaint about a job needs your reply" (translated) on the chat's quiet channel.
+  COMPLAINT_NEEDS_REPLY = 'COMPLAINT_NEEDS_REPLY',
 }
 
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.

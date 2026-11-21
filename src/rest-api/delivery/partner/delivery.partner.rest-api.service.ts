@@ -28,7 +28,7 @@ import {
 import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
-import { isInPartnerHistory, olderThanHistoryMessage, partnerHistoryWhere } from './partner-history'
+import { partnerHistoryWhere, refuseIfNotVisibleToPartner } from './partner-history'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
@@ -85,7 +85,8 @@ export class DeliveryPartnerRestApiService {
   }
 
   // Spec 0017 (AC-3): every route that takes a delivery id. Ownership first, so another restaurant's
-  // delivery is a plain 404 and the period sentence never reveals it; then the period.
+  // delivery is a plain 404 and the period sentence never reveals it; then the period. The rule itself is
+  // refuseIfNotVisibleToPartner (partner-history.ts), shared with the complaint filing (spec 0052).
   private async assertVisibleToPartner(
     delivery: { partnerId: string | null; createdAt: Date; status: EnumDeliveryStatus } | null,
     partnerId: string
@@ -94,9 +95,7 @@ export class DeliveryPartnerRestApiService {
       throw new DeliveryNotFoundException('Delivery not found')
     }
     const historyDays = await this.configDomainService.instanceConfig.getRestaurantHistoryDays()
-    if (!isInPartnerHistory(delivery, historyDays, new Date())) {
-      throw new DeliveryNotFoundException(olderThanHistoryMessage(historyDays))
-    }
+    refuseIfNotVisibleToPartner(delivery, partnerId, historyDays, new Date())
   }
 
   async getByIdWithRelations(deliveryId: string, partnerId: string) {

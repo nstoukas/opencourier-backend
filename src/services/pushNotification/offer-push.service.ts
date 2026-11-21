@@ -224,6 +224,29 @@ export class OfferPushService {
     }
   }
 
+  // Spec 0052 (AC-4): a complaint about this rider needs their reply. Data only, with the complaint id and
+  // never its words or who filed it, sent with the chat push's settings to every phone the rider is logged
+  // in on. Sent whether the rider is Online or not: a reply is not work. Fire and forget, never throws.
+  complaintNeedsReply(courierId: string, complaintId: string): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendComplaintNeedsReply(courierId, complaintId).catch((error) =>
+      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${error}`)
+    )
+  }
+
+  async sendComplaintNeedsReply(courierId: string, complaintId: string): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = { type: NotificationEventType.COMPLAINT_NEEDS_REPLY, complaintId }
+      const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
+      await this.handleSendResult(`complaint ${complaintId}`, NotificationEventType.COMPLAINT_NEEDS_REPLY, result)
+    } catch (error) {
+      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${error}`)
+    }
+  }
+
   async sendJobCancelled(courierId: string, deliveryId: string): Promise<void> {
     if (!this.pushNotificationService.isEnabled()) return
     try {

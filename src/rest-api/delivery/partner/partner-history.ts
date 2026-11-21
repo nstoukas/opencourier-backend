@@ -1,5 +1,6 @@
 import { EnumDeliveryStatus, Prisma } from '@prisma/types'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
+import { DeliveryNotFoundException } from 'src/errors'
 
 export { PARTNER_ENDED_STATUSES }
 
@@ -35,4 +36,21 @@ export function isInPartnerHistory(
 // What the restaurant reads for its own order past the period (AC-3).
 export function olderThanHistoryMessage(days: number): string {
   return `This order is older than ${days} ${days === 1 ? 'day' : 'days'}. The co-op can look it up for you.`
+}
+
+// Spec 0017 (AC-3): every partner route that takes a delivery id. Ownership first, so another
+// restaurant's delivery is a plain 404 and the period sentence never reveals it; then the period.
+// Shared by the delivery routes and the complaint filing (spec 0052).
+export function refuseIfNotVisibleToPartner(
+  delivery: { partnerId: string | null; createdAt: Date; status: EnumDeliveryStatus } | null,
+  partnerId: string,
+  historyDays: number,
+  now: Date
+): void {
+  if (!delivery || delivery.partnerId !== partnerId) {
+    throw new DeliveryNotFoundException('Delivery not found')
+  }
+  if (!isInPartnerHistory(delivery, historyDays, now)) {
+    throw new DeliveryNotFoundException(olderThanHistoryMessage(historyDays))
+  }
 }
