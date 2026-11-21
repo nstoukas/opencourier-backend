@@ -7,7 +7,7 @@ import { IDeliveryEventRepository } from 'src/domains/delivery-event/interfaces/
 import { IDeliveryEventCreateInput } from 'src/domains/delivery-event/interfaces/IDeliveryEventCreateInput'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { TAP_FLOOR_EVENT_TYPES } from 'src/domains/delivery-event/utils/occurred-at.util'
-import { WAIT_END_EVENTS } from 'src/domains/delivery/wait-pay'
+import { SPLIT_WINDOW_END, SPLIT_WINDOW_START, WAIT_END_EVENTS } from 'src/domains/delivery/wait-pay'
 import { HAND_OVER_EVENTS } from 'src/domains/partner/wait-record'
 
 @Injectable()
@@ -37,12 +37,28 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
         deliveryId,
         transitionSuccessful: true,
         type: {
-          in: [EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION, ...WAIT_END_EVENTS, ...HAND_OVER_EVENTS],
+          // Spec 0047 (cross check 2): the split events too, so their minutes are left out of the wait.
+          in: [
+            EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION,
+            ...WAIT_END_EVENTS,
+            ...HAND_OVER_EVENTS,
+            ...SPLIT_WINDOW_START,
+            ...SPLIT_WINDOW_END,
+          ],
         },
       },
       select: { id: true, type: true, occurredAt: true, courierId: true },
       orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }],
     })
+  }
+
+  // Spec 0047 (cross check 5): whether this delivery ever had a successful event of this type.
+  async hasSuccessfulEvent(deliveryId: string, type: EnumDeliveryEventType): Promise<boolean> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: { deliveryId, type, transitionSuccessful: true },
+      select: { id: true },
+    })
+    return row !== null
   }
 
   // Spec 0033: the messages of the wait pay already on record, which name the wait they paid.

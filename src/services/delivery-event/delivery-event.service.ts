@@ -9,6 +9,13 @@ import type {
   DeliveryProductReportResolvedEvent,
   DeliveryReadyDelayedEvent,
 } from 'src/shared-types/delivery-events'
+import type {
+  DeliverySplitClosedEvent,
+  DeliverySplitEvent,
+  DeliveryPartnerSplitChargeVoidedEvent,
+} from 'src/shared-types/delivery-events'
+import { splitWaitMinutes } from 'src/domains/split/split'
+import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
 import type { JobReadyUpdatedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
@@ -26,6 +33,7 @@ import {
   EnumPartnerChargeReason,
   EnumFoodOutcome,
   EnumRemovalRequestStatus,
+  EnumSplitRequestStatus,
   CourierCompensation,
   DeliveryRemovalRequest,
   Prisma,
@@ -152,6 +160,17 @@ const REVIEW_EVENT_TYPES: EnumDeliveryEventType[] = [
 
 // Spec 0043: the box events are written by recordBoxEvent only, with no status change. Refused on
 // the event route, so an admin cannot post one and have it dropped silently.
+// Spec 0047: the split events are written by SplitRequestService and the close below, never processed as
+// ordinary events. An admin cannot post one through the event route.
+export const SPLIT_EVENT_TYPES: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.SPLIT_REQUESTED,
+  EnumDeliveryEventType.SPLIT_CONFIRMED,
+  EnumDeliveryEventType.SPLIT_REFUSED,
+  EnumDeliveryEventType.SPLIT_CLOSED,
+  EnumDeliveryEventType.PARTNER_CHARGED_FOR_SPLIT,
+  EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED,
+]
+
 export const BOX_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.BOX_SIZE_ASSUMED,
   EnumDeliveryEventType.BOX_SIZE_CHANGED,
@@ -197,7 +216,9 @@ export class DeliveryEventService {
     private readonly removalRequestRepository: RemovalRequestRepository,
     // Spec 0044 (decision 12.6): last and optional for TypeScript only, so tests that build this service
     // with the older argument list still compile; Nest always injects it (the persistence module is global).
-    private readonly offerReasonRepository?: OfferReasonRepository
+    private readonly offerReasonRepository?: OfferReasonRepository,
+    // Spec 0047: optional for the same reason; closes an open split request whatever ends the rider's job.
+    private readonly splitRequestRepository?: SplitRequestRepository
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -271,6 +292,9 @@ export class DeliveryEventService {
       }
       if (BOX_EVENT_TYPES.includes(deliveryEvent.type)) {
         throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by the box model only`)
+      }
+      if (SPLIT_EVENT_TYPES.includes(deliveryEvent.type)) {
+        throw new CantUpdateDeliveryStatusError(`${deliveryEvent.type} is recorded by a split request only`)
       }
 
       if (!newStatus) {
@@ -2071,6 +2095,111 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
+  // Spec 0047: a split event, saved with the old status equal to the new (no status change).
+  async recordSplitEvent(event: DeliverySplitEvent, status: EnumDeliveryStatus): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
+  // Spec 0047 (AC-3, cross check 1): the wait from a split flag to `endedAt`, paid at the co-op's rate with
+  // no free minutes, whole minutes rounded down, as one WAITING award (policy SPLIT_WAIT) with its
+  // COURIER_PAID_FOR_WAIT event, and charged to the restaurant only when `chargeRestaurant`. Once per split
+  // request: the award and the charge are keyed by its id, and the event's message names it. Never throws:
+  // a failure is logged, and the money stays owed to the request (the leg creation never waits on it).
+  async settleSplitWait(
+    request: { id: string; deliveryId: string; courierId: string; createdAt: Date },
+    endedAt: Date,
+    chargeRestaurant: boolean
+  ): Promise<void> {
+    try {
+      const config = this.configDomainService.instanceConfig
+      if (!(await config.getWaitPayEnabled())) return
+      const centsPerMinute = await config.getWaitPayCentsPerMinute()
+      const minutes = splitWaitMinutes(request.createdAt, endedAt)
+      if (centsPerMinute <= 0 || minutes <= 0) return
+      const delivery = await this.deliveryRepository.findByIdOrThrow(request.deliveryId)
+      const award = await this.courierCompensationRepository.createSplitWaitPayOnce({
+        amount: minutes * centsPerMinute,
+        currencyCode: delivery.currencyCode,
+        reason: EnumCourierCompensationReason.WAITING,
+        policy: 'SPLIT_WAIT',
+        message: `Waited ${minutes} min while dispatch split the order, at ${centsPerMinute} cents a minute`,
+        waitMinutes: minutes,
+        courierId: request.courierId,
+        deliveryId: delivery.id,
+        splitWaitOf: request.id,
+      })
+      const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
+      if (!paidMessages.some((message) => message.includes(`split ${request.id}`))) {
+        const event: DeliveryCourierPaidForWaitEvent = {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: award.courierId,
+          message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; split ${request.id}`,
+        }
+        await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: delivery.status, newStatus: delivery.status })
+      }
+      if (!chargeRestaurant) return
+      if (!delivery.partnerId) {
+        this.logger.warn(`Delivery ${delivery.id} has no restaurant: the split wait is not charged to anyone`)
+        return
+      }
+      await this.partnerChargeRepository.createSplitWaitChargeOnce({
+        partnerId: delivery.partnerId,
+        deliveryId: delivery.id,
+        amount: award.amount,
+        currencyCode: award.currencyCode,
+        reason: EnumPartnerChargeReason.WAITING,
+        waitMinutes: award.waitMinutes,
+        splitWaitOf: request.id,
+      })
+    } catch (error) {
+      this.logger.error(`SPLIT_WAIT_PAY_FAILED split ${request.id} delivery ${request.deliveryId}: ${error}`)
+    }
+  }
+
+  // Spec 0047 (cross check 6): whatever takes the rider off or ends the delivery closes an open split
+  // request as VOID, pays the split wait up to now (the co-op's, nothing showed the size was wrong), and
+  // says so on the record. Guarded by the caller.
+  private async voidOpenSplitRequest(deliveryId: string, status: EnumDeliveryStatus): Promise<void> {
+    if (!this.splitRequestRepository) return
+    const open = await this.splitRequestRepository.findOpenForDelivery(deliveryId)
+    if (!open) return
+    const now = new Date()
+    const closed = await this.splitRequestRepository.closeIfOpen(open.id, {
+      status: EnumSplitRequestStatus.VOID,
+      answeredAt: now,
+    })
+    if (!closed) return
+    const event: DeliverySplitClosedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.SPLIT_CLOSED,
+      actor: EnumEventActor.SYSTEM,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId: open.courierId,
+      message: `Split request ${open.id} closed: the order moved on before dispatch answered`,
+    }
+    await this.recordSplitEvent(event, status)
+    await this.settleSplitWait(open, now, false)
+  }
+
+  // Spec 0047 (cross check 5): a leg made by a split that ends without ever being accepted takes back its
+  // restaurant charge (unless already billed), with an event. Guarded by the caller.
+  private async voidSplitLegChargeIfNeverAccepted(deliveryId: string, status: EnumDeliveryStatus): Promise<void> {
+    if (await this.deliveryEventRepository.hasSuccessfulEvent(deliveryId, EnumDeliveryEventType.ACCEPTED)) return
+    const voided = await this.partnerChargeRepository.deleteUnbilledSplitLegCharge(deliveryId)
+    if (!voided) return
+    const event: DeliveryPartnerSplitChargeVoidedEvent = {
+      deliveryId,
+      type: EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED,
+      actor: EnumEventActor.SYSTEM,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      message: `Restaurant's split leg charge of ${voided.amount} ${voided.currencyCode} (cents) taken back: no rider ever took this leg`,
+    }
+    await this.recordSplitEvent(event, status)
+  }
+
   // Spec 0023. Records the restaurant's delay or food ready: no status change, so never through
   // processDeliveryEvent (which would drop it). No courierId: the restaurant acted, not a rider.
   async recordReadyEvent(
@@ -2575,6 +2704,11 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW ||
       // Spec 0043: the rider an admin put past a full box, so it is on that rider's record too.
       deliveryEvent.type === EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED ||
+      // Spec 0047: the rider who flagged a split, its answer and its close.
+      deliveryEvent.type === EnumDeliveryEventType.SPLIT_REQUESTED ||
+      deliveryEvent.type === EnumDeliveryEventType.SPLIT_CONFIRMED ||
+      deliveryEvent.type === EnumDeliveryEventType.SPLIT_REFUSED ||
+      deliveryEvent.type === EnumDeliveryEventType.SPLIT_CLOSED ||
       // Spec 0040 (AC-2): the accepting rider, automatic, manual or admin, so time worked can find
       // each rider's jobs (Delivery.courierId only holds the latest rider).
       deliveryEvent.type === EnumDeliveryEventType.ACCEPTED
@@ -2611,6 +2745,23 @@ export class DeliveryEventService {
         await this.removalRequestRepository.closeOpenForDelivery(deliveryEvent.deliveryId)
       } catch (error) {
         this.logger.error(`Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+      // Spec 0047 (cross check 6): the same rule for an open split request, which also pays its wait.
+      try {
+        await this.voidOpenSplitRequest(deliveryEvent.deliveryId, outcome.newStatus)
+      } catch (error) {
+        this.logger.error(`Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+      // Spec 0047 (cross check 5): a split leg that ended without a rider ever taking it.
+      if (
+        outcome.oldStatus !== outcome.newStatus &&
+        (outcome.newStatus === EnumDeliveryStatus.CANCELED || outcome.newStatus === EnumDeliveryStatus.FAILED)
+      ) {
+        try {
+          await this.voidSplitLegChargeIfNeverAccepted(deliveryEvent.deliveryId, outcome.newStatus)
+        } catch (error) {
+          this.logger.error(`Could not take back the split charge of delivery ${deliveryEvent.deliveryId}: ${error}`)
+        }
       }
     }
 

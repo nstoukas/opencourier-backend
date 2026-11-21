@@ -36,6 +36,17 @@ export const WAIT_END_EVENTS: EnumDeliveryEventType[] = [
   ...MOVE_EVENTS,
 ]
 
+// Spec 0047 (cross check 2): from a split flag to its answer (or the rider leaving, or the request closing
+// another way) the rider is paid the split wait instead, so those minutes are left out of this wait.
+export const SPLIT_WINDOW_START: EnumDeliveryEventType[] = [EnumDeliveryEventType.SPLIT_REQUESTED]
+export const SPLIT_WINDOW_END: EnumDeliveryEventType[] = [
+  EnumDeliveryEventType.SPLIT_CONFIRMED,
+  EnumDeliveryEventType.SPLIT_REFUSED,
+  EnumDeliveryEventType.SPLIT_CLOSED,
+]
+
+export type TimeWindow = { from: Date; to: Date }
+
 export type WaitTimes = {
   arrivedAt: Date
   promisedReadyAt: Date
@@ -54,10 +65,18 @@ export function waitPaidFrom(times: WaitTimes): Date | null {
 }
 
 // AC-2. Whole minutes from when the wait starts earning to its end, rounded down, never below 0.
-export function paidWaitMinutes(input: WaitTimes & { endedAt: Date }): number {
+// Spec 0047 (cross check 2): `excluded` windows (a split flag to its answer) are taken out first.
+export function paidWaitMinutes(input: WaitTimes & { endedAt: Date; excluded?: TimeWindow[] }): number {
   const paidFrom = waitPaidFrom(input)
   if (!paidFrom) return 0
-  return Math.max(0, Math.floor((input.endedAt.getTime() - paidFrom.getTime()) / MINUTE_MS))
+  const from = paidFrom.getTime()
+  const to = input.endedAt.getTime()
+  let excludedMs = 0
+  for (const window of input.excluded ?? []) {
+    const overlap = Math.min(to, window.to.getTime()) - Math.max(from, window.from.getTime())
+    if (overlap > 0) excludedMs += overlap
+  }
+  return Math.max(0, Math.floor((to - from - excludedMs) / MINUTE_MS))
 }
 
 // AC-6. When a rider may leave: the co-op's minutes after the first promise, so a delay tapped by
@@ -85,12 +104,28 @@ export function completedWaits(
   if (!promisedReadyAt) return []
   const waits: CompletedWait[] = []
   let arrivedAt: Date | null = null
+  // Spec 0047 (cross check 2): the split windows seen so far, and one still open.
+  const splitWindows: TimeWindow[] = []
+  let splitFrom: Date | null = null
   for (const event of events) {
-    if (event.type === EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION) {
+    if (SPLIT_WINDOW_START.includes(event.type)) {
+      splitFrom = event.occurredAt
+    } else if (SPLIT_WINDOW_END.includes(event.type)) {
+      if (splitFrom) splitWindows.push({ from: splitFrom, to: event.occurredAt })
+      splitFrom = null
+    } else if (event.type === EnumDeliveryEventType.ARRIVED_AT_PICKUP_LOCATION) {
       arrivedAt = event.occurredAt
     } else if (WAIT_END_EVENTS.includes(event.type)) {
       if (arrivedAt) {
-        const minutes = paidWaitMinutes({ arrivedAt, promisedReadyAt, foodReadyAt, freeMinutes, endedAt: event.occurredAt })
+        const excluded = splitFrom ? [...splitWindows, { from: splitFrom, to: event.occurredAt }] : splitWindows
+        const minutes = paidWaitMinutes({
+          arrivedAt,
+          promisedReadyAt,
+          foodReadyAt,
+          freeMinutes,
+          endedAt: event.occurredAt,
+          excluded,
+        })
         if (minutes > 0) waits.push({ endEventId: event.id, courierId: event.courierId, minutes })
       }
       arrivedAt = null
