@@ -167,6 +167,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   as the automatic offer and the admin hand offer do; an admin past a full box needs `confirmOverCapacity` and leaves
   `BOX_OVER_CAPACITY_CONFIRMED`. `DeliveryEntity` and `DeliveryWithLocationsEntity` copy columns one by one in their
   constructors: a new `Delivery` column missing there is `undefined` above the repository with no type error (row 9 found it live).
+- Fairness matcher (spec 0044): `FAIRNESS` is the default. Its rule is the pure `scoreCandidates` in
+  `src/domains/matching/fairness-score.ts` (directions, dead bands, ties), its inputs come from `todayForFairness`
+  (one read of every rider's day, tips at 0) and one OSRM `getTableSecondsTo` per offer. Every OFFERED event gets an
+  `OfferReason` (`saveOfferedEvent`'s last argument): a new way to make an offer must pass a reason, or an error is
+  logged and the offer has none. `OfferReason.candidates` holds other riders' figures: admin only, never a courier route.
+  Quotes ask the nearest matcher (they only need to know someone is free).
 
 ## Agent skills
 
