@@ -38,7 +38,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
   ) {}
 
   async findCourierForDelivery(input: ICourierMatcherInput): Promise<ICourierMatcherResult | null> {
-    const { pickupLocation, rejectedCourierIds, boxUnits } = input
+    const { pickupLocation, rejectedCourierIds, boxUnits, deliveryId } = input
     const config = this.configDomainService.instanceConfig
     // Read at offer time, so a saved change applies to the next offer (AC-5).
     const [maxDistanceInKM, limit, minOnlineMinutes, roadTime, earnings, waiting, shiftsEnabled, shift] =
@@ -54,7 +54,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       ])
 
     const inRange = await this.courierDomainService.getNearestAvailableCandidates(
-      { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits },
+      { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits, siblingOfDeliveryId: deliveryId },
       RIDERS_IN_RANGE_READ_LIMIT
     )
     if (inRange.length === 0) return null

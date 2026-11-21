@@ -289,7 +289,17 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   // Spec 0046 (AC-1): one leg of an order too big for one box, "leg 1 of 2". Both or neither; the
   // service answers 400 for one without the other or a number out of range. @RefuseIfNotSentAsNumber:
   // the ValidationPipe would otherwise turn "" or true into a number before @IsInt runs.
-  @ApiProperty({ required: false, type: Number, nullable: true, minimum: 1, maximum: 4 })
+  @ApiProperty({
+    required: false,
+    type: Number,
+    nullable: true,
+    minimum: 1,
+    maximum: 4,
+    description:
+      'Leg number of an order sent as several deliveries, with legCount. The legs share a non empty orderReference, ' +
+      'which stays tied to that order for good: a later order with legs needs a new reference (a leg number already ' +
+      'used with it answers 409, even when that leg was cancelled).',
+  })
   @IsOptional()
   @RefuseIfNotSentAsNumber()
   @IsInt()

@@ -56,6 +56,9 @@ export function siblingConflict(newLeg: { legNumber: number; legCount: number },
 export const LEG_TAKEN_SENTENCE = (legNumber: number, legCount: number) =>
   `Leg ${legNumber} of ${legCount} of this order was already sent.`
 
+// Row 10 review: a leg needs the reference that ties it to its order.
+export const LEG_REFERENCE_REQUIRED_SENTENCE = 'A leg needs an orderReference: it is what ties the legs of an order together.'
+
 // Cross check 2: the labels and the reference that ties the legs together cannot change on a leg.
 export const LEG_LABELS_LOCKED_SENTENCE =
   'This delivery is one leg of an order: its order reference and leg numbers cannot change.'

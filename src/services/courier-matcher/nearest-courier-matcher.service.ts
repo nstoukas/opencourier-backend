@@ -18,13 +18,13 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
   ) {}
 
   async findCourierForDelivery(input: ICourierMatcherInput) {
-    const { pickupLocation, rejectedCourierIds, boxUnits } = input
+    const { pickupLocation, rejectedCourierIds, boxUnits, deliveryId } = input
 
     const maxAssignmentDistance = await this.configDomainService.instanceConfig.getMaxAssignmentDistanceInKM()
 
     // Spec 0031: with offers timed, compare the nearest few by road time to the pickup.
     if (await this.configDomainService.instanceConfig.getOfferTimingEnabled()) {
-      return this.findByRoadTime(pickupLocation, maxAssignmentDistance, rejectedCourierIds, boxUnits)
+      return this.findByRoadTime(pickupLocation, maxAssignmentDistance, rejectedCourierIds, boxUnits, deliveryId)
     }
 
     const result = await this.courierDomainService.getNearestAvailableCourier({
@@ -35,6 +35,7 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
       maxDistanceInKM: maxAssignmentDistance,
       excludeCourierIds: rejectedCourierIds,
       boxUnits,
+      siblingOfDeliveryId: deliveryId,
     })
 
     if (!result?.courier) {
@@ -56,11 +57,12 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
     pickupLocation: GeoPosition,
     maxDistanceInKM: number | null,
     rejectedCourierIds: string[],
-    boxUnits?: number
+    boxUnits?: number,
+    deliveryId?: string
   ): Promise<ICourierMatcherResult | null> {
     const limit = await this.configDomainService.instanceConfig.getOfferTimingCandidates()
     const candidates = await this.courierDomainService.getNearestAvailableCandidates(
-      { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits },
+      { location: pickupLocation, maxDistanceInKM, excludeCourierIds: rejectedCourierIds, boxUnits, siblingOfDeliveryId: deliveryId },
       limit
     )
     if (candidates.length === 0) return null

@@ -104,6 +104,15 @@ export function siblingLegHeldSql(riderId: Prisma.Sql, deliveryId: string): Pris
       )`
 }
 
+// Spec 0046 (row 10 review): inside a matcher query, leaves out riders who hold another leg of the order
+// `deliveryId` belongs to (correlated with the outer "Courier" row). Without it, a rider carrying a cancelled
+// sibling's food back (held, but not busy) could be chosen again and again, and refused at every claim.
+export function siblingLegCondition(deliveryId: string | undefined): Prisma.Sql {
+  if (!deliveryId) return Prisma.empty
+  return Prisma.sql`-- Not a rider holding another leg of this order (spec 0046, AC-4)
+      AND NOT (${siblingLegHeldSql(Prisma.sql`"Courier"."id"`, deliveryId)})`
+}
+
 // The box units a rider holds, summed over heldBoxDeliveriesWhere. A whole number (SUM gives bigint).
 export function heldBoxUnitsSql(riderId: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`SELECT COALESCE(SUM("Delivery"."boxUnits"), 0)::int FROM "Delivery" WHERE ${heldBoxDeliveriesWhere(
@@ -379,6 +388,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       -- A deactivated rider is never offered work (spec 0051, AC-2)
       AND "deactivatedAt" IS NULL
       ${boxRoomCondition(args.boxUnits)}
+      ${siblingLegCondition(args.siblingOfDeliveryId)}
 
       -- Exclude courier ids
       ${
@@ -485,6 +495,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       -- A deactivated rider is never offered work (spec 0051, AC-2)
       AND "deactivatedAt" IS NULL
       ${boxRoomCondition(args.boxUnits)}
+      ${siblingLegCondition(args.siblingOfDeliveryId)}
 
       -- Exclude courier ids
       ${

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common'
 import {
   LEG_LABELS_LOCKED_SENTENCE,
+  LEG_REFERENCE_REQUIRED_SENTENCE,
   LEG_TAKEN_SENTENCE,
   legLabelsProblem,
   siblingConflict,
@@ -159,6 +160,10 @@ export class DeliveryPartnerRestApiService {
     const legProblem = legLabelsProblem(input)
     if (legProblem) throw new BadRequestException(legProblem)
     const leg = input.legNumber != null && input.legCount != null ? { legNumber: input.legNumber, legCount: input.legCount } : null
+    if (leg && !input.orderReference.trim()) {
+      // Row 10 review: the reference is what ties the legs together; an empty one would tie nothing.
+      throw new BadRequestException(LEG_REFERENCE_REQUIRED_SENTENCE)
+    }
     if (leg) {
       const siblings = await this.deliveryDomainService.getOrderLegsOf(partnerId, input.orderReference)
       const conflict = siblingConflict(leg, siblings)
@@ -310,6 +315,12 @@ export class DeliveryPartnerRestApiService {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
     await this.assertVisibleToPartner(delivery, partnerId)
 
+    // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg. First,
+    // so a refusal leaves nothing behind (row 10 review: a moved point had already made its Location row).
+    if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
+      throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
+    }
+
 
     const dropoffLocation = await this.locationDomainService.getById(delivery.dropoffLocationId)
     if (!dropoffLocation) {
@@ -363,11 +374,6 @@ export class DeliveryPartnerRestApiService {
           })
         ).id
       : delivery.dropoffLocationId
-
-    // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg.
-    if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
-      throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
-    }
 
     // Spec 0043 (AC-3, cross check 4): a new size, after the update's own checks (review fix: a refused
     // update must not leave the size changed) and before the rest is written, so a refused size change
