@@ -60,6 +60,8 @@ model User {
   courierStatusChanges   CourierStatusChange[]
   // Spec 0049: offline mid shift events this admin followed up.
   shiftEventsFollowedUp  ShiftBookingEvent[]   @relation("ShiftEventFollowedUpBy")
+  // Spec 0050: the rider statements this admin downloaded.
+  statementDownloads     StatementDownload[]
 }
 
 model Comment {
@@ -127,6 +129,8 @@ model Courier {
   sosIncidents          SosIncident[]
   // Spec 0051 (AC-5): every account action on this rider, for the rider and admins to read.
   accountChanges        CourierAccountChange[]
+  // Spec 0050 (AC-9): admin downloads of this rider's statements. Never counted per rider (value 5).
+  statementDownloads    StatementDownload[]
   // This rider's shift bookings (spec 0027). Never counted per rider anywhere (binding value 5).
   shiftBookings         ShiftBooking[]
   // This rider's one conversation with dispatch (spec 0034, chat).
@@ -1550,6 +1554,8 @@ enum EnumCourierAccountChangeKind {
   REACTIVATED
   FIELD_EDITED
   PASSWORD_CHANGED
+  // Spec 0050 (cross check 14): an admin downloaded this rider's monthly statement.
+  STATEMENT_DOWNLOADED
 }
 
 // Spec 0051 (AC-5): one account action on a rider: a deactivation, a reactivation, one edited field, or a
@@ -1569,6 +1575,23 @@ model CourierAccountChange {
   newValue     String?                      @postgres.VarChar(300)
   reason       String?                      @postgres.VarChar(300)
   createdAt    DateTime                     @default(now())
+
+  @@index([courierId, createdAt])
+}
+
+// Spec 0050 (row 76, AC-9, cross check 14): an admin downloaded a rider's monthly statement. Kept with no
+// cascade: the record stays when either side is deleted.
+model StatementDownload {
+  id          String   @id @default(cuid())
+  adminUserId String
+  admin       User     @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  courierId   String
+  courier     Courier  @relation(fields: [courierId], references: [id], onDelete: Restrict)
+  // YYYY-MM.
+  month       String   @postgres.VarChar(7)
+  // pdf or csv.
+  format      String   @postgres.VarChar(3)
+  createdAt   DateTime @default(now())
 
   @@index([courierId, createdAt])
 }

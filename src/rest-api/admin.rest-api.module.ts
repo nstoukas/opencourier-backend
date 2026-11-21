@@ -11,6 +11,7 @@ import { ProductReportAdminRestApiModule } from './product-report/admin/product-
 import { DispatchStopAdminRestApiModule } from './dispatch-stop/admin/dispatch-stop.admin.rest-api.module'
 import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin.rest-api.module'
 import { ShiftOfflineAdminRestApiModule } from './shift-offline/admin/shift-offline.admin.rest-api.module'
+import { StatementAdminRestApiModule } from './statement/admin/statement.admin.rest-api.module'
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 import { RemovalRequestAdminRestApiModule } from './removal-request/admin/removal-request.admin.rest-api.module'
@@ -35,6 +36,7 @@ import { TimeWorkedAdminRestApiModule } from './time-worked/admin/time-worked.ad
     DispatchStopAdminRestApiModule,
     ShiftSlotAdminRestApiModule,
     ShiftOfflineAdminRestApiModule,
+    StatementAdminRestApiModule,
     SosAdminRestApiModule,
     // The live Dispatch board (spec 0034).
     DispatchBoardAdminRestApiModule,
