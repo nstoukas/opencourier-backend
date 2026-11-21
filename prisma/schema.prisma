@@ -65,6 +65,12 @@ model User {
   shiftEventsFollowedUp  ShiftBookingEvent[]   @relation("ShiftEventFollowedUpBy")
   // Spec 0050: the rider statements this admin downloaded.
   statementDownloads     StatementDownload[]
+  // Spec 0052: complaints this admin filed, replies entered for a deactivated rider, decisions and
+  // withdrawals. Never shown to a rider or a restaurant.
+  complaintsFiled         Complaint[] @relation("complaintFiledByAdmin")
+  complaintRepliesEntered Complaint[] @relation("complaintReplyEnteredBy")
+  complaintsDecided       Complaint[] @relation("complaintDecidedBy")
+  complaintsWithdrawn     Complaint[] @relation("complaintWithdrawnBy")
 }
 
 model Comment {
@@ -142,6 +148,10 @@ model Courier {
   chatThread            ChatThread?
   // This rider's review requests (spec 0038). Never counted per rider anywhere (binding value 5).
   reviewRequests        ReviewRequest[]
+  // Spec 0052: complaints this rider filed, and complaints about this rider. Never counted, listed
+  // for admins or scored per rider anywhere (AC-8, binding value 5).
+  complaintsFiled       Complaint[]           @relation("complaintFiledByCourier")
+  complaintsAbout       Complaint[]           @relation("complaintAboutCourier")
   // Every change of this rider's status (spec 0040), the source of their time worked. Never
   // counted across riders except in the co-op totals, which carry no rider id (binding value 5).
   statusChanges         CourierStatusChange[]
@@ -241,6 +251,8 @@ model Partner {
   availabilityChanges PartnerAvailabilityChange[]
   // This restaurant's one conversation with dispatch (spec 0034, chat).
   chatThread     ChatThread?
+  // Spec 0052: complaints this restaurant filed about a rider.
+  complaintsFiled Complaint[]
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -496,6 +508,8 @@ model Delivery {
   splitRequests        SplitRequest[]
   // Review requests about this delivery (spec 0038).
   reviewRequests       ReviewRequest[]
+  // Complaints on this delivery (spec 0052).
+  complaints           Complaint[]
   partnerCharges       PartnerCharge[]
   sosIncidents         SosIncident[]
   // Chat messages tagged with this delivery (spec 0034, chat).
@@ -1585,6 +1599,104 @@ model ReviewRequest {
 
   @@index([status, dueAt])
   @@index([courierId, createdAt])
+}
+
+// Spec 0052 (row 83): complaints both ways, with no ratings. Who filed it.
+enum EnumComplaintFiledBy {
+  RIDER
+  RESTAURANT
+  ADMIN
+}
+
+// Who the complaint is about. A rider files about a restaurant or a customer; a restaurant or an
+// admin files about a rider. Never a rider about another rider.
+enum EnumComplaintAbout {
+  RESTAURANT
+  CUSTOMER
+  RIDER
+}
+
+// OPEN: waiting for an admin. AWAITING_REPLY: about a rider, waiting for their reply; no admin can
+// decide it yet (AC-5). DECIDED: an admin wrote the outcome. WITHDRAWN: an admin closed it with no
+// finding against anyone (cross check 6).
+enum EnumComplaintStatus {
+  OPEN
+  AWAITING_REPLY
+  DECIDED
+  WITHDRAWN
+}
+
+// One list for every `about`; which categories fit which `about` is checked in
+// src/domains/complaint/complaint-rules.ts (AC-1). The apps word them from translation keys.
+enum EnumComplaintCategory {
+  LONG_WAIT
+  FOOD_NOT_READY
+  UNSAFE_PACKAGING
+  RUDE_STAFF
+  ABUSE_OR_THREAT
+  UNSAFE_ADDRESS
+  NOT_ANSWERING
+  LATE
+  RUDE
+  FOOD_DAMAGED
+  OTHER
+}
+
+// Spec 0052: one complaint about a restaurant, a customer or a rider, on one delivery. Every
+// filing, reply, decision and withdrawal is stored here with who and when (AC-10); no DeliveryEvent
+// is written, since a complaint changes no status, pay or assignment. Nothing that matches, pays or
+// scores riders reads this table, and nothing counts it per rider (AC-8, binding value 5).
+model Complaint {
+  id        String                @id @default(cuid())
+  filedBy   EnumComplaintFiledBy
+  about     EnumComplaintAbout
+  category  EnumComplaintCategory
+  // The filer's words. Never logged, never put in a push.
+  text      String                @postgres.VarChar(1000)
+  status    EnumComplaintStatus
+  createdAt DateTime              @default(now())
+  // `<filer kind>:<filer id>:<deliveryId>:<about>` while the complaint is open (OPEN or
+  // AWAITING_REPLY), null once closed: one open complaint per filer per delivery (cross check 6).
+  // Null for an admin's filing, which is made on behalf of whoever called in.
+  openFor   String?               @unique
+
+  deliveryId     String
+  delivery       Delivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+  // Exactly one filer id is set, matching filedBy.
+  filerCourierId String?
+  filerCourier   Courier? @relation(name: "complaintFiledByCourier", fields: [filerCourierId], references: [id], onDelete: Restrict)
+  filerPartnerId String?
+  filerPartner   Partner? @relation(fields: [filerPartnerId], references: [id], onDelete: Restrict)
+  filerAdminId   String?
+  filerAdmin     User?    @relation(name: "complaintFiledByAdmin", fields: [filerAdminId], references: [id], onDelete: SetNull)
+  // The rider a complaint about a rider is about: the delivery's rider at filing, or one an admin
+  // picked from the riders who accepted it (cross check 3). Null for any other `about`.
+  aboutCourierId String?
+  aboutCourier   Courier? @relation(name: "complaintAboutCourier", fields: [aboutCourierId], references: [id], onDelete: Restrict)
+
+  // The rider's reply, stored once (AC-5). Entered by an admin only for a deactivated rider, from a
+  // phone call; then replyEnteredByUserId names that admin (cross check 2).
+  riderReply           String?   @postgres.VarChar(1000)
+  repliedAt            DateTime?
+  replyEnteredByUserId String?
+  replyEnteredBy       User?     @relation(name: "complaintReplyEnteredBy", fields: [replyEnteredByUserId], references: [id], onDelete: SetNull)
+
+  outcome         String?   @postgres.VarChar(1000)
+  decidedAt       DateTime?
+  decidedByUserId String?
+  decidedBy       User?     @relation(name: "complaintDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  withdrawnReason   String?   @postgres.VarChar(1000)
+  withdrawnAt       DateTime?
+  withdrawnByUserId String?
+  withdrawnBy       User?     @relation(name: "complaintWithdrawnBy", fields: [withdrawnByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([about, createdAt])
+  @@index([deliveryId])
+  @@index([filerCourierId, createdAt])
+  @@index([filerPartnerId, createdAt])
+  @@index([aboutCourierId, createdAt])
 }
 
 // Spec 0038 (AC-12): one row per setting whose effective value a save changed, written in the
