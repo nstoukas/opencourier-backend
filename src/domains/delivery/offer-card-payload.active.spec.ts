@@ -48,10 +48,11 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
     const expectedKeys = [...OFFER_CARD_PAYLOAD_KEYS].sort()
 
     expect(payloadKeys).toEqual(expectedKeys)
-    expect(payloadKeys).toHaveLength(14)
+    // Spec 0046 (AC-7): legNumber and legCount joined the list on purpose, 14 became 16.
+    expect(payloadKeys).toHaveLength(16)
   })
 
-  test('row 100: the allow list is exactly these fourteen keys (no customer field can be added silently)', () => {
+  test('row 100: the allow list is exactly these sixteen keys (no customer field can be added silently)', () => {
     expect([...OFFER_CARD_PAYLOAD_KEYS].sort()).toEqual(
       [
         'deliveryId',
@@ -68,6 +69,8 @@ describe('OfferCardPayload - Spec 0003 AC-10 Allow List & Customer Privacy', () 
         'minutes',
         'insistent',
         'boxSize',
+        'legNumber',
+        'legCount',
       ].sort()
     )
   })

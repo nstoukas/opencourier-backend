@@ -87,6 +87,8 @@ describe('DeliveryAdminRestApiController', () => {
       getPartnerCharge: jest.fn(),
       getWaitCharges: jest.fn().mockResolvedValue([]),
       getOfferReasons: jest.fn().mockResolvedValue([]),
+      // Spec 0046: the delivery page also asks for the order's legs; none for a single delivery.
+      getOrderLegs: jest.fn().mockResolvedValue({ legs: [], missingLegNumbers: [] }),
       getMany: jest.fn(),
       update: jest.fn(),
       submitDeliveryEvent: jest.fn(),
