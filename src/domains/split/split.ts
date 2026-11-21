@@ -79,3 +79,13 @@ export const SPLIT_SENTENCES = {
   leaveWaitBlocked: 'Dispatch is splitting this order. Wait for the answer, or leave once the split limit has passed.',
   deliveryChanged: 'This order changed before the split could be made. Look again.',
 }
+
+// AC-5, cross check 8: the reference the order's legs share after a split. A leg keeps its order's. A
+// single delivery uses spec 0046's group rule: its quote id, or the restaurant's reference plus `#` and the
+// quote id, so it can never collide with another order that happens to share the restaurant's reference.
+export function orderReferenceForSplit(reference: string | null, quoteId: string, alreadyLeg: boolean): string {
+  if (alreadyLeg && reference) return reference
+  const typed = reference?.trim()
+  if (!typed || typed === quoteId) return quoteId
+  return `${typed}#${quoteId}`
+}
