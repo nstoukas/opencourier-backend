@@ -24,7 +24,12 @@ export class CourierCutOffService {
   // its offer pushes, and its Online status. Each step is tried on its own; a failure is logged and
   // does not undo the password, which already stops the phone at its next request.
   // `adminUserId` names the admin whose password change caused it; none for the rider's own reset.
-  async cutOff(courier: CourierEntity, adminUserId?: string): Promise<void> {
+  // Spec 0051 (cross check 4): a deactivation passes cause DEACTIVATED, so time worked reads true.
+  async cutOff(
+    courier: CourierEntity,
+    adminUserId?: string,
+    cause: EnumCourierStatusChangeCause = EnumCourierStatusChangeCause.CUT_OFF
+  ): Promise<void> {
     try {
       await this.websocketDispatcher.disconnectUser(courier.userId)
     } catch (error) {
@@ -41,12 +46,7 @@ export class CourierCutOffService {
       // The same path as an admin setting a rider Offline (the PATCH route): open offers end. A
       // delivery the rider holds stays theirs.
       // Recorded as CUT_OFF (spec 0040, AC-1), with the admin when an admin's password change caused it.
-      await this.courierDomainService.changeStatus(
-        courier.id,
-        EnumCourierStatus.OFFLINE,
-        EnumCourierStatusChangeCause.CUT_OFF,
-        adminUserId
-      )
+      await this.courierDomainService.changeStatus(courier.id, EnumCourierStatus.OFFLINE, cause, adminUserId)
       await this.deliveryEventService.handleCourierStatusChanged(courier.id, EnumCourierStatus.OFFLINE)
     } catch (error) {
       this.logger.error(`Could not set courier ${courier.id} Offline`, error as Error)

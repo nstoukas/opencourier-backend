@@ -3,8 +3,10 @@ import { escapeLikeText, searchDigits, searchWords } from 'src/rest-api/common/s
 
 // The admin couriers list's tabs and search (row 97). The route took only the page before, so the
 // board's tabs and search box had nothing to ask.
-export const ADMIN_COURIER_STATUSES = ['all', 'working', 'offline'] as const
-// `(typeof X)[number]` = one of the array's values: 'all' | 'working' | 'offline'.
+// Spec 0051 (AC-6, cross check 14): 'deactivated' lists the riders whose account is deactivated; the
+// other tabs still show them, with a label, except Working now (a deactivated rider is never working).
+export const ADMIN_COURIER_STATUSES = ['all', 'working', 'offline', 'deactivated'] as const
+// `(typeof X)[number]` = one of the array's values: 'all' | 'working' | 'offline' | 'deactivated'.
 export type AdminCourierStatus = (typeof ADMIN_COURIER_STATUSES)[number]
 
 // "Working now" is Online or Last call: a rider on last call takes no new offers but is still
@@ -23,6 +25,9 @@ export function adminCourierListWhere(filter: { status?: AdminCourierStatus; sea
       break
     case 'offline':
       where.status = EnumCourierStatus.OFFLINE
+      break
+    case 'deactivated':
+      where.deactivatedAt = { not: null }
       break
     default:
       // 'all' or nothing: no status rule.

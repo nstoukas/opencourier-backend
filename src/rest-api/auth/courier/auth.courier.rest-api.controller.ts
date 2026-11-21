@@ -19,6 +19,10 @@ import { AblyTokenDto } from 'src/rest-api/common/dtos/ably-token.dto'
 import { ForgotPasswordCourierInput } from './queries/forgot-password.courier.input'
 import { ResetPasswordCourierInput } from './queries/reset-password.courier.input'
 import { PasswordResetCourierRestApiService } from './password-reset.courier.rest-api.service'
+import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
+import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
+import { CourierAccountService } from 'src/services/courier-account/courier-account.service'
+import { ChangePasswordCourierInput } from 'src/rest-api/courier-account/courier-account.dto'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('auth')
@@ -26,7 +30,9 @@ import { PasswordResetCourierRestApiService } from './password-reset.courier.res
 export class AuthCourierRestApiController {
   constructor(
     private readonly authDomainService: AuthDomainService,
-    private readonly passwordResetCourierRestApiService: PasswordResetCourierRestApiService
+    private readonly passwordResetCourierRestApiService: PasswordResetCourierRestApiService,
+    // Spec 0051. Optional only so tests that build the controller by hand keep compiling; Nest injects it.
+    private readonly courierAccountService?: CourierAccountService
   ) {}
 
   @Public()
@@ -83,6 +89,22 @@ export class AuthCourierRestApiController {
   @Throttle(PUBLIC_DEFAULT_THROTTLE)
   async resetPassword(@Body() body: ResetPasswordCourierInput): Promise<UserInfoCourierDto> {
     return this.passwordResetCourierRestApiService.resetPassword(body.email, body.code, body.password)
+  }
+
+  // Spec 0051 (AC-8, cross check 13): the rider's own password change. 400 for a wrong current password
+  // (5 an hour at most) or the same password; on success, fresh tokens for this phone, like login.
+  @Post('change-password')
+  @common.HttpCode(200)
+  @swagger.ApiBody({ type: ChangePasswordCourierInput })
+  @swagger.ApiOkResponse({ type: UserInfoCourierDto })
+  @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
+  @Roles(EnumUserRole.COURIER)
+  async changePassword(
+    @CurrentUserCourier() courier: CourierEntity,
+    @Body() body: ChangePasswordCourierInput
+  ): Promise<UserInfoCourierDto> {
+    if (!this.courierAccountService) throw new Error('CourierAccountService was not injected')
+    return new UserInfoCourierDto(await this.courierAccountService.changeOwnPassword(courier, body))
   }
 
   @Get('me')

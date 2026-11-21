@@ -11,6 +11,12 @@ import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { CourierUpdateStatusCourierInput } from './queries/courier-update-status.courier.input'
 import { CourierUpdateDeliverySettingCourierInput } from './queries/courier-update-delivery-setting.courier.input'
+import { CourierAccountService } from 'src/services/courier-account/courier-account.service'
+import {
+  CourierAccountChangeCourierDto,
+  EmergencyContactCourierDto,
+  EmergencyContactCourierInput,
+} from 'src/rest-api/courier-account/courier-account.dto'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('courier')
@@ -22,8 +28,45 @@ export class CourierCourierRestApiController {
   // instance of it — the framework constructs the controller and passes them in.
   constructor(
     private readonly courierDomainService: CourierDomainService,
-    private readonly deliveryEventService: DeliveryEventService
+    private readonly deliveryEventService: DeliveryEventService,
+    // Spec 0051. Optional only so tests that build the controller by hand keep compiling; Nest injects it.
+    private readonly courierAccountService?: CourierAccountService
   ) {}
+
+  private get accounts(): CourierAccountService {
+    if (!this.courierAccountService) throw new Error('CourierAccountService was not injected')
+    return this.courierAccountService
+  }
+
+  // Spec 0051 (AC-7): "Changes by the co-op", this rider's own account record, newest first. The actor is
+  // "the co-op" or "you", never an admin's name.
+  @common.Get('account-changes')
+  @swagger.ApiOkResponse({ type: [CourierAccountChangeCourierDto] })
+  @Roles(EnumUserRole.COURIER)
+  async accountChanges(@CurrentUserCourier() courier: CourierEntity): Promise<CourierAccountChangeCourierDto[]> {
+    const changes = await this.accounts.history(courier.id)
+    return changes.map((change) => new CourierAccountChangeCourierDto(change))
+  }
+
+  // Spec 0051 (cross check 12): the rider's emergency contact, kept on the server.
+  @common.Get('emergency-contact')
+  @swagger.ApiOkResponse({ type: EmergencyContactCourierDto })
+  @Roles(EnumUserRole.COURIER)
+  async emergencyContact(@CurrentUserCourier() courier: CourierEntity): Promise<EmergencyContactCourierDto> {
+    return new EmergencyContactCourierDto(await this.accounts.emergencyContactOf(courier.id))
+  }
+
+  @common.Put('emergency-contact')
+  @swagger.ApiBody({ type: EmergencyContactCourierInput })
+  @swagger.ApiOkResponse({ type: EmergencyContactCourierDto })
+  @Roles(EnumUserRole.COURIER)
+  async setEmergencyContact(
+    @CurrentUserCourier() courier: CourierEntity,
+    @common.Body() body: EmergencyContactCourierInput
+  ): Promise<EmergencyContactCourierDto> {
+    await this.accounts.setOwnEmergencyContact(courier.id, body.name ?? null, body.phone ?? null)
+    return new EmergencyContactCourierDto(await this.accounts.emergencyContactOf(courier.id))
+  }
 
   @common.Patch('location')
   @swagger.ApiBody({

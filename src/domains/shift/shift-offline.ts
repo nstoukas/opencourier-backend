@@ -37,6 +37,7 @@ export const RIDER_CAUSE_WORDS: Record<EnumCourierStatusChangeCause, string> = {
   CUT_OFF: 'your sessions were ended by a password change',
   LAST_CALL_ACCEPTED: 'you went Offline after your Last Call job',
   SYSTEM_START: 'the system set you Offline',
+  DEACTIVATED: 'your account was deactivated by the co-op',
 }
 
 // The same causes as an admin reads them.
@@ -46,6 +47,7 @@ export const ADMIN_CAUSE_WORDS: Record<EnumCourierStatusChangeCause, string> = {
   CUT_OFF: "A password change ended the rider's sessions",
   LAST_CALL_ACCEPTED: 'Offline after a Last Call job',
   SYSTEM_START: 'Set Offline by the system',
+  DEACTIVATED: "An admin deactivated the rider's account",
 }
 
 // AC-5: what the rider reads under each record.

@@ -357,6 +357,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
       -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
       AND NOT EXISTS (${activeSosCourierSubQuery()})
+      -- A deactivated rider is never offered work (spec 0051, AC-2)
+      AND "deactivatedAt" IS NULL
       ${boxRoomCondition(args.boxUnits)}
 
       -- Exclude courier ids
@@ -461,6 +463,8 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
       AND NOT EXISTS (${ongoingDeliveryRawSubQuery})
       -- A rider in an active SOS is offered nothing (spec 0022, AC-7)
       AND NOT EXISTS (${activeSosCourierSubQuery()})
+      -- A deactivated rider is never offered work (spec 0051, AC-2)
+      AND "deactivatedAt" IS NULL
       ${boxRoomCondition(args.boxUnits)}
 
       -- Exclude courier ids
@@ -595,6 +599,13 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         ? new CourierSettingEntity(result.settings as CourierSetting)
         : null,
     }
+  }
+
+  // Spec 0051 (AC-2): whether this user's rider account is deactivated. One small read, for the auth doors;
+  // false for a user with no rider (an admin or a restaurant).
+  async isUserDeactivated(userId: string): Promise<boolean> {
+    const courier = await this.prisma.courier.findUnique({ where: { userId }, select: { deactivatedAt: true } })
+    return courier?.deactivatedAt != null
   }
 
   async findByUserId(userId: string) {

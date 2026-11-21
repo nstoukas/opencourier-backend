@@ -84,7 +84,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     courierId: string,
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate
-  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL'> {
+  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED'> {
     const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false)
     return claim.outcome
   }
@@ -102,9 +102,18 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate,
     allowOverCapacity: boolean
-  ): Promise<{ outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL'; heldUnits: number; deliveryUnits: number }> {
+  ): Promise<{
+    outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED'
+    heldUnits: number
+    deliveryUnits: number
+  }> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE`
+      // Spec 0051 (cross check 5 and 7): under the same lock a deactivation takes, so no offer or hand
+      // offer reaches a rider whose account was deactivated, whichever matcher chose them (Static too).
+      const locked = await tx.$queryRaw<Array<{ deactivated: boolean }>>`
+        SELECT ("deactivatedAt" IS NOT NULL) AS "deactivated" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE
+      `
+      if (locked[0]?.deactivated) return { outcome: 'DEACTIVATED', heldUnits: 0, deliveryUnits: 0 }
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
       if (!delivery) return { outcome: 'NOT_WAITING', heldUnits: 0, deliveryUnits: 0 }
       const rows = await tx.$queryRaw<Array<{ held: number }>>(

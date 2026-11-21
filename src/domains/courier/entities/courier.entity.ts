@@ -26,12 +26,34 @@ export class CourierEntity implements Courier {
   // copied from the row, like searchFold: only the dispatch board's query reads it (AC-13).
   declare currentLocationAt: Date | null
 
+  // Spec 0051: when an admin deactivated this rider; null while active. Copied, because the auth doors,
+  // matching and the admin page read it.
+  deactivatedAt: Date | null
+
+  // Spec 0051: declared, never copied, like searchFold: the emergency contact and the deactivating admin
+  // are read only through their own queries, so a serialised entity (the partner webhook) never carries them.
+  declare deactivatedByUserId: string | null
+  declare emergencyContactName: string | null
+  declare emergencyContactPhone: string | null
+
   userId: string
   createdAt: Date
   updatedAt: Date
 
   // Omit: the entity never reads searchFold (spec 0025) or currentLocationAt (spec 0034), so callers need not have them.
-  constructor(data: Omit<Courier, 'searchFold' | 'currentLocationAt'> & { currentLocation?: GeoPosition | null }) {
+  // Spec 0051: the new columns are optional here, so a caller built before them still compiles; a missing
+  // deactivatedAt reads as active.
+  constructor(
+    data: Omit<
+      Courier,
+      | 'searchFold'
+      | 'currentLocationAt'
+      | 'deactivatedAt'
+      | 'deactivatedByUserId'
+      | 'emergencyContactName'
+      | 'emergencyContactPhone'
+    > & { currentLocation?: GeoPosition | null; deactivatedAt?: Date | null }
+  ) {
     this.id = data.id
     this.node_uri = data.node_uri
     this.firstName = data.firstName
@@ -44,6 +66,8 @@ export class CourierEntity implements Courier {
     this.stripeAccountStatus = data.stripeAccountStatus
 
     this.currentLocation = data.currentLocation
+
+    this.deactivatedAt = data.deactivatedAt ?? null
 
     this.userId = data.userId
     this.createdAt = data.createdAt

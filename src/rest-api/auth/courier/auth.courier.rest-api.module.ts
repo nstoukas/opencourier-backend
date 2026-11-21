@@ -1,3 +1,4 @@
+import { CourierAccountModule } from 'src/services/courier-account/courier-account.module'
 import { Module } from '@nestjs/common'
 import { AuthDomainModule } from '../../../domains/auth/auth.domain.module'
 import { PasswordResetService } from '../../../domains/auth/password-reset.service'
@@ -15,6 +16,7 @@ import { PasswordResetCourierRestApiService } from './password-reset.courier.res
   // (ConfigDomainModule), the rider lookup, and the shared cut off.
   imports: [
     AuthDomainModule,
+    CourierAccountModule,
     CacheModule,
     MailModule,
     ConfigDomainModule,

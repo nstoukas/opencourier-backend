@@ -13,6 +13,7 @@ import { CourierDomainModule } from '../courier/courier.domain.module'
 import { JwtRefreshStrategy } from './jwt/jwt-refresh.strategy'
 import { AblyModule } from 'src/integrations/ably/ably.module'
 import { PartnerDomainModule } from '../partner/partner.domain.module'
+import { ConfigDomainModule } from '../config/config.domain.module'
 
 @Global()
 @Module({
@@ -22,6 +23,8 @@ import { PartnerDomainModule } from '../partner/partner.domain.module'
     UserDomainModule,
     CourierDomainModule,
     PartnerDomainModule,
+    // Spec 0051: the deactivated message names the co-op's dispatch phone.
+    ConfigDomainModule,
     JwtModule.registerAsync({
       imports: [],
       inject: [ConfigService],

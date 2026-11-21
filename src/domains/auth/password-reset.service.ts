@@ -103,6 +103,8 @@ export class PasswordResetService implements OnModuleInit {
       if (error instanceof Error && isRecordNotFoundError(error)) return null
       throw error
     }
+    // Spec 0051 (cross check 2): a deactivated rider gets no code, the same silent 202 as an unknown email.
+    if (courier.deactivatedAt) return null
     return { user, courier }
   }
 

@@ -13,7 +13,12 @@ import { IEmailLogin } from './interfaces/IEmailLogin'
 import { PasswordService } from './password.service'
 import { TokenService } from './token.service'
 import { API_KEY_DOES_NOT_WORK_MESSAGE, hashApiKey } from './api-key'
-import { CREDENTIALS_CHANGED_MESSAGE, isIssuedBeforeCredentialsChange } from './credentials-change'
+import {
+  CREDENTIALS_CHANGED_MESSAGE,
+  accountDeactivatedMessage,
+  isIssuedBeforeCredentialsChange,
+} from './credentials-change'
+import { ConfigDomainService } from '../config/config.domain.service'
 
 @Injectable()
 export class AuthDomainService {
@@ -25,8 +30,25 @@ export class AuthDomainService {
     private partnerDomainService: PartnerDomainService,
     private passwordService: PasswordService,
     private tokenService: TokenService,
-    private ablyService: AblyService
+    private ablyService: AblyService,
+    // Spec 0051. Optional (`?`) only so tests that build this service by hand keep compiling; Nest always
+    // injects it. Without it, the deactivated message says "contact the co-op".
+    private configDomainService?: ConfigDomainService
   ) {}
+
+  // Spec 0051 (AC-2, cross check 2): every door refuses a deactivated rider with ACCOUNT_DEACTIVATED, before
+  // the credentials changed check, so the app always learns the real reason. Users with no rider pass.
+  async refuseIfDeactivated(user: { id: string; role: EnumUserRole[] }): Promise<void> {
+    if (!user.role.includes(EnumUserRole.COURIER)) return
+    if (!(await this.courierDomainService.isUserDeactivated(user.id))) return
+    let phone: string | null = null
+    try {
+      phone = (await this.configDomainService?.instanceConfig.getDispatchPhoneNumber()) ?? null
+    } catch {
+      // The message still goes out, with the plain words.
+    }
+    throw new errors.AccountDeactivatedException(accountDeactivatedMessage(phone))
+  }
 
   async verifyUniqueEmailInput(email: string) {
     const result = await this.userDomainService.findUserWithEmail(email)
@@ -55,6 +77,8 @@ export class AuthDomainService {
     if (!user) {
       throw new errors.ForbiddenException('These credentials are incorrect')
     }
+    // Spec 0051: only after the password was proven, so a stranger learns nothing about the account.
+    await this.refuseIfDeactivated(user)
 
     // The token carries the stored email, never the typed one: every later request, refresh and
     // socket handshake looks the user up by it, exactly (spec 0013, cross check).
@@ -73,6 +97,7 @@ export class AuthDomainService {
   // A session for a user whose identity was proven some other way than a password: a rider's reset
   // by emailed code (row 17, spec 0039, AC-10). The same token contents as loginWithEmail.
   async createSessionForUser(user: UserEntity) {
+    await this.refuseIfDeactivated(user)
     const session = await this.tokenService.createEmailAuthSession({
       sub: user.id,
       email: user.email || '',
@@ -115,6 +140,7 @@ export class AuthDomainService {
     }
 
     const user = await this.userDomainService.findById(userId)
+    await this.refuseIfDeactivated(user)
 
     const session = await this.tokenService.createEmailAuthSession({
       sub: user.id,
@@ -164,6 +190,8 @@ export class AuthDomainService {
       const payload = this.tokenService.decodeToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)
+      // Spec 0051: deactivated first, so the app learns the real reason.
+      await this.refuseIfDeactivated(user)
       // Spec 0013: a token from before an admin set a new password is refused with 401.
       this.refuseIfIssuedBeforeCredentialsChange(payload, user)
 
@@ -183,6 +211,7 @@ export class AuthDomainService {
       const payload = this.tokenService.decodeRefreshToken(bearer)
 
       const user = await this.userDomainService.findById(payload.sub)
+      await this.refuseIfDeactivated(user)
       // Spec 0013: a refresh token from before an admin set a new password is refused with 401,
       // so the app's renewal fails and it ends the session.
       this.refuseIfIssuedBeforeCredentialsChange(payload, user)
@@ -200,7 +229,8 @@ export class AuthDomainService {
   private refuseIfIssuedBeforeCredentialsChange(payload: object, user: UserEntity) {
     const iat = (payload as { iat?: unknown }).iat
     if (isIssuedBeforeCredentialsChange(iat, user.credentialsChangedAt)) {
-      throw new errors.UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE)
+      // Spec 0051 (cross check 3): its own code, so the app can say why.
+      throw new errors.CredentialsChangedException(CREDENTIALS_CHANGED_MESSAGE)
     }
   }
 

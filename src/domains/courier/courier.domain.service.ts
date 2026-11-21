@@ -79,6 +79,11 @@ export class CourierDomainService {
     return courierWithSettings
   }
 
+  // Spec 0051 (AC-2): the auth doors ask this before letting a rider in.
+  async isUserDeactivated(userId: string): Promise<boolean> {
+    return this.courierRepository.isUserDeactivated(userId)
+  }
+
   async getByUserId(id: string) {
     const courier = await this.courierRepository.findByUserId(id)
 

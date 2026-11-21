@@ -90,6 +90,13 @@ model Courier {
   // position, used only to leave stale riders off the dispatch map, and never sent to any client.
   currentLocationAt DateTime?
   rejectedOffers  String[]                              @default([])
+  // Spec 0051 (row 108): a member who left. Set, the rider cannot sign in, refresh, connect or be
+  // offered work; their deliveries, pay and records stay. The admin who did it, as a plain id.
+  deactivatedAt         DateTime?
+  deactivatedByUserId   String?
+  // Spec 0051 (AC-4, cross check 12): the rider's emergency contact, kept on the server.
+  emergencyContactName  String?                       @postgres.VarChar(120)
+  emergencyContactPhone String?                       @postgres.VarChar(32)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -118,6 +125,8 @@ model Courier {
   devices               CourierDevice[]
   // This rider's SOS incidents (spec 0022). Never counted per rider anywhere (binding value 5).
   sosIncidents          SosIncident[]
+  // Spec 0051 (AC-5): every account action on this rider, for the rider and admins to read.
+  accountChanges        CourierAccountChange[]
   // This rider's shift bookings (spec 0027). Never counted per rider anywhere (binding value 5).
   shiftBookings         ShiftBooking[]
   // This rider's one conversation with dispatch (spec 0034, chat).
@@ -726,6 +735,7 @@ enum EnumCourierStatusChangeCause {
   CUT_OFF            // a credential change ended the rider's sessions (spec 0039)
   LAST_CALL_ACCEPTED // a Last Call rider accepted their last job and went Offline
   SYSTEM_START       // a seed, a dev script or the migration that began the record
+  DEACTIVATED        // an admin deactivated the rider's account (spec 0051)
 }
 
 enum EnumDeliveryStatus {
@@ -1376,6 +1386,8 @@ model ShiftBookingEvent {
   otherCourierId String?
   createdAt      DateTime                  @default(now())
 
+  // Spec 0051: the admin whose action made this event (a booking dropped at a deactivation).
+  adminUserId           String?
   // Spec 0049, WENT_OFFLINE_MID_SHIFT only: the status change it came from (one event per change), its
   // cause and time, and an admin's follow up in person.
   courierStatusChangeId String?                       @unique
@@ -1530,4 +1542,33 @@ model CourierStatusChange {
 
   @@index([courierId, createdAt])
   @@index([createdAt])
+}
+
+// Spec 0051 (row 108): what an account change was.
+enum EnumCourierAccountChangeKind {
+  DEACTIVATED
+  REACTIVATED
+  FIELD_EDITED
+  PASSWORD_CHANGED
+}
+
+// Spec 0051 (AC-5): one account action on a rider: a deactivation, a reactivation, one edited field, or a
+// password change. The rider reads their own (the actor shown as "the co-op"); admins read them with the
+// admin's name. A password is never stored, only that it changed. Never counted per rider (value 5).
+model CourierAccountChange {
+  id           String                       @id @default(cuid())
+  courierId    String
+  courier      Courier                      @relation(fields: [courierId], references: [id])
+  // The admin who acted; null when the rider did (actorIsRider) or the admin was later deleted.
+  actorUserId  String?
+  actorIsRider Boolean                      @default(false)
+  kind         EnumCourierAccountChangeKind
+  // FIELD_EDITED only: which field, and its value before and after.
+  field        String?                      @postgres.VarChar(60)
+  oldValue     String?                      @postgres.VarChar(300)
+  newValue     String?                      @postgres.VarChar(300)
+  reason       String?                      @postgres.VarChar(300)
+  createdAt    DateTime                     @default(now())
+
+  @@index([courierId, createdAt])
 }

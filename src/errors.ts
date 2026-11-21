@@ -46,6 +46,9 @@ export enum ErrorCode {
   FORBIDDEN = 'FORBIDDEN',
   USER_EXISTS = 'USER_EXISTS',
   USER_NOT_FOUND = 'USER_NOT_FOUND',
+  // Spec 0051 (cross check 3): the app reads these codes, not the messages, to say why a session ended.
+  ACCOUNT_DEACTIVATED = 'ACCOUNT_DEACTIVATED',
+  CREDENTIALS_CHANGED = 'CREDENTIALS_CHANGED',
 
   // Data validation
   MISSING_DATA = 'MISSING_DATA',
@@ -134,6 +137,20 @@ export class JwtExpiredException extends ApiException {
 export class UnauthorizedException extends ApiException {
   constructor(message: string, options?: HttpExceptionOptions) {
     super(ErrorCode.UNAUTHORIZED, message, 401, options)
+  }
+}
+
+// Spec 0051: 401 for a deactivated rider at every door (login, bearer, refresh, socket, a reset session).
+export class AccountDeactivatedException extends ApiException {
+  constructor(message: string, options?: HttpExceptionOptions) {
+    super(ErrorCode.ACCOUNT_DEACTIVATED, message, 401, options)
+  }
+}
+
+// Spec 0051 (cross check 3): 401 for a token issued before the password or the login email changed.
+export class CredentialsChangedException extends ApiException {
+  constructor(message: string, options?: HttpExceptionOptions) {
+    super(ErrorCode.CREDENTIALS_CHANGED, message, 401, options)
   }
 }
 

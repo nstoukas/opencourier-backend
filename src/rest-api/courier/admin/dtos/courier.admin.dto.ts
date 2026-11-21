@@ -30,6 +30,10 @@ export class CourierAdminDto implements Partial<CourierEntity> {
   @ApiProperty({ type: Date })
   createdAt: Date
 
+  // Spec 0051 (AC-6): set when the rider's account is deactivated; the list labels such riders.
+  @ApiProperty({ type: Date, nullable: true })
+  deactivatedAt!: Date | null
+
   constructor(data: CourierEntity) {
     this.id = data.id
     this.node_uri = data.node_uri
@@ -40,5 +44,6 @@ export class CourierAdminDto implements Partial<CourierEntity> {
     this.deliverySetting = data.deliverySetting
     this.userId = data.userId
     this.createdAt = data.createdAt
+    this.deactivatedAt = data.deactivatedAt
   }
 }

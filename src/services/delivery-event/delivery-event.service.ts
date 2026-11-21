@@ -1,4 +1,5 @@
 import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
+import { RIDER_DEACTIVATED_SENTENCE } from 'src/domains/courier/account-upkeep'
 import { OfferReasonInput, adminOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
 import type {
@@ -8,7 +9,7 @@ import type {
   DeliveryReadyDelayedEvent,
 } from 'src/shared-types/delivery-events'
 import type { JobReadyUpdatedMessage, RemovalRequestDecidedMessage } from 'src/shared-types/notification'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { OnEvent } from '@nestjs/event-emitter'
 import { ConfigService } from '@nestjs/config'
@@ -647,6 +648,10 @@ export class DeliveryEventService {
     if (claim.outcome === 'BOX_FULL') {
       throw new BoxOverCapacityException(claim.heldUnits, claim.deliveryUnits)
     }
+    // Spec 0051 (cross check 7): an admin cannot give work to a deactivated rider.
+    if (claim.outcome === 'DEACTIVATED') {
+      throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
+    }
     if (claim.outcome === 'NOT_WAITING') {
       throw new CantUpdateDeliveryStatusError(
         `Delivery ${deliveryId} changed while you were offering it (a rider answered or it moved on); reload and try again`
@@ -1015,6 +1020,13 @@ export class DeliveryEventService {
   // 409 with a sentence. The rider is offerable again once the SOS is not active.
   // A check before the write, not part of it (row 73 review): an SOS that starts in the same few
   // milliseconds slips past, and the worst case is an offer the rider lets expire. Accepted as is.
+  // Spec 0051 (cross check 7): an admin hand offer, a reassign and an accept refuse a deactivated rider (409).
+  // The claim checks again under the rider's lock; this answers first, in words.
+  async refuseIfCourierDeactivated(courierId: string): Promise<void> {
+    const courier = await this.courierRepository.findById(courierId)
+    if (courier?.deactivatedAt) throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
+  }
+
   async refuseIfCourierInSos(courierId: string): Promise<void> {
     if (await this.courierRepository.hasActiveSos(courierId)) {
       throw new CantUpdateDeliveryStatusError(SOS_SENTENCES.courierInSos)
@@ -1551,6 +1563,11 @@ export class DeliveryEventService {
       { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
       { matchedCourierId: courier.id, offeredAt, offerExpiresAt, totalCost, totalCompensation, fee, feePercentage }
     )
+    if (claim === 'DEACTIVATED') {
+      // Spec 0051: only the Static matcher can name a deactivated rider; the delivery waits as if none were free.
+      this.logger.log(`Courier ${courier.id} is deactivated; delivery ${deliveryId} is not offered to them`)
+      return 'NO_COURIER'
+    }
     if (claim === 'BOX_FULL') {
       // The delivery waits as if no rider were free, and the backstop retry tries again.
       this.logger.log(`Courier ${courier.id} has no room in the box; delivery ${deliveryId} is not offered to them`)

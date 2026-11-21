@@ -92,7 +92,7 @@ export function fairnessSentences(
 }
 
 export const PERSON_DECIDES = [
-  'A person decides every removal from an order, every reassignment, every dispatch stop for heat or storms, every change to your account and every answer to a review request.',
+  'A person decides every removal from an order, every reassignment, every dispatch stop for heat or storms, every change to your account, every deactivation of an account and every answer to a review request.',
   'The app never ends or limits your account on its own.',
 ]
 

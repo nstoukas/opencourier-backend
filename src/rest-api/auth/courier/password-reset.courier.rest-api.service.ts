@@ -9,6 +9,8 @@ import {
 import { UserDomainService } from 'src/domains/user/user.domain.service'
 import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { UserInfoCourierDto } from './dtos/user-info.courier.dto'
+import { EnumCourierAccountChangeKind } from '@prisma/types'
+import { CourierAccountRepository } from 'src/persistence/repositories/courier-account.repository'
 
 // The two public reset routes' work (row 17, spec 0039). It lives in the REST module rather than in
 // AuthDomainModule, which is global and imported by the courier domain: the cut off pulls in sockets
@@ -22,7 +24,9 @@ export class PasswordResetCourierRestApiService {
     private readonly passwordService: PasswordService,
     private readonly userDomainService: UserDomainService,
     private readonly authDomainService: AuthDomainService,
-    private readonly courierCutOffService: CourierCutOffService
+    private readonly courierCutOffService: CourierCutOffService,
+    // Spec 0051. Optional only so tests that build this service by hand keep compiling; Nest injects it.
+    private readonly courierAccountRepository?: CourierAccountRepository
   ) {}
 
   // AC-7 and AC-12. Answers at once; the lookup, the limits, the code and the mail run afterwards in
@@ -48,6 +52,20 @@ export class PasswordResetCourierRestApiService {
     await this.userDomainService.update(user.id, { password: hashedPassword, credentialsChangedAt: new Date() })
     await this.courierCutOffService.cutOff(courier)
     this.logger.log(`Courier ${courier.id} reset their password by email`)
+    // Spec 0051 (AC-5, cross check 10): the rider's own record shows the change. Logged, never thrown:
+    // the new password is already saved.
+    try {
+      await this.courierAccountRepository?.record([
+        {
+          courierId: courier.id,
+          actorUserId: null,
+          actorIsRider: true,
+          kind: EnumCourierAccountChangeKind.PASSWORD_CHANGED,
+        },
+      ])
+    } catch (error) {
+      this.logger.error(`Could not record the password change of courier ${courier.id}`, error as Error)
+    }
 
     // Issued after credentialsChangedAt, so this session survives the cut off it just caused.
     const result = await this.authDomainService.createSessionForUser(user)

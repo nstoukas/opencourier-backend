@@ -18,6 +18,7 @@ import { PartnerAvailabilityChangeRepository } from './repositories/partner-avai
 import { ProductReportRepository } from './repositories/product-report.repository'
 import { ShiftSlotRepository } from './repositories/shift-slot.repository'
 import { ShiftBookingRepository } from './repositories/shift-booking.repository'
+import { CourierAccountRepository } from './repositories/courier-account.repository'
 import { SosIncidentRepository } from './repositories/sos-incident.repository'
 import { PartnerChargeRepository } from './repositories/partner-charge.repository'
 import { DeliveryIssueRepository } from './repositories/delivery-issue.repository'
@@ -52,6 +53,7 @@ import { ChatRepository } from './repositories/chat.repository'
     ProductReportRepository,
     ShiftSlotRepository,
     ShiftBookingRepository,
+    CourierAccountRepository,
     PartnerChargeRepository,
     DeliveryIssueRepository,
     DispatchBoardRepository,
@@ -84,6 +86,7 @@ import { ChatRepository } from './repositories/chat.repository'
     ProductReportRepository,
     ShiftSlotRepository,
     ShiftBookingRepository,
+    CourierAccountRepository,
     PartnerChargeRepository,
     DeliveryIssueRepository,
     DispatchBoardRepository,

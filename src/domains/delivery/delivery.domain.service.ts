@@ -391,6 +391,7 @@ export class DeliveryDomainService {
     // 73.10). The offer is left to expire as usual (spec 0022, AC-7). This is a check before the
     // write: an SOS that starts in the same few milliseconds is not caught, and the rider can still
     // hand the job back.
+    await this.deliveryEventService.refuseIfCourierDeactivated(courierId)
     await this.deliveryEventService.refuseIfCourierInSos(courierId)
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
@@ -733,6 +734,7 @@ export class DeliveryDomainService {
     await this.deliveryEventService.refuseIfDispatchStopped()
     // Never reassign to a rider in an active SOS (spec 0022, AC-7). The rider it is taken from may be
     // in one: that is an admin's call, and nothing about their job changes on its own.
+    await this.deliveryEventService.refuseIfCourierDeactivated(newCourierId)
     await this.deliveryEventService.refuseIfCourierInSos(newCourierId)
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
 
@@ -1020,6 +1022,7 @@ export class DeliveryDomainService {
         }
         // An admin gives nothing to a rider in an active SOS (spec 0022, AC-7), whether it is a new
         // hand offer or accepting the offer already out to them on their behalf.
+        await this.deliveryEventService.refuseIfCourierDeactivated(event.courierId)
         await this.deliveryEventService.refuseIfCourierInSos(event.courierId)
         const delivery = await this.getByIdOrThrow(event.deliveryId)
         if (
