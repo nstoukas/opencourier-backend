@@ -1,3 +1,4 @@
+import { OfferReasonAdminDto } from './offer-reason.admin.dto'
 import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import {
@@ -239,6 +240,10 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Object, isArray: true })
   waitCharges: { amount: number; currencyCode: string; createdAt: Date }[]
 
+  // Spec 0044 (AC-8): why each offer went to its rider, oldest first. Only the delivery page sends them.
+  @ApiProperty({ type: [OfferReasonAdminDto] })
+  offerReasons: OfferReasonAdminDto[]
+
   // `quote?` = optional: the list and event endpoints build this DTO without loading a quote.
   // `offerView?` = optional too: only the list and get by id endpoints look the rider name up.
   constructor(
@@ -246,7 +251,8 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     quote?: DeliveryQuoteEntity,
     offerView?: DeliveryOfferView,
     partnerCharge?: { amount: number; currencyCode: string; createdAt: Date } | null,
-    waitCharges: { amount: number; currencyCode: string; createdAt: Date }[] = []
+    waitCharges: { amount: number; currencyCode: string; createdAt: Date }[] = [],
+    offerReasons: OfferReasonAdminDto[] = []
   ) {
     this.id = data.id
     this.pickupName = data.pickupName
@@ -321,5 +327,6 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.foodOutcomeAt = data.foodOutcomeAt ?? null
     this.partnerCharge = partnerCharge ?? null
     this.waitCharges = waitCharges
+    this.offerReasons = offerReasons
   }
 }

@@ -76,6 +76,8 @@ export interface DeliveryReassignedEvent extends BaseDeliveryEvent {
   // Spec 0035 (AC-20): the rider it was taken from, stored on the row so a wait is paid to whoever
   // actually waited. `courierId` above stays the new rider.
   droppedCourierId?: string | null
+  // Spec 0044 (AC-6): the admin who moved it, for the new offer's reason. Not stored on the event row.
+  adminUserId?: string | null
 }
 // Spec 0014. Dispatch stopped while `courierId` held this delivery, not yet picked up: it goes back
 // to waiting with nobody, and that rider is paid by the co-op's reassignment payout setting.

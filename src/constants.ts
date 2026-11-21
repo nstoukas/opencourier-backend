@@ -145,6 +145,20 @@ export const BOX_UNITS_MIN = 1
 export const BOX_UNITS_MAX = 100
 // The size an order with no size sent counts as (AC-3).
 export const DEFAULT_BOX_DEFAULT_SIZE = 'MEDIUM'
+// Spec 0044 (rows 12 and 13): the fairness matcher's weights (whole numbers 0 to 100, only their ratio
+// matters), how many of the nearest riders it scores, and the time online today below which a rider's
+// earnings count as the co-op's mean. Starting values from the operator (2026-11-20); the assembly sets them.
+export const DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME = 50
+export const DEFAULT_FAIRNESS_WEIGHT_EARNINGS = 30
+export const DEFAULT_FAIRNESS_WEIGHT_WAITING = 20
+export const FAIRNESS_WEIGHT_MIN = 0
+export const FAIRNESS_WEIGHT_MAX = 100
+export const DEFAULT_FAIRNESS_CANDIDATE_LIMIT = 10
+export const FAIRNESS_CANDIDATE_LIMIT_MIN = 1
+export const FAIRNESS_CANDIDATE_LIMIT_MAX = 50
+export const DEFAULT_FAIRNESS_MIN_ONLINE_MINUTES = 30
+export const FAIRNESS_MIN_ONLINE_MINUTES_MIN = 0
+export const FAIRNESS_MIN_ONLINE_MINUTES_MAX = 240
 // Offers timed to food readiness (spec 0031). Off until the assembly decides; fallbacks only.
 export const DEFAULT_OFFER_TIMING_ENABLED = false
 export const DEFAULT_OFFER_LEAD_MINUTES = 3

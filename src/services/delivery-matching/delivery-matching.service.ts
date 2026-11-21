@@ -1,3 +1,4 @@
+import { OfferReasonInput } from 'src/domains/matching/offer-reason'
 import { Injectable, Logger } from '@nestjs/common'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
@@ -6,6 +7,16 @@ import { CacheService } from '../cache/cache.service'
 import { CacheHelpers } from '../cache/cache.helpers'
 import { DeliveryNotFoundException, DeliveryOfferAlreadyMatchedException } from 'src/errors'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
+
+// What one matching found: the rider, the delivery, its pickup, the road time when the matcher worked
+// it out (spec 0031), and why this rider (spec 0044, saved with the OFFERED event).
+export interface CourierMatch {
+  courier: Awaited<ReturnType<CourierDomainService['getByIdOrThrow']>>
+  delivery: Awaited<ReturnType<DeliveryRepository['findByIdOrThrow']>>
+  pickupLocation: Awaited<ReturnType<LocationDomainService['getByIdOrThrow']>>
+  travelSeconds?: number | null
+  reason?: OfferReasonInput
+}
 
 @Injectable()
 export class DeliveryMatchingService {
@@ -20,7 +31,7 @@ export class DeliveryMatchingService {
 
   // Finds the courier the configured matcher picks for this delivery, skipping everyone on its
   // skip list, and writes nothing. Returns undefined when nobody is free.
-  async findCourierForDelivery(deliveryId: string) {
+  async findCourierForDelivery(deliveryId: string): Promise<CourierMatch | undefined> {
     this.logger.log(`Matching Delivery ${deliveryId} to courier`)
 
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -76,6 +87,8 @@ export class DeliveryMatchingService {
       pickupLocation,
       // undefined: this matcher did not work out a road time. null: it tried and could not.
       travelSeconds: result.travelSeconds,
+      // Spec 0044 (AC-6): why the matcher chose this rider, saved with the OFFERED event.
+      reason: result.reason,
     }
   }
 

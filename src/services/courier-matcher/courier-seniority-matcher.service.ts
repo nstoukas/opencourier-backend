@@ -1,3 +1,4 @@
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import { Injectable, Logger } from '@nestjs/common'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { ICourierMatcherInput } from './interfaces/ICourierMatcherInput'
@@ -34,6 +35,11 @@ export class CourierSeniorityMatcherService implements ICourierMatcherService {
     return {
       courierId: result.courier.id,
       distance: result.distance,
+      // Spec 0044 (AC-6): the longest member in range.
+      reason: {
+        strategy: EnumCourierMatcherType.COURIER_SENIORITY,
+        values: { memberSince: result.courier.createdAt.toISOString(), straightMetres: Math.round(result.distance) },
+      },
     }
   }
 }

@@ -515,6 +515,38 @@ model DeliveryEvent {
   // indexes each of those reads walks the whole table (decision 36.47).
   @@index([courierId, type])
   @@index([deliveryId])
+  // Spec 0044: why this offer went to this rider (only on OFFERED events). Not a column here.
+  offerReason OfferReason?
+}
+
+// Spec 0044 (rows 12 and 13): why an offer went to its rider, one row per OFFERED event, from any
+// matcher or an admin. Numbers, never prose, so it can be read back by number (row 14's why this offer,
+// the admin audit, a replay). `candidates` holds every scored rider's values: admin only, never sent to
+// a rider (it holds other riders' earnings).
+model OfferReason {
+  id              String        @id @default(cuid())
+  deliveryEventId String        @unique
+  deliveryEvent   DeliveryEvent @relation(fields: [deliveryEventId], references: [id], onDelete: Cascade)
+  deliveryId      String
+  courierId       String
+  // FAIRNESS, NEAREST_COURIER, COURIER_SENIORITY, STATIC, or ADMIN for a hand offer or a reassign.
+  strategy        String
+  // The weights in force, only those that applied: { roadTime, earnings, waiting, shift? }.
+  weights         Json?
+  // The chosen rider's raw values and their scaled values: shape by strategy (spec 0044, cross check 10).
+  values          Json
+  score           Float?
+  // How many riders were scored, and how many passed every filter (the shortlist may leave some out).
+  candidateCount  Int           @default(0)
+  ridersInRange   Int           @default(0)
+  candidates      Json?
+  // SINGLE today; spec 0048 adds STACK and ADD_ON.
+  kind            String        @default("SINGLE")
+  createdAt       DateTime      @default(now())
+
+  // Spec 0045 reads a rider's own reasons, newest first.
+  @@index([courierId, createdAt])
+  @@index([deliveryId])
 }
 
 model LocationNote {

@@ -13,6 +13,7 @@ import { LocationNoteReactionRepository } from './repositories/location-note-rea
 import { CourierCompensationRepository } from './repositories/courier-compensation.repository'
 import { CourierDeviceRepository } from './repositories/courier-device.repository'
 import { DispatchStopRepository } from './repositories/dispatch-stop.repository'
+import { OfferReasonRepository } from './repositories/offer-reason.repository'
 import { PartnerAvailabilityChangeRepository } from './repositories/partner-availability-change.repository'
 import { ProductReportRepository } from './repositories/product-report.repository'
 import { ShiftSlotRepository } from './repositories/shift-slot.repository'
@@ -46,6 +47,7 @@ import { ChatRepository } from './repositories/chat.repository'
     CourierCompensationRepository,
     CourierDeviceRepository,
     DispatchStopRepository,
+    OfferReasonRepository,
     PartnerAvailabilityChangeRepository,
     ProductReportRepository,
     ShiftSlotRepository,
@@ -77,6 +79,7 @@ import { ChatRepository } from './repositories/chat.repository'
     CourierCompensationRepository,
     CourierDeviceRepository,
     DispatchStopRepository,
+    OfferReasonRepository,
     PartnerAvailabilityChangeRepository,
     ProductReportRepository,
     ShiftSlotRepository,

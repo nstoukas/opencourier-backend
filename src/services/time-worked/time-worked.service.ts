@@ -195,6 +195,15 @@ export function parseDayRange(from: unknown, to: unknown, maxDays: number): DayR
   }
 }
 
+// Spec 0044: one rider's figures for today, as the fairness matcher reads them.
+export interface FairnessDayFigures {
+  workSeconds: number
+  // Linked money per hour worked today, tips left out; null under a minute of work.
+  centsPerHour: number | null
+  lastJobEndAt: Date | null
+  onlineSpellStartAt: Date
+}
+
 @Injectable()
 export class TimeWorkedService {
   private readonly logger = new Logger(TimeWorkedService.name)
@@ -485,6 +494,54 @@ export class TimeWorkedService {
       shiftBreakMinutes: settings.shiftBreakMinutes,
       shift: last && last.endedAt === null ? last : null,
     }
+  }
+
+  // Spec 0044 (AC-2, AC-3): what the fairness matcher reads about every rider today (Athens day): time
+  // worked, what the co-op paid them per hour (tips left out, cross check 1: the same builder run with
+  // every delivery's tips at 0, so no second money rule), their last job's end today, and when their
+  // current Online spell began. One read for every rider, because the co-op mean needs them all. Worked
+  // out fresh for each offer (decision 12.3): a rider's figures change the moment a job ends.
+  async todayForFairness(now = new Date()): Promise<Map<string, FairnessDayFigures>> {
+    const settings = await this.settings()
+    const recordedFrom = await this.timeWorkedRepository.findRecordedFrom()
+    const today = todayIn(now)
+    const todayStart = dayjs.tz(today, INSTANCE_TIMEZONE).toDate()
+    const range = { rangeStart: todayStart, rangeEnd: now }
+    const window = { ...this.windowFor(range, now), windowEnd: now }
+    const records = await this.timeWorkedRepository.findRecords({ ...window, withAdminLabels: false })
+    const withoutTips = { ...records, deliveries: records.deliveries.map((d) => ({ ...d, tips: 0 })) }
+    const riders = new Set<string>([
+      ...records.statusChanges.map((c) => c.courierId),
+      ...records.acceptedDeliveries.keys(),
+    ])
+    for (const [courierId] of records.statusBefore) riders.add(courierId)
+    const results = this.computePerRider(withoutTips, [...riders], window, now, settings, recordedFrom)
+
+    const figures = new Map<string, FairnessDayFigures>()
+    for (const [courierId, result] of results) {
+      const day = result.days.find((d) => d.date === today)
+      const jobs = [...result.allShifts.flatMap((shift) => shift.jobs), ...result.jobsInNoShift]
+      const endsToday = jobs
+        .map((job) => job.endedAt)
+        .filter((at): at is Date => at !== null && at.getTime() >= todayStart.getTime())
+      // Cross check 5: the spell is the last move to Online from Offline; Last Call continues it.
+      const spellStarts = records.statusChanges
+        .filter(
+          (c) =>
+            c.courierId === courierId &&
+            c.toStatus === EnumCourierStatus.ONLINE &&
+            c.fromStatus === EnumCourierStatus.OFFLINE
+        )
+        .map((c) => c.createdAt)
+      figures.set(courierId, {
+        workSeconds: day?.workSeconds ?? 0,
+        centsPerHour: day?.centsPerHour ?? null,
+        lastJobEndAt: endsToday.length > 0 ? new Date(Math.max(...endsToday.map((at) => at.getTime()))) : null,
+        onlineSpellStartAt:
+          spellStarts.length > 0 ? new Date(Math.max(...spellStarts.map((at) => at.getTime()))) : window.windowStart,
+      })
+    }
+    return figures
   }
 
   // Co-op totals over a range, by day or by Monday week (AC-14). Never carries a rider id.

@@ -67,6 +67,11 @@ describe('InstanceConfigSettingsDto', () => {
     boxUnitsMedium: 50,
     boxUnitsLarge: 100,
     boxDefaultSize: 'MEDIUM',
+    fairnessWeightRoadTime: 50,
+    fairnessWeightEarnings: 30,
+    fairnessWeightWaiting: 20,
+    fairnessCandidateLimit: 10,
+    fairnessMinOnlineMinutes: 30,
   }
 
   it('preserves 0 for saved numeric settings instead of mapping 0 to null', () => {

@@ -60,6 +60,12 @@ export type InstanceConfigSettings = {
   boxUnitsMedium: number
   boxUnitsLarge: number
   boxDefaultSize: BoxSize
+  // Fairness matcher (spec 0044): the three weights, the riders scored, the minimum time online today.
+  fairnessWeightRoadTime: number
+  fairnessWeightEarnings: number
+  fairnessWeightWaiting: number
+  fairnessCandidateLimit: number
+  fairnessMinOnlineMinutes: number
   // Saved customers (spec 0005): one nobody has ordered for in this many months is deleted.
   savedCustomerRetentionMonths: number
   // Order history (spec 0017): a restaurant sees its ended orders from this many days back.
@@ -161,6 +167,11 @@ export enum ConfigKey {
   BOX_UNITS_MEDIUM = 'boxUnitsMedium',
   BOX_UNITS_LARGE = 'boxUnitsLarge',
   BOX_DEFAULT_SIZE = 'boxDefaultSize',
+  FAIRNESS_WEIGHT_ROAD_TIME = 'fairnessWeightRoadTime',
+  FAIRNESS_WEIGHT_EARNINGS = 'fairnessWeightEarnings',
+  FAIRNESS_WEIGHT_WAITING = 'fairnessWeightWaiting',
+  FAIRNESS_CANDIDATE_LIMIT = 'fairnessCandidateLimit',
+  FAIRNESS_MIN_ONLINE_MINUTES = 'fairnessMinOnlineMinutes',
   SAVED_CUSTOMER_RETENTION_MONTHS = 'savedCustomerRetentionMonths',
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',

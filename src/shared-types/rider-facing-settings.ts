@@ -23,6 +23,7 @@ const MATCHER_NAMES: Record<string, string> = {
   NEAREST_COURIER: 'the nearest free rider',
   COURIER_SENIORITY: 'the free rider with the oldest account',
   STATIC: 'chosen by hand',
+  FAIRNESS: 'a fair share: road time, earnings today and waiting, weighed as the co-op set',
 }
 
 function isMissing(value: unknown): boolean {
@@ -139,6 +140,24 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   boxUnitsMedium: { label: 'Room a Medium order takes in the box', format: withUnit('of 100 units') },
   boxUnitsLarge: { label: 'Room a Large order takes in the box', format: withUnit('of 100 units') },
   boxDefaultSize: { label: 'Size an order counts as when the restaurant sends none', format: boxSizeName },
+  // Spec 0044: the fairness matcher's weights and its two limits, as riders read them.
+  fairnessWeightRoadTime: {
+    label: 'Weight of road time to the restaurant, when choosing who gets an offer',
+    format: withUnit('of 100'),
+  },
+  fairnessWeightEarnings: {
+    label: 'Weight of what you have earned per hour today, when choosing who gets an offer',
+    format: withUnit('of 100'),
+  },
+  fairnessWeightWaiting: {
+    label: 'Weight of how long you have waited since your last job, when choosing who gets an offer',
+    format: withUnit('of 100'),
+  },
+  fairnessCandidateLimit: { label: 'Nearest riders compared for each offer', format: withUnit('riders') },
+  fairnessMinOnlineMinutes: {
+    label: 'Minutes online today before your own earnings count (before that, the co-op average)',
+    format: withUnit('minutes'),
+  },
   handBackSeconds: { label: 'Time to give an accepted order back for free', format: withUnit('seconds') },
   arrivalRadiusMetres: {
     label: 'Distance at which the app marks you arrived',

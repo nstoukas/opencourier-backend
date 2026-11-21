@@ -136,4 +136,38 @@ export class OsrmRoutingService {
       throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
   }
+
+  // Spec 0044 (AC-2): road seconds from each of `origins` (riders' positions) to one `destination` (the
+  // pickup), in one OSRM table request, so the fairness matcher asks once per offer however many riders
+  // it compares. Not cached: rider positions move between offers. An entry OSRM could not route is null;
+  // a failed request throws ServiceUnavailableException, and the caller then estimates every rider
+  // (cross check 7: never a mix of real and estimated). No coordinate reaches a log line (value 5).
+  async getTableSecondsTo(
+    destination: { latitude: number; longitude: number },
+    origins: { latitude: number; longitude: number }[]
+  ): Promise<(number | null)[]> {
+    if (!this.baseUrl) {
+      throw new EnvVarMissingException(OSRM_URL)
+    }
+    if (origins.length === 0) return []
+    // OSRM expects longitude,latitude. The destination is index 0, the origins 1..n.
+    const points = [destination, ...origins].map((p) => `${p.longitude},${p.latitude}`).join(';')
+    const sources = origins.map((_, index) => index + 1).join(';')
+    const url = `${this.baseUrl}/table/v1/driving/${points}?sources=${sources}&destinations=0&annotations=duration`
+    try {
+      const response = await this.httpService.axiosRef.get(url, { timeout: this.timeoutMs })
+      const data = response.data
+      if (data?.code !== 'Ok' || !Array.isArray(data?.durations) || data.durations.length !== origins.length) {
+        throw new Error(`code: ${data?.code || 'InvalidResponse'}`)
+      }
+      return data.durations.map((row: unknown) => {
+        const value = Array.isArray(row) ? row[0] : null
+        return typeof value === 'number' && Number.isFinite(value) ? value : null
+      })
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error)
+      this.logger.error(`OSRM table request failed: ${reason}`)
+      throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
+    }
+  }
 }

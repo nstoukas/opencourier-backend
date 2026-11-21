@@ -1,3 +1,4 @@
+import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
 import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import {
@@ -92,7 +93,9 @@ export class DeliveryDomainService {
     private courierRepository: CourierRepository,
     private courierCompensationRepository: CourierCompensationRepository,
     private configDomainService: ConfigDomainService,
-    private partnerRepository: PartnerRepository
+    private partnerRepository: PartnerRepository,
+    // Spec 0044 (decision 12.6): last and optional for TypeScript only; Nest always injects it.
+    private offerReasonRepository?: OfferReasonRepository
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -174,6 +177,11 @@ export class DeliveryDomainService {
       freeMinutes: await config.getWaitPayFreeMinutes(),
       payOn: (await config.getWaitPayEnabled()) && (await config.getWaitPayCentsPerMinute()) > 0,
     }
+  }
+
+  // Spec 0044 (AC-8): why each offer of this delivery went to its rider, oldest first.
+  async getOfferReasons(deliveryId: string) {
+    return this.offerReasonRepository ? this.offerReasonRepository.findByDeliveryId(deliveryId) : []
   }
 
   // Spec 0033: what the restaurant was charged for keeping riders waiting on this delivery.
@@ -818,6 +826,8 @@ export class DeliveryDomainService {
       courierId: newCourierId,
       // Spec 0035 (AC-20): the rider it is taken from, so a wait is paid to whoever actually waited.
       droppedCourierId,
+      // Spec 0044 (AC-6): named in the new offer's reason.
+      adminUserId: box.admin?.id ?? null,
       message: eventMessage,
     }
 
@@ -1028,7 +1038,8 @@ export class DeliveryDomainService {
             event.deliveryId,
             event.courierId,
             message,
-            event.confirmOverCapacity === true
+            event.confirmOverCapacity === true,
+            admin?.id ?? null
           )
           if (wouldOverfillBox(atWrite.heldUnits, atWrite.deliveryUnits)) {
             await this.recordBoxOverCapacityConfirmed(

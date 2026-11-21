@@ -49,6 +49,11 @@ export class InstanceConfigSettingsInput {
   boxUnitsMedium?: number
   boxUnitsLarge?: number
   boxDefaultSize?: BoxSize
+  fairnessWeightRoadTime?: number
+  fairnessWeightEarnings?: number
+  fairnessWeightWaiting?: number
+  fairnessCandidateLimit?: number
+  fairnessMinOnlineMinutes?: number
   savedCustomerRetentionMonths?: number
   restaurantHistoryDays?: number
   handBackSeconds?: number

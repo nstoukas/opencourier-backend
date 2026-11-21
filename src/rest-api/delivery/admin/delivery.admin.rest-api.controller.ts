@@ -10,6 +10,7 @@ import { DeliveryAdminPaginatedDto } from './dtos/delivery.admin.paginated.dto'
 import { adminDeliveryListWhere } from './queries/delivery-list-filter'
 import { DeliveryFindManyAdminArgs } from './queries/delivery-find-many.admin.args'
 import { DeliveryAdminDto } from './dtos/delivery.admin.dto'
+import { OfferReasonAdminDto } from './dtos/offer-reason.admin.dto'
 import { DeliveryEventAdminDto } from './dtos/delivery-event.admin.dto'
 import { DeliveryIssueAdminDto } from './dtos/delivery-issue.admin.dto'
 import { ProductReportDomainService } from 'src/domains/product-report/product-report.domain.service'
@@ -77,7 +78,18 @@ export class DeliveryAdminRestApiController {
     const partnerCharge = delivery.cancelledAt ? await this.deliveryDomainService.getPartnerCharge(delivery.id) : null
     // Spec 0033 (decision 23.20): what the restaurant was charged for keeping riders waiting.
     const waitCharges = await this.deliveryDomainService.getWaitCharges(delivery.id)
-    const dto = new DeliveryAdminDto(delivery, quote, offerViews.get(delivery.id), partnerCharge, waitCharges)
+    // Spec 0044 (AC-8): why each offer went to its rider.
+    const offerReasons = (await this.deliveryDomainService.getOfferReasons(delivery.id)).map(
+      (row) => new OfferReasonAdminDto(row)
+    )
+    const dto = new DeliveryAdminDto(
+      delivery,
+      quote,
+      offerViews.get(delivery.id),
+      partnerCharge,
+      waitCharges,
+      offerReasons
+    )
     return dto
   }
 

@@ -11,10 +11,20 @@ import { useProvideClass } from 'src/core/utils/provider'
 import { EnumCourierMatcherType } from 'src/shared-types/index'
 import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
 import { CourierSeniorityMatcherService } from './courier-seniority-matcher.service'
+import { FairnessCourierMatcherService } from './fairness-courier-matcher.service'
+import { TimeWorkedModule } from 'src/services/time-worked/time-worked.module'
 
 @Global()
 @Module({
-  imports: [OsrmRoutingModule, DeliveryDomainModule, PartnerDomainModule, CourierDomainModule, LocationDomainModule, ConfigDomainModule],
+  imports: [
+    OsrmRoutingModule,
+    DeliveryDomainModule,
+    PartnerDomainModule,
+    CourierDomainModule,
+    LocationDomainModule,
+    ConfigDomainModule,
+    TimeWorkedModule,
+  ],
 })
 export class CourierMatcherModule {
   static forRoot(): DynamicModule {
@@ -31,6 +41,11 @@ export class CourierMatcherModule {
       {
         provide: EnumCourierMatcherType.STATIC,
         useClass: StaticCourierMatcherService,
+      },
+      // Spec 0044 (rows 12 and 13): the co-op's weighted matcher, the default.
+      {
+        provide: EnumCourierMatcherType.FAIRNESS,
+        useClass: FairnessCourierMatcherService,
       },
     ]
 

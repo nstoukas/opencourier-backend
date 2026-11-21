@@ -20,6 +20,11 @@ import {
   DEFAULT_BOX_UNITS_MEDIUM,
   DEFAULT_BOX_UNITS_LARGE,
   DEFAULT_BOX_DEFAULT_SIZE,
+  DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME,
+  DEFAULT_FAIRNESS_WEIGHT_EARNINGS,
+  DEFAULT_FAIRNESS_WEIGHT_WAITING,
+  DEFAULT_FAIRNESS_CANDIDATE_LIMIT,
+  DEFAULT_FAIRNESS_MIN_ONLINE_MINUTES,
   DEFAULT_WAIT_PAY_CENTS_PER_MINUTE,
   DEFAULT_WAIT_PAY_ENABLED,
   DEFAULT_WAIT_PAY_FREE_MINUTES,
@@ -62,7 +67,8 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
   }
 
   const initialConfigsData = {
-    courierMatcherType: EnumCourierMatcherType.COURIER_SENIORITY,
+    // Spec 0044 (AC-7): fairness is the default matcher (operator decision, 2026-11-20).
+    courierMatcherType: EnumCourierMatcherType.FAIRNESS,
     quoteCalculationType: EnumQuoteCalculationType.BY_DISTANCE,
     geoCalculationType: EnumGeoCalculationType.HAVERSINE,
     deliveryDurationCalculationType: EnumDeliveryDurationCalculationType.SIMPLE,
@@ -103,6 +109,12 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     boxUnitsMedium: DEFAULT_BOX_UNITS_MEDIUM,
     boxUnitsLarge: DEFAULT_BOX_UNITS_LARGE,
     boxDefaultSize: DEFAULT_BOX_DEFAULT_SIZE,
+    // Spec 0044: the operator's starting weights (2026-11-20).
+    fairnessWeightRoadTime: DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME,
+    fairnessWeightEarnings: DEFAULT_FAIRNESS_WEIGHT_EARNINGS,
+    fairnessWeightWaiting: DEFAULT_FAIRNESS_WEIGHT_WAITING,
+    fairnessCandidateLimit: DEFAULT_FAIRNESS_CANDIDATE_LIMIT,
+    fairnessMinOnlineMinutes: DEFAULT_FAIRNESS_MIN_ONLINE_MINUTES,
     savedCustomerRetentionMonths: DEFAULT_SAVED_CUSTOMER_RETENTION_MONTHS,
     restaurantHistoryDays: DEFAULT_RESTAURANT_HISTORY_DAYS,
     handBackSeconds: DEFAULT_HAND_BACK_SECONDS,

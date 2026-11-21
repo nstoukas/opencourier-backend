@@ -1,3 +1,4 @@
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import { Injectable, Logger } from '@nestjs/common'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
 import { ICourierMatcherInput } from './interfaces/ICourierMatcherInput'
@@ -43,6 +44,11 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
     return {
       courierId: result.courier.id,
       distance: result.distance,
+      // Spec 0044 (AC-6): the nearest in a straight line (no road time asked).
+      reason: {
+        strategy: EnumCourierMatcherType.NEAREST_COURIER,
+        values: { straightMetres: Math.round(result.distance) },
+      },
     }
   }
 
@@ -72,7 +78,17 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
     })
     const best = ranked[0]
     if (!best) return null
-    return { courierId: best.candidate.courierId, distance: best.candidate.distance, travelSeconds: best.travelSeconds }
+    return {
+      courierId: best.candidate.courierId,
+      distance: best.candidate.distance,
+      travelSeconds: best.travelSeconds,
+      // Spec 0044 (AC-6): the shortest road time among the nearest few (spec 0031).
+      reason: {
+        strategy: EnumCourierMatcherType.NEAREST_COURIER,
+        values: { straightMetres: Math.round(best.candidate.distance), roadSeconds: best.travelSeconds },
+        candidateCount: ranked.length,
+      },
+    }
   }
 
   private async roadSeconds(from: GeoPosition, to: GeoPosition): Promise<number | null> {

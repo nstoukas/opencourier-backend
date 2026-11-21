@@ -33,6 +33,17 @@ import {
   DEFAULT_BOX_DEFAULT_SIZE,
   BOX_UNITS_MIN,
   BOX_UNITS_MAX,
+  DEFAULT_FAIRNESS_CANDIDATE_LIMIT,
+  DEFAULT_FAIRNESS_MIN_ONLINE_MINUTES,
+  DEFAULT_FAIRNESS_WEIGHT_EARNINGS,
+  DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME,
+  DEFAULT_FAIRNESS_WEIGHT_WAITING,
+  FAIRNESS_CANDIDATE_LIMIT_MAX,
+  FAIRNESS_CANDIDATE_LIMIT_MIN,
+  FAIRNESS_MIN_ONLINE_MINUTES_MAX,
+  FAIRNESS_MIN_ONLINE_MINUTES_MIN,
+  FAIRNESS_WEIGHT_MAX,
+  FAIRNESS_WEIGHT_MIN,
   RETURN_TRIP_PAY_PERCENT_MIN,
   RETURN_TRIP_PAY_PERCENT_MAX,
   WAIT_PAY_CENTS_PER_MINUTE_MAX,
@@ -222,6 +233,43 @@ export const NUMERIC_SETTING_RULES: {
     mustBeInteger: true,
     min: BOX_UNITS_MIN,
     max: BOX_UNITS_MAX,
+  },
+  // Spec 0044 (AC-5): the fairness weights. 0 is allowed for one weight (that factor then does not
+  // count); the save refuses all three at 0 inside its transaction.
+  {
+    key: 'fairnessWeightRoadTime',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FAIRNESS_WEIGHT_MIN,
+    max: FAIRNESS_WEIGHT_MAX,
+  },
+  {
+    key: 'fairnessWeightEarnings',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FAIRNESS_WEIGHT_MIN,
+    max: FAIRNESS_WEIGHT_MAX,
+  },
+  {
+    key: 'fairnessWeightWaiting',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FAIRNESS_WEIGHT_MIN,
+    max: FAIRNESS_WEIGHT_MAX,
+  },
+  {
+    key: 'fairnessCandidateLimit',
+    whyZeroIsRefused: 'no rider could be compared at all',
+    mustBeInteger: true,
+    min: FAIRNESS_CANDIDATE_LIMIT_MIN,
+    max: FAIRNESS_CANDIDATE_LIMIT_MAX,
+  },
+  {
+    key: 'fairnessMinOnlineMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: FAIRNESS_MIN_ONLINE_MINUTES_MIN,
+    max: FAIRNESS_MIN_ONLINE_MINUTES_MAX,
   },
   {
     key: 'boxUnitsLarge',
@@ -417,6 +465,11 @@ export class InstanceConfigDomainService {
     const boxUnitsMedium = await this.getBoxUnitsMedium()
     const boxUnitsLarge = await this.getBoxUnitsLarge()
     const boxDefaultSize = await this.getBoxDefaultSize()
+    const fairnessWeightRoadTime = await this.getFairnessWeightRoadTime()
+    const fairnessWeightEarnings = await this.getFairnessWeightEarnings()
+    const fairnessWeightWaiting = await this.getFairnessWeightWaiting()
+    const fairnessCandidateLimit = await this.getFairnessCandidateLimit()
+    const fairnessMinOnlineMinutes = await this.getFairnessMinOnlineMinutes()
     const offerTimingEnabled = await this.getOfferTimingEnabled()
     const offerLeadMinutes = await this.getOfferLeadMinutes()
     const offerTimingCandidates = await this.getOfferTimingCandidates()
@@ -476,6 +529,11 @@ export class InstanceConfigDomainService {
       boxUnitsMedium,
       boxUnitsLarge,
       boxDefaultSize,
+      fairnessWeightRoadTime,
+      fairnessWeightEarnings,
+      fairnessWeightWaiting,
+      fairnessCandidateLimit,
+      fairnessMinOnlineMinutes,
       offerTimingEnabled,
       offerLeadMinutes,
       offerTimingCandidates,
@@ -822,6 +880,21 @@ export class InstanceConfigDomainService {
     if (data.boxDefaultSize !== undefined) {
       save(ConfigKey.BOX_DEFAULT_SIZE, data.boxDefaultSize)
     }
+    if (data.fairnessWeightRoadTime !== undefined) {
+      save(ConfigKey.FAIRNESS_WEIGHT_ROAD_TIME, data.fairnessWeightRoadTime)
+    }
+    if (data.fairnessWeightEarnings !== undefined) {
+      save(ConfigKey.FAIRNESS_WEIGHT_EARNINGS, data.fairnessWeightEarnings)
+    }
+    if (data.fairnessWeightWaiting !== undefined) {
+      save(ConfigKey.FAIRNESS_WEIGHT_WAITING, data.fairnessWeightWaiting)
+    }
+    if (data.fairnessCandidateLimit !== undefined) {
+      save(ConfigKey.FAIRNESS_CANDIDATE_LIMIT, data.fairnessCandidateLimit)
+    }
+    if (data.fairnessMinOnlineMinutes !== undefined) {
+      save(ConfigKey.FAIRNESS_MIN_ONLINE_MINUTES, data.fairnessMinOnlineMinutes)
+    }
     if (data.offerTimingEnabled !== undefined) {
       save(ConfigKey.OFFER_TIMING_ENABLED, data.offerTimingEnabled)
     }
@@ -921,6 +994,22 @@ export class InstanceConfigDomainService {
         })
         if (refusal) {
           throw new BadRequestException(refusal)
+        }
+      }
+      // Spec 0044 (AC-5, cross check 12): at least one of the three core weights must stay above 0, on the
+      // values in effect after this save, checked only when the save sends one of them.
+      if (
+        data.fairnessWeightRoadTime !== undefined ||
+        data.fairnessWeightEarnings !== undefined ||
+        data.fairnessWeightWaiting !== undefined
+      ) {
+        const roadTime = data.fairnessWeightRoadTime ?? (before.fairnessWeightRoadTime as number)
+        const earnings = data.fairnessWeightEarnings ?? (before.fairnessWeightEarnings as number)
+        const waiting = data.fairnessWeightWaiting ?? (before.fairnessWeightWaiting as number)
+        if (roadTime === 0 && earnings === 0 && waiting === 0) {
+          throw new BadRequestException(
+            'fairnessWeightRoadTime, fairnessWeightEarnings and fairnessWeightWaiting cannot all be 0: the fairness matcher would have nothing to weigh'
+          )
         }
       }
       for (const write of writes) {
@@ -1327,6 +1416,52 @@ export class InstanceConfigDomainService {
       )}), using the default ${DEFAULT_BOX_DEFAULT_SIZE}`
     )
     return DEFAULT_BOX_DEFAULT_SIZE as BoxSize
+  }
+
+  // Spec 0044: the fairness matcher's settings, read at offer time so a change applies to the next offer.
+  async getFairnessWeightRoadTime(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_WEIGHT_ROAD_TIME,
+      DEFAULT_FAIRNESS_WEIGHT_ROAD_TIME,
+      FAIRNESS_WEIGHT_MIN,
+      FAIRNESS_WEIGHT_MAX
+    )
+  }
+
+  async getFairnessWeightEarnings(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_WEIGHT_EARNINGS,
+      DEFAULT_FAIRNESS_WEIGHT_EARNINGS,
+      FAIRNESS_WEIGHT_MIN,
+      FAIRNESS_WEIGHT_MAX
+    )
+  }
+
+  async getFairnessWeightWaiting(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_WEIGHT_WAITING,
+      DEFAULT_FAIRNESS_WEIGHT_WAITING,
+      FAIRNESS_WEIGHT_MIN,
+      FAIRNESS_WEIGHT_MAX
+    )
+  }
+
+  async getFairnessCandidateLimit(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_CANDIDATE_LIMIT,
+      DEFAULT_FAIRNESS_CANDIDATE_LIMIT,
+      FAIRNESS_CANDIDATE_LIMIT_MIN,
+      FAIRNESS_CANDIDATE_LIMIT_MAX
+    )
+  }
+
+  async getFairnessMinOnlineMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.FAIRNESS_MIN_ONLINE_MINUTES,
+      DEFAULT_FAIRNESS_MIN_ONLINE_MINUTES,
+      FAIRNESS_MIN_ONLINE_MINUTES_MIN,
+      FAIRNESS_MIN_ONLINE_MINUTES_MAX
+    )
   }
 
   // Spec 0031: three co-op settings, off and quiet until a representative switches it on.

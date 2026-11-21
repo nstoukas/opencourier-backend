@@ -131,6 +131,21 @@ export class InstanceConfigSettingsDto {
   boxDefaultSize: BoxSize
 
   @ApiProperty({ type: Number })
+  fairnessWeightRoadTime: number
+
+  @ApiProperty({ type: Number })
+  fairnessWeightEarnings: number
+
+  @ApiProperty({ type: Number })
+  fairnessWeightWaiting: number
+
+  @ApiProperty({ type: Number })
+  fairnessCandidateLimit: number
+
+  @ApiProperty({ type: Number })
+  fairnessMinOnlineMinutes: number
+
+  @ApiProperty({ type: Number })
   savedCustomerRetentionMonths: number
 
   @ApiProperty({ type: Number })
@@ -216,6 +231,11 @@ export class InstanceConfigSettingsDto {
     this.boxUnitsMedium = data.boxUnitsMedium
     this.boxUnitsLarge = data.boxUnitsLarge
     this.boxDefaultSize = data.boxDefaultSize
+    this.fairnessWeightRoadTime = data.fairnessWeightRoadTime
+    this.fairnessWeightEarnings = data.fairnessWeightEarnings
+    this.fairnessWeightWaiting = data.fairnessWeightWaiting
+    this.fairnessCandidateLimit = data.fairnessCandidateLimit
+    this.fairnessMinOnlineMinutes = data.fairnessMinOnlineMinutes
     this.savedCustomerRetentionMonths = data.savedCustomerRetentionMonths
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds

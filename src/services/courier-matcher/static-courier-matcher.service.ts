@@ -1,3 +1,4 @@
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import { Injectable, Logger } from '@nestjs/common'
 import { ICourierMatcherInput } from './interfaces/ICourierMatcherInput'
 import { ICourierMatcherService } from './interfaces/ICourierMatcherService'
@@ -20,6 +21,8 @@ export class StaticCourierMatcherService implements ICourierMatcherService {
     return Promise.resolve({
       courierId: StaticCourierMatcherService.courierId,
       distance: 1,
+      // Spec 0044 (AC-6): the configured rider, chosen by hand (a testing tool).
+      reason: { strategy: EnumCourierMatcherType.STATIC, values: {} },
     })
   }
 }

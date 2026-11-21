@@ -66,6 +66,11 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     boxUnitsMedium: 50,
     boxUnitsLarge: 100,
     boxDefaultSize: 'MEDIUM',
+    fairnessWeightRoadTime: 50,
+    fairnessWeightEarnings: 30,
+    fairnessWeightWaiting: 20,
+    fairnessCandidateLimit: 10,
+    fairnessMinOnlineMinutes: 30,
   }
 
   // AC-6: The public instance metadata shows quoteBaseFee and quoteRatePerDistanceUnit, including 0 as 0

@@ -1,3 +1,5 @@
+import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
+import { OfferReasonInput, adminOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
 import type {
   DeliveryFoodReadyEvent,
@@ -190,7 +192,10 @@ export class DeliveryEventService {
     private readonly courierCompensationRepository: CourierCompensationRepository,
     private readonly partnerChargeRepository: PartnerChargeRepository,
     // Spec 0035: closes an open removal request whatever ends the rider's job.
-    private readonly removalRequestRepository: RemovalRequestRepository
+    private readonly removalRequestRepository: RemovalRequestRepository,
+    // Spec 0044 (decision 12.6): last and optional for TypeScript only, so tests that build this service
+    // with the older argument list still compile; Nest always injects it (the persistence module is global).
+    private readonly offerReasonRepository?: OfferReasonRepository
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -363,7 +368,15 @@ export class DeliveryEventService {
         if (droppedCourierId) {
           await this.notifyCourier(droppedCourierId, updatedDelivery, newStatus, currentStatus, deliveryEvent)
         }
-        await this.saveOfferedEvent(deliveryId, newCourierId, EnumEventActor.ADMIN, null)
+        await this.saveOfferedEvent(
+          deliveryId,
+          newCourierId,
+          EnumEventActor.ADMIN,
+          null,
+          null,
+          '',
+          adminOfferReason(deliveryEvent.adminUserId)
+        )
         await this.sendOfferToRider(newCourier, updatedDelivery)
         return
       }
@@ -558,7 +571,9 @@ export class DeliveryEventService {
     deliveryId: string,
     courierId: string,
     message?: string,
-    confirmOverCapacity = false
+    confirmOverCapacity = false,
+    // Spec 0044 (AC-6): the admin, named in the offer's reason.
+    adminUserId: string | null = null
   ): Promise<{ heldUnits: number; deliveryUnits: number }> {
     // A heat or storm stop binds admins too (spec 0014, AC-4, decision 29.1): restart dispatch first.
     await this.refuseIfDispatchStopped()
@@ -656,7 +671,15 @@ export class DeliveryEventService {
         oldStatus,
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
-      await this.saveOfferedEvent(deliveryId, courierId, EnumEventActor.ADMIN, null, replacedCourierId)
+      await this.saveOfferedEvent(
+        deliveryId,
+        courierId,
+        EnumEventActor.ADMIN,
+        null,
+        replacedCourierId,
+        '',
+        adminOfferReason(adminUserId)
+      )
       // The delivery is no longer waiting, so its backstop retry is not needed.
       await this.removeNoCourierRetry(deliveryId)
 
@@ -1555,7 +1578,15 @@ export class DeliveryEventService {
     // From here the offer is written. Each step below is guarded on its own, so one failing cannot
     // skip the others, above all the expiry timer, which is what ends an offer nobody answers.
     try {
-      await this.saveOfferedEvent(deliveryId, courier.id, EnumEventActor.SYSTEM, offerExpiresAt, null, timing.note)
+      await this.saveOfferedEvent(
+        deliveryId,
+        courier.id,
+        EnumEventActor.SYSTEM,
+        offerExpiresAt,
+        null,
+        timing.note,
+        match.reason ?? null
+      )
     } catch (error) {
       this.logger.error(`Could not record OFFERED for delivery ${deliveryId}: ${error}`, (error as Error).stack)
     }
@@ -1606,13 +1637,16 @@ export class DeliveryEventService {
   // One OFFERED row per offer (AC-2): who was offered, by whom (SYSTEM or ADMIN), and the deadline.
   // `replacedCourierId` names the rider whose open offer an admin moved to this one, so the timeline
   // shows that offer ending without an OFFER_EXPIRED, which would read as the rider's miss.
+  // `reason`: spec 0044 (AC-6), why this rider. Written beside the event, after it: an offer whose
+  // reason cannot be written is still made (pay first), and the failure is logged as an error.
   private async saveOfferedEvent(
     deliveryId: string,
     courierId: string,
     actor: EnumEventActor,
     offerExpiresAt: Date | null,
     replacedCourierId: string | null = null,
-    timingNote = ''
+    timingNote = '',
+    reason: OfferReasonInput | null = null
   ): Promise<void> {
     const deadline = offerExpiresAt ? `answer by ${offerExpiresAt.toISOString()}` : 'no deadline'
     const replaced = replacedCourierId ? `; moved by an admin from the open offer to courier ${replacedCourierId}` : ''
@@ -1624,11 +1658,21 @@ export class DeliveryEventService {
       courierId,
       message: `Offered to courier ${courierId}, ${deadline}${replaced}${timingNote}`,
     }
-    await this.saveDeliveryEvent(offeredEvent, {
+    const saved = await this.saveDeliveryEvent(offeredEvent, {
       transitionSuccessful: true,
       oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
     })
+    if (!reason) {
+      this.logger.error(`Offer of delivery ${deliveryId} to courier ${courierId} has no reason to record (spec 0044)`)
+      return
+    }
+    try {
+      if (!this.offerReasonRepository) throw new Error('OfferReasonRepository is not provided')
+      await this.offerReasonRepository.create(saved.id, deliveryId, courierId, reason)
+    } catch (error) {
+      this.logger.error(`Could not record the offer reason for delivery ${deliveryId}: ${error}`)
+    }
   }
 
   // Spec 0031, AC-2, AC-5, AC-6: when this offer is due, and what its event says. Never throws, and

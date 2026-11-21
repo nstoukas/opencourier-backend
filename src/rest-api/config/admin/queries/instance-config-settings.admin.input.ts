@@ -188,6 +188,38 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsEnum(BoxSize)
   boxDefaultSize?: BoxSize
 
+  // Spec 0044: the fairness weights (0 to 100, not all three 0), riders scored (1 to 50), minimum
+  // minutes online today (0 to 240). Ranges in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  fairnessWeightRoadTime?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  fairnessWeightEarnings?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  fairnessWeightWaiting?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  fairnessCandidateLimit?: number
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  fairnessMinOnlineMinutes?: number
+
   // Spec 0031: offers timed to food readiness. The ranges live in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()
