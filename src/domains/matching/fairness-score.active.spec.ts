@@ -179,6 +179,40 @@ describe('Fairness Score (Spec 0044: AC-4, AC-9, AC-10)', () => {
       expect(scored[0]!.scaled.roadTime).toBe(0)
       expect(scored[1]!.scaled.roadTime).toBe(0)
     })
+
+    test('with road times 100, 160, 161 s (band 60), the 161 s rider scaled road time is small (excess divided by at least the band), not 1', () => {
+      const candidates = [
+        baseCandidate({ courierId: 'c1', roadSeconds: 100 }),
+        baseCandidate({ courierId: 'c2', roadSeconds: 160 }), // diff 60s <= 60s
+        baseCandidate({ courierId: 'c3', roadSeconds: 161 }), // diff 61s > 60s, excess 1s
+      ]
+      const scored = scoreCandidates(candidates, defaultWeights)
+
+      const c1 = scored.find((c) => c.courierId === 'c1')!
+      const c2 = scored.find((c) => c.courierId === 'c2')!
+      const c3 = scored.find((c) => c.courierId === 'c3')!
+
+      expect(c1.scaled.roadTime).toBe(0)
+      expect(c2.scaled.roadTime).toBe(0)
+      // Excess is 1s, divided by at least the dead band (60s) = 1/60 ~= 0.0167, NOT 1.0 (the cliff-edge bug)
+      expect(c3.scaled.roadTime).toBeCloseTo(1 / 60, 4)
+      expect(c3.scaled.roadTime).toBeLessThan(0.05)
+      expect(c3.scaled.roadTime).not.toBe(1)
+    })
+
+    test('with a large spread (0, 600 s) the farthest still scales to 1', () => {
+      const candidates = [
+        baseCandidate({ courierId: 'c1', roadSeconds: 0 }),
+        baseCandidate({ courierId: 'c2', roadSeconds: 600 }),
+      ]
+      const scored = scoreCandidates(candidates, defaultWeights)
+
+      const c1 = scored.find((c) => c.courierId === 'c1')!
+      const c2 = scored.find((c) => c.courierId === 'c2')!
+
+      expect(c1.scaled.roadTime).toBe(0)
+      expect(c2.scaled.roadTime).toBe(1)
+    })
   })
 
   describe('AC-4: Tie breaking rules', () => {

@@ -155,7 +155,7 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
     expect(result!.reason!.values.roadSeconds).toBe(150)
   })
 
-  test('failed OSRM table call or any null entry estimates EVERY rider at 20 km/h with roadEstimated: true and travelSeconds: null', async () => {
+  test('failed OSRM table call or any null entry estimates EVERY rider at 20 km/h with roadEstimated: true and travelSeconds: undefined', async () => {
     const inRange = [
       { courierId: 'c1', distance: 500, courierLocation: { latitude: 39.363, longitude: 22.943 } },
       { courierId: 'c2', distance: 1000, courierLocation: { latitude: 39.365, longitude: 22.945 } },
@@ -172,7 +172,8 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
     })
 
     expect(result).not.toBeNull()
-    expect(result!.travelSeconds).toBeNull() // null because estimated
+    expect(result!.travelSeconds).toBeUndefined() // undefined so offer timing asks the router itself
+    expect(result!.travelSeconds).not.toBeNull()
     expect(result!.reason!.values.roadEstimated).toBe(true)
     expect(result!.reason!.values.roadSeconds).toBe(estimatedRoadSeconds(500))
 
@@ -182,7 +183,7 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
     }
   })
 
-  test('OSRM table exception caught, estimates every rider with roadEstimated: true and travelSeconds: null', async () => {
+  test('OSRM table exception caught, estimates every rider with roadEstimated: true and travelSeconds: undefined', async () => {
     const inRange = [{ courierId: 'c1', distance: 600, courierLocation: { latitude: 39.363, longitude: 22.943 } }]
     mockCourierDomainService.getNearestAvailableCandidates.mockResolvedValueOnce(inRange as any)
     mockOsrmRoutingService.getTableSecondsTo.mockRejectedValueOnce(new Error('OSRM network failure'))
@@ -195,7 +196,8 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
     })
 
     expect(result).not.toBeNull()
-    expect(result!.travelSeconds).toBeNull()
+    expect(result!.travelSeconds).toBeUndefined()
+    expect(result!.travelSeconds).not.toBeNull()
     expect(result!.reason!.values.roadEstimated).toBe(true)
     expect(result!.reason!.values.roadSeconds).toBe(estimatedRoadSeconds(600))
   })
@@ -330,7 +332,7 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
           onlineSpellStartAt: new Date('2026-11-21T11:30:00Z'),
         },
       ],
-      // c3 not in today's map -> waits from now = 0s
+      // c3 not in today's map -> waits from today's start in Athens (14:00 Athens = 50400s)
     ])
     mockTimeWorkedService.todayForFairness.mockResolvedValueOnce(todayFigures)
 
@@ -349,7 +351,7 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
 
     expect(c1?.waitingSeconds).toBe(1200)
     expect(c2?.waitingSeconds).toBe(1800)
-    expect(c3?.waitingSeconds).toBe(0)
+    expect(c3?.waitingSeconds).toBe(50400)
   })
 
   test('reason matches the exact required structure (AC-6)', async () => {
@@ -376,7 +378,7 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
       centsPerHour: 0,
       earningsAssumed: true,
       earningsEqual: true,
-      waitingSeconds: 0,
+      waitingSeconds: expect.any(Number),
       straightMetres: 500,
       scaled: { roadTime: 0, earnings: 0, waiting: 0 },
       score: expect.any(Number),
@@ -386,5 +388,74 @@ describe('FairnessCourierMatcherService (Spec 0044: AC-1, AC-2, AC-3, AC-6)', ()
       courierId: 'c1',
       roadSeconds: 180,
     })
+  })
+
+  test('when todayForFairness throws, an offer is still made, earningsEqual is true for all, every rider waiting is equal, and road time decides', async () => {
+    const inRange = [
+      { courierId: 'c_far', distance: 500, courierLocation: { latitude: 39.363, longitude: 22.943 } },
+      { courierId: 'c_near', distance: 300, courierLocation: { latitude: 39.364, longitude: 22.944 } },
+    ]
+    mockCourierDomainService.getNearestAvailableCandidates.mockResolvedValueOnce(inRange as any)
+    mockOsrmRoutingService.getTableSecondsTo.mockResolvedValueOnce([300, 100])
+    mockTimeWorkedService.todayForFairness.mockRejectedValueOnce(new Error('Time worked service failure'))
+
+    const result = await service.findCourierForDelivery({
+      pickupLocation,
+      dropoffLocation,
+      rejectedCourierIds: [],
+    })
+
+    expect(result).not.toBeNull()
+    // Road time decides -> c_near (100s) wins over c_far (300s)
+    expect(result!.courierId).toBe('c_near')
+    expect(result!.reason!.values.earningsEqual).toBe(true)
+
+    // Every candidate has earningsEqual true and waitingSeconds equal to 0
+    for (const cand of result!.reason!.candidates!) {
+      expect(cand.earningsEqual).toBe(true)
+      expect(cand.waitingSeconds).toBe(0)
+    }
+  })
+
+  test('a rider unknown to the figures waits from today start, not 0', async () => {
+    const inRange = [
+      { courierId: 'c_known', distance: 300, courierLocation: { latitude: 39.363, longitude: 22.943 } },
+      { courierId: 'c_unknown', distance: 300, courierLocation: { latitude: 39.364, longitude: 22.944 } },
+    ]
+    mockCourierDomainService.getNearestAvailableCandidates.mockResolvedValueOnce(inRange as any)
+    mockOsrmRoutingService.getTableSecondsTo.mockResolvedValueOnce([100, 100])
+
+    // 14:00 Athens time (12:00 UTC) -> 14 hours = 50400s from Athens midnight
+    const now = new Date('2026-11-21T12:00:00Z')
+    jest.useFakeTimers()
+    jest.setSystemTime(now)
+
+    const todayFigures = new Map<string, FairnessDayFigures>([
+      [
+        'c_known',
+        {
+          workSeconds: 3600,
+          centsPerHour: 1000,
+          lastJobEndAt: new Date('2026-11-21T11:50:00Z'),
+          onlineSpellStartAt: new Date('2026-11-21T10:00:00Z'),
+        },
+      ],
+    ])
+    mockTimeWorkedService.todayForFairness.mockResolvedValueOnce(todayFigures)
+
+    const result = await service.findCourierForDelivery({
+      pickupLocation,
+      dropoffLocation,
+      rejectedCourierIds: [],
+    })
+
+    jest.useRealTimers()
+
+    expect(result).not.toBeNull()
+    const unknownCandidate = result!.reason!.candidates?.find((c) => c.courierId === 'c_unknown')
+    expect(unknownCandidate).toBeDefined()
+    // Unknown rider waits from today's Athens start (50400s), NOT 0
+    expect(unknownCandidate!.waitingSeconds).toBe(50400)
+    expect(unknownCandidate!.waitingSeconds).not.toBe(0)
   })
 })

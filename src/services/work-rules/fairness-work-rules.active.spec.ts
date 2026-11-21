@@ -122,7 +122,7 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
 
     // 4. Offer records
     expect(result.offers[3]).toBe(
-      'Each offer records the figures that chose its rider; you can see them for your own offers, and a representative can show the whole comparison.'
+      'Each offer records the figures that chose its rider; a representative can show you them for any of your offers.'
     )
   })
 
@@ -151,8 +151,41 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
 
     // Check APP_RECORDS sentences
     const appRecordsJoined = result.appRecords.join(' ')
-    expect(appRecordsJoined).toContain('by road time, today’s pay per hour and waiting')
-    expect(appRecordsJoined).toContain('no score is kept about you')
+    expect(appRecordsJoined).toContain('by what the offer rules above say, never by behaviour')
+    expect(appRecordsJoined).toContain('no running score about you')
     expect(appRecordsJoined).not.toContain('nothing is counted or ranked per rider')
+  })
+
+  test('howItWorks under NEAREST_COURIER does not claim riders are compared by pay per hour', async () => {
+    ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValueOnce({
+      ...fairnessSettings,
+      courierMatcherType: EnumCourierMatcherType.NEAREST_COURIER,
+    })
+
+    const result = await service.howItWorks()
+    const allSentences = [
+      ...result.offers,
+      ...result.personDecides,
+      ...result.appRecords,
+      ...result.timeWorked,
+      ...result.earningsFigures,
+    ].join(' ')
+
+    expect(allSentences).not.toContain('Only the offer matcher compares today’s pay per hour')
+    expect(allSentences).not.toContain('by road time, today’s pay per hour and waiting')
+    expect(result.offers.join(' ')).not.toContain('pay per hour')
+  })
+
+  test('howItWorks under FAIRNESS does not claim the rider can see their own reasons in the app', async () => {
+    const result = await service.howItWorks()
+    const allSentences = [
+      ...result.offers,
+      ...result.personDecides,
+      ...result.appRecords,
+      ...result.timeWorked,
+      ...result.earningsFigures,
+    ].join(' ')
+
+    expect(allSentences).not.toContain('you can see them for your own offers')
   })
 })

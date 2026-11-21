@@ -4,6 +4,7 @@ import { LocationDomainService } from 'src/domains/location/location.domain.serv
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { CourierMatcherService } from 'src/services/courier-matcher/courier-matcher.service'
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import {
   DeliveryQuoteCreationFailureReason,
   DeliveryQuotePartnerRestApiService,
@@ -125,5 +126,26 @@ describe('DeliveryQuotePartnerRestApiService - service area check (AC-10)', () =
     expect(courierMatcherService.findCourierForDelivery).toHaveBeenCalled()
     expect(result.deliveryQuote).toBeDefined()
     expect(result.failureReason).toBeUndefined()
+  })
+
+  it('calls the matcher with EnumCourierMatcherType.NEAREST_COURIER whatever the configured matcher', async () => {
+    deliveryQuoteDomainService.create.mockResolvedValue({ id: 'quote-123' } as any)
+
+    await service.create(partnerId, baseInput)
+
+    expect(courierMatcherService.findCourierForDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pickupLocation: {
+          latitude: baseInput.pickupLatitude,
+          longitude: baseInput.pickupLongitude,
+        },
+        dropoffLocation: {
+          latitude: baseInput.dropoffLatitude,
+          longitude: baseInput.dropoffLongitude,
+        },
+        rejectedCourierIds: [],
+      }),
+      EnumCourierMatcherType.NEAREST_COURIER
+    )
   })
 })
