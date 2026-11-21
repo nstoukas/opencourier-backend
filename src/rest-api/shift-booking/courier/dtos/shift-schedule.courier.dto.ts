@@ -1,5 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { MyShiftBooking, ShiftOccurrence, ShiftSchedule } from 'src/services/shift-booking/shift-booking.service'
+import {
+  MyShiftBooking,
+  ShiftOccurrence,
+  ShiftOfflineRecord,
+  ShiftSchedule,
+} from 'src/services/shift-booking/shift-booking.service'
 
 // Spec 0027. Times come as text in Athens wall time (startTime, endTime, dropUntilText), so the app never
 // formats an instant in its own zone. An open swap carries its booking id only, never who offered it.
@@ -57,14 +62,34 @@ export class MyShiftBookingCourierDto {
   }
 }
 
+// Spec 0049 (AC-5, cross check 4): only the rider's own record, its time and the words built from its cause.
+export class ShiftOfflineRecordCourierDto {
+  @ApiProperty() id: string
+  @ApiProperty({ type: Date }) offlineAt: Date
+  @ApiProperty({
+    example: 'You went Offline at 21:10 during your shift on Fri 20 Nov, 20:00 to 24:00: you switched to Offline.',
+  })
+  sentence: string
+  @ApiProperty({ example: 'This changes nothing about your offers or pay.' }) noEffect: string
+
+  constructor(record: ShiftOfflineRecord) {
+    this.id = record.id
+    this.offlineAt = record.offlineAt
+    this.sentence = record.sentence
+    this.noEffect = record.noEffect
+  }
+}
+
 export class ShiftScheduleCourierDto {
   @ApiProperty({ type: Date }) serverNow: Date
   @ApiProperty({ type: [ShiftOccurrenceCourierDto] }) occurrences: ShiftOccurrenceCourierDto[]
   @ApiProperty({ type: [MyShiftBookingCourierDto] }) myBookings: MyShiftBookingCourierDto[]
+  @ApiProperty({ type: [ShiftOfflineRecordCourierDto] }) offlineRecords: ShiftOfflineRecordCourierDto[]
 
   constructor(schedule: ShiftSchedule) {
     this.serverNow = schedule.serverNow
     this.occurrences = schedule.occurrences.map((occurrence) => new ShiftOccurrenceCourierDto(occurrence))
     this.myBookings = schedule.myBookings.map((booking) => new MyShiftBookingCourierDto(booking))
+    this.offlineRecords = schedule.offlineRecords.map((record) => new ShiftOfflineRecordCourierDto(record))
   }
 }

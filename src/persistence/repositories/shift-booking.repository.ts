@@ -1,9 +1,52 @@
 import { Injectable } from '@nestjs/common'
-import { EnumShiftBookingEventType, EnumShiftBookingStatus, Prisma, ShiftBooking, ShiftSlot } from '@prisma/types'
+import {
+  EnumCourierStatus,
+  EnumCourierStatusChangeCause,
+  EnumShiftBookingEventType,
+  EnumShiftBookingStatus,
+  Prisma,
+  ShiftBooking,
+  ShiftSlot,
+} from '@prisma/types'
+import { isUniqueConstraintError } from 'src/prisma.util'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
 
 export type BookingWithSlot = ShiftBooking & { shiftSlot: ShiftSlot }
+
+// Spec 0049: an Offline change the minute sweep looks at.
+export interface OfflineChange {
+  id: string
+  courierId: string
+  cause: EnumCourierStatusChangeCause
+  adminUserId: string | null
+  createdAt: Date
+}
+
+// Spec 0049 (AC-6): one Offline during a booked shift, as an admin's follow up list shows it.
+export interface OfflineEventForAdmin {
+  id: string
+  offlineAt: Date | null
+  cause: EnumCourierStatusChangeCause | null
+  followedUpAt: Date | null
+  followedUpByEmail: string | null
+  courierId: string
+  courierName: string
+  shiftStartsAt: Date
+  shiftEndsAt: Date
+  shiftDate: string
+}
+
+// Spec 0049 (AC-5, cross check 4): what a rider reads of their own record: its time, cause and shift. Never
+// another rider, a swap or an admin.
+export interface OwnOfflineRecord {
+  id: string
+  offlineAt: Date
+  cause: EnumCourierStatusChangeCause | null
+  shiftStartsAt: Date
+  shiftEndsAt: Date
+  shiftDate: string
+}
 
 // Spec 0027 (row 78): riders' shift bookings and their record. The rules live in ShiftBookingService;
 // this keeps the queries and the two advisory locks every book and take takes, rider first, then the
@@ -117,6 +160,143 @@ export class ShiftBookingRepository extends EntityRepository {
   ): Promise<boolean> {
     const { count } = await tx.shiftBooking.updateMany({ where, data })
     return count > 0
+  }
+
+  // Spec 0049 (cross check 1): Offline changes made between `from` and `upTo` that have no event yet.
+  async offlineChangesWithoutEvent(from: Date, upTo: Date): Promise<OfflineChange[]> {
+    const changes = await this.prisma.courierStatusChange.findMany({
+      where: { toStatus: EnumCourierStatus.OFFLINE, createdAt: { gte: from, lte: upTo } },
+      select: { id: true, courierId: true, cause: true, adminUserId: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    if (changes.length === 0) return []
+    const done = await this.prisma.shiftBookingEvent.findMany({
+      where: { courierStatusChangeId: { in: changes.map((change) => change.id) } },
+      select: { courierStatusChangeId: true },
+    })
+    const seen = new Set(done.map((row) => row.courierStatusChangeId))
+    return changes.filter((change) => !seen.has(change.id))
+  }
+
+  // Whether the rider left Offline after `after`, up to `upTo` (a break, not a stop).
+  async leftOfflineBetween(courierId: string, after: Date, upTo: Date): Promise<boolean> {
+    const change = await this.prisma.courierStatusChange.findFirst({
+      where: { courierId, fromStatus: EnumCourierStatus.OFFLINE, createdAt: { gt: after, lte: upTo } },
+      select: { id: true },
+    })
+    return change !== null
+  }
+
+  // The rider's BOOKED booking covering `at`, if any (bookings never overlap, spec 0027).
+  async bookedCovering(courierId: string, at: Date): Promise<ShiftBooking | null> {
+    return this.prisma.shiftBooking.findFirst({
+      where: { courierId, status: EnumShiftBookingStatus.BOOKED, startsAt: { lte: at }, endsAt: { gt: at } },
+    })
+  }
+
+  // One event per Offline change: the unique status change id makes a second writer's insert fail, which
+  // is the outcome wanted, so it returns false rather than throwing.
+  async createOfflineEvent(data: {
+    shiftBookingId: string
+    courierId: string
+    courierStatusChangeId: string
+    cause: EnumCourierStatusChangeCause
+    offlineAt: Date
+    followedUpAt: Date | null
+    followedUpByUserId: string | null
+  }): Promise<boolean> {
+    try {
+      await this.prisma.shiftBookingEvent.create({
+        data: { ...data, type: EnumShiftBookingEventType.WENT_OFFLINE_MID_SHIFT },
+      })
+      return true
+    } catch (error) {
+      if (error instanceof Error && isUniqueConstraintError(error)) return false
+      throw error
+    }
+  }
+
+  // AC-6, cross check 3: open items, and followed up ones for `keepSince` onwards, newest first. Never
+  // grouped, counted or sorted by rider.
+  async offlineEventsForAdmin(keepSince: Date): Promise<OfflineEventForAdmin[]> {
+    const rows = await this.prisma.shiftBookingEvent.findMany({
+      where: {
+        type: EnumShiftBookingEventType.WENT_OFFLINE_MID_SHIFT,
+        OR: [{ followedUpAt: null }, { followedUpAt: { gte: keepSince } }],
+      },
+      select: {
+        id: true,
+        offlineAt: true,
+        cause: true,
+        followedUpAt: true,
+        followedUpBy: { select: { email: true } },
+        shiftBooking: {
+          select: {
+            courierId: true,
+            startsAt: true,
+            endsAt: true,
+            date: true,
+            courier: { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
+      orderBy: [{ offlineAt: 'desc' }, { id: 'desc' }],
+    })
+    return rows.map((row) => ({
+      id: row.id,
+      offlineAt: row.offlineAt,
+      cause: row.cause,
+      followedUpAt: row.followedUpAt,
+      followedUpByEmail: row.followedUpBy?.email ?? null,
+      courierId: row.shiftBooking.courierId,
+      courierName: `${row.shiftBooking.courier.firstName} ${row.shiftBooking.courier.lastName}`.trim(),
+      shiftStartsAt: row.shiftBooking.startsAt,
+      shiftEndsAt: row.shiftBooking.endsAt,
+      shiftDate: row.shiftBooking.date,
+    }))
+  }
+
+  // AC-6: marks an open item followed up, conditional on it still being open. 'missing' when no such event.
+  async markFollowedUp(id: string, adminUserId: string, at: Date): Promise<'done' | 'already' | 'missing'> {
+    const { count } = await this.prisma.shiftBookingEvent.updateMany({
+      where: { id, type: EnumShiftBookingEventType.WENT_OFFLINE_MID_SHIFT, followedUpAt: null },
+      data: { followedUpAt: at, followedUpByUserId: adminUserId },
+    })
+    if (count > 0) return 'done'
+    const exists = await this.prisma.shiftBookingEvent.findFirst({
+      where: { id, type: EnumShiftBookingEventType.WENT_OFFLINE_MID_SHIFT },
+      select: { id: true },
+    })
+    return exists ? 'already' : 'missing'
+  }
+
+  // AC-5, cross check 4: this rider's own records since `since`, newest first, with only the time, cause and
+  // shift (never otherCourierId or any swap data).
+  async ownOfflineRecords(courierId: string, since: Date): Promise<OwnOfflineRecord[]> {
+    const rows = await this.prisma.shiftBookingEvent.findMany({
+      where: {
+        type: EnumShiftBookingEventType.WENT_OFFLINE_MID_SHIFT,
+        offlineAt: { gte: since },
+        shiftBooking: { courierId },
+      },
+      select: {
+        id: true,
+        offlineAt: true,
+        cause: true,
+        shiftBooking: { select: { startsAt: true, endsAt: true, date: true } },
+      },
+      orderBy: [{ offlineAt: 'desc' }, { id: 'desc' }],
+    })
+    return rows
+      .filter((row): row is typeof row & { offlineAt: Date } => row.offlineAt !== null)
+      .map((row) => ({
+        id: row.id,
+        offlineAt: row.offlineAt,
+        cause: row.cause,
+        shiftStartsAt: row.shiftBooking.startsAt,
+        shiftEndsAt: row.shiftBooking.endsAt,
+        shiftDate: row.shiftBooking.date,
+      }))
   }
 
   async event(

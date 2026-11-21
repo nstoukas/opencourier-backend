@@ -11,6 +11,7 @@ import {
   scheduleDates,
 } from 'src/domains/shift/shift-occurrences'
 import { BookingWithSlot, ShiftBookingRepository } from 'src/persistence/repositories/shift-booking.repository'
+import { NO_EFFECT_SENTENCE, RIDER_OFFLINE_RECORD_DAYS, riderOfflineSentence } from 'src/domains/shift/shift-offline'
 import { ShiftSlotRepository } from 'src/persistence/repositories/shift-slot.repository'
 
 // The sentences riders read (spec 0027): one place, so the app never words a refusal itself.
@@ -57,10 +58,20 @@ export interface MyShiftBooking {
   slotRemoved: boolean
 }
 
+// Spec 0049 (AC-5): one of the rider's own Offline records, worded here so the app never words it.
+export interface ShiftOfflineRecord {
+  id: string
+  offlineAt: Date
+  sentence: string
+  noEffect: string
+}
+
 export interface ShiftSchedule {
   serverNow: Date
   occurrences: ShiftOccurrence[]
   myBookings: MyShiftBooking[]
+  // Spec 0049: the rider's own records from the last 7 days, newest first; a shift may have ended.
+  offlineRecords: ShiftOfflineRecord[]
 }
 
 // Spec 0027 (row 78): riders book occurrences of the weekly slots, drop them before the co-op's notice,
@@ -78,12 +89,13 @@ export class ShiftBookingService {
   async schedule(courierId: string, now: Date): Promise<ShiftSchedule> {
     await this.refuseIfShiftsOff()
     const dates = scheduleDates(now)
-    const [slots, taken, mine, swaps, noticeHours] = await Promise.all([
+    const [slots, taken, mine, swaps, noticeHours, offline] = await Promise.all([
       this.slots.list(false),
       this.bookings.placesTaken(dates),
       this.bookings.currentBookingsOf(courierId, now),
       this.bookings.openSwapsNotBy(courierId, now),
       this.configDomainService.instanceConfig.getShiftDropNoticeHours(),
+      this.bookings.ownOfflineRecords(courierId, new Date(now.getTime() - RIDER_OFFLINE_RECORD_DAYS * 86_400_000)),
     ])
     const myByOccurrence = new Map(mine.map((booking) => [`${booking.shiftSlotId}:${booking.date}`, booking.id]))
     // The oldest open offer per occurrence (the list is oldest first, so the first one wins).
@@ -119,7 +131,24 @@ export class ShiftBookingService {
       }
     }
     occurrences.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
-    return { serverNow: now, occurrences, myBookings: mine.map((booking) => this.myBooking(booking, noticeHours, now)) }
+    const offlineRecords = offline.map((record) => ({
+      id: record.id,
+      offlineAt: record.offlineAt,
+      sentence: riderOfflineSentence({
+        offlineAt: record.offlineAt,
+        cause: record.cause,
+        shiftStartsAt: record.shiftStartsAt,
+        startTime: athensClock(record.shiftStartsAt, record.shiftDate),
+        endTime: athensClock(record.shiftEndsAt, record.shiftDate),
+      }),
+      noEffect: NO_EFFECT_SENTENCE,
+    }))
+    return {
+      serverNow: now,
+      occurrences,
+      myBookings: mine.map((booking) => this.myBooking(booking, noticeHours, now)),
+      offlineRecords,
+    }
   }
 
   async book(courierId: string, shiftSlotId: string, date: string, now: Date): Promise<MyShiftBooking> {

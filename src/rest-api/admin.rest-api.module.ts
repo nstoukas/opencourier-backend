@@ -10,6 +10,7 @@ import { PartnerAdminRestApiModule } from './partner/admin/partner.admin.rest-ap
 import { ProductReportAdminRestApiModule } from './product-report/admin/product-report.admin.rest-api.module'
 import { DispatchStopAdminRestApiModule } from './dispatch-stop/admin/dispatch-stop.admin.rest-api.module'
 import { ShiftSlotAdminRestApiModule } from './shift-slot/admin/shift-slot.admin.rest-api.module'
+import { ShiftOfflineAdminRestApiModule } from './shift-offline/admin/shift-offline.admin.rest-api.module'
 import { SosAdminRestApiModule } from './sos/admin/sos.admin.rest-api.module'
 import { DispatchBoardAdminRestApiModule } from './dispatch-board/admin/dispatch-board.admin.rest-api.module'
 import { RemovalRequestAdminRestApiModule } from './removal-request/admin/removal-request.admin.rest-api.module'
@@ -33,6 +34,7 @@ import { TimeWorkedAdminRestApiModule } from './time-worked/admin/time-worked.ad
     // Stopping dispatch for heat or a storm (spec 0014).
     DispatchStopAdminRestApiModule,
     ShiftSlotAdminRestApiModule,
+    ShiftOfflineAdminRestApiModule,
     SosAdminRestApiModule,
     // The live Dispatch board (spec 0034).
     DispatchBoardAdminRestApiModule,
