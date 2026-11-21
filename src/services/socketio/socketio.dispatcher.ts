@@ -75,13 +75,13 @@ export class SocketIODispatcher extends WebsocketDispatcher {
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.JOB_READY_UPDATED, message)
   }
 
-  // Spec 0035. Logged by delivery id only: the message carries dispatch's sentence.
   // Spec 0047: logged by delivery id only; the admin's sentence is never logged.
   async sendSplitRequestDecided(userId: string, message: SplitRequestDecidedMessage) {
     this.logger.log(`emitting ${NotificationEventType.SPLIT_REQUEST_DECIDED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.SPLIT_REQUEST_DECIDED, message)
   }
 
+  // Spec 0035. Logged by delivery id only: the message carries dispatch's sentence.
   async sendRemovalRequestDecided(userId: string, message: RemovalRequestDecidedMessage) {
     this.logger.log(`emitting ${NotificationEventType.REMOVAL_REQUEST_DECIDED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.REMOVAL_REQUEST_DECIDED, message)

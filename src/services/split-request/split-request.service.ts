@@ -13,7 +13,8 @@ import {
   SplitRequest,
 } from '@prisma/types'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
-import { boxUnitsFor } from 'src/domains/delivery/box'
+import { BOX_SIZE_WORDS, RIDER_BOX_UNITS, boxUnitsFor } from 'src/domains/delivery/box'
+import { MAX_LEG_COUNT } from 'src/domains/delivery/legs'
 import {
   SPLIT_SENTENCES,
   SplitLeg,
@@ -25,9 +26,11 @@ import {
   splitLegsProblem,
 } from 'src/domains/split/split'
 import { DeliveryNotFoundException, NotFoundException } from 'src/errors'
+import { heldBoxUnitsSql } from 'src/persistence/repositories/courier.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { SplitRequestForQueue, SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
+import { isUniqueConstraintError } from 'src/prisma.util'
 import { PrismaService } from 'src/services/prisma/prisma.service'
 import type {
   DeliveryBoxSizeChangedEvent,
@@ -73,6 +76,12 @@ export class SplitRequestService {
     const problem = splitLegsProblem(legs)
     if (problem) throw new BadRequestException(problem)
     const proposed = cleanLegs(legs as SplitLeg[])
+    // Row 11 review: a flag that no answer could confirm is refused now, not left for dispatch to find.
+    // The order's other legs are not read here: the smallest split (2) already passes the limit only when
+    // this delivery is a leg of a full order; confirm checks the exact numbers again.
+    if (delivery.legCount !== null && delivery.legCount + proposed.length - 1 > MAX_LEG_COUNT) {
+      throw new ConflictException(SPLIT_SENTENCES.tooManyLegs)
+    }
 
     const created = await this.splitRequestRepository.createOpen({ deliveryId, courierId, proposedLegs: proposed })
     if (!created) throw new ConflictException(SPLIT_SENTENCES.alreadyOpen)
@@ -97,10 +106,19 @@ export class SplitRequestService {
     if (!delivery || delivery.courierId !== courierId) throw new DeliveryNotFoundException('Delivery not found')
     const open = await this.splitRequestRepository.findOpenForDelivery(deliveryId)
     if (!open || open.courierId !== courierId) throw new ConflictException(SPLIT_SENTENCES.noOpenRequest)
+    // Row 11 review: only from the restaurant. Once the order moved on (a pickup posted by an admin), the
+    // request is voided by that step, and leaving would cancel an order already on its way.
+    if (delivery.status !== EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION) {
+      throw new ConflictException(SPLIT_SENTENCES.notAtPickup)
+    }
     const minutes = await this.configDomainService.instanceConfig.getSplitAnswerMinutes()
     if (now < splitLeaveFrom(open.createdAt, minutes)) throw new ConflictException(SPLIT_SENTENCES.tooSoon(minutes))
 
-    const closed = await this.splitRequestRepository.closeIfOpen(open.id, { status: EnumSplitRequestStatus.LEFT, answeredAt: now })
+    const closed = await this.splitRequestRepository.closeIfOpen(open.id, {
+      status: EnumSplitRequestStatus.LEFT,
+      answeredAt: now,
+      waitOwedAt: await this.deliveryEventService.splitWaitOwedAt(open.createdAt, now),
+    })
     if (!closed) throw new ConflictException(SPLIT_SENTENCES.notOpen)
 
     const closedEvent: DeliverySplitClosedEvent = {
@@ -111,8 +129,12 @@ export class SplitRequestService {
       courierId,
       message: `Rider left after ${minutes} min with no answer to split ${open.id}; the order goes back to the restaurant to send again`,
     }
-    await this.deliveryEventService.recordSplitEvent(closedEvent, delivery.status)
-    await this.deliveryEventService.settleSplitWait(open, now, true)
+    // Row 11 review: each step after the close runs on its own, so a failed record never keeps the rider
+    // from leaving; the wait has its stamp and the sweep.
+    await this.afterClose(`record the leave of split ${open.id}`, () =>
+      this.deliveryEventService.recordSplitEvent(closedEvent, delivery.status)
+    )
+    await this.deliveryEventService.settleSplitWait(open.id)
 
     const cancel: DeliveryCanceledEvent = {
       deliveryId,
@@ -151,6 +173,7 @@ export class SplitRequestService {
       answeredAt: now,
       answeredByUserId: admin.id,
       adminNote,
+      waitOwedAt: await this.deliveryEventService.splitWaitOwedAt(request.createdAt, now),
     })
     if (!closed) throw new ConflictException(SPLIT_SENTENCES.notOpen)
 
@@ -164,16 +187,20 @@ export class SplitRequestService {
       // The admin by id; their sentence goes to the rider only, never into the record's message.
       message: `Admin ${admin.id} refused split ${request.id}: it fits one box`,
     }
-    await this.deliveryEventService.recordSplitEvent(event, delivery.status)
-    await this.deliveryEventService.settleSplitWait(request, now, false)
-    await this.deliveryEventService.notifySplitDecided(request.courierId, {
-      deliveryId: request.deliveryId,
-      outcome: 'REFUSED',
-      adminNote,
-      legNumber: null,
-      legCount: null,
-      boxSize: null,
-    })
+    await this.afterClose(`record the refusal of split ${request.id}`, () =>
+      this.deliveryEventService.recordSplitEvent(event, delivery.status)
+    )
+    await this.deliveryEventService.settleSplitWait(request.id)
+    await this.afterClose(`tell the rider about split ${request.id}`, () =>
+      this.deliveryEventService.notifySplitDecided(request.courierId, {
+        deliveryId: request.deliveryId,
+        outcome: 'REFUSED',
+        adminNote,
+        legNumber: null,
+        legCount: null,
+        boxSize: null,
+      })
+    )
   }
 
   // AC-5, AC-6, cross checks 4, 5, 7, 8, 9, 10. The claim, the kept leg's labels and size, every new leg with
@@ -218,8 +245,12 @@ export class SplitRequestService {
     const legPay = quote.baseFee + quote.distanceFee
     // splitLegsProblem guarantees 2 to 4 legs; the first is the one the rider keeps.
     const keptSize = legs[0]?.boxSize ?? delivery.boxSize
+    const waitOwedAt = await this.deliveryEventService.splitWaitOwedAt(request.createdAt, now)
 
-    const created: CreatedLeg[] = await this.prisma.$transaction(async (tx) => {
+    // Row 11 review: two splits of one order's legs at once can both pick the same next leg number; the
+    // order's unique (restaurant, reference, leg number) key lets one in, and the other is told to look again.
+    const created: CreatedLeg[] = await this.prisma
+      .$transaction(async (tx) => {
       const claimed = await this.splitRequestRepository.closeIfOpen(
         request.id,
         {
@@ -227,6 +258,7 @@ export class SplitRequestService {
           answeredAt: now,
           answeredByUserId: admin.id,
           finalLegs: legs as unknown as Prisma.InputJsonValue,
+          waitOwedAt,
         },
         tx
       )
@@ -256,6 +288,16 @@ export class SplitRequestService {
         },
       })
       if (kept.count !== 1) throw new ConflictException(SPLIT_SENTENCES.deliveryChanged)
+      // Cross check 9: the kept size is the stated exception to spec 0043's "no size change once offered",
+      // so the rider's box is checked again with it, inside the same transaction. The rider's other orders
+      // count as spec 0043 counts them (heldBoxUnitsSql, which already includes this one at its new size).
+      if (keptSize !== delivery.boxSize) {
+        const rows = await tx.$queryRaw<Array<{ held: number }>>(
+          Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${request.courierId}`)}) AS "held"`
+        )
+        const held = rows[0]?.held ?? 0
+        if (held > RIDER_BOX_UNITS) throw new ConflictException(SPLIT_SENTENCES.keptSizeOverfills(BOX_SIZE_WORDS[keptSize], held))
+      }
 
       const legsMade: CreatedLeg[] = []
       for (let index = 1; index < legs.length; index++) {
@@ -310,6 +352,16 @@ export class SplitRequestService {
             requiresDropoffSignature: delivery.requiresDropoffSignature,
             requiresId: delivery.requiresId,
             orderItems: (delivery.orderItems ?? undefined) as Prisma.InputJsonValue | undefined,
+            // Row 11 review (cross check 10): the customer's notes, the order's type lists, the
+            // verification steps and the deadlines come with the order too.
+            customerNotes: delivery.customerNotes,
+            deliveryTypes: delivery.deliveryTypes,
+            pickupTypes: delivery.pickupTypes,
+            pickupVerification: (delivery.pickupVerification ?? undefined) as Prisma.InputJsonValue | undefined,
+            dropoffVerification: (delivery.dropoffVerification ?? undefined) as Prisma.InputJsonValue | undefined,
+            pickupDeadlineAt: delivery.pickupDeadlineAt,
+            dropoffDeadlineAt: delivery.dropoffDeadlineAt,
+            dropoffReadyAt: delivery.dropoffReadyAt,
             orderReference: reference,
             legNumber,
             legCount: numbers.legCount,
@@ -350,6 +402,12 @@ export class SplitRequestService {
       }
       return legsMade
     })
+      .catch((error: unknown) => {
+        if (error instanceof Error && isUniqueConstraintError(error)) {
+          throw new ConflictException(SPLIT_SENTENCES.deliveryChanged)
+        }
+        throw error
+      })
 
     // After the commit: the record, the rider's wait, the new legs into matching, the rider's answer.
     const confirmed: DeliverySplitConfirmedEvent = {
@@ -362,7 +420,11 @@ export class SplitRequestService {
         numbers.legCount
       }, new legs ${created.map((leg) => leg.id).join(', ')}`,
     }
-    await this.deliveryEventService.recordSplitEvent(confirmed, delivery.status)
+    // Row 11 review: each step after the commit runs on its own, so one failure never skips the rest. The
+    // wait has its stamp and the sweep; the legs have the sweep (cross check 7).
+    await this.afterClose(`record the confirm of split ${request.id}`, () =>
+      this.deliveryEventService.recordSplitEvent(confirmed, delivery.status)
+    )
     if (keptSize !== delivery.boxSize) {
       // Cross check 9: the stated exception to spec 0043's "no size change once offered".
       const sizeEvent: DeliveryBoxSizeChangedEvent = {
@@ -372,26 +434,41 @@ export class SplitRequestService {
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Admin ${admin.id} set the size to ${keptSize} with the split (was ${delivery.boxSize})`,
       }
-      await this.deliveryEventService.recordBoxEvent(sizeEvent, delivery.status)
+      await this.afterClose(`record the size change of split ${request.id}`, () =>
+        this.deliveryEventService.recordBoxEvent(sizeEvent, delivery.status)
+      )
     }
     if (!delivery.partnerId) {
       this.logger.warn(`Delivery ${delivery.id} has no restaurant: its split legs are not charged to anyone`)
     }
-    await this.deliveryEventService.settleSplitWait(request, now, true)
+    await this.deliveryEventService.settleSplitWait(request.id)
     for (const leg of created) await this.startLeg(leg, admin, request.id)
-    await this.deliveryEventService.notifySplitDecided(request.courierId, {
-      deliveryId: delivery.id,
-      outcome: 'CONFIRMED',
-      adminNote: null,
-      legNumber: numbers.keptNumber,
-      legCount: numbers.legCount,
-      boxSize: keptSize,
-    })
+    await this.afterClose(`tell the rider about split ${request.id}`, () =>
+      this.deliveryEventService.notifySplitDecided(request.courierId, {
+        deliveryId: delivery.id,
+        outcome: 'CONFIRMED',
+        adminNote: null,
+        legNumber: numbers.keptNumber,
+        legCount: numbers.legCount,
+        boxSize: keptSize,
+      })
+    )
+  }
+
+  // A step after the answer is already committed: logged on failure, never thrown, so the steps after it
+  // still run (row 11 review).
+  private async afterClose(what: string, step: () => Promise<unknown>): Promise<void> {
+    try {
+      await step()
+    } catch (error) {
+      this.logger.error(`SPLIT_AFTER_CLOSE_FAILED could not ${what}: ${error}`)
+    }
   }
 
   // A new leg's charge event and its CREATED, which sends it into matching. Never throws: the leg exists,
   // and the sweep starts any leg still in CREATED a minute later.
-  private async startLeg(leg: CreatedLeg, admin: Admin | null, requestId: string): Promise<void> {
+  // Whether the leg was started (its CREATED written), so the sweep counts starts, not rows found.
+  private async startLeg(leg: CreatedLeg, admin: Admin | null, requestId: string): Promise<boolean> {
     try {
       if (leg.charged) {
         const charged: DeliveryPartnerChargedForSplitEvent = {
@@ -410,8 +487,10 @@ export class SplitRequestService {
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Leg ${leg.legNumber} made by split ${requestId}${admin ? ` (admin ${admin.id})` : ''}, size ${leg.boxSize}`,
       })
+      return true
     } catch (error) {
       this.logger.error(`SPLIT_LEG_START_FAILED leg ${leg.id} of split ${requestId}: ${error}`)
+      return false
     }
   }
 
@@ -422,18 +501,21 @@ export class SplitRequestService {
       where: {
         status: EnumDeliveryStatus.CREATED,
         createdAt: { lt: new Date(now.getTime() - 60_000), gt: new Date(now.getTime() - 24 * 3600_000) },
+        // `delivery` is the Delivery's relation to its DeliveryQuote (the schema's old name for it): the
+        // quote's source marks a leg a split made.
         delivery: { source: EnumQuoteSource.SPLIT },
       },
       select: { id: true, legNumber: true, boxSize: true, currencyCode: true },
       take: 50,
     })
+    let started = 0
     for (const row of rows) {
       const charge = await this.prisma.partnerCharge.findUnique({ where: { splitLegOf: row.id } })
       const chargeEvent = await this.prisma.deliveryEvent.findFirst({
         where: { deliveryId: row.id, type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_SPLIT },
         select: { id: true },
       })
-      await this.startLeg(
+      const ok = await this.startLeg(
         {
           id: row.id,
           legNumber: row.legNumber ?? 0,
@@ -445,7 +527,8 @@ export class SplitRequestService {
         null,
         'sweep'
       )
+      if (ok) started++
     }
-    return rows.length
+    return started
   }
 }

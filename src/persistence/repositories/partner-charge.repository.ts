@@ -66,12 +66,17 @@ export class PartnerChargeRepository extends EntityRepository {
   }
 
   // Spec 0047 (cross check 5): a new leg's charge is taken back when the leg ends without ever being
-  // accepted, unless it was already billed (then it stays, and the caller says so). The row, or null.
-  async deleteUnbilledSplitLegCharge(legDeliveryId: string): Promise<PartnerCharge | null> {
+  // accepted, unless it was already billed: then it stays, and `kept` names it so the caller can log it
+  // (an admin undoes the bill to take it back, spec 0036). `removed` is the row taken back, or null.
+  async deleteUnbilledSplitLegCharge(
+    legDeliveryId: string
+  ): Promise<{ removed: PartnerCharge | null; kept: PartnerCharge | null }> {
     const charge = await this.prisma.partnerCharge.findUnique({ where: { splitLegOf: legDeliveryId } })
-    if (!charge || charge.billId) return null
+    if (!charge) return { removed: null, kept: null }
+    if (charge.billId) return { removed: null, kept: charge }
     const removed = await this.prisma.partnerCharge.deleteMany({ where: { id: charge.id, billId: null } })
-    return removed.count === 1 ? charge : null
+    // Billed between the read and the delete: it stays.
+    return removed.count === 1 ? { removed: charge, kept: null } : { removed: null, kept: charge }
   }
 
   // Spec 0035: one approved removal's charge, once.

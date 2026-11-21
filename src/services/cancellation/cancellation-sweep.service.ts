@@ -55,6 +55,7 @@ export class CancellationSweepService implements OnModuleInit {
   async sweep(now: Date): Promise<void> {
     await this.settleCancellations(now)
     await this.settleWaits(now)
+    await this.settleSplitWaits(now)
     await this.settleRemovals(now)
     await this.settleReturnTrips(now)
     await this.startSplitLegs(now)
@@ -126,6 +127,18 @@ export class CancellationSweepService implements OnModuleInit {
     // settleWaitPay never throws, so one bad delivery cannot stop the others.
     for (const id of ids) {
       await this.deliveryEventService.settleWaitPay(id)
+    }
+  }
+
+  // Spec 0047, row 11 review: the wait while dispatch split an order, the same retry for a day.
+  private async settleSplitWaits(now: Date): Promise<void> {
+    try {
+      await this.deliveryEventService.settleOwedSplitWaits(
+        new Date(now.getTime() - ONE_DAY_MS),
+        new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
+      )
+    } catch (error) {
+      this.logger.error(`The split wait sweep failed: ${error}`)
     }
   }
 

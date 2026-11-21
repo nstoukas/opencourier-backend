@@ -139,6 +139,24 @@ export function completedWaits(
   return waits
 }
 
+// Spec 0047 (cross check 2), row 11 review: the split windows on a trail up to `endedAt`, a window still
+// open counted up to it. What `isWaitPayOwed` leaves out before a wait ends, the same windows
+// `completedWaits` leaves out after, so the stamp never promises a wait the trail cannot show.
+export function splitWindowsUntil(events: WaitEvent[], endedAt: Date): TimeWindow[] {
+  const windows: TimeWindow[] = []
+  let splitFrom: Date | null = null
+  for (const event of events) {
+    if (event.occurredAt > endedAt) break
+    if (SPLIT_WINDOW_START.includes(event.type)) splitFrom = event.occurredAt
+    else if (SPLIT_WINDOW_END.includes(event.type)) {
+      if (splitFrom) windows.push({ from: splitFrom, to: event.occurredAt })
+      splitFrom = null
+    }
+  }
+  if (splitFrom) windows.push({ from: splitFrom, to: endedAt })
+  return windows
+}
+
 // The wait closed by the newest end event on the trail, or null when the trail cannot show one: the
 // end or its arrival was never saved, or it earned no minutes. A wait from earlier in the delivery's
 // history is never returned, so it cannot be paid in place of the one that is owed.

@@ -57,6 +57,21 @@ export class SplitRequestRepository extends EntityRepository {
     return updated.count === 1
   }
 
+  // Row 11 review: requests closed between `since` and `before` whose wait is still owed (the stamp set at
+  // the close), for the minute sweep to settle again. `before` leaves the inline settle its moment.
+  async findOwingWait(since: Date, before: Date): Promise<SplitRequest[]> {
+    return this.prisma.splitRequest.findMany({
+      where: { waitOwedAt: { not: null }, answeredAt: { gt: since, lt: before } },
+      orderBy: { answeredAt: 'asc' },
+      take: 50,
+    })
+  }
+
+  // Clears the stamp it was given, and only that one, once the wait is settled.
+  async clearWaitOwed(id: string, stamp: Date): Promise<void> {
+    await this.prisma.splitRequest.updateMany({ where: { id, waitOwedAt: stamp }, data: { waitOwedAt: null } })
+  }
+
   // Open requests, oldest first, for the admin queue (AC-4).
   async findOpenForQueue(): Promise<SplitRequestForQueue[]> {
     return this.prisma.splitRequest.findMany({
@@ -96,6 +111,8 @@ export class SplitRequestRepository extends EntityRepository {
         status: { in: [EnumSplitRequestStatus.CONFIRMED, EnumSplitRequestStatus.LEFT] },
       },
       select: { deliveryId: true, status: true },
+      // Oldest first, so a delivery's newest answered request is the one that stays in the map (row 11 review).
+      orderBy: { createdAt: 'asc' },
     })
     for (const request of requests) {
       outcomes.set(request.deliveryId, request.status === EnumSplitRequestStatus.LEFT ? 'LEFT' : 'SPLIT')

@@ -100,7 +100,7 @@ import { CourierCompensationRepository } from 'src/persistence/repositories/cour
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
 import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
-import { latestCompletedWait, paidWaitMinutes, waitOfKey } from 'src/domains/delivery/wait-pay'
+import { latestCompletedWait, paidWaitMinutes, splitWindowsUntil, waitOfKey } from 'src/domains/delivery/wait-pay'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { roundMoney } from 'src/core/utils/money'
 
@@ -162,8 +162,6 @@ const REVIEW_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.COURIER_PAID_FOR_REVIEW,
 ]
 
-// Spec 0043: the box events are written by recordBoxEvent only, with no status change. Refused on
-// the event route, so an admin cannot post one and have it dropped silently.
 // Spec 0047: the split events are written by SplitRequestService and the close below, never processed as
 // ordinary events. An admin cannot post one through the event route.
 export const SPLIT_EVENT_TYPES: EnumDeliveryEventType[] = [
@@ -175,6 +173,8 @@ export const SPLIT_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED,
 ]
 
+// Spec 0043: the box events are written by recordBoxEvent only, with no status change. Refused on
+// the event route, so an admin cannot post one and have it dropped silently.
 export const BOX_EVENT_TYPES: EnumDeliveryEventType[] = [
   EnumDeliveryEventType.BOX_SIZE_ASSUMED,
   EnumDeliveryEventType.BOX_SIZE_CHANGED,
@@ -1373,6 +1373,15 @@ export class DeliveryEventService {
       if (!(await config.getWaitPayEnabled())) return false
       if ((await config.getWaitPayCentsPerMinute()) <= 0) return false
       const freeMinutes = await config.getWaitPayFreeMinutes()
+      // Row 11 review: the split windows are left out here too, as the settle leaves them out. If the trail
+      // cannot be read, nothing is left out: the wait is stamped and the settle, which reads the trail
+      // again, decides (an unpaid rider is the worse mistake, value 4).
+      let events: Awaited<ReturnType<DeliveryEventRepository['findWaitEvents']>> = []
+      try {
+        events = await this.deliveryEventRepository.findWaitEvents(delivery.id)
+      } catch (error) {
+        this.logger.error(`Could not read the split windows of delivery ${delivery.id}: ${error}`)
+      }
       return (
         paidWaitMinutes({
           arrivedAt: delivery.arrivedAtPickupAt,
@@ -1380,6 +1389,7 @@ export class DeliveryEventService {
           foodReadyAt: delivery.foodReadyAt,
           freeMinutes,
           endedAt,
+          excluded: splitWindowsUntil(events, endedAt),
         }) > 0
       )
     } catch (error) {
@@ -2104,63 +2114,93 @@ export class DeliveryEventService {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 
-  // Spec 0047 (AC-3, cross check 1): the wait from a split flag to `endedAt`, paid at the co-op's rate with
-  // no free minutes, whole minutes rounded down, as one WAITING award (policy SPLIT_WAIT) with its
-  // COURIER_PAID_FOR_WAIT event, and charged to the restaurant only when `chargeRestaurant`. Once per split
-  // request: the award and the charge are keyed by its id, and the event's message names it. Never throws:
-  // a failure is logged, and the money stays owed to the request (the leg creation never waits on it).
-  async settleSplitWait(
-    request: { id: string; deliveryId: string; courierId: string; createdAt: Date },
-    endedAt: Date,
-    chargeRestaurant: boolean
-  ): Promise<void> {
+  // Spec 0047 (AC-3), row 11 review: the stamp a closing write stores when the split wait earns pay under
+  // the settings in force at the close (spec 0033's rule for `waitPayOwedAt`), or null. If the settings
+  // cannot be read, the wait is stamped anyway: the settle reads the rate again, and an unpaid rider is the
+  // worse mistake (value 4).
+  async splitWaitOwedAt(flaggedAt: Date, endedAt: Date): Promise<Date | null> {
     try {
       const config = this.configDomainService.instanceConfig
-      if (!(await config.getWaitPayEnabled())) return
-      const centsPerMinute = await config.getWaitPayCentsPerMinute()
-      const minutes = splitWaitMinutes(request.createdAt, endedAt)
-      if (centsPerMinute <= 0 || minutes <= 0) return
-      const delivery = await this.deliveryRepository.findByIdOrThrow(request.deliveryId)
-      const award = await this.courierCompensationRepository.createSplitWaitPayOnce({
-        amount: minutes * centsPerMinute,
-        currencyCode: delivery.currencyCode,
-        reason: EnumCourierCompensationReason.WAITING,
-        policy: 'SPLIT_WAIT',
-        message: `Waited ${minutes} min while dispatch split the order, at ${centsPerMinute} cents a minute`,
-        waitMinutes: minutes,
-        courierId: request.courierId,
-        deliveryId: delivery.id,
-        splitWaitOf: request.id,
-      })
-      const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
-      if (!paidMessages.some((message) => message.includes(`split ${request.id}`))) {
-        const event: DeliveryCourierPaidForWaitEvent = {
-          deliveryId: delivery.id,
-          type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
-          actor: EnumEventActor.SYSTEM,
-          source: EnumDeliveryEventSource.OPENCOURIER,
-          courierId: award.courierId,
-          message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; split ${request.id}`,
-        }
-        await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: delivery.status, newStatus: delivery.status })
-      }
-      if (!chargeRestaurant) return
-      if (!delivery.partnerId) {
-        this.logger.warn(`Delivery ${delivery.id} has no restaurant: the split wait is not charged to anyone`)
-        return
-      }
-      await this.partnerChargeRepository.createSplitWaitChargeOnce({
-        partnerId: delivery.partnerId,
-        deliveryId: delivery.id,
-        amount: award.amount,
-        currencyCode: award.currencyCode,
-        reason: EnumPartnerChargeReason.WAITING,
-        waitMinutes: award.waitMinutes,
-        splitWaitOf: request.id,
-      })
+      if (!(await config.getWaitPayEnabled())) return null
+      if ((await config.getWaitPayCentsPerMinute()) <= 0) return null
+      return splitWaitMinutes(flaggedAt, endedAt) > 0 ? endedAt : null
     } catch (error) {
-      this.logger.error(`SPLIT_WAIT_PAY_FAILED split ${request.id} delivery ${request.deliveryId}: ${error}`)
+      this.logger.error(`Could not read the wait pay settings for a split wait: ${error}`)
+      return endedAt
     }
+  }
+
+  // Spec 0047 (AC-3, cross check 1): the wait from a split flag to the close, paid at the co-op's rate with
+  // no free minutes, whole minutes rounded down, as one WAITING award (policy SPLIT_WAIT) with its
+  // COURIER_PAID_FOR_WAIT event, and charged to the restaurant when the request was CONFIRMED or LEFT (the
+  // restaurant picked the size); REFUSED and VOID are the co-op's. Read from the stored request, so the
+  // sweep can call it again: does nothing unless `waitOwedAt` is set, writes each piece once (keyed by the
+  // request id), and clears the stamp only when all of them exist. Never throws.
+  async settleSplitWait(requestId: string): Promise<void> {
+    try {
+      if (!this.splitRequestRepository) return
+      const request = await this.splitRequestRepository.findById(requestId)
+      const stamp = request?.waitOwedAt
+      if (!request || !stamp) return
+      const endedAt = request.answeredAt ?? stamp
+      const chargeRestaurant =
+        request.status === EnumSplitRequestStatus.CONFIRMED || request.status === EnumSplitRequestStatus.LEFT
+      // The rate is read now, like spec 0033's settle: a rate set to 0 since the close writes nothing.
+      const centsPerMinute = await this.configDomainService.instanceConfig.getWaitPayCentsPerMinute()
+      const minutes = splitWaitMinutes(request.createdAt, endedAt)
+      if (centsPerMinute > 0 && minutes > 0) {
+        const delivery = await this.deliveryRepository.findByIdOrThrow(request.deliveryId)
+        const award = await this.courierCompensationRepository.createSplitWaitPayOnce({
+          amount: minutes * centsPerMinute,
+          currencyCode: delivery.currencyCode,
+          reason: EnumCourierCompensationReason.WAITING,
+          policy: 'SPLIT_WAIT',
+          message: `Waited ${minutes} min while dispatch split the order, at ${centsPerMinute} cents a minute`,
+          waitMinutes: minutes,
+          courierId: request.courierId,
+          deliveryId: delivery.id,
+          splitWaitOf: request.id,
+        })
+        const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
+        if (!paidMessages.some((message) => message.includes(`split ${request.id}`))) {
+          const event: DeliveryCourierPaidForWaitEvent = {
+            deliveryId: delivery.id,
+            type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
+            actor: EnumEventActor.SYSTEM,
+            source: EnumDeliveryEventSource.OPENCOURIER,
+            courierId: award.courierId,
+            message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; split ${request.id}`,
+          }
+          await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: delivery.status, newStatus: delivery.status })
+        }
+        if (chargeRestaurant && delivery.partnerId) {
+          await this.partnerChargeRepository.createSplitWaitChargeOnce({
+            partnerId: delivery.partnerId,
+            deliveryId: delivery.id,
+            amount: award.amount,
+            currencyCode: award.currencyCode,
+            reason: EnumPartnerChargeReason.WAITING,
+            waitMinutes: award.waitMinutes,
+            splitWaitOf: request.id,
+          })
+        } else if (chargeRestaurant) {
+          this.logger.warn(`Delivery ${delivery.id} has no restaurant: the split wait is not charged to anyone`)
+        }
+      }
+      await this.splitRequestRepository.clearWaitOwed(request.id, stamp)
+    } catch (error) {
+      // The stamp stays, so the minute sweep tries again for a day.
+      this.logger.error(`SPLIT_WAIT_PAY_FAILED split ${requestId}: ${error}`)
+    }
+  }
+
+  // Row 11 review: the minute sweep's step for split waits still owed, closed between `since` and `before`.
+  // Returns how many it tried.
+  async settleOwedSplitWaits(since: Date, before: Date): Promise<number> {
+    if (!this.splitRequestRepository) return 0
+    const owing = await this.splitRequestRepository.findOwingWait(since, before)
+    for (const request of owing) await this.settleSplitWait(request.id)
+    return owing.length
   }
 
   // Spec 0047 (cross check 6): whatever takes the rider off or ends the delivery closes an open split
@@ -2174,6 +2214,7 @@ export class DeliveryEventService {
     const closed = await this.splitRequestRepository.closeIfOpen(open.id, {
       status: EnumSplitRequestStatus.VOID,
       answeredAt: now,
+      waitOwedAt: await this.splitWaitOwedAt(open.createdAt, now),
     })
     if (!closed) return
     const event: DeliverySplitClosedEvent = {
@@ -2184,15 +2225,24 @@ export class DeliveryEventService {
       courierId: open.courierId,
       message: `Split request ${open.id} closed: the order moved on before dispatch answered`,
     }
-    await this.recordSplitEvent(event, status)
-    await this.settleSplitWait(open, now, false)
+    try {
+      await this.recordSplitEvent(event, status)
+    } catch (error) {
+      this.logger.error(`Could not record the void of split ${open.id}: ${error}`)
+    }
+    await this.settleSplitWait(open.id)
   }
 
   // Spec 0047 (cross check 5): a leg made by a split that ends without ever being accepted takes back its
   // restaurant charge (unless already billed), with an event. Guarded by the caller.
   private async voidSplitLegChargeIfNeverAccepted(deliveryId: string, status: EnumDeliveryStatus): Promise<void> {
     if (await this.deliveryEventRepository.hasSuccessfulEvent(deliveryId, EnumDeliveryEventType.ACCEPTED)) return
-    const voided = await this.partnerChargeRepository.deleteUnbilledSplitLegCharge(deliveryId)
+    const { removed: voided, kept } = await this.partnerChargeRepository.deleteUnbilledSplitLegCharge(deliveryId)
+    if (kept) {
+      // Nothing changed, so no event: the charge is on a bill already, and an admin undoes that bill to take
+      // it back (row 11 review).
+      this.logger.warn(`Split leg ${deliveryId} ended never accepted, but its charge ${kept.id} is already billed and stays`)
+    }
     if (!voided) return
     const event: DeliveryPartnerSplitChargeVoidedEvent = {
       deliveryId,
@@ -2443,8 +2493,6 @@ export class DeliveryEventService {
     }
   }
 
-  // Spec 0035 (AC-11): tells the rider dispatch's answer, over the live connection and by push. Never
-  // throws: the decision already happened and is on the record.
   // Spec 0047 (AC-7, cross check 12): tells the rider dispatch's answer to their split request, over the live
   // connection and by push. Never throws: the answer is already on the record.
   async notifySplitDecided(courierId: string, message: SplitRequestDecidedMessage): Promise<void> {
@@ -2459,6 +2507,8 @@ export class DeliveryEventService {
     this.offerPushService.splitRequestDecided(courierId, message)
   }
 
+  // Spec 0035 (AC-11): tells the rider dispatch's answer, over the live connection and by push. Never
+  // throws: the decision already happened and is on the record.
   async notifyRemovalDecided(courierId: string, message: RemovalRequestDecidedMessage): Promise<void> {
     try {
       const courier = await this.courierRepository.findById(courierId)
@@ -2764,12 +2814,6 @@ export class DeliveryEventService {
       } catch (error) {
         this.logger.error(`Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${error}`)
       }
-      // Spec 0047 (cross check 6): the same rule for an open split request, which also pays its wait.
-      try {
-        await this.voidOpenSplitRequest(deliveryEvent.deliveryId, outcome.newStatus)
-      } catch (error) {
-        this.logger.error(`Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${error}`)
-      }
       // Spec 0047 (cross check 5): a split leg that ended without a rider ever taking it.
       if (
         outcome.oldStatus !== outcome.newStatus &&
@@ -2780,6 +2824,23 @@ export class DeliveryEventService {
         } catch (error) {
           this.logger.error(`Could not take back the split charge of delivery ${deliveryEvent.deliveryId}: ${error}`)
         }
+      }
+    }
+
+    // Spec 0047 (cross check 6), row 11 review: a split request is only open while the rider is at the
+    // restaurant, so any step that moves the delivery off that status closes it as VOID and pays its wait: a
+    // pickup posted by an admin, a cancellation, a removal, a reassignment, a return to waiting. Not on the
+    // split events themselves, which keep the status (so the close cannot re-enter itself). Guarded.
+    if (
+      outcome.transitionSuccessful &&
+      outcome.oldStatus === EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION &&
+      outcome.newStatus &&
+      outcome.newStatus !== outcome.oldStatus
+    ) {
+      try {
+        await this.voidOpenSplitRequest(deliveryEvent.deliveryId, outcome.newStatus)
+      } catch (error) {
+        this.logger.error(`Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${error}`)
       }
     }
 

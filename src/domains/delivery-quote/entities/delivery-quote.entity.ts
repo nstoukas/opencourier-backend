@@ -46,7 +46,7 @@ export class DeliveryQuoteEntity implements DeliveryQuote {
     this.quoteRangeFrom = data.quoteRangeFrom
     this.quoteRangeTo = data.quoteRangeTo
     this.feePercentage = data.feePercentage
-    this.source = data.source ?? EnumQuoteSource.PARTNER
+    this.source = data.source
     this.baseFee = data.baseFee
     this.distanceFee = data.distanceFee
     this.currency = data.currency

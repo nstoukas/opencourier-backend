@@ -79,6 +79,9 @@ export const SPLIT_SENTENCES = {
   pickupBlocked: 'Dispatch is splitting this order. Wait for the answer before you pick it up.',
   leaveWaitBlocked: 'Dispatch is splitting this order. Wait for the answer, or leave once the split limit has passed.',
   deliveryChanged: 'This order changed before the split could be made. Look again.',
+  // Cross check 9: the size the rider keeps would put their box past full with what they already carry.
+  keptSizeOverfills: (size: string, heldUnits: number) =>
+    `The rider's box would be past full with box 1 as ${size}: ${heldUnits} of 100 units. Choose a smaller box 1.`,
 }
 
 // AC-5, cross check 8: the reference the order's legs share after a split. A leg keeps its order's. A

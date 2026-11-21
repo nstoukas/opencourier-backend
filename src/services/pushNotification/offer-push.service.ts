@@ -123,8 +123,6 @@ export class OfferPushService {
     }
   }
 
-  // A rider's removal request was answered (spec 0035, AC-11), to their own phones. Strings ('' for
-  // unknown), as for jobReadyUpdated. Fire and forget, never throws; logs ids, never the sentence.
   // Spec 0047 (cross check 12): dispatch's answer to a split request, as removal answers are sent. Data only.
   splitRequestDecided(courierId: string, message: SplitRequestDecidedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
@@ -149,6 +147,8 @@ export class OfferPushService {
     await this.handleSendResult(message.deliveryId, NotificationEventType.SPLIT_REQUEST_DECIDED, result)
   }
 
+  // A rider's removal request was answered (spec 0035, AC-11), to their own phones. Strings ('' for
+  // unknown), as for jobReadyUpdated. Fire and forget, never throws; logs ids, never the sentence.
   removalRequestDecided(courierId: string, message: RemovalRequestDecidedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendRemovalRequestDecided(courierId, message).catch((error) =>

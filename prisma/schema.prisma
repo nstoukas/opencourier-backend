@@ -983,9 +983,14 @@ model SplitRequest {
   answeredBy     User?                  @relation(fields: [answeredByUserId], references: [id], onDelete: SetNull)
   // The admin's sentence with a refusal, shown to the rider. Never logged.
   adminNote      String?                @postgres.VarChar(300)
+  // Set in the write that closes the request when its wait earns pay under the settings in force then
+  // (spec 0033's waitPayOwedAt pattern); cleared once the award, its event and any charge exist. The
+  // minute sweep retries a stamped request for 24 h (row 11 review).
+  waitOwedAt     DateTime?
 
   @@index([status, createdAt])
   @@index([deliveryId, createdAt])
+  @@index([waitOwedAt])
 }
 
 // Spec 0035: the co-op's list of reasons a rider can give for asking off an order. Whether each
