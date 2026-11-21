@@ -179,6 +179,9 @@ function setup(
     firstAccept?: Date | null
     coopName?: unknown
     recordedFrom?: Date | null
+    // Review fix: hand the statement service the time record's repository, as Nest does. Off by default,
+    // so the older tests keep building the service the way they did (the floor is then skipped).
+    withRecordRepository?: boolean
   } = {}
 ) {
   const repository = {
@@ -216,16 +219,77 @@ function setup(
         ),
     },
     statementDownload: {
-      create: jest.fn().mockResolvedValue({ id: 'download-1' }),
+      // A write made outside any transaction: it is kept at once, whatever happens next.
+      create: jest.fn().mockImplementation(async (args: { data: unknown }) => {
+        committed.push({ table: 'statementDownload', data: args.data })
+        return { id: 'download-1' }
+      }),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // Review fix: a transaction as the database runs one. What the callback writes through `tx` is kept
+    // only if the callback finishes; if it throws, nothing it wrote is kept and the error goes on up.
+    $transaction: jest.fn().mockImplementation(async (work: (client: typeof tx) => Promise<unknown>) => {
+      const staged: Written[] = []
+      tx.staged = staged
+      const result = await work(tx)
+      committed.push(...staged)
+      return result
+    }),
   }
-  const accounts = { record: jest.fn().mockResolvedValue(undefined) }
+  // Everything the database would hold after the call.
+  const committed: Written[] = []
+  const tx = {
+    staged: [] as Written[],
+    statementDownload: {
+      create: jest.fn().mockImplementation(async (args: { data: unknown }) => {
+        tx.staged.push({ table: 'statementDownload', data: args.data })
+        return { id: 'download-1' }
+      }),
+    },
+  }
+  // The account change is written through the client it is handed: the transaction's, or (with none
+  // handed over) straight to the database, as CourierAccountRepository.record does.
+  const accounts = {
+    record: jest.fn().mockImplementation(async (changes: unknown[], client?: typeof tx) => {
+      const rows = changes.map((data) => ({ table: 'courierAccountChange', data }))
+      if (client) client.staged.push(...rows)
+      else committed.push(...rows)
+    }),
+  }
   // The real service, so the statement is fed by the screen's own function.
   const timeWorked = new TimeWorkedService(repository as any, config as any)
   const earnings = jest.spyOn(timeWorked, 'earnings')
-  const service = new StatementService(timeWorked, config as any, accounts as any, prisma as any)
-  return { service, timeWorked, earnings, repository, config, prisma, accounts }
+  const service = options.withRecordRepository
+    ? new StatementService(timeWorked, config as any, accounts as any, prisma as any, repository as any)
+    : new StatementService(timeWorked, config as any, accounts as any, prisma as any)
+  return { service, timeWorked, earnings, repository, config, prisma, accounts, tx, committed }
+}
+
+interface Written {
+  table: string
+  data: unknown
+}
+
+// Jest hands each test file a copy of `process.env`, so setting `process.env.TZ` inside a test changes
+// nothing: the clock zone only moves when the real one is written. `vm.runInThisContext` runs in Node's own
+// context, outside Jest's sandbox, which is where the real `process` lives.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const realEnv: NodeJS.ProcessEnv = require('vm').runInThisContext('process.env')
+
+// Minutes this process's clock is ahead of UTC at noon UTC on 15 January 2026 (no zone is changing then).
+const clockOffsetMinutes = () => 0 - new Date('2026-01-15T12:00:00Z').getTimezoneOffset()
+
+// Runs `work` with the process clock zone forced to `zone`, then puts the zone back. The server need not
+// run on Athens time, and the review found a month boundary that was only right when it did.
+async function inZone<T>(zone: string, work: () => Promise<T>): Promise<T> {
+  const before = realEnv.TZ
+  realEnv.TZ = zone
+  try {
+    return await work()
+  } finally {
+    if (before === undefined) delete realEnv.TZ
+    else realEnv.TZ = before
+  }
 }
 
 describe('StatementService: the statement equals the Earnings screen (spec 0050 AC-3, cross check 6)', () => {
@@ -383,6 +447,142 @@ describe('StatementService: the statement equals the Earnings screen (spec 0050 
     expect(model.addedLaterCents).toBe(50)
     expect(model.monthEnd).toBe('2026-10-31')
     expect(model.madeAt).toEqual(NOW)
+  })
+
+  // Review ruling (2026-11-21): "added later" starts at the next month's own first day in Athens time. Adding
+  // a month to October's first instant was an hour off in October and March on a server not on Athens time.
+  describe('review fix: the month ends at midnight in Athens, whatever zone the server runs in', () => {
+    // 1 November 2026, 00:00 in Athens (UTC+2 since 25 October) is 31 October 22:00Z.
+    const octoberWithEdges = () => {
+      const records = octoberRecords()
+      records.compensations.push(
+        // 23:30 on 31 October in Athens: still October.
+        comp('c-2130', 'd1', 1, R.REVIEW, '2026-10-31T21:30:00Z'),
+        // The last millisecond of October in Athens.
+        comp('c-last-ms', 'd1', 2, R.REVIEW, '2026-10-31T21:59:59.999Z'),
+        // The first instant of November in Athens.
+        comp('c-first-ms', 'd1', 4, R.REVIEW, '2026-10-31T22:00:00.000Z'),
+        // 00:30 on 1 November in Athens.
+        comp('c-2230', 'd1', 8, R.REVIEW, '2026-10-31T22:30:00Z')
+      )
+      return records
+    }
+
+    // 1 April 2026, 00:00 in Athens (UTC+3 since 29 March) is 31 March 21:00Z.
+    const marchWithEdges = () => ({
+      statusChanges: [
+        statusChange('m1', '2026-03-10T08:00:00Z', true),
+        statusChange('m2', '2026-03-10T12:00:00Z', false),
+      ],
+      statusBefore: new Map(),
+      acceptedDeliveries: new Map([[COURIER, new Set(['d1'])]]),
+      events: [event('d1', E.ACCEPTED, '2026-03-10T09:00:00Z'), event('d1', E.DROPPED_OFF, '2026-03-10T09:30:00Z')],
+      deliveries: [delivery('d1', 350, 100, 2.5, 'Souvlaki Bar')],
+      compensations: [
+        // 23:30 on 31 March in Athens: still March.
+        comp('m-2030', 'd1', 1, R.REVIEW, '2026-03-31T20:30:00Z'),
+        // The last millisecond of March in Athens.
+        comp('m-last-ms', 'd1', 2, R.REVIEW, '2026-03-31T20:59:59.999Z'),
+        // The first instant of April in Athens.
+        comp('m-first-ms', 'd1', 4, R.REVIEW, '2026-03-31T21:00:00.000Z'),
+        // 00:30 on 1 April in Athens (an hour earlier in UTC than it would be in winter).
+        comp('m-2130', 'd1', 8, R.REVIEW, '2026-03-31T21:30:00Z'),
+      ],
+      everAccepted: new Set([`${COURIER}:d1`]),
+    })
+
+    const ZONES = ['UTC', 'Europe/Athens', 'America/New_York', 'Asia/Tokyo']
+
+    // Without this the tests below could pass while proving nothing: they only mean something if the
+    // process clock really moves.
+    test.each([
+      ['UTC', 0],
+      ['Europe/Athens', 120],
+      ['America/New_York', -300],
+      ['Asia/Tokyo', 540],
+    ])(
+      'the test really moves the process clock: on %s it is %i minutes ahead of UTC in January',
+      async (zone, minutes) => {
+        const outside = clockOffsetMinutes()
+
+        expect(await inZone(zone, async () => clockOffsetMinutes())).toBe(minutes)
+        // And it is put back afterwards.
+        expect(clockOffsetMinutes()).toBe(outside)
+      }
+    )
+
+    test.each(ZONES)(
+      'October (the clocks went back on the 25th), server on %s: 21:59:59.999Z on the 31st is not added later, 22:00Z is',
+      async (zone) => {
+        const { service } = setup({ records: octoberWithEdges() })
+
+        const model = await inZone(zone, () => service.model(COURIER, '2026-10', 'en', NOW))
+
+        // The 50 written on 3 November, plus the two written from midnight in Athens on: 4 + 8.
+        expect(model.addedLaterCents).toBe(62)
+        // All four are in October's money either way: they are on an October job.
+        expect(model.totals.moneyCents).toBe(3200 + 1 + 2 + 4 + 8)
+      }
+    )
+
+    test.each(ZONES)(
+      'March (the clocks went forward on the 29th), server on %s: 20:59:59.999Z on the 31st is not added later, 21:00Z is',
+      async (zone) => {
+        const { service } = setup({ records: marchWithEdges(), createdAt: at('2026-01-10T09:00:00Z') })
+
+        const model = await inZone(zone, () => service.model(COURIER, '2026-03', 'en', NOW))
+
+        expect(model.jobs.map((job) => job.deliveryId)).toEqual(['d1'])
+        expect(model.addedLaterCents).toBe(12)
+      }
+    )
+
+    test.each(ZONES)(
+      'a month with no clock change (September), server on %s: the boundary is 21:00Z on the 30th',
+      async (zone) => {
+        const records = {
+          ...marchWithEdges(),
+          statusChanges: [
+            statusChange('s1', '2026-09-10T08:00:00Z', true),
+            statusChange('s2', '2026-09-10T12:00:00Z', false),
+          ],
+          events: [event('d1', E.ACCEPTED, '2026-09-10T09:00:00Z'), event('d1', E.DROPPED_OFF, '2026-09-10T09:30:00Z')],
+          compensations: [
+            comp('s-last-ms', 'd1', 2, R.REVIEW, '2026-09-30T20:59:59.999Z'),
+            comp('s-first-ms', 'd1', 4, R.REVIEW, '2026-09-30T21:00:00.000Z'),
+          ],
+        }
+        const { service } = setup({ records })
+
+        const model = await inZone(zone, () => service.model(COURIER, '2026-09', 'en', NOW))
+
+        expect(model.addedLaterCents).toBe(4)
+      }
+    )
+  })
+
+  // Review ruling (2026-11-21): km are paid only on a job that ended in the rider's drop off.
+  test('review fix: the km are on the delivered jobs only; a reassigned or cancelled job has none', async () => {
+    const { service } = setup({ records: octoberRecords() })
+
+    const model = await service.model(COURIER, '2026-10', 'en', NOW)
+
+    // d3 was reassigned and d4 cancelled before pickup: their deliveries carry 2 and 1.5 km, paid to nobody here.
+    expect(model.jobs.map((job) => [job.deliveryId, job.paidKm])).toEqual([
+      ['d1', 2.5],
+      ['d2', 3.2],
+      ['d3', null],
+      ['d4', null],
+      ['d5', 4.1],
+      ['d6', 9.9],
+      ['d8', 1.9],
+    ])
+    const csv = (await service.file(COURIER, '2026-10', 'csv', 'en', NOW)).body.toString('utf8')
+    const line = (name: string) => csv.split('\r\n').find((row) => row.includes(`"${name}"`)) ?? ''
+    // The fourth cell is Paid km.
+    expect(line('Burger Spot').split(';')[3]).toBe('""')
+    expect(line('Cancelled Kitchen').split(';')[3]).toBe('""')
+    expect(line('Souvlaki Bar').split(';')[3]).toBe('"2.5"')
   })
 
   test('cross check 3: time recorded from before the month is shown; from inside it, every time total is null', async () => {
@@ -601,6 +801,127 @@ describe('StatementService.offeredMonths (spec 0050 AC-1, cross check 2)', () =>
     await expect(service.offeredMonths('nobody', NOW)).rejects.toBeInstanceOf(errors.NotFoundException)
   })
 
+  // Review ruling (2026-11-21): a month before the time record began holds no recorded jobs, so months are
+  // offered only from the month the record began, when that is later than the rider's own first month.
+  describe('review fix: no month before the time record began', () => {
+    test("the record began after the rider's first month: the months start at the record's month", async () => {
+      const { service, repository } = setup({
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-09-10T08:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      // September straddles the start of the record and is still offered; June to August are not.
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09'])
+      expect(repository.findRecordedFrom).toHaveBeenCalled()
+    })
+
+    test('a first accepted job from before the record does not bring the earlier months back', async () => {
+      const { service } = setup({
+        createdAt: at('2026-08-15T09:00:00Z'),
+        firstAccept: at('2026-05-02T09:00:00Z'),
+        recordedFrom: at('2026-09-10T08:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09'])
+    })
+
+    test("the record began before the rider's first month: the rider's first month stands", async () => {
+      const { service } = setup({
+        createdAt: at('2026-08-15T09:00:00Z'),
+        recordedFrom: at('2026-01-01T00:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09', '2026-08'])
+    })
+
+    test("the record began in the rider's first month: nothing changes", async () => {
+      const { service } = setup({
+        createdAt: at('2026-08-15T09:00:00Z'),
+        recordedFrom: at('2026-08-20T00:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09', '2026-08'])
+    })
+
+    test("the record's month is read in Athens time (00:30 on 1 October in Athens is 30 September in UTC)", async () => {
+      const october = setup({
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-09-30T21:30:00Z'),
+        withRecordRepository: true,
+      })
+      // 23:30 on 30 September in Athens.
+      const september = setup({
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-09-30T20:30:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await october.service.offeredMonths(COURIER, NOW)).toEqual(['2026-10'])
+      expect(await september.service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09'])
+    })
+
+    test('the record began this month: no month is offered yet', async () => {
+      const { service } = setup({
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-11-05T08:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual([])
+    })
+
+    test("no time record at all: the rider's first month stands", async () => {
+      const { service } = setup({
+        createdAt: at('2026-08-15T09:00:00Z'),
+        recordedFrom: null,
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09', '2026-08'])
+    })
+
+    test('a month before the record began answers 400, for the rider and for an admin, and nothing is recorded', async () => {
+      const { service, earnings, committed } = setup({
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-09-10T08:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      await expect(service.model(COURIER, '2026-08', 'el', NOW)).rejects.toBeInstanceOf(BadRequestException)
+      await expect(service.file(COURIER, '2026-08', 'csv', 'el', NOW)).rejects.toBeInstanceOf(BadRequestException)
+      await expect(service.fileForAdmin(COURIER, '2026-08', 'pdf', 'el', ADMIN, NOW)).rejects.toBeInstanceOf(
+        BadRequestException
+      )
+      expect(earnings).not.toHaveBeenCalled()
+      expect(committed).toEqual([])
+    })
+
+    test('the straddling month is made, with its time totals marked as not recorded', async () => {
+      const { service } = setup({
+        records: octoberRecords(),
+        createdAt: at('2026-06-10T09:00:00Z'),
+        recordedFrom: at('2026-10-03T00:00:00Z'),
+        withRecordRepository: true,
+      })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10'])
+      const model = await service.model(COURIER, '2026-10', 'en', NOW)
+      expect(model.timeRecorded).toBe(false)
+      expect(model.totals.workSeconds).toBeNull()
+    })
+
+    test("built without the repository, the floor is skipped: months run back to the rider's first month", async () => {
+      // The time record began in September, but this service was not handed the repository that knows it.
+      const { service } = setup({ createdAt: at('2026-06-10T09:00:00Z'), recordedFrom: at('2026-09-10T08:00:00Z') })
+
+      expect(await service.offeredMonths(COURIER, NOW)).toEqual(['2026-10', '2026-09', '2026-08', '2026-07', '2026-06'])
+    })
+  })
+
   test('monthsBetween lists every month from the last back to the first', () => {
     expect(monthsBetween('2026-11', '2027-02')).toEqual(['2027-02', '2027-01', '2026-12', '2026-11'])
     expect(monthsBetween('2026-10', '2026-10')).toEqual(['2026-10'])
@@ -687,14 +1008,13 @@ describe('StatementService.fileForAdmin (spec 0050 AC-9, cross check 14)', () =>
   })
 
   test('AC-9: each admin download writes one StatementDownload row: who, whose, which month, which format', async () => {
-    const { service, prisma } = setup()
+    const { service, committed } = setup()
 
     await service.fileForAdmin(COURIER, '2026-10', 'pdf', 'el', ADMIN, NOW)
 
-    expect(prisma.statementDownload.create).toHaveBeenCalledTimes(1)
-    expect(prisma.statementDownload.create).toHaveBeenCalledWith({
-      data: { adminUserId: ADMIN, courierId: COURIER, month: '2026-10', format: 'pdf' },
-    })
+    expect(committed.filter((row) => row.table === 'statementDownload')).toEqual([
+      { table: 'statementDownload', data: { adminUserId: ADMIN, courierId: COURIER, month: '2026-10', format: 'pdf' } },
+    ])
   })
 
   test('cross check 14: and one STATEMENT_DOWNLOADED account change, so the rider sees it in "Changes by the co-op"', async () => {
@@ -721,13 +1041,94 @@ describe('StatementService.fileForAdmin (spec 0050 AC-9, cross check 14)', () =>
     ['a month before the rider joined', '2026-07'],
     ['a malformed month', 'last-month'],
   ])('AC-9, AC-10: %s is refused with 400 and nothing is recorded', async (_name, month) => {
-    const { service, prisma, accounts } = setup()
+    const { service, prisma, accounts, tx, committed } = setup()
 
     await expect(service.fileForAdmin(COURIER, month, 'pdf', 'el', ADMIN, NOW)).rejects.toBeInstanceOf(
       BadRequestException
     )
     expect(prisma.statementDownload.create).not.toHaveBeenCalled()
+    expect(tx.statementDownload.create).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(accounts.record).not.toHaveBeenCalled()
+    expect(committed).toEqual([])
+  })
+
+  // Review ruling (2026-11-21): the download row and the rider's notice are written together or not at all.
+  describe('review fix: the download and the account change are one transaction', () => {
+    test('both are written through the same transaction, and nothing outside it', async () => {
+      const { service, prisma, accounts, tx, committed } = setup()
+
+      await service.fileForAdmin(COURIER, '2026-10', 'csv', 'el', ADMIN, NOW)
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(tx.statementDownload.create).toHaveBeenCalledTimes(1)
+      // Not straight to the database, where a later failure could not undo it.
+      expect(prisma.statementDownload.create).not.toHaveBeenCalled()
+      // The account change is handed the transaction's own client.
+      expect(accounts.record).toHaveBeenCalledTimes(1)
+      expect(accounts.record.mock.calls[0][1]).toBe(tx)
+      expect(committed).toEqual([
+        {
+          table: 'statementDownload',
+          data: { adminUserId: ADMIN, courierId: COURIER, month: '2026-10', format: 'csv' },
+        },
+        {
+          table: 'courierAccountChange',
+          data: {
+            courierId: COURIER,
+            actorUserId: ADMIN,
+            actorIsRider: false,
+            kind: EnumCourierAccountChangeKind.STATEMENT_DOWNLOADED,
+            field: 'statement',
+            newValue: '2026-10 CSV',
+          },
+        },
+      ])
+    })
+
+    test.each([['pdf'], ['csv']] as const)(
+      'if the account change fails, no %s download row is kept and no file is returned',
+      async (format) => {
+        const { service, accounts, committed } = setup({ records: octoberRecords() })
+        const failure = new Error('the account change could not be written')
+        accounts.record.mockRejectedValue(failure)
+
+        let file: unknown = 'no answer'
+        const call = service.fileForAdmin(COURIER, '2026-10', format, 'en', ADMIN, NOW).then((made) => {
+          file = made
+          return made
+        })
+
+        await expect(call).rejects.toBe(failure)
+        expect(file).toBe('no answer')
+        // The admin got nothing, so the rider's list of downloads must not gain a row.
+        expect(committed).toEqual([])
+      }
+    )
+
+    test('if the download row fails, no account change is written and no file is returned', async () => {
+      const { service, accounts, tx, committed } = setup()
+      const failure = new Error('the download could not be written')
+      tx.statementDownload.create.mockRejectedValue(failure)
+
+      await expect(service.fileForAdmin(COURIER, '2026-10', 'pdf', 'el', ADMIN, NOW)).rejects.toBe(failure)
+      expect(accounts.record).not.toHaveBeenCalled()
+      expect(committed).toEqual([])
+    })
+
+    test('a second download is a second pair of rows', async () => {
+      const { service, committed } = setup()
+
+      await service.fileForAdmin(COURIER, '2026-10', 'pdf', 'el', ADMIN, NOW)
+      await service.fileForAdmin(COURIER, '2026-09', 'csv', 'el', ADMIN, NOW)
+
+      expect(committed.map((row) => row.table)).toEqual([
+        'statementDownload',
+        'courierAccountChange',
+        'statementDownload',
+        'courierAccountChange',
+      ])
+    })
   })
 })
 
@@ -769,6 +1170,19 @@ describe('StatementService.downloads (spec 0050 AC-9)', () => {
     ])
     const args = prisma.statementDownload.findMany.mock.calls[0][0]
     expect(args.where).toEqual({ courierId: COURIER })
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+  })
+
+  // Review ruling (2026-11-21): the list was unbounded; it is the newest 50.
+  test('review fix: asks the database for at most the newest 50', async () => {
+    const { service, prisma } = setup()
+
+    await service.downloads(COURIER)
+
+    expect(prisma.statementDownload.findMany).toHaveBeenCalledTimes(1)
+    const args = prisma.statementDownload.findMany.mock.calls[0][0]
+    expect(args.take).toBe(50)
+    // Newest first, so the 50 kept are the newest.
     expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
   })
 })

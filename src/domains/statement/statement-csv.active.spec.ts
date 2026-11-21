@@ -89,6 +89,56 @@ describe('csvCell (spec 0050 AC-5)', () => {
     expect(csvCell(value)).toBe(`"'${value}"`)
   })
 
+  // Review fix (2026-11-21): a plain number stays a number, so a spreadsheet can add it up.
+  test.each([['-0.55'], ['-0,55'], ['-12'], ['-1234.5'], ['-0'], ['0.55'], ['12,50'], ['7']])(
+    'review fix: the plain number %s is not guarded',
+    (value) => {
+      expect(csvCell(value)).toBe(`"${value}"`)
+    }
+  )
+
+  test.each([
+    ['a word', '-cmd'],
+    ['a formula after a number', '-0.55+A1'],
+    ['a sum', '-1-1'],
+    ['two minus signs', '--5'],
+    ['a minus alone', '-'],
+    ['a number then a call', '-2*SUM(A1:A9)'],
+    ['a number then text', '-5 apples'],
+    ['a second line', '-5\n=A1'],
+    ['a cell reference', '-A1'],
+    ['two decimal marks', '-1.2.3'],
+    ['a thousands mark', '-1.234,50'],
+    ['no digit before the mark', '-.5'],
+    ['an exponent', '-1e5'],
+    ['a space first', '- 5'],
+  ])('review fix: text starting with - that is not a plain number (%s) is still guarded', (_name, value) => {
+    expect(csvCell(value)).toBe(`"'${value}"`)
+  })
+
+  test.each([['+0.55'], ['+5'], ['=5'], ['=-0.55'], ['@5']])(
+    'review fix: %s starts with another formula mark, so it is still guarded',
+    (value) => {
+      expect(csvCell(value)).toBe(`"'${value}"`)
+    }
+  )
+
+  test('review fix: in a whole file a correction that takes money back is a plain negative amount, in each language', () => {
+    const jobs = [statementRow({ reviewCents: -55, totalCents: 475 })]
+    const english = parse(statementCsv(en({ jobs })))
+    const greek = parse(statementCsv(statementModel({ jobs })))
+
+    // Review correction is the 13th column.
+    expect(english[1]?.[12]).toBe('-0.55')
+    expect(greek[1]?.[12]).toBe('-0,55')
+  })
+
+  test('review fix: a restaurant named like a formula is still guarded in a whole file', () => {
+    const rows = parse(statementCsv(en({ jobs: [statementRow({ pickupName: '-1+cmd|calc' })] })))
+
+    expect(rows[1]?.[1]).toBe("'-1+cmd|calc")
+  })
+
   test('a cell with one of those marks later in it is left alone', () => {
     expect(csvCell('A=B')).toBe('"A=B"')
     expect(csvCell('Fish + Chips')).toBe('"Fish + Chips"')
@@ -394,8 +444,25 @@ describe('statementCsv: the totals block (spec 0050 AC-2, AC-5, cross checks 3, 
     ])
     expect(totals[1]).toEqual(['Money', '5.30'])
     expect(totals[9]).toEqual(['Per paid km', '2.03'])
-    expect(totals[10]).toEqual(['Time worked was not yet recorded for the whole month, so the hours are not shown.'])
+    // Review ruling (2026-11-21): the note names the jobs too, not only the hours.
+    expect(totals[10]).toEqual([
+      'Work was not yet recorded for the whole month: jobs and hours from before the record began are not shown.',
+    ])
     expect(totals[totals.length - 1]).toEqual(['Your record of work. It is not an invoice.'])
+  })
+
+  test('review fix: the Greek file carries the Greek note about jobs and hours from before the record began', () => {
+    const csv = statementCsv(statementModel({ timeRecorded: false }))
+
+    expect(parse(csv)).toContainEqual([
+      'Η εργασία δεν καταγραφόταν ακόμη για όλο τον μήνα: οι διανομές και οι ώρες πριν από την έναρξη της καταγραφής δεν εμφανίζονται.',
+    ])
+    expect(csv).not.toContain('Work was not yet recorded')
+  })
+
+  test('review fix: with time recorded for the whole month there is no such note', () => {
+    expect(statementCsv(en({ timeRecorded: true }))).not.toContain('not yet recorded')
+    expect(statementCsv(statementModel({ timeRecorded: true }))).not.toContain('δεν καταγραφόταν')
   })
 
   test('with time recorded there is no "not recorded" anywhere, and a rate with too little behind it is left empty', () => {

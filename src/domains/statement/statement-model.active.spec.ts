@@ -155,6 +155,27 @@ describe('jobRow (spec 0050 AC-2, cross checks 7, 8, 13)', () => {
     expect(row.minutes).toBe(26)
   })
 
+  // Review ruling (2026-11-21): km are paid only on a job that ended in the rider's drop off, so any other
+  // job shows none, even though its delivery has a distance.
+  test.each([
+    ['reassigned', EnumJobEndLabel.REASSIGNED],
+    ['cancelled before pickup', EnumJobEndLabel.CANCELLED],
+    ['cancelled after pickup', EnumJobEndLabel.CANCELLED_AFTER_PICKUP],
+    ['removed', EnumJobEndLabel.REMOVED],
+    ['handed back', EnumJobEndLabel.HANDED_BACK],
+    ['still in progress', EnumJobEndLabel.IN_PROGRESS],
+  ])('review fix: a job that was %s carries no km', (_name, endLabel) => {
+    const row = jobRow(workedJob({ droppedOff: false, deliveryMoneyCents: 0, paidKm: 3.2, endLabel }), 0, NOW)
+
+    expect(row.paidKm).toBeNull()
+  })
+
+  test('review fix: a job that ended in the drop off keeps its km, and one with no distance stored has none', () => {
+    expect(jobRow(workedJob({ droppedOff: true, paidKm: 3.2 }), 0, NOW).paidKm).toBe(3.2)
+    expect(jobRow(workedJob({ droppedOff: true, paidKm: 0 }), 0, NOW).paidKm).toBe(0)
+    expect(jobRow(workedJob({ droppedOff: true, paidKm: null }), 0, NOW).paidKm).toBeNull()
+  })
+
   test('cross check 13: a job still open counts its minutes to the moment the statement is made', () => {
     const row = jobRow(
       workedJob({

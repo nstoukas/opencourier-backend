@@ -65,6 +65,32 @@ describe('statement labels (spec 0050 AC-6)', () => {
     expect(STATEMENT_LABELS.en.notRecordedNote).toMatch(/not yet recorded/)
   })
 
+  // Review ruling (2026-11-21): in a month the record began part way through, the jobs from before that day
+  // are missing too, not only the hours, and the note has to say so.
+  test('review fix: the footnote says jobs and hours from before the record began are not shown, in each language', () => {
+    expect(STATEMENT_LABELS.en.notRecordedNote).toBe(
+      'Work was not yet recorded for the whole month: jobs and hours from before the record began are not shown.'
+    )
+    expect(STATEMENT_LABELS.el.notRecordedNote).toBe(
+      'Η εργασία δεν καταγραφόταν ακόμη για όλο τον μήνα: οι διανομές και οι ώρες πριν από την έναρξη της καταγραφής δεν εμφανίζονται.'
+    )
+    // Both name the jobs and the hours.
+    expect(STATEMENT_LABELS.en.notRecordedNote).toMatch(/jobs and hours/)
+    expect(STATEMENT_LABELS.el.notRecordedNote).toMatch(/διανομές/)
+    expect(STATEMENT_LABELS.el.notRecordedNote).toMatch(/ώρες/)
+  })
+
+  // Review ruling (2026-11-21): the Greek "Cancelled after pickup" was cut in the PDF's Ended column.
+  test('review fix: the Greek label for a job cancelled after pickup is the shorter one', () => {
+    const label = STATEMENT_LABELS.el.ends[EnumJobEndLabel.CANCELLED_AFTER_PICKUP]
+
+    expect(label).toBe('Ακύρωση μετά παραλαβή')
+    expect(label.length).toBeLessThan('Ακυρώθηκε μετά την παραλαβή'.length)
+    // Still told apart from a plain cancellation.
+    expect(label).not.toBe(STATEMENT_LABELS.el.ends[EnumJobEndLabel.CANCELLED])
+    expect(STATEMENT_LABELS.en.ends[EnumJobEndLabel.CANCELLED_AFTER_PICKUP]).toBe('Cancelled after pickup')
+  })
+
   test('cross check 5: the "Added after" line carries the month end and the amount', () => {
     expect(STATEMENT_LABELS.en.addedLater('2026-10-31', '€0.50')).toBe('Added after 2026-10-31: €0.50')
     const greek = STATEMENT_LABELS.el.addedLater('2026-10-31', '0,50 €')
