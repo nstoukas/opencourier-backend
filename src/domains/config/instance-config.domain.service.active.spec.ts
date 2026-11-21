@@ -780,9 +780,11 @@ describe('InstanceConfigDomainService', () => {
 
     describe('truthy check guard', () => {
       it('fails if numeric setting saves switch back to truthy checks (if (data.x)) instead of !== undefined', async () => {
-        // Test all zero-allowed settings dynamically derived from NUMERIC_SETTING_RULES
+        // Test all zero-allowed settings dynamically derived from NUMERIC_SETTING_RULES.
+        // Spec 0044 (AC-5): fairness weights cannot all be 0 at once, so exclude them from the bulk all-zero batch.
+        const fairnessWeightKeys = ['fairnessWeightRoadTime', 'fairnessWeightEarnings', 'fairnessWeightWaiting']
         const zeroAllowedSettings = NUMERIC_SETTING_RULES.filter(
-          (rule) => rule.whyZeroIsRefused === null
+          (rule) => rule.whyZeroIsRefused === null && !fairnessWeightKeys.includes(rule.key)
         )
         const payload = zeroAllowedSettings.reduce(
           (acc, rule) => ({ ...acc, [rule.key]: 0 }),
@@ -795,6 +797,15 @@ describe('InstanceConfigDomainService', () => {
         zeroAllowedSettings.forEach((rule) => {
           expect(configRepository.saveByKey).toHaveBeenCalledWith(rule.key, 0, mockTx)
         })
+
+        // Also assert that each fairness weight can be saved as 0 individually (with non-zero companions)
+        for (const key of fairnessWeightKeys) {
+          const companions = fairnessWeightKeys
+            .filter((k) => k !== key)
+            .reduce((acc, k) => ({ ...acc, [k]: 50 }), {})
+          await service.setInstanceConfigSettings({ [key]: 0, ...companions })
+          expect(configRepository.saveByKey).toHaveBeenCalledWith(key, 0, mockTx)
+        }
       })
     })
 

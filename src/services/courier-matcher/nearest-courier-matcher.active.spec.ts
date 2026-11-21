@@ -3,6 +3,7 @@ import { CourierDomainService } from 'src/domains/courier/courier.domain.service
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { GeoPosition } from 'src/shared-types'
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 
 // Acceptance Criteria AC-1, AC-4, AC-5: NearestCourierMatcherService tests
 describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
@@ -68,6 +69,10 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
       expect(result).toEqual({
         courierId: 'courier-straight-nearest',
         distance: 450,
+        reason: {
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: { straightMetres: 450 },
+        },
       })
       // travelSeconds is undefined when timing is off
       expect(result?.travelSeconds).toBeUndefined()
@@ -140,6 +145,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-B',
         distance: 800,
         travelSeconds: 240,
+        reason: {
+          candidateCount: 3,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: 240,
+            straightMetres: 800,
+          },
+        },
       })
     })
 
@@ -172,6 +185,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-A',
         distance: 400,
         travelSeconds: 300,
+        reason: {
+          candidateCount: 2,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: 300,
+            straightMetres: 400,
+          },
+        },
       })
     })
 
@@ -211,6 +232,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-B',
         distance: 900,
         travelSeconds: 500,
+        reason: {
+          candidateCount: 2,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: 500,
+            straightMetres: 900,
+          },
+        },
       })
     })
 
@@ -257,6 +286,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-B',
         distance: 800,
         travelSeconds: 500,
+        reason: {
+          candidateCount: 3,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: 500,
+            straightMetres: 800,
+          },
+        },
       })
 
       // 2. When only candidates with no route exist, they preserve their nearest-first straight-line order
@@ -286,6 +323,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-A',
         distance: 200,
         travelSeconds: null,
+        reason: {
+          candidateCount: 2,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: null,
+            straightMetres: 200,
+          },
+        },
       })
     })
 
@@ -317,6 +362,14 @@ describe('NearestCourierMatcherService (Spec 0031: AC-1, AC-4, AC-5)', () => {
         courierId: 'courier-A',
         distance: 300,
         travelSeconds: null,
+        reason: {
+          candidateCount: 2,
+          strategy: EnumCourierMatcherType.NEAREST_COURIER,
+          values: {
+            roadSeconds: null,
+            straightMetres: 300,
+          },
+        },
       })
     })
 

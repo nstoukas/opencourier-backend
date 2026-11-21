@@ -302,4 +302,101 @@ describe('OsrmRoutingService', () => {
       expect.objectContaining({ timeout: 5000 })
     )
   })
+
+  describe('getTableSecondsTo (Spec 0044: AC-2, decision 12.2)', () => {
+    const destination = { latitude: 39.3621, longitude: 22.9421 }
+    const origins = [
+      { latitude: 39.365, longitude: 22.945 },
+      { latitude: 39.37, longitude: 22.95 },
+    ]
+
+    test('builds /table request with destination as index 0 and origins as sources, mapping duration results', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'Ok',
+          durations: [[180], [320]],
+        },
+      })
+
+      const result = await service.getTableSecondsTo(destination, origins)
+
+      expect(result).toEqual([180, 320])
+      // OSRM coordinates: lon,lat. Destination is 0, origins are 1 and 2.
+      const expectedPoints = `22.9421,39.3621;22.945,39.365;22.95,39.37`
+      const expectedUrl = `http://localhost:5000/table/v1/driving/${expectedPoints}?sources=1;2&destinations=0&annotations=duration`
+      expect(mockHttpService.axiosRef.get).toHaveBeenCalledWith(
+        expectedUrl,
+        expect.objectContaining({ timeout: 3000 })
+      )
+    })
+
+    test('maps unroutable entries (null) correctly', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'Ok',
+          durations: [[150], [null], ['invalid']],
+        },
+      })
+
+      const result = await service.getTableSecondsTo(destination, [
+        origins[0]!,
+        origins[1]!,
+        { latitude: 39.38, longitude: 22.96 },
+      ])
+
+      expect(result).toEqual([150, null, null])
+    })
+
+    test('returns empty array when origins is empty without making HTTP call', async () => {
+      const result = await service.getTableSecondsTo(destination, [])
+      expect(result).toEqual([])
+      expect(mockHttpService.axiosRef.get).not.toHaveBeenCalled()
+    })
+
+    test('throws EnvVarMissingException when OSRM_URL is missing', async () => {
+      mockConfigService.get.mockReturnValue(undefined)
+      const unconfigured = new OsrmRoutingService(mockHttpService as any, mockConfigService)
+
+      await expect(unconfigured.getTableSecondsTo(destination, origins)).rejects.toThrow(
+        EnvVarMissingException
+      )
+    })
+
+    test('throws ServiceUnavailableException when response code is not Ok', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'InvalidQuery',
+          durations: [],
+        },
+      })
+
+      await expect(service.getTableSecondsTo(destination, origins)).rejects.toThrow(
+        ServiceUnavailableException
+      )
+    })
+
+    test('throws ServiceUnavailableException when durations length does not match origins length', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'Ok',
+          durations: [[120]], // Only 1 duration for 2 origins
+        },
+      })
+
+      await expect(service.getTableSecondsTo(destination, origins)).rejects.toThrow(
+        ServiceUnavailableException
+      )
+    })
+
+    test('throws ServiceUnavailableException and logs error without coordinates when axios throws', async () => {
+      mockHttpService.axiosRef.get.mockRejectedValueOnce(new Error('Network connection timeout'))
+
+      await expect(service.getTableSecondsTo(destination, origins)).rejects.toThrow(
+        ServiceUnavailableException
+      )
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Network connection timeout')
+      )
+    })
+  })
 })

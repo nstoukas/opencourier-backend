@@ -496,7 +496,8 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
         'del-admin-over',
         'courier-busy',
         'Admin manual offer',
-        true
+        true,
+        'admin-1'
       )
 
       expect(mockDeliveryEventService.recordBoxEvent).toHaveBeenCalledWith(
@@ -543,7 +544,8 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
         'del-admin-fits',
         'courier-1',
         'Admin manual offer',
-        false
+        false,
+        'admin-1'
       )
       expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
     })

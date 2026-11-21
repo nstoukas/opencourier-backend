@@ -266,6 +266,7 @@ describe('DeliveryDomainService', () => {
         courierId: 'courier-new',
         droppedCourierId: 'courier-old',
         message: expectedEventMessage,
+        adminUserId: null,
       })
 
       // Case 9: Assert award row message and event message: event message ends with its award id
@@ -1089,7 +1090,8 @@ describe('DeliveryDomainService', () => {
         'del-1',
         'courier-target',
         'Admin assigned directly',
-        false
+        false,
+        null
       )
       expect(acceptSpy).not.toHaveBeenCalled()
     })

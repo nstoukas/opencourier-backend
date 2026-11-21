@@ -86,6 +86,7 @@ describe('DeliveryAdminRestApiController', () => {
       getByIdOrThrowWithQuote: jest.fn(),
       getPartnerCharge: jest.fn(),
       getWaitCharges: jest.fn().mockResolvedValue([]),
+      getOfferReasons: jest.fn().mockResolvedValue([]),
       getMany: jest.fn(),
       update: jest.fn(),
       submitDeliveryEvent: jest.fn(),
