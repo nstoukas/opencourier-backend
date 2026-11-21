@@ -13,6 +13,8 @@ import { UserDomainService } from 'src/domains/user/user.domain.service'
 import * as errors from 'src/errors'
 import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { PasswordResetCourierRestApiService } from './password-reset.courier.rest-api.service'
+import { EnumCourierAccountChangeKind } from '@prisma/types'
+import { CourierAccountRepository } from 'src/persistence/repositories/courier-account.repository'
 
 describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-13)', () => {
   let service: PasswordResetCourierRestApiService
@@ -32,6 +34,10 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
   }
   let mockCourierCutOffService: {
     cutOff: jest.Mock
+  }
+  // Spec 0051 (AC-5, cross check 10): a reset by email leaves a PASSWORD_CHANGED row.
+  let mockCourierAccountRepository: {
+    record: jest.Mock
   }
   let loggerSpies: {
     log: jest.SpyInstance
@@ -98,13 +104,17 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
     mockCourierCutOffService = {
       cutOff: jest.fn().mockResolvedValue(undefined),
     }
+    mockCourierAccountRepository = {
+      record: jest.fn().mockResolvedValue(undefined),
+    }
 
     service = new PasswordResetCourierRestApiService(
       mockPasswordResetService as unknown as PasswordResetService,
       mockPasswordService as unknown as PasswordService,
       mockUserDomainService as unknown as UserDomainService,
       mockAuthDomainService as unknown as AuthDomainService,
-      mockCourierCutOffService as unknown as CourierCutOffService
+      mockCourierCutOffService as unknown as CourierCutOffService,
+      mockCourierAccountRepository as unknown as CourierAccountRepository
     )
 
     const logger = (service as any).logger as Logger
@@ -218,6 +228,46 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
       expect(claimOrder!).toBeLessThan(updateOrder!)
       expect(updateOrder!).toBeLessThan(cutOffOrder!)
       expect(cutOffOrder!).toBeLessThan(sessionOrder!)
+    })
+
+    // Spec 0051 (AC-5, cross check 10): the rider's record shows their own reset.
+    test('a successful reset records PASSWORD_CHANGED by the rider, after the password is saved, never holding it', async () => {
+      await service.resetPassword('rider@volos.coop', '123456', 'new-strong-password')
+
+      expect(mockCourierAccountRepository.record).toHaveBeenCalledTimes(1)
+      const rows = mockCourierAccountRepository.record.mock.calls[0][0]
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        courierId: 'courier-42',
+        actorUserId: null,
+        actorIsRider: true,
+        kind: EnumCourierAccountChangeKind.PASSWORD_CHANGED,
+      })
+      expect(mockUserDomainService.update.mock.invocationCallOrder[0]).toBeLessThan(
+        mockCourierAccountRepository.record.mock.invocationCallOrder[0]!
+      )
+      const written = JSON.stringify(mockCourierAccountRepository.record.mock.calls)
+      expect(written).not.toContain('new-strong-password')
+      expect(written).not.toContain('new-hashed-password')
+      expect(written).not.toContain('123456')
+    })
+
+    test('a record that cannot be written does not fail the reset: the rider still gets the session', async () => {
+      mockCourierAccountRepository.record.mockRejectedValue(new Error('db down'))
+
+      const result = await service.resetPassword('rider@volos.coop', '123456', 'new-strong-password')
+
+      expect(result.session?.accessToken).toBe('new-jwt-token')
+      expect(mockUserDomainService.update).toHaveBeenCalledTimes(1)
+    })
+
+    test('a refused code records nothing', async () => {
+      mockPasswordResetService.claimCode.mockRejectedValue(new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE))
+
+      await expect(service.resetPassword('rider@volos.coop', '000000', 'new-strong-password')).rejects.toThrow(
+        RESET_CODE_REFUSED_MESSAGE
+      )
+      expect(mockCourierAccountRepository.record).not.toHaveBeenCalled()
     })
 
     test('when claimCode fails, nothing is updated and cut off is not called', async () => {

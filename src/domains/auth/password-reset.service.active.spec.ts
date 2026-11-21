@@ -276,6 +276,45 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
     })
   })
 
+  // Spec 0051 (AC-2, cross check 2): a deactivated rider gets no reset code and so no reset session:
+  // the lookup answers nothing, the same silent 202 as an unknown email.
+  describe('Spec 0051: findRider answers nothing for a deactivated rider (cross check 2)', () => {
+    const deactivatedRider = () =>
+      new CourierEntity({ ...mockCourierEntity, deactivatedAt: new Date('2026-11-21T09:00:00Z') })
+
+    test('returns null for a deactivated rider, by the email as typed or lower cased', async () => {
+      mockUserDomainService.findUserWithEmail.mockImplementation(async (email: string) =>
+        email === 'rider@volos.coop' ? mockCourierUser : null
+      )
+      mockCourierDomainService.getByUserId.mockResolvedValue(deactivatedRider())
+
+      await expect(service.findRider('rider@volos.coop')).resolves.toBeNull()
+      await expect(service.findRider('  Rider@Volos.Coop ')).resolves.toBeNull()
+      expect(mockCourierDomainService.getByUserId).toHaveBeenCalledWith('user-courier-1')
+    })
+
+    test('sendCodeIfRider for a deactivated rider stores no code and sends no mail', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockCourierUser)
+      mockCourierDomainService.getByUserId.mockResolvedValue(deactivatedRider())
+
+      await service.sendCodeIfRider('rider@volos.coop')
+
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.setIfAbsent).not.toHaveBeenCalled()
+      expect(mockMailService.send).not.toHaveBeenCalled()
+    })
+
+    test('an active rider (deactivatedAt null) is still found', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockCourierUser)
+      mockCourierDomainService.getByUserId.mockResolvedValue(
+        new CourierEntity({ ...mockCourierEntity, deactivatedAt: null })
+      )
+
+      const result = await service.findRider('rider@volos.coop')
+      expect(result?.courier.id).toBe(mockCourierEntity.id)
+    })
+  })
+
   describe('Clause 2 & 3: sendCodeIfRider, code rules and email (AC-7, AC-8, AC-9, AC-13)', () => {
     beforeEach(() => {
       mockUserDomainService.findUserWithEmail.mockResolvedValue(mockCourierUser)

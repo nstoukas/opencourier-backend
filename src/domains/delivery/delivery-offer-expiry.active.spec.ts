@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
 import { DeliveryDomainService } from './delivery.domain.service'
@@ -45,6 +46,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       refuseIfDispatchStopped: jest.fn().mockResolvedValue(undefined),
       // No SOS is on in these tests (spec 0022, decision 73.10).
       refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
+      // Spec 0051 (cross check 7): accept, reassign and an admin hand offer ask this first.
+      refuseIfCourierDeactivated: jest.fn().mockResolvedValue(undefined),
       rearmOfferExpiry: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
@@ -104,6 +107,25 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
       expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith(courierId)
       // Must NOT touch the delivery before checking the SOS gate
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    // Spec 0051 (cross checks 5 and 7): accept refuses a deactivated rider, so no accept slips in between
+    // a deactivation's checks and its writes. Asked before the SOS check and before the delivery is read.
+    it('refuses (409) a deactivated rider before the SOS check and before reading or writing the delivery (spec 0051)', async () => {
+      mockDeliveryEventService.refuseIfCourierDeactivated.mockRejectedValue(
+        new ConflictException("This rider's account is deactivated.")
+      )
+
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(ConflictException)
+      await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
+        "This rider's account is deactivated."
+      )
+
+      expect(mockDeliveryEventService.refuseIfCourierDeactivated).toHaveBeenCalledWith(courierId)
+      expect(mockDeliveryEventService.refuseIfCourierInSos).not.toHaveBeenCalled()
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()

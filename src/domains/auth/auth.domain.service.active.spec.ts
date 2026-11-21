@@ -1,6 +1,6 @@
 import { EnumUserRole } from '@prisma/types'
 import { AuthDomainService } from './auth.domain.service'
-import { CREDENTIALS_CHANGED_MESSAGE } from './credentials-change'
+import { CREDENTIALS_CHANGED_MESSAGE, accountDeactivatedMessage } from './credentials-change'
 import { API_KEY_DOES_NOT_WORK_MESSAGE, hashApiKey } from './api-key'
 import { UserEntity } from '../user/entities/user.entity'
 import * as errors from '../../errors'
@@ -41,6 +41,8 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
     }
     mockCourierDomainService = {
       getByUserId: jest.fn(),
+      // Spec 0051: every door asks whether the rider's account is deactivated. Active unless a test says so.
+      isUserDeactivated: jest.fn().mockResolvedValue(false),
     }
     mockPartnerDomainService = {
       getByUserId: jest.fn(),
@@ -69,7 +71,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
   })
 
   describe('AC-5: userForAuthorizationHeader token cut off', () => {
-    test('throws 401 UnauthorizedException with CREDENTIALS_CHANGED_MESSAGE when token iat is before credentialsChangedAt', async () => {
+    test('throws 401 CredentialsChangedException (code CREDENTIALS_CHANGED) with CREDENTIALS_CHANGED_MESSAGE when token iat is before credentialsChangedAt', async () => {
       const changeDate = new Date('2026-11-01T12:00:10.000Z')
       const changeSeconds = Math.floor(changeDate.getTime() / 1000)
       const user = makeUser({ credentialsChangedAt: changeDate })
@@ -82,8 +84,11 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       mockUserDomainService.findById.mockResolvedValue(user)
 
       const call = service.userForAuthorizationHeader('Bearer old-token')
-      await expect(call).rejects.toThrow(errors.UnauthorizedException)
+      // Spec 0051 (cross check 3): its own code, so the app can say why the session ended. Still a 401.
+      await expect(call).rejects.toThrow(errors.CredentialsChangedException)
       await expect(call).rejects.toThrow(CREDENTIALS_CHANGED_MESSAGE)
+      await expect(call).rejects.toMatchObject({ code: errors.ErrorCode.CREDENTIALS_CHANGED, statusCode: 401 })
+      expect(CREDENTIALS_CHANGED_MESSAGE).toBe('Your password or login email was changed. Log in again.')
     })
 
     test('returns user when token iat is in the same second as credentialsChangedAt', async () => {
@@ -134,7 +139,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
   })
 
   describe('AC-5: userForRefreshToken token cut off', () => {
-    test('throws 401 UnauthorizedException with CREDENTIALS_CHANGED_MESSAGE when refresh token iat is before credentialsChangedAt', async () => {
+    test('throws 401 CredentialsChangedException (code CREDENTIALS_CHANGED) with CREDENTIALS_CHANGED_MESSAGE when refresh token iat is before credentialsChangedAt', async () => {
       const changeDate = new Date('2026-11-01T12:00:10.000Z')
       const changeSeconds = Math.floor(changeDate.getTime() / 1000)
       const user = makeUser({ credentialsChangedAt: changeDate })
@@ -147,8 +152,10 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       mockUserDomainService.findById.mockResolvedValue(user)
 
       const call = service.userForRefreshToken('Bearer old-refresh-token')
-      await expect(call).rejects.toThrow(errors.UnauthorizedException)
+      // Spec 0051 (cross check 3): the app's renewal reads this code where the refresh is refused.
+      await expect(call).rejects.toThrow(errors.CredentialsChangedException)
       await expect(call).rejects.toThrow(CREDENTIALS_CHANGED_MESSAGE)
+      await expect(call).rejects.toMatchObject({ code: errors.ErrorCode.CREDENTIALS_CHANGED, statusCode: 401 })
     })
 
     test('returns user when refresh token iat is equal to or after credentialsChangedAt', async () => {
@@ -550,6 +557,180 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
         email: '',
         role: [EnumUserRole.COURIER],
       })
+    })
+  })
+
+  // Spec 0051 (AC-2, AC-11, cross checks 2 and 3): a deactivated rider is refused at every door with 401
+  // and the code ACCOUNT_DEACTIVATED, and the sentence ends with how to reach the co-op.
+  describe('Spec 0051: a deactivated rider is refused at every door (AC-2, AC-11)', () => {
+    const PLAIN_SENTENCE = 'Your account was deactivated by the co-op. If you think this is a mistake, contact the co-op.'
+
+    const expectDeactivatedRefusal = async (call: Promise<unknown>, sentence = PLAIN_SENTENCE) => {
+      await expect(call).rejects.toThrow(errors.AccountDeactivatedException)
+      await expect(call).rejects.toMatchObject({
+        code: errors.ErrorCode.ACCOUNT_DEACTIVATED,
+        statusCode: 401,
+        message: sentence,
+      })
+    }
+
+    beforeEach(() => {
+      mockCourierDomainService.isUserDeactivated.mockResolvedValue(true)
+    })
+
+    test('the two codes exist and are not the generic UNAUTHORIZED', () => {
+      expect(errors.ErrorCode.ACCOUNT_DEACTIVATED).toBe('ACCOUNT_DEACTIVATED')
+      expect(errors.ErrorCode.CREDENTIALS_CHANGED).toBe('CREDENTIALS_CHANGED')
+      expect(new errors.AccountDeactivatedException('x').getStatus()).toBe(401)
+      expect(new errors.CredentialsChangedException('x').getStatus()).toBe(401)
+    })
+
+    test('login with the right password: 401 ACCOUNT_DEACTIVATED, and no session is made', async () => {
+      const user = makeUser()
+      mockUserDomainService.findByEmail.mockResolvedValue(user)
+      mockPasswordService.compare.mockResolvedValue(true)
+
+      await expectDeactivatedRefusal(service.loginWithEmail({ email: 'rider@example.com', password: 'right-password' }))
+
+      expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledWith('user-1')
+      expect(mockTokenService.createEmailAuthSession).not.toHaveBeenCalled()
+    })
+
+    test('login with a wrong password learns nothing: the usual 403, and the deactivation is never looked up', async () => {
+      const user = makeUser()
+      mockUserDomainService.findByEmail.mockResolvedValue(user)
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(user)
+      mockPasswordService.compare.mockResolvedValue(false)
+
+      const call = service.loginWithEmail({ email: 'rider@example.com', password: 'wrong-password' })
+      await expect(call).rejects.toThrow(errors.ForbiddenException)
+      await expect(call).rejects.toThrow('These credentials are incorrect')
+
+      expect(mockCourierDomainService.isUserDeactivated).not.toHaveBeenCalled()
+      expect(mockTokenService.createEmailAuthSession).not.toHaveBeenCalled()
+    })
+
+    test('a bearer token: 401 ACCOUNT_DEACTIVATED', async () => {
+      const user = makeUser()
+      mockTokenService.decodeToken.mockReturnValue({ sub: user.id, email: user.email, iat: 2000000000 })
+      mockUserDomainService.findById.mockResolvedValue(user)
+
+      await expectDeactivatedRefusal(service.userForAuthorizationHeader('Bearer a-token'))
+      expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledWith('user-1')
+    })
+
+    test('a bearer token from before the credentials change still answers ACCOUNT_DEACTIVATED, not CREDENTIALS_CHANGED (checked first)', async () => {
+      // A deactivation stamps credentialsChangedAt, so every old token meets both rules; the rider must
+      // be told the real reason.
+      const changeDate = new Date('2026-11-21T09:00:00.000Z')
+      const user = makeUser({ credentialsChangedAt: changeDate })
+      mockTokenService.decodeToken.mockReturnValue({
+        sub: user.id,
+        email: user.email,
+        iat: Math.floor(changeDate.getTime() / 1000) - 3600,
+      })
+      mockUserDomainService.findById.mockResolvedValue(user)
+
+      await expectDeactivatedRefusal(service.userForAuthorizationHeader('Bearer old-token'))
+    })
+
+    test('a refresh token (the guard): 401 ACCOUNT_DEACTIVATED, also when it predates the credentials change', async () => {
+      const changeDate = new Date('2026-11-21T09:00:00.000Z')
+      const user = makeUser({ credentialsChangedAt: changeDate })
+      mockTokenService.decodeRefreshToken.mockReturnValue({
+        sub: user.id,
+        email: user.email,
+        iat: Math.floor(changeDate.getTime() / 1000) - 3600,
+      })
+      mockUserDomainService.findById.mockResolvedValue(user)
+
+      await expectDeactivatedRefusal(service.userForRefreshToken('Bearer old-refresh-token'))
+    })
+
+    test('refreshTokens (the renewal itself): 401 ACCOUNT_DEACTIVATED, and no new session is made', async () => {
+      const user = makeUser()
+      mockTokenService.decodeRefreshToken.mockReturnValue({ sub: user.id, email: user.email, iat: 2000000000 })
+      mockUserDomainService.findById.mockResolvedValue(user)
+
+      await expectDeactivatedRefusal(service.refreshTokens(user.id, 'a-refresh-token'))
+      expect(mockTokenService.createEmailAuthSession).not.toHaveBeenCalled()
+    })
+
+    test('createSessionForUser (a reset by emailed code): 401 ACCOUNT_DEACTIVATED, and no session is made', async () => {
+      await expectDeactivatedRefusal(service.createSessionForUser(makeUser()))
+      expect(mockTokenService.createEmailAuthSession).not.toHaveBeenCalled()
+    })
+
+    test('the sentence ends with the dispatch phone when the co-op has set one', async () => {
+      const mockConfigDomainService = {
+        instanceConfig: { getDispatchPhoneNumber: jest.fn().mockResolvedValue('+30 24210 12345') },
+      }
+      service = new AuthDomainService(
+        mockUserDomainService,
+        mockCourierDomainService,
+        mockPartnerDomainService,
+        mockPasswordService,
+        mockTokenService,
+        mockAblyService,
+        mockConfigDomainService as any
+      )
+
+      const sentence = accountDeactivatedMessage('+30 24210 12345')
+      expect(sentence).toBe(
+        'Your account was deactivated by the co-op. If you think this is a mistake, call the co-op on +30 24210 12345.'
+      )
+      await expectDeactivatedRefusal(service.createSessionForUser(makeUser()), sentence)
+    })
+
+    test('the refusal still goes out, in plain words, when the phone cannot be read', async () => {
+      const mockConfigDomainService = {
+        instanceConfig: { getDispatchPhoneNumber: jest.fn().mockRejectedValue(new Error('config table down')) },
+      }
+      service = new AuthDomainService(
+        mockUserDomainService,
+        mockCourierDomainService,
+        mockPartnerDomainService,
+        mockPasswordService,
+        mockTokenService,
+        mockAblyService,
+        mockConfigDomainService as any
+      )
+
+      await expectDeactivatedRefusal(service.createSessionForUser(makeUser()))
+    })
+
+    test('a user with no rider (an admin, a restaurant) is never asked and passes every door', async () => {
+      const admin = makeUser({ id: 'admin-1', email: 'admin@coop.gr', role: [EnumUserRole.ADMIN] })
+      mockTokenService.decodeToken.mockReturnValue({ sub: admin.id, email: admin.email, iat: 2000000000 })
+      mockTokenService.decodeRefreshToken.mockReturnValue({ sub: admin.id, email: admin.email, iat: 2000000000 })
+      mockTokenService.createEmailAuthSession.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' })
+      mockUserDomainService.findById.mockResolvedValue(admin)
+
+      await expect(service.userForAuthorizationHeader('Bearer admin-token')).resolves.toBe(admin)
+      await expect(service.userForRefreshToken('Bearer admin-refresh')).resolves.toBe(admin)
+      await expect(service.createSessionForUser(admin)).resolves.toMatchObject({ user: admin })
+      expect(mockCourierDomainService.isUserDeactivated).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Spec 0051: an active rider passes every door', () => {
+    test('login, bearer, refresh and a reset session all ask isUserDeactivated and let an active rider in', async () => {
+      const user = makeUser()
+      mockUserDomainService.findByEmail.mockResolvedValue(user)
+      mockUserDomainService.findById.mockResolvedValue(user)
+      mockPasswordService.compare.mockResolvedValue(true)
+      mockTokenService.decodeToken.mockReturnValue({ sub: user.id, email: user.email, iat: 2000000000 })
+      mockTokenService.decodeRefreshToken.mockReturnValue({ sub: user.id, email: user.email, iat: 2000000000 })
+      mockTokenService.createEmailAuthSession.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' })
+
+      await service.loginWithEmail({ email: 'rider@example.com', password: 'right-password' })
+      await service.userForAuthorizationHeader('Bearer a-token')
+      await service.userForRefreshToken('Bearer a-refresh-token')
+      await service.refreshTokens(user.id, 'a-refresh-token')
+      await service.createSessionForUser(user)
+
+      expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledTimes(5)
+      expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledWith('user-1')
     })
   })
 })

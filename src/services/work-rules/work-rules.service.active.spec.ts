@@ -140,6 +140,23 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.reviewAnswerDays).toBe(14)
     })
 
+    // Spec 0051 (AC-10): How offers and pay work lists deactivation among what a person decides, never
+    // the app.
+    it('lists deactivation of an account among what a person decides, never the app (spec 0051, AC-10)', async () => {
+      const result = await service.howItWorks()
+
+      const line = result.personDecides.find((sentence) => /deactivat/i.test(sentence))
+      expect(line).toBeDefined()
+      expect(line).toMatch(/^A person decides\b/)
+      expect(line).toContain('every deactivation of an account')
+      // What it listed before is still there.
+      expect(line).toContain('every removal from an order')
+      expect(line).toContain('every reassignment')
+      expect(line).toContain('every change to your account')
+      expect(line).toContain('every answer to a review request')
+      expect(result.personDecides).toContain('The app never ends or limits your account on its own.')
+    })
+
     it('updates matcher sentence when courierMatcherType is COURIER_SENIORITY', async () => {
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
         ...baseSettings,

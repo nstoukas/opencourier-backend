@@ -70,7 +70,8 @@ describe('Offline during a booked shift: the rule and the words (spec 0049)', ()
   })
 
   describe('the causes in plain words (cross check 2)', () => {
-    const CAUSES = ['RIDER', 'ADMIN', 'CUT_OFF', 'LAST_CALL_ACCEPTED', 'SYSTEM_START']
+    // Spec 0051 (cross check 4): a deactivation sets the rider Offline with its own cause.
+    const CAUSES = ['RIDER', 'ADMIN', 'CUT_OFF', 'LAST_CALL_ACCEPTED', 'SYSTEM_START', 'DEACTIVATED']
 
     test('every status change cause has words for the rider and for an admin', () => {
       expect(Object.keys(RIDER_CAUSE_WORDS).sort()).toEqual([...CAUSES].sort())

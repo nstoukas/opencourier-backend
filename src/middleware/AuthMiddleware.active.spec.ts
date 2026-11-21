@@ -1,7 +1,7 @@
 import { AuthMiddleware, BEARER_SCHEME, MIXED_CREDENTIALS_MESSAGE } from './AuthMiddleware'
-import { CREDENTIALS_CHANGED_MESSAGE } from '../domains/auth/credentials-change'
+import { CREDENTIALS_CHANGED_MESSAGE, accountDeactivatedMessage } from '../domains/auth/credentials-change'
 import { API_KEY_IN_URL_MESSAGE } from '../domains/auth/api-key'
-import { UnauthorizedException } from '../errors'
+import { AccountDeactivatedException, CredentialsChangedException, ErrorCode, UnauthorizedException } from '../errors'
 import { EnumUserRole } from '@prisma/types'
 import { UserEntity } from '../domains/user/entities/user.entity'
 import { ExtractJwt } from 'passport-jwt'
@@ -63,8 +63,9 @@ describe('AuthMiddleware', () => {
   })
 
   describe('Spec 0013 AC-5: passes 401 credentials changed on', () => {
-    test('passes 401 UnauthorizedException with CREDENTIALS_CHANGED_MESSAGE on when authorization header token was issued before credentials change', async () => {
-      const credentialsChangedErr = new UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE)
+    test('passes 401 CredentialsChangedException with CREDENTIALS_CHANGED_MESSAGE on, code kept, when authorization header token was issued before credentials change', async () => {
+      // Spec 0051 (cross check 3): the door now throws its own exception, with the code the app reads.
+      const credentialsChangedErr = new CredentialsChangedException(CREDENTIALS_CHANGED_MESSAGE)
       mockAuthService.userForAuthorizationHeader.mockRejectedValue(credentialsChangedErr)
 
       const req: any = {
@@ -84,13 +85,15 @@ describe('AuthMiddleware', () => {
       expect(next).toHaveBeenCalledTimes(1)
       const passedError = next.mock.calls[0][0]
       expect(passedError).toBe(credentialsChangedErr)
-      expect(passedError).toBeInstanceOf(UnauthorizedException)
+      expect(passedError).toBeInstanceOf(CredentialsChangedException)
+      expect(passedError).not.toBeInstanceOf(UnauthorizedException)
       expect(passedError.getStatus()).toBe(401)
+      expect(passedError.code).toBe(ErrorCode.CREDENTIALS_CHANGED)
       expect(passedError.message).toBe(CREDENTIALS_CHANGED_MESSAGE)
     })
 
-    test('passes 401 UnauthorizedException on when x-refresh-token was issued before credentials change', async () => {
-      const credentialsChangedErr = new UnauthorizedException(CREDENTIALS_CHANGED_MESSAGE)
+    test('passes 401 CredentialsChangedException on, code kept, when x-refresh-token was issued before credentials change', async () => {
+      const credentialsChangedErr = new CredentialsChangedException(CREDENTIALS_CHANGED_MESSAGE)
       mockAuthService.userForRefreshToken.mockRejectedValue(credentialsChangedErr)
 
       const req: any = {
@@ -110,6 +113,7 @@ describe('AuthMiddleware', () => {
       const passedError = next.mock.calls[0][0]
       expect(passedError).toBe(credentialsChangedErr)
       expect(passedError.getStatus()).toBe(401)
+      expect(passedError.code).toBe(ErrorCode.CREDENTIALS_CHANGED)
       expect(passedError.message).toBe(CREDENTIALS_CHANGED_MESSAGE)
     })
 
@@ -141,6 +145,54 @@ describe('AuthMiddleware', () => {
 
       expect(req.currentUser).toBe(user)
       expect(next).toHaveBeenCalledWith()
+    })
+  })
+
+  // Spec 0051 (AC-2, cross checks 2 and 3): a deactivated rider's bearer and refresh are refused with the
+  // code ACCOUNT_DEACTIVATED. The middleware must hand that error on as it is: turning it into the plain
+  // "Unauthorized" would lose the code the app's notice reads.
+  describe('Spec 0051: passes 401 ACCOUNT_DEACTIVATED on, unchanged', () => {
+    const deactivatedErr = () => new AccountDeactivatedException(accountDeactivatedMessage(null))
+
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {})
+    })
+
+    test('a bearer token of a deactivated rider: the same error reaches next, and no rider is attached', async () => {
+      const err = deactivatedErr()
+      mockAuthService.userForAuthorizationHeader.mockRejectedValue(err)
+      const req: any = { headers: { authorization: 'Bearer deactivated-token' }, query: {} }
+      const next = jest.fn()
+
+      await middleware.use(req, {} as any, next)
+
+      expect(next).toHaveBeenCalledTimes(1)
+      const passedError = next.mock.calls[0][0]
+      expect(passedError).toBe(err)
+      expect(passedError.getStatus()).toBe(401)
+      expect(passedError.code).toBe(ErrorCode.ACCOUNT_DEACTIVATED)
+      expect(passedError.message).toBe(
+        'Your account was deactivated by the co-op. If you think this is a mistake, contact the co-op.'
+      )
+      expect(req.currentUser).toBeUndefined()
+      expect(req.currentCourier).toBeUndefined()
+      expect(mockCourierDomainService.getByUserId).not.toHaveBeenCalled()
+    })
+
+    test('a refresh token of a deactivated rider: the same error reaches next', async () => {
+      const err = deactivatedErr()
+      mockAuthService.userForRefreshToken.mockRejectedValue(err)
+      const req: any = { headers: { 'x-refresh-token': 'deactivated-refresh-token' }, query: {} }
+      const next = jest.fn()
+
+      await middleware.use(req, {} as any, next)
+
+      expect(next).toHaveBeenCalledTimes(1)
+      const passedError = next.mock.calls[0][0]
+      expect(passedError).toBe(err)
+      expect(passedError.code).toBe(ErrorCode.ACCOUNT_DEACTIVATED)
+      expect(passedError.getStatus()).toBe(401)
+      expect(req.currentUser).toBeUndefined()
     })
   })
 

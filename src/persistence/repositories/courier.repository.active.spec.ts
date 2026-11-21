@@ -489,6 +489,110 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     })
   })
 
+  // Spec 0051 (AC-2, AC-11, cross check 7): matching never offers to a deactivated rider. Every candidate
+  // query (the nearest rider, the shortlist the travel time and fairness matchers score, and the most
+  // senior rider) requires "deactivatedAt" to be null. SQL comments are dropped before the check, so a
+  // rule that only survives in a comment does not pass.
+  describe('candidate queries skip deactivated riders (spec 0051, AC-2, AC-11)', () => {
+    const args = { location: { latitude: 39.36, longitude: 22.95 } }
+    const withoutSqlComments = (sql: string) =>
+      sql
+        .split('\n')
+        .map((line) => line.replace(/--.*$/, ''))
+        .join('\n')
+    const queryText = (): string => {
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      return withoutSqlComments((mockPrisma.$queryRaw.mock.calls[0][0] as Prisma.Sql).sql)
+    }
+    // The rule must stand as its own AND condition of the candidate query's WHERE.
+    const DEACTIVATED_RULE = /\bAND\s+"deactivatedAt" IS NULL\b/
+
+    test('findNearestAvailableCourier requires "deactivatedAt" IS NULL', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+      await repository.findNearestAvailableCourier(args)
+      const sql = queryText()
+      expect(sql).toContain('"deactivatedAt" IS NULL')
+      expect(sql).toMatch(DEACTIVATED_RULE)
+    })
+
+    test('findNearestAvailableCandidates (the shortlist) requires "deactivatedAt" IS NULL', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+      await repository.findNearestAvailableCandidates(args, 5)
+      const sql = queryText()
+      expect(sql).toContain('"deactivatedAt" IS NULL')
+      expect(sql).toMatch(DEACTIVATED_RULE)
+    })
+
+    test('findMostSeniorAvailableCourier requires "deactivatedAt" IS NULL', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+      await repository.findMostSeniorAvailableCourier(args)
+      const sql = queryText()
+      expect(sql).toContain('ORDER BY seniority ASC')
+      expect(sql).toContain('"deactivatedAt" IS NULL')
+      expect(sql).toMatch(DEACTIVATED_RULE)
+    })
+
+    test('the rule is never negated or joined with OR', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+      await repository.findNearestAvailableCourier(args)
+      await repository.findMostSeniorAvailableCourier(args)
+      for (const call of mockPrisma.$queryRaw.mock.calls) {
+        const sql = withoutSqlComments((call[0] as Prisma.Sql).sql)
+        expect(sql).not.toContain('"deactivatedAt" IS NOT NULL')
+        expect(sql).not.toMatch(/\bOR\s+"deactivatedAt"/)
+      }
+    })
+  })
+
+  describe('isUserDeactivated (spec 0051, AC-2: what the auth doors ask)', () => {
+    test('true when the rider of this user has a deactivatedAt', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValueOnce({ deactivatedAt: new Date('2026-11-21T09:00:00Z') })
+
+      await expect(repository.isUserDeactivated('user-volos-1')).resolves.toBe(true)
+      expect(mockPrisma.courier.findUnique).toHaveBeenCalledWith({
+        where: { userId: 'user-volos-1' },
+        select: { deactivatedAt: true },
+      })
+    })
+
+    test('false for an active rider (deactivatedAt null)', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValueOnce({ deactivatedAt: null })
+      await expect(repository.isUserDeactivated('user-volos-1')).resolves.toBe(false)
+    })
+
+    test('false for a user with no rider (an admin or a restaurant)', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValueOnce(null)
+      await expect(repository.isUserDeactivated('user-admin-1')).resolves.toBe(false)
+    })
+  })
+
+  describe('toDomain carries deactivatedAt and nothing else of the account (spec 0051)', () => {
+    test('findById copies deactivatedAt, and never the emergency contact or the deactivating admin', async () => {
+      const deactivatedAt = new Date('2026-11-21T09:00:00Z')
+      mockPrisma.courier.findUnique.mockResolvedValueOnce({
+        ...sampleCourierRecord,
+        deactivatedAt,
+        deactivatedByUserId: 'admin-1',
+        emergencyContactName: 'Maria Rider',
+        emergencyContactPhone: '+306911111111',
+      })
+
+      const courier = await repository.findById('courier-volos-1')
+
+      expect(courier?.deactivatedAt).toEqual(deactivatedAt)
+      const serialised = JSON.stringify(courier)
+      expect(serialised).not.toContain('Maria Rider')
+      expect(serialised).not.toContain('+306911111111')
+      expect(serialised).not.toContain('admin-1')
+    })
+
+    test('an active rider reads deactivatedAt null', async () => {
+      mockPrisma.courier.findUnique.mockResolvedValueOnce({ ...sampleCourierRecord, deactivatedAt: null })
+      const courier = await repository.findById('courier-volos-1')
+      expect(courier?.deactivatedAt).toBeNull()
+    })
+  })
+
   describe('hasActiveSos (Pin 7, Spec 0022 AC-7)', () => {
     test('queries sosIncident.findFirst with courierId and ACTIVE_SOS_WHERE', async () => {
       mockPrisma.sosIncident.findFirst.mockResolvedValueOnce({ id: 'sos-active-1' })

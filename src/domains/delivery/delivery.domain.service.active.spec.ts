@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import {
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
@@ -56,6 +56,8 @@ describe('DeliveryDomainService', () => {
       refuseIfDispatchStopped: jest.fn().mockResolvedValue(undefined),
       // No courier is in SOS by default in these tests (spec 0022).
       refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
+      // Spec 0051 (cross check 7): accept, reassign and an admin hand offer ask this first.
+      refuseIfCourierDeactivated: jest.fn().mockResolvedValue(undefined),
       offerDeliveryToCourierAsAdmin: jest.fn(),
       occurredAtForCourierTap: jest.fn(),
       hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
@@ -109,6 +111,22 @@ describe('DeliveryDomainService', () => {
       await expect(service.reassignDelivery('del-stopped', 'courier-new')).rejects.toThrow(
         'Dispatch is stopped until 17:00.'
       )
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
+    })
+
+    // Spec 0051 (cross check 7): an admin cannot reassign a delivery to a deactivated rider (409).
+    test('refuses reassignment to a deactivated rider with 409 before reading the delivery or writing an award (spec 0051)', async () => {
+      mockDeliveryEventService.refuseIfCourierDeactivated.mockRejectedValueOnce(
+        new ConflictException("This rider's account is deactivated.")
+      )
+
+      const call = service.reassignDelivery('del-1', 'courier-deactivated')
+      await expect(call).rejects.toThrow(ConflictException)
+      await expect(call).rejects.toThrow("This rider's account is deactivated.")
+
+      expect(mockDeliveryEventService.refuseIfCourierDeactivated).toHaveBeenCalledWith('courier-deactivated')
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
       expect(mockCourierCompensationRepository.create).not.toHaveBeenCalled()
@@ -1041,6 +1059,29 @@ describe('DeliveryDomainService', () => {
       expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-sos')
       expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).not.toHaveBeenCalled()
+    })
+
+    // Spec 0051 (cross check 7): an admin's hand offer, or accept on a rider's behalf, answers 409 for a
+    // deactivated rider.
+    test('refuses ACCEPTED for a deactivated rider with 409 before reading the delivery, offering or accepting (spec 0051)', async () => {
+      mockDeliveryEventService.refuseIfCourierDeactivated.mockRejectedValueOnce(
+        new ConflictException("This rider's account is deactivated.")
+      )
+      const acceptSpy = jest.spyOn(service, 'acceptDelivery')
+
+      const call = service.submitDeliveryEvent({
+        deliveryId: 'del-1',
+        eventType: EnumDeliveryEventType.ACCEPTED,
+        courierId: 'courier-deactivated',
+      })
+      await expect(call).rejects.toThrow(ConflictException)
+      await expect(call).rejects.toThrow("This rider's account is deactivated.")
+
+      expect(mockDeliveryEventService.refuseIfCourierDeactivated).toHaveBeenCalledWith('courier-deactivated')
+      expect(mockDeliveryRepository.findByIdOrThrow).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).not.toHaveBeenCalled()
+      expect(acceptSpy).not.toHaveBeenCalled()
+      acceptSpy.mockRestore()
     })
 
     test('calls acceptDelivery when courier is already matched to delivery and not in SOS (spec 0022, AC-7)', async () => {

@@ -1,11 +1,28 @@
 import {
   CREDENTIALS_CHANGED_MESSAGE,
+  accountDeactivatedMessage,
   isIssuedBeforeCredentialsChange,
 } from './credentials-change'
 
 describe('credentials-change (Spec 0013 AC-5: token revocation on password change)', () => {
   test('CREDENTIALS_CHANGED_MESSAGE matches the exact spec message', () => {
-    expect(CREDENTIALS_CHANGED_MESSAGE).toBe('Your password was changed. Log in again.')
+    // Spec 0051 (cross check 3): an admin can change the login email too, which ends sessions the same way.
+    expect(CREDENTIALS_CHANGED_MESSAGE).toBe('Your password or login email was changed. Log in again.')
+  })
+
+  describe('accountDeactivatedMessage (spec 0051, AC-2 and cross check 1)', () => {
+    test('says the co-op deactivated the account and ends with the dispatch phone when one is set', () => {
+      expect(accountDeactivatedMessage('+30 24210 12345')).toBe(
+        'Your account was deactivated by the co-op. If you think this is a mistake, call the co-op on +30 24210 12345.'
+      )
+    })
+
+    test('ends with "contact the co-op" when no phone is set (null, undefined or empty)', () => {
+      const plain = 'Your account was deactivated by the co-op. If you think this is a mistake, contact the co-op.'
+      expect(accountDeactivatedMessage(null)).toBe(plain)
+      expect(accountDeactivatedMessage(undefined)).toBe(plain)
+      expect(accountDeactivatedMessage('')).toBe(plain)
+    })
   })
 
   describe('isIssuedBeforeCredentialsChange', () => {

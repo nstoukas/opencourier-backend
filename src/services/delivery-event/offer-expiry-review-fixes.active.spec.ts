@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { ConflictException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   EnumCourierStatus,
@@ -605,6 +606,49 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         CantUpdateDeliveryStatusError
       )
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+    })
+
+    // Spec 0051 (cross check 7): an admin cannot give work to a deactivated rider. The claim answers
+    // DEACTIVATED under the rider's row lock; the admin reads a 409 with the sentence, and nothing is offered.
+    it('admin offer: DEACTIVATED throws 409 "This rider\'s account is deactivated." and writes no event', async () => {
+      const deliveryId = 'del-admin-deactivated'
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.CREATED,
+        partnerId: 'partner-1',
+        courierId: null,
+        matchedCourierId: null,
+        offeredAt: null,
+      } as any)
+      mockCourierRepository.findByIdOrThrow.mockResolvedValue({ id: 'c-1', userId: 'u-1' } as any)
+      mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValueOnce({
+        outcome: 'DEACTIVATED',
+        heldUnits: 0,
+        deliveryUnits: 0,
+      })
+
+      const offerPromise = service.offerDeliveryToCourierAsAdmin(deliveryId, 'c-1')
+      await expect(offerPromise).rejects.toBeInstanceOf(ConflictException)
+      await expect(offerPromise).rejects.toMatchObject({ status: 409, message: "This rider's account is deactivated." })
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
+      expect(mockWebsocketDispatcher.sendOfferToCourier).not.toHaveBeenCalled()
+    })
+
+    it('refuseIfCourierDeactivated: 409 with the sentence for a deactivated rider; an active or unknown rider passes', async () => {
+      mockCourierRepository.findById.mockResolvedValueOnce({
+        id: 'c-deactivated',
+        deactivatedAt: new Date('2026-11-21T09:00:00Z'),
+      } as any)
+      const refused = service.refuseIfCourierDeactivated('c-deactivated')
+      await expect(refused).rejects.toBeInstanceOf(ConflictException)
+      await expect(refused).rejects.toMatchObject({ status: 409, message: "This rider's account is deactivated." })
+      expect(mockCourierRepository.findById).toHaveBeenCalledWith('c-deactivated')
+
+      mockCourierRepository.findById.mockResolvedValueOnce({ id: 'c-active', deactivatedAt: null } as any)
+      await expect(service.refuseIfCourierDeactivated('c-active')).resolves.toBeUndefined()
+
+      mockCourierRepository.findById.mockResolvedValueOnce(null)
+      await expect(service.refuseIfCourierDeactivated('c-unknown')).resolves.toBeUndefined()
     })
 
     it('admin offer: BOX_FULL throws BoxOverCapacityException with the numbers from the lock', async () => {

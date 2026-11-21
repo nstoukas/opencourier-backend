@@ -151,6 +151,37 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
     expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
   })
 
+  // Spec 0051 (cross check 4): a deactivation cuts the rider off with its own cause and the admin's id,
+  // so time worked reads true ("An admin deactivated the rider's account", not a password change).
+  test('a deactivation passes cause DEACTIVATED and the admin id, and still closes sockets, removes devices and ends open offers', async () => {
+    await service.cutOff(mockCourier, 'admin-9', EnumCourierStatusChangeCause.DEACTIVATED)
+
+    expect(mockWebsocketDispatcher.disconnectUser).toHaveBeenCalledWith('user-456')
+    expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledTimes(1)
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE,
+      EnumCourierStatusChangeCause.DEACTIVATED,
+      'admin-9'
+    )
+    expect(mockDeliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE
+    )
+  })
+
+  test('an admin password change (no cause given) still records CUT_OFF with the admin id', async () => {
+    await service.cutOff(mockCourier, 'admin-9')
+
+    expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
+      'courier-123',
+      EnumCourierStatus.OFFLINE,
+      EnumCourierStatusChangeCause.CUT_OFF,
+      'admin-9'
+    )
+  })
+
   test('never leaks sensitive data (passwords, emails, tokens) in cut off log lines', async () => {
     mockWebsocketDispatcher.disconnectUser.mockRejectedValue(new Error('socket err'))
     await service.cutOff(mockCourier)

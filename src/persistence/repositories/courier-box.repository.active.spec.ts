@@ -250,7 +250,9 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       // 1st query must be FOR UPDATE lock
       const firstCall = mockTx.$queryRaw.mock.calls[0]
       const sqlStrings = Array.isArray(firstCall[0]) ? firstCall[0].join('') : firstCall[0]?.sql ?? ''
-      expect(sqlStrings).toContain('SELECT "id" FROM "Courier" WHERE "id" =')
+      // Spec 0051: the lock also reads whether the rider's account is deactivated.
+      expect(sqlStrings).toContain('FROM "Courier" WHERE "id" =')
+      expect(sqlStrings).toContain('("deactivatedAt" IS NOT NULL) AS "deactivated"')
       expect(sqlStrings).toContain('FOR UPDATE')
       expect(firstCall[1] ?? firstCall[0]?.values?.[0]).toBe('courier-1')
     })
@@ -315,6 +317,57 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       )
 
       expect(res).toBe('NOT_WAITING')
+    })
+
+    // Spec 0051 (AC-2, AC-11, cross checks 5 and 7): the claim reads the deactivation under the same row
+    // lock a deactivation takes, so no offer reaches a deactivated rider, whichever matcher chose them.
+    test('returns DEACTIVATED for a deactivated rider, reading and writing nothing after the lock', async () => {
+      mockTx.$queryRaw.mockResolvedValueOnce([{ deactivated: true }])
+      mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 10 })
+      mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
+
+      const res = await deliveryRepo.claimOfferWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' }
+      )
+
+      expect(res).toBe('DEACTIVATED')
+      expect(mockTx.$queryRaw).toHaveBeenCalledTimes(1)
+      expect(mockTx.delivery.findUnique).not.toHaveBeenCalled()
+      expect(mockTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('an admin hand offer past capacity (allowOverCapacity) is still DEACTIVATED for a deactivated rider', async () => {
+      mockTx.$queryRaw.mockResolvedValueOnce([{ deactivated: true }])
+      mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 10 })
+
+      const res = await deliveryRepo.claimForRiderWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' },
+        true
+      )
+
+      expect(res).toEqual({ outcome: 'DEACTIVATED', heldUnits: 0, deliveryUnits: 0 })
+      expect(mockTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('an active rider (deactivated false) is claimed as before', async () => {
+      mockTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }]).mockResolvedValueOnce([{ held: 0 }])
+      mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 30 })
+      mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
+
+      const res = await deliveryRepo.claimOfferWithinBox(
+        'del-1',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' }
+      )
+
+      expect(res).toBe('CLAIMED')
     })
   })
 
@@ -382,6 +435,77 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
 
       const result = await (service as any).offerToNextCourier('del-1')
 
+      expect(result).toBe('NO_COURIER')
+      // No OFFERED event created
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('DeliveryEventService.offerToNextCourier on DEACTIVATED (spec 0051, cross check 7)', () => {
+    test('returns NO_COURIER and writes no OFFERED event when claimOfferWithinBox returns DEACTIVATED (only Static can name such a rider)', async () => {
+      const mockDeliveryRepo = {
+        claimOfferWithinBox: jest.fn().mockResolvedValue('DEACTIVATED'),
+      }
+      const mockConfigDomainService = {
+        instanceConfig: {
+          getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+          getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
+          getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
+        },
+      }
+      const mockDeliveryMatchingService = {
+        findCourierForDelivery: jest.fn().mockResolvedValue({
+          courier: { id: 'courier-volos-1' },
+          delivery: { id: 'del-1', boxUnits: 60 },
+          pickupLocation: {},
+        }),
+      }
+      const mockDeliveryEventRepo = {
+        create: jest.fn(),
+      }
+      const mockTaskBus = {
+        queueNamed: jest.fn().mockReturnValue({ add: jest.fn() }),
+        registerTaskHandler: jest.fn(),
+      }
+
+      const mockCourierRepo = {
+        hasActiveSos: jest.fn().mockResolvedValue(false),
+      }
+
+      const mockDeliveryCalculationService = {
+        calculateDeliveryAmountsForMatchedCourier: jest.fn().mockResolvedValue({
+          totalCost: 1000,
+          totalCompensation: 400,
+          fee: 200,
+          feePercentage: 20,
+        }),
+      }
+
+      const service = new DeliveryEventService(
+        {} as any, // configService
+        {} as any, // websocketDispatcher
+        mockCourierRepo as any,
+        mockDeliveryRepo as any,
+        mockDeliveryEventRepo as any, // deliveryEventRepository
+        {} as any, // taskScheduler
+        mockTaskBus as any,
+        {} as any, // partnerWebhookService
+        mockDeliveryMatchingService as any,
+        mockDeliveryCalculationService as any,
+        {} as any, // bullMQService
+        mockConfigDomainService as any,
+        {} as any, // cacheService
+        {} as any, // offerPushService
+        { findOn: jest.fn().mockResolvedValue(null) } as any, // dispatchStopRepository
+        {} as any, // osrmRoutingService
+        {} as any, // courierCompensationRepository
+        {} as any, // partnerChargeRepository
+        {} as any // removalRequestRepository
+      )
+
+      const result = await (service as any).offerToNextCourier('del-1')
+
+      expect(mockDeliveryRepo.claimOfferWithinBox).toHaveBeenCalledTimes(1)
       expect(result).toBe('NO_COURIER')
       // No OFFERED event created
       expect(mockDeliveryEventRepo.create).not.toHaveBeenCalled()

@@ -66,8 +66,8 @@ const CHRISTINA = 'christina\nalexiou\n+302421010003\n302421010003'
 
 describe('courier-list-filter (scope row 97, decision 97.1)', () => {
   describe('ADMIN_COURIER_STATUSES and MAX_COURIER_SEARCH_LENGTH', () => {
-    test('ADMIN_COURIER_STATUSES contains exactly all, working, and offline', () => {
-      expect(ADMIN_COURIER_STATUSES).toEqual(['all', 'working', 'offline'])
+    test('ADMIN_COURIER_STATUSES contains exactly all, working, offline and deactivated (spec 0051, AC-6)', () => {
+      expect(ADMIN_COURIER_STATUSES).toEqual(['all', 'working', 'offline', 'deactivated'])
     })
 
     test('MAX_COURIER_SEARCH_LENGTH is 100 characters', () => {
@@ -114,6 +114,27 @@ describe('courier-list-filter (scope row 97, decision 97.1)', () => {
         const where = adminCourierListWhere({ status: 'all' })
         expect(where.status).toBeUndefined()
         expect(where).toEqual({})
+      })
+
+      // Spec 0051 (AC-6, cross check 14): the Deactivated tab lists only riders whose account is
+      // deactivated; every other tab still lists them (with a label), so 'all' above stays {}.
+      test('status deactivated = deactivatedAt is set, with no status rule', () => {
+        const where = adminCourierListWhere({ status: 'deactivated' })
+        expect(where).toEqual({ deactivatedAt: { not: null } })
+        expect(where.status).toBeUndefined()
+      })
+
+      test('status deactivated keeps the search beside it', () => {
+        const where = adminCourierListWhere({ status: 'deactivated', search: 'Nikos' })
+        expect(where.deactivatedAt).toEqual({ not: null })
+        expect(where.AND).toEqual([textRule('nikos')])
+      })
+
+      test('the other tabs carry no deactivatedAt rule (deactivated riders are listed, labelled)', () => {
+        for (const status of ['all', 'working', 'offline'] as const) {
+          expect(adminCourierListWhere({ status })).not.toHaveProperty('deactivatedAt')
+        }
+        expect(adminCourierListWhere({})).not.toHaveProperty('deactivatedAt')
       })
 
       test('unrecognized or undefined status adds no status rule', () => {

@@ -159,8 +159,10 @@ describe('EarningsCourierRestApiController (spec 0042 AC-6, AC-17)', () => {
       expect(courierProto.getMyEarningsForDelivery).toBeUndefined()
 
       // Reads the route PATH metadata for every handler on the prototype
+      // Read the descriptor, not the property: a getter on the prototype (spec 0051's `accounts`) throws
+      // when it is read without an instance.
       const methodNames = Object.getOwnPropertyNames(courierProto).filter(
-        (m) => m !== 'constructor' && typeof courierProto[m] === 'function'
+        (m) => m !== 'constructor' && typeof Object.getOwnPropertyDescriptor(courierProto, m)?.value === 'function'
       )
       for (const name of methodNames) {
         const handler = courierProto[name]

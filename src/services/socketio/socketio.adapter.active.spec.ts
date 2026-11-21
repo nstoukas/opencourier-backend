@@ -2,7 +2,8 @@ import { Logger } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { IoAdapter } from '@nestjs/platform-socket.io'
 import { Server } from 'socket.io'
-import { ForbiddenException, UnauthorizedException } from 'src/errors'
+import { AccountDeactivatedException, CredentialsChangedException, ErrorCode, ForbiddenException } from 'src/errors'
+import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { CREDENTIALS_CHANGED_MESSAGE } from 'src/domains/auth/credentials-change'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
 import { EnumUserRole } from '@prisma/types'
@@ -13,6 +14,8 @@ import { ADMIN_SOCKET_NAMESPACE } from './admin-socket.gateway'
 describe('SocketIOAdapter token middleware (row 57 credential leak prevention)', () => {
   let mockJwtService: { verify: jest.Mock }
   let mockUserRepository: { findUserWithEmail: jest.Mock }
+  // Spec 0051: the handshake asks whether the rider's account is deactivated. Active unless a test says so.
+  let mockCourierRepository: { isUserDeactivated: jest.Mock }
   let mockApp: { get: jest.Mock }
   let mockConfigService: Record<string, any>
   let adapter: SocketIOAdapter
@@ -41,10 +44,14 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
     mockUserRepository = {
       findUserWithEmail: jest.fn(),
     }
+    mockCourierRepository = {
+      isUserDeactivated: jest.fn().mockResolvedValue(false),
+    }
     mockApp = {
       get: jest.fn((token) => {
         if (token === JwtService) return mockJwtService
         if (token === UserRepository) return mockUserRepository
+        if (token === CourierRepository) return mockCourierRepository
         return null
       }),
     }
@@ -85,6 +92,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'courier-user-1',
         email: 'courier@example.com',
+        role: [EnumUserRole.COURIER],
       })
 
       const socket: any = {
@@ -119,6 +127,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'courier-user-2',
         email: 'rider@example.com',
+        role: [EnumUserRole.COURIER],
       })
 
       const socket: any = {
@@ -225,6 +234,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'admin-and-courier-user',
         email: 'admin@coop.gr',
+        role: [EnumUserRole.COURIER, EnumUserRole.ADMIN],
       })
 
       const socket: any = {
@@ -247,7 +257,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
   })
 
   describe('Spec 0013 AC-5: socket handshake credentials change cut off', () => {
-    test('refuses connection with 401 UnauthorizedException when token was issued before credentialsChangedAt', async () => {
+    test('refuses connection with 401 CredentialsChangedException, code CREDENTIALS_CHANGED in the error data, when token was issued before credentialsChangedAt', async () => {
       const changeDate = new Date('2026-11-01T12:00:10.000Z')
       const changeSeconds = Math.floor(changeDate.getTime() / 1000)
 
@@ -260,6 +270,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'courier-user-1',
         email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
         credentialsChangedAt: changeDate,
       })
 
@@ -275,8 +286,13 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
 
       expect(next).toHaveBeenCalledTimes(1)
       const err = next.mock.calls[0][0]
-      expect(err).toBeInstanceOf(UnauthorizedException)
+      // Spec 0051 (cross check 3): its own code, carried in `data`, which socket.io sends to the client.
+      expect(err).toBeInstanceOf(CredentialsChangedException)
+      expect(err.getStatus()).toBe(401)
       expect(err.message).toBe(CREDENTIALS_CHANGED_MESSAGE)
+      expect(err.message).toBe('Your password or login email was changed. Log in again.')
+      expect(err.data).toEqual({ code: ErrorCode.CREDENTIALS_CHANGED })
+      expect(socket.userId).toBeUndefined()
     })
 
     test('accepts connection when token was issued after credentialsChangedAt', async () => {
@@ -292,6 +308,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'courier-user-1',
         email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
         credentialsChangedAt: changeDate,
       })
 
@@ -322,6 +339,7 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
       mockUserRepository.findUserWithEmail.mockResolvedValue({
         id: 'courier-user-1',
         email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
         credentialsChangedAt: changeDate,
       })
 
@@ -337,6 +355,117 @@ describe('SocketIOAdapter token middleware (row 57 credential leak prevention)',
 
       expect(next).toHaveBeenCalledWith()
       expect(socket.userId).toBe('courier-user-1')
+    })
+  })
+
+  // Spec 0051 (AC-2, AC-11, cross checks 2 and 3): a deactivated rider cannot open a live connection.
+  describe('Spec 0051: a deactivated rider cannot open a socket (AC-2)', () => {
+    const riderSocket = (): any => ({
+      handshake: { auth: { authorization: 'Bearer rider-token' }, headers: {} },
+    })
+
+    test('refuses with 401 AccountDeactivatedException, the sentence, and code ACCOUNT_DEACTIVATED in the error data', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'courier-user-1', email: 'rider@coop.gr', role: ['COURIER'] })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
+        credentialsChangedAt: null,
+      })
+      mockCourierRepository.isUserDeactivated.mockResolvedValue(true)
+
+      const socket = riderSocket()
+      const next = jest.fn()
+      await middleware(socket, next)
+
+      expect(mockCourierRepository.isUserDeactivated).toHaveBeenCalledWith('courier-user-1')
+      expect(next).toHaveBeenCalledTimes(1)
+      const err = next.mock.calls[0][0]
+      expect(err).toBeInstanceOf(AccountDeactivatedException)
+      expect(err.getStatus()).toBe(401)
+      expect(err.message).toBe(
+        'Your account was deactivated by the co-op. If you think this is a mistake, contact the co-op.'
+      )
+      expect(err.data).toEqual({ code: ErrorCode.ACCOUNT_DEACTIVATED })
+      // Nothing of the connection was set up.
+      expect(socket.userId).toBeUndefined()
+      expect(socket.channelNames).toBeUndefined()
+    })
+
+    test('checked before the credentials change: an old token of a deactivated rider answers ACCOUNT_DEACTIVATED', async () => {
+      const changeDate = new Date('2026-11-21T09:00:00.000Z')
+      mockJwtService.verify.mockReturnValue({
+        sub: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: ['COURIER'],
+        iat: Math.floor(changeDate.getTime() / 1000) - 3600,
+      })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
+        credentialsChangedAt: changeDate,
+      })
+      mockCourierRepository.isUserDeactivated.mockResolvedValue(true)
+
+      const next = jest.fn()
+      await middleware(riderSocket(), next)
+
+      const err = next.mock.calls[0][0]
+      expect(err).toBeInstanceOf(AccountDeactivatedException)
+      expect(err.data).toEqual({ code: ErrorCode.ACCOUNT_DEACTIVATED })
+    })
+
+    test('an active rider connects, and was asked about', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'courier-user-1', email: 'rider@coop.gr', role: ['COURIER'] })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'courier-user-1',
+        email: 'rider@coop.gr',
+        role: [EnumUserRole.COURIER],
+      })
+
+      const socket = riderSocket()
+      const next = jest.fn()
+      await middleware(socket, next)
+
+      expect(mockCourierRepository.isUserDeactivated).toHaveBeenCalledWith('courier-user-1')
+      expect(next).toHaveBeenCalledWith()
+      expect(socket.userId).toBe('courier-user-1')
+    })
+
+    test('a user with no rider (an admin) is never asked', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'admin-user-1', email: 'admin@coop.gr', role: ['ADMIN'] })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'admin-user-1',
+        email: 'admin@coop.gr',
+        role: [EnumUserRole.ADMIN],
+      })
+      mockCourierRepository.isUserDeactivated.mockResolvedValue(true)
+
+      const next = jest.fn()
+      await middleware(riderSocket(), next)
+
+      expect(mockCourierRepository.isUserDeactivated).not.toHaveBeenCalled()
+      expect(next).toHaveBeenCalledWith()
+    })
+
+    test('the admins namespace refuses a deactivated rider who is also an admin with the same code', async () => {
+      const server = adapter.createIOServer(0, {} as any)
+      const adminMiddleware = (server.of(ADMIN_SOCKET_NAMESPACE) as any)._fns[0]
+      mockJwtService.verify.mockReturnValue({ sub: 'both-1', email: 'both@coop.gr', role: ['COURIER', 'ADMIN'] })
+      mockUserRepository.findUserWithEmail.mockResolvedValue({
+        id: 'both-1',
+        email: 'both@coop.gr',
+        role: [EnumUserRole.COURIER, EnumUserRole.ADMIN],
+      })
+      mockCourierRepository.isUserDeactivated.mockResolvedValue(true)
+
+      const next = jest.fn()
+      await adminMiddleware(riderSocket(), next)
+
+      const err = next.mock.calls[0][0]
+      expect(err).toBeInstanceOf(AccountDeactivatedException)
+      expect(err.data).toEqual({ code: ErrorCode.ACCOUNT_DEACTIVATED })
     })
   })
 
