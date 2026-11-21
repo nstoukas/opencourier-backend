@@ -55,7 +55,8 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
     emergencyContactName: null,
     emergencyContactPhone: null,
     userId: USER_ID,
-    user: { id: USER_ID, email: 'nikos@coop.gr' },
+    // The login's roles are read too: an admin's email is never changed here (row 108 review).
+    user: { id: USER_ID, email: 'nikos@coop.gr', role: [EnumUserRole.COURIER] },
     ...overrides,
   })
 
@@ -288,11 +289,89 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
       await expect(call).rejects.toMatchObject({ statusCode: 404 })
     })
 
-    test('restores no devices and does not touch the status (the rider is Offline already)', async () => {
+    test('restores no devices and does not cut the rider off again', async () => {
       await service.reactivate(COURIER_ID, ADMIN_ID, null)
 
       expect(courierCutOffService.cutOff).not.toHaveBeenCalled()
-      expect(courierDomainService.changeStatus).not.toHaveBeenCalled()
+      expect(courierDeviceRepository.deleteAllForCourier).not.toHaveBeenCalled()
+      expect(courierDeviceRepository.deleteByTokens).not.toHaveBeenCalled()
+      expect(websocketDispatcher.disconnectUser).not.toHaveBeenCalled()
+    })
+
+    // Row 108 review (ruling: "Deactivated and Online"): a swallowed cut off failure or a status change in
+    // flight can leave a deactivated rider Online, so reactivate puts them Offline itself (cross check 9).
+    describe('sets the rider Offline (cross check 9, row 108 review)', () => {
+      test('Offline with cause ADMIN and the admin id, once, after the account is reactivated', async () => {
+        await service.reactivate(COURIER_ID, ADMIN_ID, 'Came back')
+
+        expect(courierDomainService.changeStatus).toHaveBeenCalledTimes(1)
+        expect(courierDomainService.changeStatus).toHaveBeenCalledWith(
+          COURIER_ID,
+          EnumCourierStatus.OFFLINE,
+          EnumCourierStatusChangeCause.ADMIN,
+          ADMIN_ID
+        )
+        expect(order.indexOf('accounts.reactivate')).toBeGreaterThanOrEqual(0)
+        expect(order.indexOf('accounts.reactivate')).toBeLessThan(order.indexOf('changeStatus'))
+      })
+
+      test("ends the rider's open offers, as any change to Offline does", async () => {
+        await service.reactivate(COURIER_ID, ADMIN_ID, null)
+
+        expect(deliveryEventService.handleCourierStatusChanged).toHaveBeenCalledTimes(1)
+        expect(deliveryEventService.handleCourierStatusChanged).toHaveBeenCalledWith(
+          COURIER_ID,
+          EnumCourierStatus.OFFLINE
+        )
+        expect(order.indexOf('changeStatus')).toBeLessThan(order.indexOf('handleCourierStatusChanged'))
+      })
+
+      test('answers the rider as read after the status change', async () => {
+        const after = courierEntity({ status: EnumCourierStatus.OFFLINE })
+        courierDomainService.getByIdOrThrow.mockImplementation(async () => {
+          order.push('getByIdOrThrow')
+          return after
+        })
+
+        await expect(service.reactivate(COURIER_ID, ADMIN_ID, null)).resolves.toBe(after)
+        expect(order.indexOf('changeStatus')).toBeLessThan(order.lastIndexOf('getByIdOrThrow'))
+      })
+
+      test.each(['NOT_DEACTIVATED', 'MISSING'])(
+        '%s: a refused reactivation changes no status and ends no offer',
+        async (outcome) => {
+          accounts.reactivate.mockResolvedValue({ outcome })
+
+          await expect(service.reactivate(COURIER_ID, ADMIN_ID, null)).rejects.toBeDefined()
+
+          expect(courierDomainService.changeStatus).not.toHaveBeenCalled()
+          expect(deliveryEventService.handleCourierStatusChanged).not.toHaveBeenCalled()
+        }
+      )
+
+      test('a status change that fails is logged, not thrown: the rider is reactivated and answered', async () => {
+        const rider = courierEntity()
+        courierDomainService.getByIdOrThrow.mockResolvedValue(rider)
+        courierDomainService.changeStatus.mockRejectedValue(new Error('status write failed'))
+
+        await expect(service.reactivate(COURIER_ID, ADMIN_ID, null)).resolves.toBe(rider)
+
+        expect(accounts.reactivate).toHaveBeenCalledTimes(1)
+        const errorLines = ((service as any).logger.error as jest.Mock).mock.calls
+        expect(errorLines).toHaveLength(1)
+        expect(String(errorLines[0][0])).toContain(COURIER_ID)
+      })
+
+      test('ending the offers that fails is logged, not thrown', async () => {
+        const rider = courierEntity()
+        courierDomainService.getByIdOrThrow.mockResolvedValue(rider)
+        deliveryEventService.handleCourierStatusChanged.mockRejectedValue(new Error('redis down'))
+
+        await expect(service.reactivate(COURIER_ID, ADMIN_ID, null)).resolves.toBe(rider)
+
+        expect(courierDomainService.changeStatus).toHaveBeenCalledTimes(1)
+        expect((service as any).logger.error as jest.Mock).toHaveBeenCalledTimes(1)
+      })
     })
   })
 
@@ -538,6 +617,148 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
       expect(accounts.record).not.toHaveBeenCalled()
       expect(mailService.send).not.toHaveBeenCalled()
       expect(cacheService.delete).not.toHaveBeenCalled()
+    })
+
+    // Row 108 review (ruling: "An unchanged form rewriting the email"): logins made before the lower casing
+    // are stored with capitals. Saving the form unchanged sent the same address back, the server lower cased
+    // it, saw a "change", and signed the rider out. The two are compared ignoring case.
+    describe('a stored email with capitals (row 108 review)', () => {
+      beforeEach(() => {
+        prisma.courier.findUnique.mockResolvedValue(
+          storedRow({ user: { id: USER_ID, email: 'Nikos.Rider@Coop.GR', role: [EnumUserRole.COURIER] } })
+        )
+      })
+
+      const unchanged = ['Nikos.Rider@Coop.GR', 'nikos.rider@coop.gr', '  NIKOS.RIDER@COOP.GR ']
+
+      test.each(unchanged)('"%s" sent back is no change: no write, no row, no session end, no mail', async (email) => {
+        const rider = courierEntity()
+        courierDomainService.getByIdOrThrow.mockResolvedValue(rider)
+
+        await expect(service.editByAdmin(COURIER_ID, { email }, ADMIN_ID)).resolves.toBe(rider)
+
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+        // No row.
+        expect(accounts.record).not.toHaveBeenCalled()
+        // No session end: credentialsChangedAt is only ever set by this write.
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(userDomainService.update).not.toHaveBeenCalled()
+        expect(websocketDispatcher.disconnectUser).not.toHaveBeenCalled()
+        // No mail, no reset code dropped, and no lookup for a clash with itself.
+        expect(mailService.send).not.toHaveBeenCalled()
+        expect(cacheService.delete).not.toHaveBeenCalled()
+        expect(userDomainService.findUserWithEmailIgnoringCase).not.toHaveBeenCalled()
+      })
+
+      test('beside a real change, the unchanged email is left out: one row, no session end, no mail', async () => {
+        await service.editByAdmin(COURIER_ID, { email: 'nikos.rider@coop.gr', firstName: 'Nikolaos' }, ADMIN_ID)
+
+        expect(recordedRows().map((row) => row.field)).toEqual(['firstName'])
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(mailService.send).not.toHaveBeenCalled()
+        expect(cacheService.delete).not.toHaveBeenCalled()
+      })
+
+      test('a really different email is still a change, recorded with the old value as it was stored', async () => {
+        await service.editByAdmin(COURIER_ID, { email: 'Nikos.New@coop.gr' }, ADMIN_ID)
+
+        expect(tx.user.update).toHaveBeenCalledTimes(1)
+        expect(tx.user.update.mock.calls[0][0].data.email).toBe('nikos.new@coop.gr')
+        expect(recordedRows()).toEqual([
+          expect.objectContaining({ field: 'email', oldValue: 'Nikos.Rider@Coop.GR', newValue: 'nikos.new@coop.gr' }),
+        ])
+        expect(mailService.send).toHaveBeenCalledTimes(1)
+        expect(mailService.send.mock.calls[0][0].to).toBe('Nikos.Rider@Coop.GR')
+      })
+    })
+
+    // Row 108 review (ruling: "Input edges answering 500"): `email: null` reads as not sent.
+    describe('`email: null` (row 108 review)', () => {
+      test('alone, it is not an error and changes nothing', async () => {
+        const rider = courierEntity()
+        courierDomainService.getByIdOrThrow.mockResolvedValue(rider)
+
+        await expect(service.editByAdmin(COURIER_ID, { email: null } as any, ADMIN_ID)).resolves.toBe(rider)
+
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(accounts.record).not.toHaveBeenCalled()
+        expect(mailService.send).not.toHaveBeenCalled()
+        expect(cacheService.delete).not.toHaveBeenCalled()
+        expect(userDomainService.findUserWithEmailIgnoringCase).not.toHaveBeenCalled()
+      })
+
+      test('beside another field, that field is saved and the email is left alone', async () => {
+        await service.editByAdmin(COURIER_ID, { email: null, firstName: 'Nikolaos' } as any, ADMIN_ID)
+
+        expect(tx.courier.update).toHaveBeenCalledWith({ where: { id: COURIER_ID }, data: { firstName: 'Nikolaos' } })
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(recordedRows().map((row) => row.field)).toEqual(['firstName'])
+        expect(mailService.send).not.toHaveBeenCalled()
+      })
+
+      test('an empty or blank email is not sent either (the login keeps its email)', async () => {
+        await service.editByAdmin(COURIER_ID, { email: '   ' }, ADMIN_ID)
+
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+        expect(accounts.record).not.toHaveBeenCalled()
+      })
+    })
+
+    // Row 108 review (ruling: "Changing the email of a login that is also an admin"): refused, as the set
+    // password route refuses it, because a changed email ends every session of that login.
+    describe('a login that is also an admin (row 108 review)', () => {
+      beforeEach(() => {
+        prisma.courier.findUnique.mockResolvedValue(
+          storedRow({ user: { id: USER_ID, email: 'nikos@coop.gr', role: [EnumUserRole.COURIER, EnumUserRole.ADMIN] } })
+        )
+      })
+
+      test("the rider's roles are read with the row", async () => {
+        await service.editByAdmin(COURIER_ID, { firstName: 'Nikolaos' }, ADMIN_ID)
+
+        const query = prisma.courier.findUnique.mock.calls[0][0]
+        expect(query.where).toEqual({ id: COURIER_ID })
+        expect(query.include.user.select).toMatchObject({ id: true, email: true, role: true })
+      })
+
+      test('a changed email answers 409 with the sentence, and nothing is written, recorded, dropped or mailed', async () => {
+        const call = service.editByAdmin(COURIER_ID, { email: 'nikos.new@coop.gr', firstName: 'Nikolaos' }, ADMIN_ID)
+        await expect(call).rejects.toBeInstanceOf(ConflictException)
+        await expect(call).rejects.toMatchObject({
+          status: 409,
+          message: 'This login is also an admin. Take the admin role away first.',
+        })
+
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(tx.courier.update).not.toHaveBeenCalled()
+        expect(accounts.record).not.toHaveBeenCalled()
+        expect(cacheService.delete).not.toHaveBeenCalled()
+        expect(mailService.send).not.toHaveBeenCalled()
+      })
+
+      test('refused before the address is looked up, so a taken address is not what the admin is told', async () => {
+        userDomainService.findUserWithEmailIgnoringCase.mockResolvedValue({ id: 'user-other', email: 'taken@coop.gr' })
+
+        await expect(service.editByAdmin(COURIER_ID, { email: 'taken@coop.gr' }, ADMIN_ID)).rejects.toMatchObject({
+          status: 409,
+          message: 'This login is also an admin. Take the admin role away first.',
+        })
+      })
+
+      test('its other fields can still be edited, and its own email sent back unchanged is fine', async () => {
+        await expect(
+          service.editByAdmin(COURIER_ID, { email: 'NIKOS@coop.gr', phoneNumber: '+306911111111' }, ADMIN_ID)
+        ).resolves.toBeInstanceOf(CourierEntity)
+
+        expect(tx.courier.update).toHaveBeenCalledWith({
+          where: { id: COURIER_ID },
+          data: { phoneNumber: '+306911111111' },
+        })
+        expect(tx.user.update).not.toHaveBeenCalled()
+        expect(recordedRows().map((row) => row.field)).toEqual(['phoneNumber'])
+      })
     })
 
     test("another account's email, in any capitals, is refused, and nothing is written, recorded or mailed", async () => {
@@ -921,6 +1142,36 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
           kind: EnumCourierAccountChangeKind.PASSWORD_CHANGED,
         }),
       ])
+    })
+
+    // Row 108 review (ruling: "The set password route can answer 500 after doing everything"): the password
+    // is already saved when the row is written, so a failed write is logged and never thrown.
+    test.each<[string, { adminUserId: string } | 'rider']>([
+      ["an admin's set password", { adminUserId: ADMIN_ID }],
+      ["a rider's own change", 'rider'],
+    ])('%s: a record that cannot be written is logged, never thrown', async (_name, actor) => {
+      accounts.record.mockRejectedValue(new Error('database down'))
+
+      await expect(service.recordPasswordChange(COURIER_ID, actor)).resolves.toBeUndefined()
+
+      expect(accounts.record).toHaveBeenCalledTimes(1)
+      const errorLines = ((service as any).logger.error as jest.Mock).mock.calls
+      expect(errorLines).toHaveLength(1)
+      expect(String(errorLines[0][0])).toContain(COURIER_ID)
+    })
+
+    test('a record that throws at once (not a rejected promise) is not thrown either', async () => {
+      accounts.record.mockImplementation(() => {
+        throw new Error('no connection')
+      })
+
+      await expect(service.recordPasswordChange(COURIER_ID, 'rider')).resolves.toBeUndefined()
+    })
+
+    test('a record that is written logs no error', async () => {
+      await service.recordPasswordChange(COURIER_ID, { adminUserId: ADMIN_ID })
+
+      expect((service as any).logger.error as jest.Mock).not.toHaveBeenCalled()
     })
   })
 

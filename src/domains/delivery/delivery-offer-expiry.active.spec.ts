@@ -48,6 +48,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
       // Spec 0051 (cross check 7): accept, reassign and an admin hand offer ask this first.
       refuseIfCourierDeactivated: jest.fn().mockResolvedValue(undefined),
+      // Row 108 review: after the take the rider is read again; not deactivated in these tests.
+      isCourierDeactivatedAfterTake: jest.fn().mockResolvedValue(false),
       rearmOfferExpiry: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeliveryEventService>
 
@@ -191,6 +193,105 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
       // No ACCEPTED event is processed
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+    })
+
+    // Row 108 review (ruling: "Accept after the deactivation commits"): an accept already past the first
+    // check can take an offer after a deactivation committed. The rider is read again after the take and,
+    // if deactivated, the take is given back the way the dispatch stop check gives one back.
+    describe('a deactivation that commits between the first check and the take (spec 0051, row 108 review)', () => {
+      const offered = () =>
+        ({
+          id: deliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offeredAt,
+          offerExpiresAt: new Date(Date.now() + 15000),
+          courierId: null,
+        } as any)
+
+      it('gives the take back and answers 409 with the deactivated sentence; no ACCEPTED is processed', async () => {
+        mockDeliveryEventService.isCourierDeactivatedAfterTake.mockResolvedValue(true)
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(offered())
+
+        const call = service.acceptDelivery(deliveryId, courierId)
+        await expect(call).rejects.toBeInstanceOf(ConflictException)
+        await expect(call).rejects.toMatchObject({ status: 409, message: "This rider's account is deactivated." })
+
+        expect(mockDeliveryEventService.isCourierDeactivatedAfterTake).toHaveBeenCalledWith(courierId)
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
+        // The take.
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+          1,
+          deliveryId,
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courierId, offeredAt, courierId: null },
+          { courierId, offerExpiresAt: null }
+        )
+        // Given back: only while this rider still holds it, and the whole offer is cleared.
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
+          2,
+          deliveryId,
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        )
+        expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      })
+
+      it('the automatic accept is given back the same way', async () => {
+        mockDeliveryEventService.isCourierDeactivatedAfterTake.mockResolvedValue(true)
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(offered())
+
+        await expect(service.acceptDelivery(deliveryId, courierId, true)).rejects.toThrow(
+          "This rider's account is deactivated."
+        )
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
+        expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      })
+
+      it('the rider is read again only after the take, never before it', async () => {
+        const order: string[] = []
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(offered())
+        mockDeliveryRepository.updateIfMatches.mockImplementation(async () => {
+          order.push('updateIfMatches')
+          return true
+        })
+        mockDeliveryEventService.isCourierDeactivatedAfterTake.mockImplementation(async () => {
+          order.push('isCourierDeactivatedAfterTake')
+          return true
+        })
+
+        await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toBeInstanceOf(ConflictException)
+
+        expect(order).toEqual(['updateIfMatches', 'isCourierDeactivatedAfterTake', 'updateIfMatches'])
+      })
+
+      it('an offer that could not be taken is never read again or given back', async () => {
+        mockDeliveryEventService.isCourierDeactivatedAfterTake.mockResolvedValue(true)
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(offered())
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+        await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toBeInstanceOf(OfferHasEndedException)
+
+        expect(mockDeliveryEventService.isCourierDeactivatedAfterTake).not.toHaveBeenCalled()
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+      })
+
+      it('a rider who is still active keeps the take: ACCEPTED is processed and nothing is given back', async () => {
+        mockDeliveryEventService.isCourierDeactivatedAfterTake.mockResolvedValue(false)
+        mockDeliveryRepository.findByIdOrThrow
+          .mockResolvedValueOnce(offered())
+          .mockResolvedValueOnce({ id: deliveryId, status: EnumDeliveryStatus.ACCEPTED, courierId } as any)
+
+        const result = await service.acceptDelivery(deliveryId, courierId)
+
+        expect(mockDeliveryEventService.isCourierDeactivatedAfterTake).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.isCourierDeactivatedAfterTake).toHaveBeenCalledWith(courierId)
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ deliveryId, type: EnumDeliveryEventType.ACCEPTED, courierId })
+        )
+        expect(result.id).toBe(deliveryId)
+      })
     })
 
     it('successfully accepts delivery with conditional update setting courierId and clearing offerExpiresAt', async () => {

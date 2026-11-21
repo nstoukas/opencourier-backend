@@ -566,6 +566,55 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
     })
   })
 
+  // Row 108 review (ruling: "Accept after the deactivation commits"). A deactivation holds the rider's row
+  // lock (FOR UPDATE) from its checks to its commit. FOR SHARE is what makes this read wait for it; a plain
+  // read would answer from before the commit and the accept would keep the job.
+  describe('isDeactivatedWaitingForLock (spec 0051, row 108 review: what an accept asks after its take)', () => {
+    // A tagged template call arrives as (strings, ...values).
+    const statement = () => {
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const [strings, ...values] = mockPrisma.$queryRaw.mock.calls[0] as [string[], ...unknown[]]
+      return { text: strings.join('?').replace(/\s+/g, ' ').trim(), values }
+    }
+
+    test("reads the rider's own Courier row FOR SHARE, the id passed as a value", async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ deactivated: true }])
+
+      await repository.isDeactivatedWaitingForLock('courier-volos-1')
+
+      const { text, values } = statement()
+      expect(text).toMatch(/FROM "Courier" WHERE "id" = \? FOR SHARE$/)
+      expect(text).toContain('"deactivatedAt" IS NOT NULL')
+      expect(values).toEqual(['courier-volos-1'])
+      // Never put into the text itself.
+      expect(text).not.toContain('courier-volos-1')
+    })
+
+    test('does not wait inside a transaction of its own or take the row for itself (FOR UPDATE)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ deactivated: false }])
+
+      await repository.isDeactivatedWaitingForLock('courier-volos-1')
+
+      expect(statement().text).not.toMatch(/FOR UPDATE|NOWAIT|SKIP LOCKED/)
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    test('true for a deactivated rider', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ deactivated: true }])
+      await expect(repository.isDeactivatedWaitingForLock('courier-volos-1')).resolves.toBe(true)
+    })
+
+    test('false for an active rider', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ deactivated: false }])
+      await expect(repository.isDeactivatedWaitingForLock('courier-volos-1')).resolves.toBe(false)
+    })
+
+    test('false for a rider with no row', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([])
+      await expect(repository.isDeactivatedWaitingForLock('courier-unknown')).resolves.toBe(false)
+    })
+  })
+
   describe('toDomain carries deactivatedAt and nothing else of the account (spec 0051)', () => {
     test('findById copies deactivatedAt, and never the emergency contact or the deactivating admin', async () => {
       const deactivatedAt = new Date('2026-11-21T09:00:00Z')

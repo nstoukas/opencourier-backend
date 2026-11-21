@@ -397,6 +397,61 @@ describe('CourierAccountRepository (spec 0051: AC-1, AC-3, AC-5, cross checks 1,
       })
     })
 
+    // Row 108 review (ruling: "Input edges answering 500"): the record's columns hold 300 characters, and a
+    // longer value was a 500. It is cut to the first 300.
+    describe('values longer than the 300 characters a column holds (row 108 review)', () => {
+      const long = (letter: string, length: number) => letter.repeat(length - 3) + 'END'
+      const written = () =>
+        prisma.courierAccountChange.createMany.mock.calls[0][0].data as Array<Record<string, unknown>>
+      const edit = (values: { oldValue?: string | null; newValue?: string | null; reason?: string | null }) => ({
+        courierId: COURIER_ID,
+        actorUserId: ADMIN_ID,
+        actorIsRider: false,
+        kind: EnumCourierAccountChangeKind.FIELD_EDITED,
+        field: 'emergencyContactName',
+        ...values,
+      })
+
+      test('an old value, a new value and a reason over 300 characters are each cut to their first 300', async () => {
+        const oldValue = 'o'.repeat(301)
+        const newValue = 'n'.repeat(300) + 'TAIL'
+        const reason = 'r'.repeat(2000)
+
+        await repository.record([edit({ oldValue, newValue, reason })])
+
+        const row = written()[0] as Record<string, unknown>
+        expect(row.oldValue).toBe('o'.repeat(300))
+        expect(row.newValue).toBe('n'.repeat(300))
+        expect(row.reason).toBe('r'.repeat(300))
+        for (const value of [row.oldValue, row.newValue, row.reason]) expect(value).toHaveLength(300)
+      })
+
+      test('a value of exactly 300 characters is kept whole, and a shorter one untouched', async () => {
+        const exactly = long('x', 300)
+
+        await repository.record([edit({ oldValue: exactly, newValue: 'Maria Rider', reason: '' })])
+
+        const row = written()[0] as Record<string, unknown>
+        expect(row.oldValue).toBe(exactly)
+        expect(row.newValue).toBe('Maria Rider')
+        expect(row.reason).toBe('')
+      })
+
+      test('each row is cut on its own, and a missing value still reads null', async () => {
+        await repository.record([edit({ newValue: 'a'.repeat(400) }), edit({ oldValue: 'short', newValue: null })])
+
+        const rows = written()
+        expect(rows[0]).toMatchObject({ oldValue: null, newValue: 'a'.repeat(300), reason: null })
+        expect(rows[1]).toMatchObject({ oldValue: 'short', newValue: null, reason: null })
+      })
+
+      test("cut the same way through the caller's transaction", async () => {
+        await repository.record([edit({ newValue: 'b'.repeat(350) })], tx as unknown as Prisma.TransactionClient)
+
+        expect(tx.courierAccountChange.createMany.mock.calls[0][0].data[0].newValue).toBe('b'.repeat(300))
+      })
+    })
+
     test("writes through the caller's transaction when one is given", async () => {
       await repository.record(
         [

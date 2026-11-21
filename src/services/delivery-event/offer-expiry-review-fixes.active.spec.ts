@@ -651,6 +651,21 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       await expect(service.refuseIfCourierDeactivated('c-unknown')).resolves.toBeUndefined()
     })
 
+    // Row 108 review: the accept's second look, after its take. It must be the read that waits for a
+    // deactivation's row lock, not the plain read the first check uses.
+    it('isCourierDeactivatedAfterTake: answers what the read that waits for the lock answers, for that rider', async () => {
+      const waitingRead = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      ;(mockCourierRepository as any).isDeactivatedWaitingForLock = waitingRead
+
+      await expect(service.isCourierDeactivatedAfterTake('c-deactivated')).resolves.toBe(true)
+      await expect(service.isCourierDeactivatedAfterTake('c-active')).resolves.toBe(false)
+
+      expect(waitingRead).toHaveBeenNthCalledWith(1, 'c-deactivated')
+      expect(waitingRead).toHaveBeenNthCalledWith(2, 'c-active')
+      // Not the plain read: that one does not wait for a deactivation in flight.
+      expect(mockCourierRepository.findById).not.toHaveBeenCalled()
+    })
+
     it('admin offer: BOX_FULL throws BoxOverCapacityException with the numbers from the lock', async () => {
       const deliveryId = 'del-admin-box-full'
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue({
