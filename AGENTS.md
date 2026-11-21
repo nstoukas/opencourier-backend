@@ -161,6 +161,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `Prisma.PrismaClientKnownRequestError`. Never import them from `@prisma/client/runtime/library`: that is a second copy,
   `instanceof` and `@Catch` never match a real error, and every Prisma error became a 500 until row 121 (a guard test in
   `HttpExceptions.filter.active.spec.ts` fails if the filter goes back). `...OrThrow` throws `NotFoundError`, a subclass.
+- Box model (spec 0043): `heldBoxDeliveriesWhere` (`courier.repository.ts`) is the one definition of what a rider holds, used by
+  the matcher queries (`boxRoomCondition`), the claim and the admin check. A new way to give a rider work writes through
+  `claimForRiderWithinBox` (`delivery.repository.ts`, the rider's row locked, units summed, a write conditional on the units read),
+  as the automatic offer and the admin hand offer do; an admin past a full box needs `confirmOverCapacity` and leaves
+  `BOX_OVER_CAPACITY_CONFIRMED`. `DeliveryEntity` and `DeliveryWithLocationsEntity` copy columns one by one in their
+  constructors: a new `Delivery` column missing there is `undefined` above the repository with no type error (row 9 found it live).
 
 ## Agent skills
 
