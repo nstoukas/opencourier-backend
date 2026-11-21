@@ -122,6 +122,19 @@ export class DeliveryPartnerRestApiService {
     }
   }
 
+  // Spec 0046 (AC-3, AC-6, cross check 4): the legs of the order this delivery is a leg of, each with its
+  // locations (a Retry rebuilds a missing leg from them), and the leg numbers never sent. The delivery itself
+  // goes through the usual visibility check; its siblings share its restaurant by definition. A single
+  // delivery has no legs.
+  async getOrderLegsWithRelations(deliveryId: string, partnerId: string) {
+    const own = await this.getByIdWithRelations(deliveryId, partnerId)
+    const { legs, missingLegNumbers } = await this.deliveryDomainService.getOrderLegs(own.delivery)
+    const withRelations = await Promise.all(
+      legs.map((leg) => (leg.id === deliveryId ? own : this.getByIdWithRelations(leg.id, partnerId)))
+    )
+    return { legs: withRelations, missingLegNumbers }
+  }
+
   async create(partnerId: string, input: DeliveryCreatePartnerInput) {
     const partner = await this.partnerDomainService.getById(partnerId)
 

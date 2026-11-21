@@ -10,6 +10,7 @@ import { DeliveryCreatePartnerInput } from './queries/delivery-create.partner.in
 import { DeliveryPartnerRestApiService } from './delivery.partner.rest-api.service'
 import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
+import { DeliveryOrderLegsPartnerDto } from './dtos/delivery-order-legs.partner.dto'
 import { DeliveryPartnerDto } from './dtos/delivery.partner.dto'
 import { DeliveryFindManyPartnerArgs } from './queries/delivery-find-many.partner.args'
 import { DeliveryCancelPartnerInput } from './queries/delivery-cancel.partner.input'
@@ -76,6 +77,34 @@ export class DeliveryPartnerRestApiController {
     })
 
     return dto
+  }
+
+  // Spec 0046 (AC-3, AC-6): the order's legs, oldest leg number first, and any leg never sent, so the
+  // order page can group them and offer Retry for a missing one. Empty for a single delivery.
+  @common.Get(':deliveryId/order-legs')
+  @swagger.ApiOkResponse({ type: DeliveryOrderLegsPartnerDto })
+  @swagger.ApiNotFoundResponse({
+    type: errors.NotFoundException,
+  })
+  @swagger.ApiOperation({ summary: 'Get the legs of the order this delivery belongs to' })
+  @ApiKeyAuth()
+  @Roles(EnumUserRole.PARTNER)
+  async getOrderLegs(
+    @common.Param('deliveryId') deliveryId: string,
+    @CurrentUserPartner() partner: PartnerEntity
+  ): Promise<DeliveryOrderLegsPartnerDto> {
+    const result = await this.deliveryPartnerRestApiService.getOrderLegsWithRelations(deliveryId, partner.id)
+    return {
+      legs: result.legs.map(
+        (leg) =>
+          new DeliveryPartnerDto(leg.delivery, {
+            courierWithSettings: leg.courierWithSettings,
+            pickupLocation: leg.pickupLocation,
+            dropoffLocation: leg.dropoffLocation,
+          })
+      ),
+      missingLegNumbers: result.missingLegNumbers,
+    }
   }
 
   @common.Post('')
