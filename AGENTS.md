@@ -182,6 +182,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   by the minute sweep `ShiftOfflineService` (`shift-offline-sweep`) from `CourierStatusChange`, once per change
   (`courierStatusChangeId` unique), never from before Shifts was last switched on. Nothing that matches or pays may read
   `WENT_OFFLINE_MID_SHIFT` (a source guard test fails), and no route counts it per rider.
+- Rider accounts (spec 0051): a deactivated rider (`Courier.deactivatedAt`) is refused at every door by
+  `AuthDomainService.refuseIfDeactivated` (login after the password, bearer, refresh, `createSessionForUser`) and the socket
+  adapter, before the credentials check, with `ACCOUNT_DEACTIVATED`; a new way in must call it too. Matching skips them in
+  both candidate queries and `claimForRiderWithinBox` refuses them under the row lock; an accept re-reads the rider with
+  FOR SHARE after its take. The admin courier PATCH reads named fields only, because the ValidationPipe has no whitelist and
+  would pass any column to an update; every account action writes a `CourierAccountChange` row.
 
 ## Agent skills
 
