@@ -10,6 +10,7 @@ describe('ShiftBookingRepository (spec 0049)', () => {
     shiftBooking: { findMany: jest.Mock; findFirst: jest.Mock }
     shiftBookingEvent: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; updateMany: jest.Mock }
     courierStatusChange: { findMany: jest.Mock; findFirst: jest.Mock }
+    settingChange: { findFirst: jest.Mock }
   }
   const now = new Date('2026-11-20T20:00:00.000Z')
 
@@ -23,6 +24,7 @@ describe('ShiftBookingRepository (spec 0049)', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       courierStatusChange: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
+      settingChange: { findFirst: jest.fn().mockResolvedValue(null) },
     }
     repository = new ShiftBookingRepository(prisma as unknown as PrismaService)
   })
@@ -106,6 +108,58 @@ describe('ShiftBookingRepository (spec 0049)', () => {
       expect(prisma.shiftBooking.findFirst).toHaveBeenCalledWith({
         where: { courierId: 'r1', status: 'BOOKED', startsAt: { lte: at }, endsAt: { gt: at } },
       })
+    })
+  })
+
+  // Review ruling 1 (2026-11-21): the sweep's window starts no earlier than the last time Shifts was
+  // switched on, read from the settings record.
+  describe('shiftsLastSwitchedOnAt (review ruling 1): when Shifts was last switched on', () => {
+    const switchedAt = new Date('2026-11-20T18:00:00.000Z')
+
+    it('reads the newest change of the instance wide shiftsEnabled setting, and only its value and time', async () => {
+      await repository.shiftsLastSwitchedOnAt()
+      expect(prisma.settingChange.findFirst).toHaveBeenCalledTimes(1)
+      const read = prisma.settingChange.findFirst.mock.calls[0]![0] as {
+        where: unknown
+        orderBy: unknown
+        select: unknown
+      }
+      // subject null: the co-op wide setting, not one kept per rider or per restaurant.
+      expect(read.where).toEqual({ key: 'shiftsEnabled', subject: null })
+      // Newest first; the id settles two changes saved in the same millisecond.
+      expect(read.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+      expect(read.select).toEqual({ newValue: true, createdAt: true })
+    })
+
+    it('the newest change switched Shifts on: its time', async () => {
+      prisma.settingChange.findFirst.mockResolvedValue({ newValue: true, createdAt: switchedAt })
+      expect(await repository.shiftsLastSwitchedOnAt()).toEqual(switchedAt)
+    })
+
+    it('the newest change switched Shifts off: null', async () => {
+      prisma.settingChange.findFirst.mockResolvedValue({ newValue: false, createdAt: switchedAt })
+      expect(await repository.shiftsLastSwitchedOnAt()).toBeNull()
+    })
+
+    it('no change recorded (on since setup): null', async () => {
+      prisma.settingChange.findFirst.mockResolvedValue(null)
+      expect(await repository.shiftsLastSwitchedOnAt()).toBeNull()
+    })
+
+    it.each([['true'], [1], [null], [{ enabled: true }]])(
+      'a newest value of %p is not a switch on: null (only the boolean true counts)',
+      async (newValue) => {
+        prisma.settingChange.findFirst.mockResolvedValue({ newValue, createdAt: switchedAt })
+        expect(await repository.shiftsLastSwitchedOnAt()).toBeNull()
+      }
+    )
+
+    it('reads the settings record only: no booking, event or status change', async () => {
+      prisma.settingChange.findFirst.mockResolvedValue({ newValue: true, createdAt: switchedAt })
+      await repository.shiftsLastSwitchedOnAt()
+      expect(prisma.shiftBooking.findMany).not.toHaveBeenCalled()
+      expect(prisma.shiftBookingEvent.findMany).not.toHaveBeenCalled()
+      expect(prisma.courierStatusChange.findMany).not.toHaveBeenCalled()
     })
   })
 

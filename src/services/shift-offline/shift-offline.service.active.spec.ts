@@ -36,6 +36,7 @@ describe('ShiftOfflineService (spec 0049)', () => {
 
   let bookings: {
     offlineChangesWithoutEvent: jest.Mock
+    shiftsLastSwitchedOnAt: jest.Mock
     leftOfflineBetween: jest.Mock
     bookedCovering: jest.Mock
     createOfflineEvent: jest.Mock
@@ -50,6 +51,8 @@ describe('ShiftOfflineService (spec 0049)', () => {
   beforeEach(() => {
     bookings = {
       offlineChangesWithoutEvent: jest.fn().mockResolvedValue([change()]),
+      // No switch on recorded: Shifts has been on since setup.
+      shiftsLastSwitchedOnAt: jest.fn().mockResolvedValue(null),
       leftOfflineBetween: jest.fn().mockResolvedValue(false),
       bookedCovering: jest.fn().mockResolvedValue(booking),
       createOfflineEvent: jest.fn().mockResolvedValue(true),
@@ -97,6 +100,79 @@ describe('ShiftOfflineService (spec 0049)', () => {
       expect((bookings.offlineChangesWithoutEvent.mock.calls[1] as [Date, Date])[1]).toEqual(
         new Date('2026-11-20T19:15:00.000Z')
       )
+    })
+
+    // Review ruling 1 (2026-11-21): Shifts off then on must not record Offline changes from while it was
+    // off. The window starts at the later of (now - break - 6 h) and the last time Shifts was switched on.
+    describe('the window never reaches back before Shifts was last switched on (review ruling 1)', () => {
+      // now 20:00Z, break 30 min: the window ends 19:30Z and, on the 6 hour rule alone, starts 13:30Z.
+      const sixHourStart = new Date('2026-11-20T13:30:00.000Z')
+      const windowEnd = new Date('2026-11-20T19:30:00.000Z')
+
+      function windowAsked(call = 0): [Date, Date] {
+        return bookings.offlineChangesWithoutEvent.mock.calls[call] as [Date, Date]
+      }
+
+      test('no switch on recorded: the 6 hour window stands', async () => {
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(null)
+        await service.sweep(now)
+        expect(windowAsked()).toEqual([sixHourStart, windowEnd])
+      })
+
+      test('switched on inside the 6 hours: the window starts at the switch on, so an earlier Offline is never asked for', async () => {
+        const switchedOnAt = new Date('2026-11-20T18:00:00.000Z')
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(switchedOnAt)
+        await service.sweep(now)
+        const [from, upTo] = windowAsked()
+        expect(from).toEqual(switchedOnAt)
+        expect(upTo).toEqual(windowEnd)
+        // A rider who went Offline at 17:00Z, while Shifts was off, is outside what the sweep asks for.
+        const offlineWhileOff = new Date('2026-11-20T17:00:00.000Z')
+        expect(offlineWhileOff.getTime()).toBeLessThan(from.getTime())
+        expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledTimes(1)
+      })
+
+      test('switched on longer ago than the 6 hours: the 6 hour window stands', async () => {
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(new Date('2026-11-20T10:00:00.000Z'))
+        await service.sweep(now)
+        expect(windowAsked()).toEqual([sixHourStart, windowEnd])
+      })
+
+      test('switched on a millisecond after the 6 hour start: the switch on wins', async () => {
+        const justAfter = new Date(sixHourStart.getTime() + 1)
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(justAfter)
+        await service.sweep(now)
+        expect(windowAsked()[0]).toEqual(justAfter)
+      })
+
+      test('the 6 hours are counted back from now minus the break limit in force', async () => {
+        instanceConfig.getShiftBreakMinutes.mockResolvedValue(0)
+        // Later than 14:00Z (now - 0 - 6 h)? No: 13:45Z is earlier, so the 6 hour start stands.
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(new Date('2026-11-20T13:45:00.000Z'))
+        await service.sweep(now)
+        expect(windowAsked()).toEqual([new Date('2026-11-20T14:00:00.000Z'), now])
+      })
+
+      test('switched on after the window ends (within the last break limit): nothing from before it is asked for', async () => {
+        const switchedOnAt = new Date('2026-11-20T19:45:00.000Z')
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValue(switchedOnAt)
+        await service.sweep(now)
+        const [from, upTo] = windowAsked()
+        expect(from).toEqual(switchedOnAt)
+        // An empty window: it starts after it ends.
+        expect(from.getTime()).toBeGreaterThan(upTo.getTime())
+      })
+
+      test('the switch on time is read afresh on every sweep', async () => {
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValueOnce(null)
+        await service.sweep(now)
+        const switchedOnAt = new Date('2026-11-20T19:00:00.000Z')
+        bookings.shiftsLastSwitchedOnAt.mockResolvedValueOnce(switchedOnAt)
+        await service.sweep(now)
+        expect(bookings.shiftsLastSwitchedOnAt).toHaveBeenCalledTimes(2)
+        expect(windowAsked(0)[0]).toEqual(sixHourStart)
+        expect(windowAsked(1)[0]).toEqual(switchedOnAt)
+      })
     })
 
     test('a rider Offline during a booked shift and still Offline past the break: one open record, cause RIDER', async () => {

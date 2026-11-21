@@ -197,24 +197,87 @@ describe('FairnessCourierMatcherService and shifts (spec 0049)', () => {
       expect((await offer(service)).courierId).toBe('far')
     })
 
-    // Decision 79.2: a failed bookings read counts nobody as on shift, and the offer is still made.
-    test('a failed bookings read counts nobody on shift: the offer is made, and the weight moves no one', async () => {
-      settings(true, 100)
-      onShiftNow.mockRejectedValue(new Error('bookings table unreachable'))
-      const { courierId, reason } = await offer(matcherWith({ onShiftNow }))
-      expect(courierId).toBe('near')
-      expect(reason.values).toMatchObject({ onShift: false })
-      for (const candidate of reason.candidates!) {
-        expect((candidate as { onShift?: boolean }).onShift).toBe(false)
+    // Review ruling 2 (2026-11-21), which replaces decision 79.2's record: when the bookings cannot be read,
+    // the offer is made as with Shifts off. Recording `onShift: false` and the shift weight for everyone
+    // would state something the matcher does not know.
+    describe('the bookings cannot be read: the offer is made as with Shifts off (review ruling 2)', () => {
+      function expectAsWithShiftsOff(reason: Awaited<ReturnType<typeof offer>>['reason']) {
+        expect(reason.weights).toEqual({ roadTime: 50, earnings: 30, waiting: 20 })
+        expect(Object.keys(reason.weights as object)).not.toContain('shift')
+        expect(reason.values).not.toHaveProperty('onShift')
+        expect((reason.values as { scaled: object }).scaled).not.toHaveProperty('shift')
+        expect(reason.candidates).toHaveLength(2)
+        for (const candidate of reason.candidates!) {
+          expect(candidate).not.toHaveProperty('onShift')
+          expect((candidate as { scaled: object }).scaled).not.toHaveProperty('shift')
+        }
       }
-      expect(reason.weights).toEqual({ roadTime: 50, earnings: 30, waiting: 20, shift: 100 })
-    })
 
-    test('a matcher built without the bookings repository counts nobody on shift and still offers', async () => {
-      settings(true, 100)
-      const { courierId, reason } = await offer(matcherWith(undefined))
-      expect(courierId).toBe('near')
-      expect(reason.values).toMatchObject({ onShift: false })
+      test('a failed bookings read: the offer is still made, with no shift weight and no onShift recorded', async () => {
+        settings(true, 100)
+        onShiftNow.mockRejectedValue(new Error('bookings table unreachable'))
+        const { courierId, reason } = await offer(matcherWith({ onShiftNow }))
+        expect(onShiftNow).toHaveBeenCalledTimes(1)
+        expect(courierId).toBe('near')
+        expectAsWithShiftsOff(reason)
+      })
+
+      test('a failed bookings read: the same choice and the same record as at shift weight 0, and as with Shifts off', async () => {
+        onShiftNow.mockRejectedValue(new Error('bookings table unreachable'))
+        settings(true, 100)
+        const atHundred = await offer(matcherWith({ onShiftNow }))
+        settings(true, 0)
+        const atZero = await offer(matcherWith({ onShiftNow }))
+        settings(false, 100)
+        const shiftsOff = await offer(matcherWith({ onShiftNow }))
+        expect(atHundred).toEqual(atZero)
+        expect(atHundred).toEqual(shiftsOff)
+        // The scores are the three factor ones: near best on everything, far (50 * 1) / (50 + 30 + 20).
+        expect(atHundred.reason.candidates!.map((c) => [c.courierId, c.score])).toEqual([
+          ['near', 0],
+          ['far', 0.5],
+        ])
+      })
+
+      test('the failure is logged, never thrown', async () => {
+        settings(true, 100)
+        onShiftNow.mockRejectedValue(new Error('bookings table unreachable'))
+        const service = matcherWith({ onShiftNow })
+        const logged = jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined)
+        await expect(offer(service)).resolves.toMatchObject({ courierId: 'near' })
+        expect(logged).toHaveBeenCalledTimes(1)
+        expect(String(logged.mock.calls[0]![0])).toContain('bookings table unreachable')
+      })
+
+      test('the next offer, once the bookings read again, has the shift weight and onShift back', async () => {
+        settings(true, 100)
+        const service = matcherWith({ onShiftNow })
+        jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined)
+        onShiftNow.mockRejectedValueOnce(new Error('bookings table unreachable'))
+        expect((await offer(service)).courierId).toBe('near')
+        const { courierId, reason } = await offer(service)
+        expect(courierId).toBe('far')
+        expect(reason.weights).toEqual({ roadTime: 50, earnings: 30, waiting: 20, shift: 100 })
+        expect(reason.values).toMatchObject({ onShift: true })
+      })
+
+      test('a matcher built without the bookings repository still offers, with no shift weight and no onShift recorded', async () => {
+        settings(true, 100)
+        const { courierId, reason } = await offer(matcherWith(undefined))
+        expect(courierId).toBe('near')
+        expectAsWithShiftsOff(reason)
+      })
+
+      test('a matcher built without the bookings repository: the same choice and record as at shift weight 0', async () => {
+        settings(true, 100)
+        const atHundred = await offer(matcherWith(undefined))
+        settings(true, 0)
+        const atZero = await offer(matcherWith(undefined))
+        settings(false, 100)
+        const shiftsOff = await offer(matcherWith(undefined))
+        expect(atHundred).toEqual(atZero)
+        expect(atHundred).toEqual(shiftsOff)
+      })
     })
   })
 

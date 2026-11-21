@@ -138,6 +138,51 @@ describe('ShiftOfflineAdminRestApiController (spec 0049)', () => {
       })
     })
 
+    // Review nit (2026-11-21): a shift ending at midnight reads "24:00", as the rider's sentence does.
+    describe('the end of the shift in shiftText', () => {
+      it('a shift ending at Athens midnight the day after its date reads "to 24:00"', () => {
+        // 20:00 to 24:00 Athens on Fri 20 Nov: it ends at 00:00 on Sat 21 Nov (22:00Z, Athens is UTC+2).
+        const dto = new ShiftOfflineEventAdminDto(
+          item({ shiftEndsAt: new Date('2026-11-20T22:00:00.000Z'), shiftDate: '2026-11-20' })
+        )
+        expect(dto.shiftText).toBe('Fri 20 Nov, 20:00 to 24:00')
+        expect(dto.shiftText).toMatch(/ to 24:00$/)
+        expect(dto.shiftText).not.toContain('00:00')
+      })
+
+      it('the same in summer time (Athens UTC+3)', () => {
+        const dto = new ShiftOfflineEventAdminDto(
+          item({
+            shiftStartsAt: new Date('2026-07-17T17:00:00.000Z'),
+            shiftEndsAt: new Date('2026-07-17T21:00:00.000Z'),
+            shiftDate: '2026-07-17',
+          })
+        )
+        expect(dto.shiftText).toBe('Fri 17 Jul, 20:00 to 24:00')
+      })
+
+      it('a shift ending at 23:30 reads "to 23:30"', () => {
+        const dto = new ShiftOfflineEventAdminDto(item({ shiftEndsAt: new Date('2026-11-20T21:30:00.000Z') }))
+        expect(dto.shiftText).toBe('Fri 20 Nov, 20:00 to 23:30')
+      })
+
+      it('a shift ending after midnight reads its clock time, not 24:00', () => {
+        const dto = new ShiftOfflineEventAdminDto(item({ shiftEndsAt: new Date('2026-11-20T22:30:00.000Z') }))
+        expect(dto.shiftText).toBe('Fri 20 Nov, 20:00 to 00:30')
+      })
+
+      it('a shift starting at midnight keeps "00:00" as its start', () => {
+        const dto = new ShiftOfflineEventAdminDto(
+          item({
+            shiftStartsAt: new Date('2026-11-20T22:00:00.000Z'),
+            shiftEndsAt: new Date('2026-11-21T02:00:00.000Z'),
+            shiftDate: '2026-11-21',
+          })
+        )
+        expect(dto.shiftText).toBe('Sat 21 Nov, 00:00 to 04:00')
+      })
+    })
+
     it('has exactly those fields: no count, total or rank of the rider', () => {
       const dto = new ShiftOfflineEventAdminDto({
         ...item(),
