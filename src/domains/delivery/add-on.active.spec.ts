@@ -1,10 +1,12 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { EnumAddOnMoment } from 'src/shared-types/stacking'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import {
   ADD_ON_NOT_AUTOMATIC_SENTENCE,
   AddOnSequenceInput,
   addOnFigures,
   addOnJobIdOf,
+  addOnJobStatuses,
   addOnMomentAllows,
   addOnRefusal,
   bestAddOnSequence,
@@ -379,7 +381,29 @@ describe('Add-on pure domain rules (spec 0048, row 81)', () => {
     })
   })
 
-  describe('describeAddOn (Value 1, cross check 2)', () => {
+  describe('addOnJobStatuses (review fix, row 81)', () => {
+    it('returns DELIVERY_ONGOING_STATUSES for BEFORE_DROPOFF', () => {
+      expect(addOnJobStatuses(EnumAddOnMoment.BEFORE_DROPOFF)).toEqual(DELIVERY_ONGOING_STATUSES)
+    })
+
+    it('returns before pickup statuses for BEFORE_PICKUP', () => {
+      expect(addOnJobStatuses(EnumAddOnMoment.BEFORE_PICKUP)).toEqual([
+        EnumDeliveryStatus.ACCEPTED,
+        EnumDeliveryStatus.DISPATCHED,
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      ])
+    })
+
+    it('returns before pickup statuses for SAME_RESTAURANT', () => {
+      expect(addOnJobStatuses(EnumAddOnMoment.SAME_RESTAURANT)).toEqual([
+        EnumDeliveryStatus.ACCEPTED,
+        EnumDeliveryStatus.DISPATCHED,
+        EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      ])
+    })
+  })
+
+  describe('describeAddOn (Value 1, cross check 2, decision 81.16)', () => {
     const mockSequence = {
       stops: [
         { deliveryId: 'job-1', stop: 'PICKUP' as const },
@@ -394,17 +418,24 @@ describe('Add-on pure domain rules (spec 0048, row 81)', () => {
       secondsToNewPickup: 150,
     }
 
-    it('describes add on with job ID, figures, and stops when not carrying food', () => {
-      const description = describeAddOn('job-1', mockSequence, false)
+    it('describes add on with job ID, figures, stops, and no free rider found when not carrying food', () => {
+      const description = describeAddOn('job-1', mockSequence, false, false)
       expect(description).toContain('offered as one more order on the way, added to the job of delivery job-1')
       expect(description).toContain('(+2.1 km, +7 min)')
       expect(description).not.toContain('twice the time to answer')
+      expect(description).toContain('; no free rider was found')
     })
 
     it('includes calm notice when carrying food (cross check 2)', () => {
-      const description = describeAddOn('job-1', mockSequence, true)
+      const description = describeAddOn('job-1', mockSequence, true, false)
       expect(description).toContain('offered as one more order on the way, added to the job of delivery job-1')
       expect(description).toContain('; the rider carries food, so twice the time to answer and no insistent ring')
+      expect(description).toContain('; no free rider was found')
+    })
+
+    it('describes when free rider was found under whenever it fits (decision 81.16)', () => {
+      const description = describeAddOn('job-1', mockSequence, false, true)
+      expect(description).toContain('; a free rider was found, and the co-op offers an add on whenever it fits')
     })
   })
 

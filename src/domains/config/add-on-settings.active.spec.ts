@@ -6,7 +6,7 @@ import {
   DEFAULT_TWO_ORDER_POLICY,
 } from 'src/constants'
 import { ConfigRepository } from 'src/persistence/repositories/config.repository'
-import { ConfigKey } from 'src/shared-types'
+import { ConfigKey, EnumCourierMatcherType } from 'src/shared-types'
 import { RIDER_FACING_SETTINGS } from 'src/shared-types/rider-facing-settings'
 import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import { ConfigEntity } from './entities/config.entity'
@@ -215,6 +215,7 @@ describe('Add-on co-op settings (spec 0048, AC-1, row 81)', () => {
         addOnMoment: EnumAddOnMoment.BEFORE_PICKUP,
         twoOrderPolicy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
         twoOrderDelayLimitMinutes: 10,
+        offerExpirySeconds: 60,
       })
 
       const rules = await workRulesService.howItWorks()
@@ -224,7 +225,7 @@ describe('Add-on co-op settings (spec 0048, AC-1, row 81)', () => {
       expect(addOnSentence).toContain('only when that order found no free rider')
       expect(addOnSentence).toContain('arrives at most 10 minutes later')
       expect(addOnSentence).toContain(
-        'Answer an add on only when you are stopped: one offered while you carry food never rings insistently and gives you twice the usual time to answer.'
+        'Answer an add on only when you are stopped. You have 60 seconds to answer one; while you carry food you have 120 seconds and it never rings insistently. An unanswered add on goes back to matching.'
       )
     })
 
@@ -235,14 +236,30 @@ describe('Add-on co-op settings (spec 0048, AC-1, row 81)', () => {
         addOnMoment: EnumAddOnMoment.BEFORE_DROPOFF,
         twoOrderPolicy: EnumTwoOrderPolicy.WHENEVER_FITS,
         twoOrderDelayLimitMinutes: 15,
+        offerExpirySeconds: 45,
       })
 
       const rules = await workRulesService.howItWorks()
       const addOnSentence = rules.offers.find((s: string) => s.includes('one more order on the way'))
       expect(addOnSentence).toBeDefined()
       expect(addOnSentence).toContain('any time before you drop off your current order')
-      expect(addOnSentence).toContain('whenever it fits')
+      expect(addOnSentence).toContain('whenever it fits, even when a free rider is available')
       expect(addOnSentence).toContain('arrives at most 15 minutes later')
+      expect(addOnSentence).toContain(
+        'You have 45 seconds to answer one; while you carry food you have 90 seconds and it never rings insistently.'
+      )
+    })
+
+    it('omits add on sentence when courierMatcherType is STATIC (Decision 81.15, locked override)', async () => {
+      mockConfigDomainService.instanceConfig.getInstanceConfigSettings.mockResolvedValueOnce({
+        ...mockBaseSettings,
+        addOnOffersEnabled: true,
+        courierMatcherType: EnumCourierMatcherType.STATIC,
+      })
+
+      const rules = await workRulesService.howItWorks()
+      const addOnSentence = rules.offers.find((s: string) => s.includes('one more order on the way'))
+      expect(addOnSentence).toBeUndefined()
     })
   })
 })

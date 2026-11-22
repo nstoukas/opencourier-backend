@@ -279,4 +279,46 @@ describe('whyYouFrom (spec 0045: AC-1, AC-5, cross check 1 and 3)', () => {
       }
     )
   })
+
+  describe('ADD_ON reason (row 81 review fix, decision 81.16)', () => {
+    const addOnStored = {
+      strategy: 'NEAREST_COURIER',
+      kind: 'ADD_ON',
+      values: {
+        currentDeliveryId: 'job-1',
+        extraKm: 1.2,
+        extraMinutes: 3,
+        roadSecondsToPickup: 150,
+        carryingFood: true,
+        candidateCount: 4,
+        policy: 'WHENEVER_FITS',
+        freeRiderFound: true,
+      },
+      weights: { roadTime: 50 },
+    }
+
+    test('keeps only extraKm, extraMinutes, and carryingFood, carrying strategy and kind', () => {
+      const result = whyYouFrom(addOnStored)
+      expect(result).not.toBeNull()
+      expect(result!.strategy).toBe('NEAREST_COURIER')
+      expect(result!.kind).toBe('ADD_ON')
+      expect(result!.values).toEqual({
+        extraKm: 1.2,
+        extraMinutes: 3,
+        carryingFood: true,
+      })
+      // An add on has empty weights
+      expect(result!.weights).toEqual({})
+    })
+
+    test('never reveals freeRiderFound or policy to the rider (decision 81.16, transparency privacy)', () => {
+      const result = whyYouFrom(addOnStored)!
+      expect(result.values).not.toHaveProperty('freeRiderFound')
+      expect(result.values).not.toHaveProperty('policy')
+      expect(result.values).not.toHaveProperty('currentDeliveryId')
+      expect(result.values).not.toHaveProperty('roadSecondsToPickup')
+      expect(result.values).not.toHaveProperty('candidateCount')
+      expect(JSON.stringify(result)).not.toContain('WHENEVER_FITS')
+    })
+  })
 })

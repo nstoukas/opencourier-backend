@@ -78,6 +78,32 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
     { deliveryId: 'del-add-on', stop: 'DROPOFF' as const },
   ]
 
+  const sampleJobStatuses = [
+    EnumDeliveryStatus.ACCEPTED,
+    EnumDeliveryStatus.DISPATCHED,
+    EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+  ]
+
+  const makePlan = (overrides: Partial<AddOnPlan> = {}): AddOnPlan => ({
+    courierId,
+    job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId }),
+    sequence: {
+      stops: sampleStops,
+      delaySeconds: { 'job-held-1': 60, 'del-add-on': 120 },
+      totalSeconds: 400,
+      extraSeconds: 120,
+      extraMetres: 800,
+      secondsToNewPickup: 50,
+    },
+    carryingFood: false,
+    candidateCount: 1,
+    strategy: EnumCourierMatcherType.FAIRNESS,
+    policy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+    freeRiderFound: false,
+    jobStatuses: sampleJobStatuses,
+    ...overrides,
+  })
+
   beforeEach(() => {
     mockDeliveryRepo = {
       findById: jest.fn(),
@@ -280,21 +306,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       const newDelivery = makeDelivery('del-add-on')
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
 
-      const plan: AddOnPlan = {
-        courierId,
-        job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId }),
-        sequence: {
-          stops: sampleStops,
-          delaySeconds: { 'job-held-1': 60, 'del-add-on': 120 },
-          totalSeconds: 400,
-          extraSeconds: 120,
-          extraMetres: 800,
-          secondsToNewPickup: 50,
-        },
-        carryingFood: false,
-        candidateCount: 1,
-        strategy: EnumCourierMatcherType.FAIRNESS,
-      }
+      const plan: AddOnPlan = makePlan()
       mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
 
       // The calculation service returns full quote pay for this delivery
@@ -317,6 +329,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         'del-add-on',
         courierId,
         'job-held-1',
+        plan.jobStatuses,
         expect.any(Object),
         expect.objectContaining({
           totalCost: 550,
@@ -338,8 +351,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       // Expiry setting is 60s
       mockConfigService.instanceConfig.getOfferExpirySeconds.mockResolvedValue(60)
 
-      const plan: AddOnPlan = {
-        courierId,
+      const plan: AddOnPlan = makePlan({
         job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.PICKED_UP, courierId }),
         sequence: {
           stops: sampleStops,
@@ -352,7 +364,9 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         carryingFood: true, // Rider is carrying food!
         candidateCount: 2,
         strategy: EnumCourierMatcherType.FAIRNESS,
-      }
+        policy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+        freeRiderFound: false,
+      })
       mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
 
       const result = await (deliveryEventService as any).offerToNextCourier('del-add-on')
@@ -361,7 +375,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
 
       // 1. Claim was called with doubled expiry (60 * 2 = 120s)
       const claimCall = mockDeliveryRepo.claimAddOnWithinBox.mock.calls[0]
-      const updateData = claimCall[4]
+      const updateData = claimCall[5]
       expect(updateData.matchedCourierId).toBe(courierId)
       expect(updateData.offerGroupId).toBeNull() // Group ID is null until accept
       expect(updateData.addOnExtraMetres).toBe(1200)
@@ -376,19 +390,19 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         expect.objectContaining({ delay: 123000 })
       )
 
-      // 3. OFFERED event recorded with calm notice and ADD_ON reason
+      // 3. OFFERED event recorded with calm notice, ADD_ON reason, and why text (decision 81.16)
       expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           type: EnumDeliveryEventType.OFFERED,
           deliveryId: 'del-add-on',
           courierId,
           message: expect.stringContaining(
-            '; the rider carries food, so twice the time to answer and no insistent ring'
+            '; the rider carries food, so twice the time to answer and no insistent ring; no free rider was found'
           ),
         })
       )
 
-      // 4. OfferReason recorded with kind ADD_ON and carryingFood: true
+      // 4. OfferReason recorded with kind ADD_ON, carryingFood: true, policy, and freeRiderFound
       expect(mockOfferReasonRepo.create).toHaveBeenCalledWith(
         'evt-1',
         'del-add-on',
@@ -401,6 +415,8 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
             carryingFood: true,
             extraKm: 1.2,
             extraMinutes: 3,
+            policy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+            freeRiderFound: false,
           }),
         })
       )
@@ -411,8 +427,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
       mockConfigService.instanceConfig.getOfferExpirySeconds.mockResolvedValue(60)
 
-      const plan: AddOnPlan = {
-        courierId,
+      const plan: AddOnPlan = makePlan({
         job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId }),
         sequence: {
           stops: sampleStops,
@@ -425,14 +440,16 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         carryingFood: false, // Not carrying food
         candidateCount: 1,
         strategy: EnumCourierMatcherType.FAIRNESS,
-      }
+        policy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+        freeRiderFound: false,
+      })
       mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
 
       await (deliveryEventService as any).offerToNextCourier('del-add-on')
 
       // Normal expiry (60s + 3s grace)
       const claimCall = mockDeliveryRepo.claimAddOnWithinBox.mock.calls[0]
-      const updateData = claimCall[4]
+      const updateData = claimCall[5]
       const expiryMs = updateData.offerExpiresAt.getTime() - updateData.offeredAt.getTime()
       expect(Math.round(expiryMs / 1000)).toBe(60)
 
@@ -447,6 +464,109 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
           message: expect.not.stringContaining('the rider carries food'),
         })
       )
+    })
+
+    it('always has a deadline even when offerExpiryEnabled is false (Decision 81.14)', async () => {
+      const newDelivery = makeDelivery('del-add-on')
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
+      // Expiry switch is OFF!
+      mockConfigService.instanceConfig.getOfferExpiryEnabled.mockResolvedValue(false)
+      mockConfigService.instanceConfig.getOfferExpirySeconds.mockResolvedValue(60)
+
+      const plan: AddOnPlan = makePlan({ carryingFood: false })
+      mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
+
+      const result = await (deliveryEventService as any).offerToNextCourier('del-add-on')
+
+      expect(result).toBe('OFFERED')
+
+      // Deadline is still set on claim
+      const claimCall = mockDeliveryRepo.claimAddOnWithinBox.mock.calls[0]
+      const updateData = claimCall[5]
+      expect(updateData.offerExpiresAt).not.toBeNull()
+      const expiryMs = updateData.offerExpiresAt.getTime() - updateData.offeredAt.getTime()
+      expect(Math.round(expiryMs / 1000)).toBe(60)
+
+      // scheduleOfferExpiry is still scheduled
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'offer-expiry',
+        expect.objectContaining({ deliveryId: 'del-add-on', courierId }),
+        expect.objectContaining({ delay: 63000 })
+      )
+    })
+
+    it('always has doubled deadline when offerExpiryEnabled is false and rider carries food (Decision 81.14)', async () => {
+      const newDelivery = makeDelivery('del-add-on')
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
+      // Expiry switch is OFF!
+      mockConfigService.instanceConfig.getOfferExpiryEnabled.mockResolvedValue(false)
+      mockConfigService.instanceConfig.getOfferExpirySeconds.mockResolvedValue(60)
+
+      const plan: AddOnPlan = makePlan({
+        job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.PICKED_UP, courierId }),
+        carryingFood: true,
+      })
+      mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
+
+      const result = await (deliveryEventService as any).offerToNextCourier('del-add-on')
+
+      expect(result).toBe('OFFERED')
+
+      const claimCall = mockDeliveryRepo.claimAddOnWithinBox.mock.calls[0]
+      const updateData = claimCall[5]
+      expect(updateData.offerExpiresAt).not.toBeNull()
+      const expiryMs = updateData.offerExpiresAt.getTime() - updateData.offeredAt.getTime()
+      expect(Math.round(expiryMs / 1000)).toBe(120) // 120s!
+
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+        'offer-expiry',
+        expect.objectContaining({ deliveryId: 'del-add-on', courierId }),
+        expect.objectContaining({ delay: 123000 })
+      )
+    })
+
+    it('records policy and freeRiderFound in offerReason and message under WHENEVER_FITS with free rider (Decision 81.16)', async () => {
+      const newDelivery = makeDelivery('del-add-on')
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
+
+      const plan: AddOnPlan = makePlan({
+        policy: EnumTwoOrderPolicy.WHENEVER_FITS,
+        freeRiderFound: true,
+      })
+      mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
+
+      await (deliveryEventService as any).offerToNextCourier('del-add-on')
+
+      expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.OFFERED,
+          message: expect.stringContaining(
+            '; a free rider was found, and the co-op offers an add on whenever it fits'
+          ),
+        })
+      )
+
+      expect(mockOfferReasonRepo.create).toHaveBeenCalledWith(
+        'evt-1',
+        'del-add-on',
+        courierId,
+        expect.objectContaining({
+          kind: 'ADD_ON',
+          values: expect.objectContaining({
+            policy: EnumTwoOrderPolicy.WHENEVER_FITS,
+            freeRiderFound: true,
+          }),
+        })
+      )
+    })
+
+    it('when addOnOffersEnabled is false, does not attempt to find add on (Decision 81.18 nit)', async () => {
+      mockConfigService.instanceConfig.getAddOnOffersEnabled.mockResolvedValue(false)
+
+      const result = await (deliveryEventService as any).offerToNextCourier('del-add-on')
+
+      expect(result).toBe('NO_COURIER')
+      expect(mockTwoOrderService.findAddOn).not.toHaveBeenCalled()
     })
   })
 
@@ -588,9 +708,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       const newDelivery = makeDelivery('del-add-on')
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
 
-      const plan: AddOnPlan = {
-        courierId,
-        job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId }),
+      const plan: AddOnPlan = makePlan({
         sequence: {
           stops: sampleStops,
           delaySeconds: { 'job-held-1': 50, 'del-add-on': 80 },
@@ -599,10 +717,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
           extraMetres: 600,
           secondsToNewPickup: 40,
         },
-        carryingFood: false,
-        candidateCount: 1,
-        strategy: EnumCourierMatcherType.FAIRNESS,
-      }
+      })
       mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
 
       // Claim finds rider no longer holds job-held-1
@@ -621,9 +736,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       const newDelivery = makeDelivery('del-add-on')
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(newDelivery)
 
-      const plan: AddOnPlan = {
-        courierId,
-        job: makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId }),
+      const plan: AddOnPlan = makePlan({
         sequence: {
           stops: sampleStops,
           delaySeconds: { 'job-held-1': 50, 'del-add-on': 80 },
@@ -632,10 +745,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
           extraMetres: 600,
           secondsToNewPickup: 40,
         },
-        carryingFood: false,
-        candidateCount: 1,
-        strategy: EnumCourierMatcherType.FAIRNESS,
-      }
+      })
       mockTwoOrderService.findAddOn.mockResolvedValueOnce(plan)
 
       // Dispatch stop was inactive at start of offerToNextCourier, but became active during matching/claim!
