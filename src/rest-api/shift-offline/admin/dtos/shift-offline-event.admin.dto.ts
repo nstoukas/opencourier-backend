@@ -7,6 +7,8 @@ import { OfflineEventForAdmin } from 'src/persistence/repositories/shift-booking
 
 // Spec 0049 (AC-6): one Offline during a booked shift, for an admin to follow up in person. Times are also
 // sent as Athens text, so the page never formats them in the browser's zone. Copied field by field.
+// Row 124: the shift's start and end are sent as times too, so adminweb words the shift in its reader's
+// language (Athens time); `shiftText` stays, in English exactly as before, for any older reader.
 export class ShiftOfflineEventAdminDto {
   @ApiProperty() id: string
   @ApiProperty() courierId: string
@@ -15,6 +17,8 @@ export class ShiftOfflineEventAdminDto {
   @ApiProperty({ example: '21:10', nullable: true, type: String }) offlineTime: string | null
   @ApiProperty({ example: '2026-11-20' }) shiftDate: string
   @ApiProperty({ example: 'Fri 20 Nov, 20:00 to 23:59' }) shiftText: string
+  @ApiProperty({ type: Date }) shiftStartsAt: Date
+  @ApiProperty({ type: Date }) shiftEndsAt: Date
   @ApiProperty({ enum: EnumCourierStatusChangeCause, nullable: true }) cause: EnumCourierStatusChangeCause | null
   @ApiProperty({ example: 'The rider switched to Offline' }) causeText: string
   @ApiProperty({ type: Date, nullable: true }) followedUpAt: Date | null
@@ -33,6 +37,8 @@ export class ShiftOfflineEventAdminDto {
     this.shiftText = `${athensDayOf(event.shiftStartsAt)}, ${athensClockOf(event.shiftStartsAt)} to ${
       end === '00:00' && endsNextDay ? '24:00' : end
     }`
+    this.shiftStartsAt = event.shiftStartsAt
+    this.shiftEndsAt = event.shiftEndsAt
     this.cause = event.cause
     this.causeText = event.cause ? ADMIN_CAUSE_WORDS[event.cause] : 'Cause not recorded'
     this.followedUpAt = event.followedUpAt
