@@ -106,10 +106,13 @@ export class LocationNoteRepository extends EntityRepository implements ILocatio
   }
 
   // Spec 0053 (cross check 11): every note inside any of the boxes; the caller checks the exact distance.
-  async findInsideBoxes(boxes: LatLngBox[]): Promise<LocationNoteEntity[]> {
+  // Row 82 review: only notes confirmed at or after `confirmedSince`, so a note past the retention period
+  // never shows even on a night the deletion job did not run (the job deletes those before the cutoff).
+  async findInsideBoxes(boxes: LatLngBox[], confirmedSince: Date): Promise<LocationNoteEntity[]> {
     if (boxes.length === 0) return []
     const notes = await this.prisma.locationNote.findMany({
       where: {
+        lastConfirmedAt: { gte: confirmedSince },
         OR: boxes.map((box) => ({
           latitude: { gte: box.minLatitude, lte: box.maxLatitude },
           longitude: { gte: box.minLongitude, lte: box.maxLongitude },

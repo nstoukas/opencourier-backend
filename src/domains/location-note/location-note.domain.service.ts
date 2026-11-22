@@ -14,6 +14,8 @@ import {
   notesForStop,
 } from './address-note-point'
 import { LocationNoteEntity } from './entities/location-note.entity'
+import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import { DEFAULT_ADDRESS_NOTE_RETENTION_DAYS } from 'src/constants'
 
 // Spec 0053 (cross check 3): which stop of the job a note is about.
 export const ADDRESS_NOTE_STOPS = ['PICKUP', 'DROPOFF'] as const
@@ -89,8 +91,19 @@ export class LocationNoteDomainService {
   private readonly logger = new Logger(LocationNoteDomainService.name)
   constructor(
     private locationNoteRepository: LocationNoteRepository,
-    private locationNoteReactionRepository: LocationNoteReactionRepository
+    private locationNoteReactionRepository: LocationNoteReactionRepository,
+    // Row 82 review: the retention period, so job cards leave out expired notes. Optional for the tests
+    // that build this service by hand (they get the default period); Nest always injects it.
+    private configDomainService?: ConfigDomainService
   ) {}
+
+  // The oldest `lastConfirmedAt` a note may have and still show: now minus the co-op's retention period.
+  private async retentionCutoff(now: Date = new Date()): Promise<Date> {
+    const days =
+      (await this.configDomainService?.instanceConfig.getAddressNoteRetentionDays()) ??
+      DEFAULT_ADDRESS_NOTE_RETENTION_DAYS
+    return new Date(now.getTime() - days * DAY_MS)
+  }
 
   // AC-4: refuses text that looks like it holds a name, phone or email unless the rider confirmed it.
   // The answer carries the fixed sentence only, never the text.
@@ -216,7 +229,7 @@ export class LocationNoteDomainService {
     const boxes = stops.flatMap((stop) =>
       [...stop.pickupPoints, ...stop.dropoffPoints].map((point) => boxAround(point))
     )
-    const candidates = await this.locationNoteRepository.findInsideBoxes(boxes)
+    const candidates = await this.locationNoteRepository.findInsideBoxes(boxes, await this.retentionCutoff())
 
     const shown = stops.map((stop) => ({
       deliveryId: stop.delivery.id,
@@ -224,7 +237,11 @@ export class LocationNoteDomainService {
       dropoff: notesForStop(candidates, stop.dropoffPoints),
     }))
     const shownNotes = new Map<string, LocationNoteEntity>()
-    for (const entry of shown) for (const note of [...entry.pickup, ...entry.dropoff]) shownNotes.set(note.id, note)
+    for (const entry of shown) {
+      for (const note of [...entry.pickup, ...entry.dropoff]) {
+        shownNotes.set(note.id, note)
+      }
+    }
     const counts = await this.locationNoteRepository.findCourierFacingCounts(Array.from(shownNotes.values()), courierId)
 
     const forCourier = (note: LocationNoteEntity): AddressNoteForCourier => ({
