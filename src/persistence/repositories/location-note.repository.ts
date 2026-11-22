@@ -176,8 +176,10 @@ export class LocationNoteRepository extends EntityRepository implements ILocatio
   }
 
   // AC-5: an upvote by someone other than the author restarts the retention clock.
+  // Raw SQL on purpose: Prisma's @updatedAt would also move `updatedAt`, and the admin page reads
+  // that as "edited" (row 82 live check).
   async markConfirmed(noteId: string, at: Date): Promise<void> {
-    await this.prisma.locationNote.updateMany({ where: { id: noteId }, data: { lastConfirmedAt: at } })
+    await this.prisma.$executeRaw`UPDATE "LocationNote" SET "lastConfirmedAt" = ${at} WHERE "id" = ${noteId}`
   }
 
   // AC-6: deletes every note last confirmed before the cutoff, in one statement. Returns the count only.
