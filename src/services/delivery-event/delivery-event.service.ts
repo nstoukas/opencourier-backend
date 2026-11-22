@@ -1194,7 +1194,7 @@ export class DeliveryEventService {
   // two deliveries besides this one. A read before the write, like refuseIfCourierInSos; the hand offer's
   // claim counts again under the rider's lock.
   async refuseIfCourierHoldsTwo(courierId: string, deliveryId: string): Promise<void> {
-    if ((await this.courierRepository.heldDeliveryCount(courierId, deliveryId)) >= MAX_DELIVERIES_HELD) {
+    if ((await this.courierRepository.liveDeliveryCount(courierId, deliveryId)) >= MAX_DELIVERIES_HELD) {
       throw new ConflictException(THIRD_DELIVERY_REFUSED_SENTENCE)
     }
   }
@@ -1884,7 +1884,8 @@ export class DeliveryEventService {
       }
     )
     if (claim === 'TWO_HELD') {
-      // Spec 0048 (cross check 10): only the Static matcher can name a rider who holds two already.
+      // Spec 0048 (cross check 10): only the Static matcher can name a rider who holds two already. The limit
+      // counts with the automatic matchers' busy rule, so they never choose a rider it refuses (review of row 80).
       this.logger.log(`Courier ${courier.id} already holds two deliveries; delivery ${deliveryId} is not offered to them`)
       return 'NO_COURIER'
     }

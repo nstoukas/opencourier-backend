@@ -21,7 +21,7 @@ import { DeliveryWhereUniqueArgs } from 'src/domains/delivery/types/delivery-whe
 import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
-import { heldBoxCountSql, heldBoxUnitsSql, siblingLegHeldSql } from './courier.repository'
+import { heldBoxCountSql, heldBoxUnitsSql, liveDeliveryCountSql, siblingLegHeldSql } from './courier.repository'
 import { MAX_DELIVERIES_HELD, pairStillTogether } from 'src/domains/delivery/stack'
 import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { GeoPosition } from 'src/shared-types'
@@ -140,9 +140,11 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       if (sibling[0]?.exists) return { outcome: 'SIBLING_LEG', heldUnits: 0, deliveryUnits: 0 }
       // Spec 0048 (cross check 10): never a third delivery for one rider, under the same lock, and no confirm
       // passes it (a stack is the only way to two, and two is the most). This delivery itself is left out, so
-      // re-offering it to a rider who already has its offer is not counted twice.
+      // re-offering it to a rider who already has its offer is not counted twice. Counted with the matchers'
+      // own busy rule (review of row 80), so a rider the automatic matchers choose (busy with nothing) is never
+      // refused here; only a rider named by hand or by the Static matcher can be.
       const count = await tx.$queryRaw<Array<{ held: number }>>(
-        Prisma.sql`SELECT (${heldBoxCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
+        Prisma.sql`SELECT (${liveDeliveryCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
       )
       if ((count[0]?.held ?? 0) >= MAX_DELIVERIES_HELD) return { outcome: 'TWO_HELD', heldUnits: 0, deliveryUnits: 0 }
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })

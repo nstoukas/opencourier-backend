@@ -43,15 +43,25 @@ export function busyCourierDeliverySubQuery(): Prisma.Sql {
   return Prisma.sql`
       SELECT 1
       FROM "Delivery"
-      WHERE (
-        "Delivery"."courierId" = "Courier"."id"
+      WHERE ${liveDeliveriesWhere(Prisma.sql`"Courier"."id"`)}
+    `
+}
+
+// The busy rule above as a condition on "Delivery", for any rider: a job of theirs up to the drop off, or an
+// open offer to them not answered yet. `riderId` is the rider's id as SQL (the outer "Courier"."id" in a
+// matcher query, or a bound value for one rider). Spec 0048 (review of row 80): the limit of two deliveries
+// per rider counts exactly these (liveDeliveryCountSql), so a rider the matchers call free is never refused
+// by the limit. Food being taken back after a cancellation is not here: it fills the box (heldBoxDeliveriesWhere)
+// but is no delivery for a customer, and the matchers do not count it either.
+export function liveDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(
+        "Delivery"."courierId" = ${riderId}
         AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
       ) OR (
-        "Delivery"."matchedCourierId" = "Courier"."id"
+        "Delivery"."matchedCourierId" = ${riderId}
         AND "Delivery"."courierId" IS NULL
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
-      )
-    `
+      )`
 }
 
 // Spec 0043 (cross check 3): how long after a cancellation a rider may still be carrying the food back
@@ -120,9 +130,18 @@ export function heldBoxUnitsSql(riderId: Prisma.Sql): Prisma.Sql {
   )}`
 }
 
-// Spec 0048 (key invariants, cross check 10): how many deliveries the rider holds in the box sense of
-// heldBoxDeliveriesWhere (open offers, jobs up to the drop off, food being taken back), leaving out
-// `exceptDeliveryId` (the delivery being given, which may already be offered to them). A whole number.
+// Spec 0048 (key invariants, cross check 10): the limit of two. How many deliveries the rider has under the
+// busy rule (liveDeliveriesWhere: jobs up to the drop off and open offers), leaving out `exceptDeliveryId`
+// (the delivery being given, which may already be offered to them). A whole number.
+export function liveDeliveryCountSql(riderId: Prisma.Sql, exceptDeliveryId?: string): Prisma.Sql {
+  return Prisma.sql`SELECT COUNT(*)::int FROM "Delivery" WHERE (${liveDeliveriesWhere(riderId)})${
+    exceptDeliveryId ? Prisma.sql` AND "Delivery"."id" <> ${exceptDeliveryId}` : Prisma.empty
+  }`
+}
+
+// Spec 0048 (AC-4): how many deliveries the rider holds in the box sense of heldBoxDeliveriesWhere (open
+// offers, jobs up to the drop off, food being taken back), leaving out `exceptDeliveryId`. Only a stack asks
+// this: two orders together go only to a rider whose box holds nothing else. A whole number.
 export function heldBoxCountSql(riderId: Prisma.Sql, exceptDeliveryId?: string): Prisma.Sql {
   return Prisma.sql`SELECT COUNT(*)::int FROM "Delivery" WHERE (${heldBoxDeliveriesWhere(riderId)})${
     exceptDeliveryId ? Prisma.sql` AND "Delivery"."id" <> ${exceptDeliveryId}` : Prisma.empty
@@ -604,8 +623,18 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     return rows[0]?.held ?? 0
   }
 
-  // Spec 0048 (cross check 10): how many deliveries this rider holds, besides `exceptDeliveryId`. A plain
-  // read for an admin path's early 409; the claims count again under the rider's row lock.
+  // Spec 0048 (cross check 10): how many deliveries count against this rider's limit of two (the busy rule,
+  // liveDeliveriesWhere), besides `exceptDeliveryId`. A plain read for an admin path's early 409; the claim
+  // counts again under the rider's row lock.
+  async liveDeliveryCount(courierId: string, exceptDeliveryId?: string): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ held: number }>>(
+      Prisma.sql`SELECT (${liveDeliveryCountSql(Prisma.sql`${courierId}`, exceptDeliveryId)}) AS "held"`
+    )
+    return rows[0]?.held ?? 0
+  }
+
+  // Spec 0048 (AC-4): how many deliveries this rider holds in the box sense, besides `exceptDeliveryId`, so a
+  // stack goes only to a rider holding nothing else, food being taken back included.
   async heldDeliveryCount(courierId: string, exceptDeliveryId?: string): Promise<number> {
     const rows = await this.prisma.$queryRaw<Array<{ held: number }>>(
       Prisma.sql`SELECT (${heldBoxCountSql(Prisma.sql`${courierId}`, exceptDeliveryId)}) AS "held"`
