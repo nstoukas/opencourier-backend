@@ -205,6 +205,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `settleSplitWait(requestId)` pays from the stored row and the minute sweep retries a stamp for a day. `saveDeliveryEvent` voids
   an open request on any successful move off `COURIER_ARRIVED_AT_PICKUP_LOCATION`, so a new way to move a delivery needs no extra
   code. The six split events are refused by `processDeliveryEvent`; the ordinary wait leaves out split windows (`splitWindowsUntil`).
+- Complaint photos (spec 0052) need MinIO: `./devup.sh` starts it (`docker-compose.db.yml`, console :9001). With MinIO down,
+  `MINIO_ENDPOINT` unset or a policy on the `complaints` bucket (rechecked every 5 minutes), a filing with a photo answers 503
+  and nothing is saved; text only filings still work. sharp re-encodes each photo; a watcher started before `sharp` was
+  installed crashes loading it, so restart only the backend's own process tree.
 
 ## Agent skills
 
