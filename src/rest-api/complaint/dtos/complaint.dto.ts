@@ -48,6 +48,8 @@ export class ComplaintCourierDto {
   @ApiProperty({ enum: EnumComplaintAbout }) about: EnumComplaintAbout
   @ApiProperty({ enum: EnumComplaintCategory }) category: EnumComplaintCategory
   @ApiProperty({ type: String }) text: string
+  // Slice 2: a photo is attached; read it at GET complaints/:id/photo (only the filer can). Never its key.
+  @ApiProperty({ type: Boolean }) hasPhoto: boolean
   @ApiProperty({ enum: EnumComplaintStatus }) status: EnumComplaintStatus
   @ApiProperty({ type: Date }) createdAt: Date
   @ApiProperty({ type: String, nullable: true }) riderReply: string | null
@@ -67,6 +69,8 @@ export class ComplaintCourierDto {
     this.about = complaint.about
     this.category = complaint.category
     this.text = complaint.text
+    // Only the rider who filed it may open it, so only they are told it exists.
+    this.hasPhoto = complaint.photoKey !== null && complaint.filerCourierId === courierId
     this.status = complaint.status
     this.createdAt = complaint.createdAt
     this.riderReply = complaint.riderReply
@@ -136,6 +140,8 @@ export class ComplaintAdminDto {
   @ApiProperty({ type: Boolean }) aboutCourierDeactivated: boolean
   @ApiProperty({ enum: EnumComplaintCategory }) category: EnumComplaintCategory
   @ApiProperty({ type: String }) text: string
+  // Slice 2: read it at GET admin/v1/complaints/:id/photo with the bearer. Never its key or a URL.
+  @ApiProperty({ type: Boolean }) hasPhoto: boolean
   @ApiProperty({ enum: EnumComplaintStatus }) status: EnumComplaintStatus
   @ApiProperty({ type: Date }) createdAt: Date
   @ApiProperty({ type: String, nullable: true }) riderReply: string | null
@@ -166,6 +172,7 @@ export class ComplaintAdminDto {
     this.aboutCourierDeactivated = Boolean(complaint.aboutCourier?.deactivatedAt)
     this.category = complaint.category
     this.text = complaint.text
+    this.hasPhoto = complaint.photoKey !== null
     this.status = complaint.status
     this.createdAt = complaint.createdAt
     this.riderReply = complaint.riderReply

@@ -1,7 +1,16 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import { randomUUID } from 'crypto'
+import { Readable } from 'stream'
 import { EnumComplaintAbout, EnumComplaintCategory, EnumComplaintFiledBy, EnumComplaintStatus } from '@prisma/types'
 import { PaginatedResult } from 'src/core/models/Pagination'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
+import {
+  COMPLAINT_PHOTO_CONTENT_TYPE,
+  COMPLAINT_PHOTO_TYPE_MESSAGE,
+  COMPLAINT_PHOTO_UNREADABLE_MESSAGE,
+  photoKindOf,
+  reencodeComplaintPhoto,
+} from 'src/domains/complaint/complaint-photo'
 import {
   ABOUT_ALLOWED_FOR,
   COMPLAINT_ABOUT_NOT_ALLOWED,
@@ -35,6 +44,7 @@ import {
 import { refuseIfNotVisibleToPartner } from 'src/rest-api/delivery/partner/partner-history'
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
 import { reachFromOf, todayIn } from 'src/services/time-worked/time-worked.service'
+import { StorageProvider, StoredFileNotFoundError } from 'src/services/storage/models/StorageProvider'
 
 export type RiderComplaintInput = {
   deliveryId: string
@@ -56,6 +66,14 @@ export type PageOptions = { page?: number; perPage?: number }
 export type DeliveryRider = { id: string; name: string }
 
 const DELIVERY_NOT_FOUND = 'Delivery not found'
+export const COMPLAINT_NO_PHOTO = 'This complaint has no photo'
+export const COMPLAINT_PHOTO_STORAGE_DOWN =
+  "Photos can't be saved right now. Send the complaint without the photo, or try again later."
+export const COMPLAINT_PHOTO_READ_DOWN = "The photo can't be shown right now. Try again later."
+
+// A stored photo, opened for a route to stream back.
+export type ComplaintPhoto = { stream: Readable; contentType: string }
+
 export const COMPLAINT_PICK_RIDER =
   'More than one rider accepted this order: name the rider the complaint is about (aboutCourierId).'
 
@@ -71,7 +89,9 @@ export class ComplaintService {
   constructor(
     private readonly complaintRepository: ComplaintRepository,
     private readonly configDomainService: ConfigDomainService,
-    private readonly offerPushService: OfferPushService
+    private readonly offerPushService: OfferPushService,
+    // Slice 2: the private bucket for complaint photos (MinIO, bound in ComplaintModule).
+    private readonly storageProvider: StorageProvider
   ) {}
 
   // --- Filing -------------------------------------------------------------------------------
@@ -79,7 +99,9 @@ export class ComplaintService {
   // AC-2: a rider files about the restaurant or the customer of one of their jobs in Earnings: a
   // delivery they accepted, last accepted within their Earnings reach (spec 0042, cross check 11). Any
   // other delivery is the plain 404, so a rider cannot learn which deliveries exist.
-  async fileByRider(courierId: string, input: RiderComplaintInput): Promise<ComplaintRecord> {
+  // Slice 2: with an optional photo (the uploaded file's bytes), checked, cleaned and stored before the
+  // row is written; the complaint is never saved without it (cross check 9).
+  async fileByRider(courierId: string, input: RiderComplaintInput, photo?: Buffer | null): Promise<ComplaintRecord> {
     const text = this.checkFiling(EnumComplaintFiledBy.RIDER, input.about, input.category, input.text)
 
     const acceptTimes = await this.complaintRepository.findAcceptTimes(input.deliveryId, courierId)
@@ -89,15 +111,23 @@ export class ComplaintService {
       throw new NotFoundException(DELIVERY_NOT_FOUND)
     }
 
-    return this.create({
-      deliveryId: input.deliveryId,
-      filedBy: EnumComplaintFiledBy.RIDER,
-      filerCourierId: courierId,
-      about: input.about,
-      category: input.category,
-      text,
-      openFor: openForKey({ kind: 'RIDER', id: courierId }, input.deliveryId, input.about),
-    })
+    const photoKey = photo ? await this.storePhoto(await this.cleanPhoto(photo)) : null
+    try {
+      return await this.create({
+        deliveryId: input.deliveryId,
+        filedBy: EnumComplaintFiledBy.RIDER,
+        filerCourierId: courierId,
+        about: input.about,
+        category: input.category,
+        text,
+        openFor: openForKey({ kind: 'RIDER', id: courierId }, input.deliveryId, input.about),
+        photoKey,
+      })
+    } catch (error) {
+      // No complaint row (a 409 for an open one, or a database error): the photo goes too.
+      if (photoKey) await this.forgetPhoto(photoKey)
+      throw error
+    }
   }
 
   // AC-3: a restaurant files about the rider of one of its own delivered or cancelled orders, within its
@@ -193,6 +223,24 @@ export class ComplaintService {
     return complaint
   }
 
+  // --- The photo (slice 2) ------------------------------------------------------------------
+
+  // AC-9: only the rider who filed the complaint; anyone else's, or one with no photo, is the plain 404.
+  async photoForCourier(courierId: string, id: string): Promise<ComplaintPhoto> {
+    const complaint = await this.complaintRepository.findById(id)
+    if (!complaint || complaint.filerCourierId !== courierId || !complaint.photoKey) {
+      throw new NotFoundException(COMPLAINT_NO_PHOTO)
+    }
+    return this.openPhoto(complaint.photoKey)
+  }
+
+  // AC-6, AC-9: admins see every complaint's photo.
+  async photoForAdmin(id: string): Promise<ComplaintPhoto> {
+    const complaint = await this.get(id)
+    if (!complaint.photoKey) throw new NotFoundException(COMPLAINT_NO_PHOTO)
+    return this.openPhoto(complaint.photoKey)
+  }
+
   // --- The rider's reply --------------------------------------------------------------------
 
   // AC-5: only the rider the complaint is about; anyone else's is the plain 404. Stored once.
@@ -257,6 +305,49 @@ export class ComplaintService {
     if (!ABOUT_ALLOWED_FOR[filedBy].includes(about)) throw new BadRequestException(COMPLAINT_ABOUT_NOT_ALLOWED)
     if (!categoryFits(about, category)) throw new BadRequestException(COMPLAINT_CATEGORY_MISMATCH)
     return text
+  }
+
+  // Cross check 4: the first bytes decide (JPEG or PNG), not the request's content type; then the
+  // picture is decoded and encoded again, which drops every piece of metadata (EXIF location included).
+  private async cleanPhoto(photo: Buffer): Promise<Buffer> {
+    if (!photoKindOf(photo)) throw new BadRequestException(COMPLAINT_PHOTO_TYPE_MESSAGE)
+    try {
+      return await reencodeComplaintPhoto(photo)
+    } catch (error) {
+      this.logger.warn(`A complaint photo could not be decoded: ${error instanceof Error ? error.message : error}`)
+      throw new BadRequestException(COMPLAINT_PHOTO_UNREADABLE_MESSAGE)
+    }
+  }
+
+  // A random key, naming no rider, complaint or delivery (AC-9). Storage down or not set up: 503.
+  private async storePhoto(photo: Buffer): Promise<string> {
+    const key = `${randomUUID()}.jpg`
+    try {
+      await this.storageProvider.put(key, photo, COMPLAINT_PHOTO_CONTENT_TYPE)
+    } catch (error) {
+      this.logger.error(`Could not store a complaint photo: ${error instanceof Error ? error.message : error}`)
+      throw new ServiceUnavailableException(COMPLAINT_PHOTO_STORAGE_DOWN)
+    }
+    return key
+  }
+
+  // Best effort: a photo left behind by a failed filing is an orphan in a private bucket, not a leak.
+  private async forgetPhoto(key: string): Promise<void> {
+    try {
+      await this.storageProvider.delete(key)
+    } catch (error) {
+      this.logger.error(`Could not remove the photo ${key} of a complaint that was not saved: ${error}`)
+    }
+  }
+
+  private async openPhoto(key: string): Promise<ComplaintPhoto> {
+    try {
+      return { stream: await this.storageProvider.getStream(key), contentType: COMPLAINT_PHOTO_CONTENT_TYPE }
+    } catch (error) {
+      if (error instanceof StoredFileNotFoundError) throw new NotFoundException(COMPLAINT_NO_PHOTO)
+      this.logger.error(`Could not read the complaint photo ${key}: ${error instanceof Error ? error.message : error}`)
+      throw new ServiceUnavailableException(COMPLAINT_PHOTO_READ_DOWN)
+    }
   }
 
   // The riders who accepted the delivery, newest first, plus its rider now if no event names them.

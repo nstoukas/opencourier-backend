@@ -1,5 +1,6 @@
 import * as common from '@nestjs/common'
 import * as swagger from '@nestjs/swagger'
+import type { Response } from 'express'
 import * as errors from 'src/errors'
 import { EnumUserRole } from '@prisma/types'
 import { ADMIN_API_V1_PREFIX } from 'src/constants'
@@ -7,6 +8,7 @@ import { Roles } from 'src/decorators/roles.decorator'
 import { CurrentUser } from 'src/decorators/currentUser.decorator'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
 import { ComplaintService } from 'src/services/complaint/complaint.service'
+import { complaintPhotoResponse } from '../complaint-photo-response'
 import { ComplaintAdminDto, ComplaintAdminPageDto, ComplaintDeliveryRiderDto } from '../dtos/complaint.dto'
 import {
   ComplaintCreateAdminInput,
@@ -54,6 +56,24 @@ export class ComplaintAdminRestApiController {
   @Roles(EnumUserRole.ADMIN)
   async get(@common.Param('id') id: string): Promise<ComplaintAdminDto> {
     return new ComplaintAdminDto(await this.complaintService.get(id))
+  }
+
+  // Slice 2 (AC-6, cross check 8): adminweb fetches this with the bearer and shows it as an object URL;
+  // there is no other way to the photo, and never a storage URL.
+  @common.Get(':id/photo')
+  @swagger.ApiProduces('image/jpeg')
+  @swagger.ApiOkResponse({ description: 'The photo, as a JPEG with no metadata' })
+  @swagger.ApiNotFoundResponse({ description: 'No complaint with this id, or it has no photo' })
+  @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
+  @swagger.ApiServiceUnavailableResponse({ description: 'The photo storage cannot be read right now' })
+  @swagger.ApiOperation({ summary: "A complaint's photo" })
+  @Roles(EnumUserRole.ADMIN)
+  async photo(
+    @common.Param('id') id: string,
+    // `passthrough: true` lets this set headers and still return the file for Nest to send.
+    @common.Res({ passthrough: true }) res: Response
+  ): Promise<common.StreamableFile> {
+    return complaintPhotoResponse(res, await this.complaintService.photoForAdmin(id))
   }
 
   @common.Post()

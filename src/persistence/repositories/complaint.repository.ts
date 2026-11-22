@@ -51,6 +51,8 @@ export type CreateComplaintInput = {
   text: string
   status: EnumComplaintStatus
   openFor: string | null
+  // Slice 2: the stored photo's key, only on a rider's filing.
+  photoKey?: string | null
 }
 
 // What a delivery tells a filing check: its owner, status, age and rider.
