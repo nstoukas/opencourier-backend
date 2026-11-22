@@ -21,12 +21,14 @@ export class DeliveryRouteCourierRestApiController {
   @swagger.ApiOkResponse({ type: DeliveryRouteCourierDto })
   @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
   @swagger.ApiServiceUnavailableResponse({ description: ROUTE_UNAVAILABLE_MESSAGE })
-  @swagger.ApiOperation({ summary: 'The road route of an offer made to me or a job I hold, by leg' })
+  @swagger.ApiOperation({ summary: 'The road route of an offer made to me or a job I hold, by leg, with a stack\'s stops' })
   @Roles(EnumUserRole.COURIER)
   async getRoute(
     @common.Param('deliveryId') deliveryId: string,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<DeliveryRouteCourierDto> {
-    return new DeliveryRouteCourierDto(await this.deliveryRouteCourierService.getRoute(deliveryId, courier))
+    // Spec 0048 (AC-10): a stack's route also carries its numbered stops (empty for a single delivery).
+    const route = await this.deliveryRouteCourierService.getRouteWithStops(deliveryId, courier)
+    return new DeliveryRouteCourierDto(route.legs, route.stops)
   }
 }

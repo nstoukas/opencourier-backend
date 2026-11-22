@@ -64,6 +64,9 @@ export type AttentionRow = {
   // Only on a REMOVAL_REQUEST row (spec 0035): the request, and whether the food is with the rider.
   removalRequestId?: string
   pickedUp?: boolean
+  // Only on an OFFER_UNANSWERED row of a stack (spec 0048, AC-12): the other order offered with it.
+  pairedDeliveryId?: string
+  pairedOrderReference?: string | null
 }
 
 export type DispatchBoardCards = {
@@ -79,7 +82,7 @@ export type DispatchMapCourier = {
   latitude: number
   longitude: number
   state: 'FREE' | 'BUSY'
-  carrying: { deliveryId: string; orderReference: string | null; offered: boolean }[]
+  carrying: { deliveryId: string; orderReference: string | null; offered: boolean; paired?: boolean }[]
 }
 
 export type DispatchMapWaitingDelivery = {
@@ -203,6 +206,25 @@ export function offerUnansweredRows(
     .map((delivery) => {
       const offeredAt = delivery.offeredAt ?? delivery.createdAt
       const name = offerViews.get(delivery.id)?.matchedCourierName ?? null
+      // Spec 0048 (AC-12): one of two orders offered together. The row names the other, so an admin sees
+      // the pair (answered together by the rider) rather than two unrelated offers.
+      const partner = stackPartnerOf(delivery, live)
+      if (partner) {
+        return {
+          id: `${ATTENTION_KIND.OFFER_UNANSWERED}:${delivery.id}`,
+          kind: ATTENTION_KIND.OFFER_UNANSWERED,
+          since: delivery.offerExpiresAt === null ? offeredAt : null,
+          sortAt: offeredAt,
+          deliveryId: delivery.id,
+          ...NO_SOURCE_IDS,
+          ...deliveryFields(delivery),
+          riderName: name,
+          detail: `Offered to ${name ?? 'a courier'} together with ${partner.orderReference ?? 'another order'}, unanswered`,
+          held: false,
+          pairedDeliveryId: partner.id,
+          pairedOrderReference: partner.orderReference,
+        }
+      }
       return {
         id: `${ATTENTION_KIND.OFFER_UNANSWERED}:${delivery.id}`,
         kind: ATTENTION_KIND.OFFER_UNANSWERED,
@@ -216,6 +238,16 @@ export function offerUnansweredRows(
         held: false,
       }
     })
+}
+
+// Spec 0048 (AC-12): the other delivery of the same stack, offered to the same rider or carried by them,
+// or null for a delivery on its own.
+function stackPartnerOf(delivery: LiveDelivery, live: LiveDelivery[]): LiveDelivery | null {
+  if (!delivery.offerGroupId) return null
+  const riderOf = (d: LiveDelivery) => (isLooking(d) ? d.matchedCourierId : d.courierId)
+  const rider = riderOf(delivery)
+  if (!rider) return null
+  return live.find((d) => d.id !== delivery.id && d.offerGroupId === delivery.offerGroupId && riderOf(d) === rider) ?? null
 }
 
 // AC-6. The rider is at the restaurant, the food is not marked ready and the promised time has gone.
@@ -375,11 +407,13 @@ export function orderAttentionRows(rows: AttentionRow[]): { attention: Attention
 export function buildMap(live: LiveDelivery[], couriers: WorkingCourier[]): DispatchMap {
   const carryingOf = (courierId: string) =>
     live.flatMap((d) => {
+      // Spec 0048 (AC-12): `paired` marks the two orders of a stack, offered or carried together.
+      const paired = stackPartnerOf(d, live) !== null ? { paired: true } : {}
       if (isCarried(d) && d.courierId === courierId) {
-        return [{ deliveryId: d.id, orderReference: d.orderReference, offered: false }]
+        return [{ deliveryId: d.id, orderReference: d.orderReference, offered: false, ...paired }]
       }
       if (isLooking(d) && d.matchedCourierId === courierId) {
-        return [{ deliveryId: d.id, orderReference: d.orderReference, offered: true }]
+        return [{ deliveryId: d.id, orderReference: d.orderReference, offered: true, ...paired }]
       }
       return []
     })

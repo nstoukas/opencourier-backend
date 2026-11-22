@@ -1,6 +1,7 @@
 import { OfferReasonAdminDto } from './offer-reason.admin.dto'
 import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
+import { StackStopKind, stackStopsOf } from 'src/domains/delivery/stack'
 import {
   EnumCancelledBy,
   EnumDeliverableAction,
@@ -15,6 +16,15 @@ import { DeliveryQuoteEntity } from 'src/domains/delivery-quote/entities/deliver
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
 
 // Spec 0046 (AC-6): one leg of the order, as the delivery page lists it.
+// Spec 0048: one stop of a stack, picking an order up or handing it over.
+export class StackStopAdminDto {
+  @ApiProperty({ type: String })
+  deliveryId: string
+
+  @ApiProperty({ enum: ['PICKUP', 'DROPOFF'] })
+  stop: StackStopKind
+}
+
 export class OrderLegAdminDto {
   @ApiProperty({ type: String })
   id: string
@@ -254,6 +264,10 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, nullable: true })
   offerGroupId: string | null
 
+  // Spec 0048 (AC-12): the order of the stack's four stops while the pair is with one rider; null otherwise.
+  @ApiProperty({ type: () => StackStopAdminDto, isArray: true, nullable: true })
+  stackStops: StackStopAdminDto[] | null
+
   // The rider currently offered this delivery, while it is still looking for a rider.
   @ApiProperty({ type: String, nullable: true })
   matchedCourierName: string | null
@@ -368,6 +382,7 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
     this.offerGroupId = data.offerGroupId ?? null
+    this.stackStops = stackStopsOf(data.stopSequence)
     this.matchedCourierName = offerView?.matchedCourierName ?? null
     this.waitingForCourierSince = offerView?.waitingForCourierSince ?? null
     this.cancelledBy = data.cancelledBy ?? null

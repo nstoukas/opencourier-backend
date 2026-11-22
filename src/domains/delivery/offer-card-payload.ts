@@ -32,6 +32,10 @@ export const OFFER_CARD_PAYLOAD_KEYS = [
   // (every key is sent, and '' means "not known" here, decision 10.2).
   'legNumber',
   'legCount',
+  // Spec 0048 (cross check 11): one push carries a stack. The pair's shared id and the other order's
+  // delivery id; '' for a single offer. Ids only: the phone loads both orders from the server.
+  'offerGroupId',
+  'partnerDeliveryId',
 ] as const
 
 // `(typeof X)[number]` is "any one element of the array X": the union 'deliveryId' | 'offeredAt' | ...
@@ -56,6 +60,8 @@ export interface OfferCardSource {
   // The card's trip (spec 0019): road metres to the restaurant and on to the customer, and the
   // minutes for both. Unknown figures are null, as on the card (row 100).
   trip: OfferTrip
+  // Spec 0048: set when this offer is one of two orders offered together (the push names the other).
+  stack?: { offerGroupId: string; partnerDeliveryId: string } | null
 }
 
 export interface OfferCardOptions {
@@ -89,6 +95,8 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     insistent: options.insistent ? '1' : '',
     boxSize: delivery.boxSize,
     ...legPayload(delivery),
+    offerGroupId: source.stack?.offerGroupId ?? '',
+    partnerDeliveryId: source.stack?.partnerDeliveryId ?? '',
   }
 
   return payload

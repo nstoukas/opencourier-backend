@@ -1,5 +1,6 @@
 import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
+import { StackStopKind, stackStopsOf } from 'src/domains/delivery/stack'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
@@ -27,6 +28,15 @@ const CUSTOMER_PHONE_VISIBLE_STATUSES: EnumDeliveryStatus[] = [
   EnumDeliveryStatus.ON_THE_WAY,
   EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
 ]
+
+// Spec 0048: one stop of a stack, picking an order up or handing it over.
+export class StackStopCourierDto {
+  @ApiProperty({ type: String })
+  deliveryId: string
+
+  @ApiProperty({ enum: ['PICKUP', 'DROPOFF'] })
+  stop: StackStopKind
+}
 
 export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String })
@@ -237,6 +247,12 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, nullable: true })
   offerGroupId: string | null
 
+  // Spec 0048 (AC-10, cross check 6): the order of the stack's four stops, the same list on both of its
+  // deliveries: numbered 1 to 4 in this order on the map and the stop list. null for a single delivery, and
+  // once the other order of the pair is no longer this rider's (the survivor goes on alone).
+  @ApiProperty({ type: () => StackStopCourierDto, isArray: true, nullable: true })
+  stackStops: StackStopCourierDto[] | null
+
   // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
   @ApiProperty({ type: Date, nullable: true })
   handBackUntil: Date | null
@@ -345,6 +361,7 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
     this.offerGroupId = data.offerGroupId ?? null
+    this.stackStops = stackStopsOf(data.stopSequence)
 
     if ('pickupLocation' in data && data.pickupLocation) {
       this.pickupLocationFormattedAddress = formatAddress(data.pickupLocation)

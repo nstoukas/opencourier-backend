@@ -24,6 +24,9 @@ export class DispatchAttentionRowAdminDto {
   // Only on a REMOVAL_REQUEST row (spec 0035), null otherwise.
   @ApiProperty({ type: String, nullable: true }) removalRequestId: string | null
   @ApiProperty({ type: Boolean, nullable: true }) pickedUp: boolean | null
+  // Only on an OFFER_UNANSWERED row of a stack (spec 0048, AC-12): the other order offered with it, null otherwise.
+  @ApiProperty({ type: String, nullable: true }) pairedDeliveryId: string | null
+  @ApiProperty({ type: String, nullable: true }) pairedOrderReference: string | null
 
   constructor(row: AttentionRow) {
     this.id = row.id
@@ -43,6 +46,8 @@ export class DispatchAttentionRowAdminDto {
     this.held = row.held
     this.removalRequestId = row.removalRequestId ?? null
     this.pickedUp = row.pickedUp ?? null
+    this.pairedDeliveryId = row.pairedDeliveryId ?? null
+    this.pairedOrderReference = row.pairedOrderReference ?? null
   }
 }
 

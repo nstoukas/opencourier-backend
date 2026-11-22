@@ -275,7 +275,8 @@ export class OfferPushService {
       const trip = await this.tripFor(courierId, deliveryId, source.pickupLocation, source.dropoffLocation)
       // Read after the wait, so serverNow and the TTL count from when the message really goes.
       const now = new Date()
-      const card = buildOfferCardPayload({ ...source, trip }, { serverNow: now, insistent })
+      const stack = await this.stackOf(courierId, source.delivery)
+      const card = buildOfferCardPayload({ ...source, trip, stack }, { serverNow: now, insistent })
 
       // Seconds left to the deadline, or the default with no deadline, so a stale offer never rings.
       const { offeredAt, offerExpiresAt } = source.delivery
@@ -380,6 +381,20 @@ export class OfferPushService {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  // Spec 0048 (cross check 11): for one order of an open stack, the pair's id and the other order, so the one
+  // push names both. null for a single offer, or when the other order can no longer be read as part of it.
+  private async stackOf(
+    courierId: string,
+    delivery: { id: string; offerGroupId: string | null; offeredAt: Date | null }
+  ): Promise<{ offerGroupId: string; partnerDeliveryId: string } | null> {
+    if (!delivery.offerGroupId) return null
+    const members = await this.deliveryRepository
+      .findOpenGroupMembers(delivery.offerGroupId, courierId, delivery.offeredAt)
+      .catch(() => [])
+    const partner = members.find((member) => member.id !== delivery.id)
+    return partner ? { offerGroupId: delivery.offerGroupId, partnerDeliveryId: partner.id } : null
   }
 
   // Deletes dead tokens and logs other failures by delivery id and error code only.

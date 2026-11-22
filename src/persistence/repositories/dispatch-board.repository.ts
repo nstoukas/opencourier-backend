@@ -24,6 +24,8 @@ const LIVE_DELIVERY_SELECT = {
   foodReadyAt: true,
   promisedReadyAt: true,
   undispatchedAt: true,
+  // Spec 0048 (AC-12): two deliveries offered or carried together share it.
+  offerGroupId: true,
   pickupLocation: { select: { latitude: true, longitude: true } },
   courier: { select: { firstName: true, lastName: true } },
 } satisfies Prisma.DeliverySelect

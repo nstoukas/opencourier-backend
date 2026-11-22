@@ -36,6 +36,7 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
       matchedCourierId: null,
       offeredAt: null,
       offerExpiresAt: null,
+      offerGroupId: null,
       orderReference: 'ORD-101',
       pickupBusinessName: 'Souvlaki tou Nikou',
       dropoffName: 'Elena Kostopoulou',
