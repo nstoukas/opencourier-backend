@@ -1867,6 +1867,8 @@ export class DeliveryEventService {
     if (this.twoOrderService) {
       const plan = await this.twoOrderService.findStackPartner(match.delivery, courier.id, async (candidate) => {
         if (options.ignoreTiming === true) return true
+        // The first order's pickup and road time stand in for the candidate's: the same place for a pair from one
+        // restaurant, and a pair from two restaurants needs both marked ready, so its offer is never held anyway.
         const candidateTiming = await this.offerTimingOf({
           courier,
           delivery: candidate,

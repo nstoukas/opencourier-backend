@@ -200,6 +200,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
           Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
         )
         if (wouldOverfillBox(held[0]?.held ?? 0, firstUnits + secondUnits)) return 'BOX_FULL'
+        // `as const` keeps each pair typed as [part, units] (not a loose array of either), so the loop can unpack it.
         for (const [part, units] of [
           [first, firstUnits],
           [second, secondUnits],
@@ -335,7 +336,9 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       },
       include: { pickupLocation: { select: { latitude: true, longitude: true } } },
     })
-    // The pickup point is read only for the distance filter; the rest of the row is a plain delivery.
+    // The pickup point is read only for the distance filter; the rest of the row is a plain delivery. The
+    // distance is filtered here in JavaScript over every waiting row that matched: a handful at this co-op's
+    // size. A city with hundreds waiting at once would move it into the SQL (PostGIS) instead.
     const rows = found
       .filter(({ pickupLocation }) => {
         if (!near || near.maxMetres === null) return true
