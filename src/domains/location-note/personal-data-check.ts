@@ -14,9 +14,10 @@ export type PersonalDataKind = 'phone' | 'email' | 'name'
 export const PERSONAL_DATA_WARNING_MESSAGE =
   'Notes describe the place, never the person. This looks like it holds a name, phone or email.'
 
-// 8 or more digits, with spaces (or a dash or a dot) between them and an optional leading +.
+// 8 or more digits, with up to 3 spaces, dashes or dots between any two and an optional leading +
+// (row 82 review: "694 - 123 - 4567" and double spaces are how people type numbers too).
 // "+30 694 123 4567", "6941234567" and "2421 012345" all match; "4 floor, door 12" does not.
-const PHONE_PATTERN = /\+?\d(?:[\s.-]?\d){7,}/
+const PHONE_PATTERN = /\+?\d(?:[\s.-]{0,3}\d){7,}/
 
 // Something@something.something, the shape of any email address.
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/
