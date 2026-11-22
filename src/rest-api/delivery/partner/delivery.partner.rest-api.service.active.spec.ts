@@ -506,9 +506,41 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-own', {
           dropoffLocationId: 'loc-new',
+          dropoffCorrectedLatitude: null,
+          dropoffCorrectedLongitude: null,
           ...otherUpdateFields,
         })
-        expect(result).toEqual({ id: 'del-own', dropoffLocationId: 'loc-new', ...otherUpdateFields })
+        expect(result).toEqual({
+          id: 'del-own',
+          dropoffLocationId: 'loc-new',
+          dropoffCorrectedLatitude: null,
+          dropoffCorrectedLongitude: null,
+          ...otherUpdateFields,
+        })
+      })
+
+      it('clears previously corrected dropoff coordinates to null when partner moves the point, leaving dropoffPointCorrectedAt untouched', async () => {
+        const correctedAt = new Date('2026-11-01T12:00:00Z')
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
+          ...ownDelivery(),
+          dropoffCorrectedLatitude: 39.3655,
+          dropoffCorrectedLongitude: 22.9495,
+          dropoffPointCorrectedAt: correctedAt,
+        })
+
+        await service.update('del-own', partnerId, moved())
+
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+          'del-own',
+          expect.objectContaining({
+            dropoffLocationId: 'loc-new',
+            dropoffCorrectedLatitude: null,
+            dropoffCorrectedLongitude: null,
+          })
+        )
+        const updatePayload = mockDeliveryDomainService.update.mock.calls[0][1]
+        // dropoffPointCorrectedAt must NOT be overwritten or nulled (spec 0016 once-only mark stays)
+        expect(updatePayload).not.toHaveProperty('dropoffPointCorrectedAt')
       })
 
       it('counts only the latitude moving as moved', async () => {
@@ -570,6 +602,10 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           dropoffLocationId: 'loc-shared',
           ...otherUpdateFields,
         })
+        // Unmoved point does NOT pass dropoffCorrectedLatitude or dropoffCorrectedLongitude
+        const updatePayload = mockDeliveryDomainService.update.mock.calls[0][1]
+        expect(updatePayload).not.toHaveProperty('dropoffCorrectedLatitude')
+        expect(updatePayload).not.toHaveProperty('dropoffCorrectedLongitude')
       })
 
       it('runs no drift check, records no event and creates no Location even when current point is far from the quote', async () => {

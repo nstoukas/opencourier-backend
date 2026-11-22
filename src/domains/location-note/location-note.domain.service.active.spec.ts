@@ -274,6 +274,45 @@ describe('LocationNoteDomainService (Spec 0053 AC-2, AC-3, AC-4, AC-5, AC-6, AC-
       const noteDto = map.get('del-101')!.dropoff[0]!
       expect(noteDto.mine).toBe(true)
     })
+
+    it('passes retention cutoff date to findInsideBoxes using configured retention days', async () => {
+      const mockConfig: any = {
+        instanceConfig: {
+          getAddressNoteRetentionDays: jest.fn().mockResolvedValue(60),
+        },
+      }
+      const serviceWithConfig = new LocationNoteDomainService(mockLocationNoteRepo, mockReactionRepo, mockConfig)
+
+      const before = Date.now()
+      await serviceWithConfig.notesForJobs([mockDelivery], courierA)
+      const after = Date.now()
+
+      expect(mockLocationNoteRepo.findInsideBoxes).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Date)
+      )
+      const passedCutoff = mockLocationNoteRepo.findInsideBoxes.mock.calls[0]![1] as Date
+      const expectedCutoffMin = before - 60 * 24 * 60 * 60 * 1000 - 200
+      const expectedCutoffMax = after - 60 * 24 * 60 * 60 * 1000 + 200
+      expect(passedCutoff.getTime()).toBeGreaterThanOrEqual(expectedCutoffMin)
+      expect(passedCutoff.getTime()).toBeLessThanOrEqual(expectedCutoffMax)
+    })
+
+    it('defaults to 182 days retention cutoff when configDomainService is omitted', async () => {
+      const before = Date.now()
+      await service.notesForJobs([mockDelivery], courierA)
+      const after = Date.now()
+
+      expect(mockLocationNoteRepo.findInsideBoxes).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Date)
+      )
+      const passedCutoff = mockLocationNoteRepo.findInsideBoxes.mock.calls[0]![1] as Date
+      const expectedCutoffMin = before - 182 * 24 * 60 * 60 * 1000 - 200
+      const expectedCutoffMax = after - 182 * 24 * 60 * 60 * 1000 + 200
+      expect(passedCutoff.getTime()).toBeGreaterThanOrEqual(expectedCutoffMin)
+      expect(passedCutoff.getTime()).toBeLessThanOrEqual(expectedCutoffMax)
+    })
   })
 
   describe('deleteExpired (AC-6)', () => {

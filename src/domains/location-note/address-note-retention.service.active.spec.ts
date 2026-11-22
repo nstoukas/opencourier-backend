@@ -72,6 +72,36 @@ describe('AddressNoteRetentionService (Spec 0053 AC-6, AC-9, cross check 10)', (
     expect(count).toBe(5)
   })
 
+  it('calls deleteExpired with non-default configured retention days (e.g. 90 days, not hardcoded 182)', async () => {
+    mockConfigDomainService.instanceConfig.getAddressNoteRetentionDays.mockResolvedValue(90)
+    const fixedNow = new Date('2026-11-20T03:30:00Z')
+    const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+
+    const count = await service.deleteExpired(fixedNow)
+
+    expect(mockConfigDomainService.instanceConfig.getAddressNoteRetentionDays).toHaveBeenCalled()
+    expect(mockLocationNoteDomainService.deleteExpired).toHaveBeenCalledWith(90, fixedNow)
+    expect(count).toBe(5)
+    expect(logSpy).toHaveBeenCalledWith(
+      'Deleted 5 address note(s) no rider upvoted in 90 days'
+    )
+    logSpy.mockRestore()
+  })
+
+  it('calls deleteExpired with another non-default setting (e.g. 30 days) and logs 30 days', async () => {
+    mockConfigDomainService.instanceConfig.getAddressNoteRetentionDays.mockResolvedValue(30)
+    const fixedNow = new Date('2026-11-20T03:30:00Z')
+    const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+
+    await service.deleteExpired(fixedNow)
+
+    expect(mockLocationNoteDomainService.deleteExpired).toHaveBeenCalledWith(30, fixedNow)
+    expect(logSpy).toHaveBeenCalledWith(
+      'Deleted 5 address note(s) no rider upvoted in 30 days'
+    )
+    logSpy.mockRestore()
+  })
+
   it('logs count and days only, never any note text or coordinates (value 5, AC-6)', async () => {
     const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
 

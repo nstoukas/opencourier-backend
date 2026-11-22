@@ -90,6 +90,12 @@ describe('Address note point geometry (Spec 0053 AC-2, AC-3, cross check 1, 2, 1
       expect(isWithinRadius(farNote, [volosCenter], 30)).toBe(false)
     })
 
+    it('returns false when note is ~50m away with default radius (outside 30m, inside 300m)', () => {
+      // 0.00045 degrees latitude is about 50.1 metres
+      const note50m = { latitude: volosCenter.latitude + 0.00045, longitude: volosCenter.longitude }
+      expect(isWithinRadius(note50m, [volosCenter])).toBe(false)
+    })
+
     it('returns true if note is within 30m of ANY point in the list (cross check 2)', () => {
       const originalLocation = { latitude: 39.364, longitude: 22.948 }
       const earlierMovedPin = { latitude: 39.3648, longitude: 22.948 } // ~89m away from original
@@ -137,6 +143,54 @@ describe('Address note point geometry (Spec 0053 AC-2, AC-3, cross check 1, 2, 1
           result[i + 1]!.lastConfirmedAt.getTime()
         )
       }
+    })
+
+    it('excludes notes between 31m and 300m away (catches 300m radius gap: enforces 30m, not 300m)', () => {
+      const baseTime = new Date('2026-11-20T10:00:00Z').getTime()
+      // Note exactly at stop (0m)
+      const noteAtStop = {
+        id: 'note-at-stop',
+        latitude: volosCenter.latitude,
+        longitude: volosCenter.longitude,
+        lastConfirmedAt: new Date(baseTime + 5000),
+      }
+      // Note ~20m away (inside 30m)
+      const note20m = {
+        id: 'note-20m',
+        latitude: volosCenter.latitude + 0.00018, // ~20.0 metres
+        longitude: volosCenter.longitude,
+        lastConfirmedAt: new Date(baseTime + 4000),
+      }
+      // Note ~50m away (outside 30m, but inside 300m)
+      const note50m = {
+        id: 'note-50m',
+        latitude: volosCenter.latitude + 0.00045, // ~50.1 metres
+        longitude: volosCenter.longitude,
+        lastConfirmedAt: new Date(baseTime + 3000),
+      }
+      // Note ~150m away (outside 30m, but inside 300m)
+      const note150m = {
+        id: 'note-150m',
+        latitude: volosCenter.latitude + 0.00135, // ~150.3 metres
+        longitude: volosCenter.longitude,
+        lastConfirmedAt: new Date(baseTime + 2000),
+      }
+      // Note ~1.1km away (outside 300m)
+      const note1km = {
+        id: 'note-1km',
+        latitude: volosCenter.latitude + 0.01,
+        longitude: volosCenter.longitude + 0.01,
+        lastConfirmedAt: new Date(baseTime + 1000),
+      }
+
+      const result = notesForStop([noteAtStop, note20m, note50m, note150m, note1km], [volosCenter])
+
+      // Only notes within 30m are included
+      expect(result.map((n) => n.id)).toEqual(['note-at-stop', 'note-20m'])
+      // Notes between 31m and 300m MUST NOT be returned!
+      expect(result.some((n) => n.id === 'note-50m')).toBe(false)
+      expect(result.some((n) => n.id === 'note-150m')).toBe(false)
+      expect(result.some((n) => n.id === 'note-1km')).toBe(false)
     })
   })
 })

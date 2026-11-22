@@ -30,6 +30,19 @@ describe('Personal data check (Spec 0053 AC-4, cross check 6, 7)', () => {
       expect(findPersonalData('2421012345')).toContain('phone')
     })
 
+    it('detects phone numbers with up to 3 spaces, dashes, or dots between digits (row 82 review)', () => {
+      // Spaces around dashes
+      expect(findPersonalData('694 - 123 - 4567')).toContain('phone')
+      // Double spaces between digits
+      expect(findPersonalData('694  123  4567')).toContain('phone')
+      // Triple spaces between digits
+      expect(findPersonalData('694   123   4567')).toContain('phone')
+      // Triple dots between digits
+      expect(findPersonalData('694...123...4567')).toContain('phone')
+      // Mixed separators up to 3
+      expect(findPersonalData('+30 694.- 123456')).toContain('phone')
+    })
+
     it('does NOT flag everyday address numbers such as floor and apartment', () => {
       // 4th floor, door 12: only 3 digits total
       expect(findPersonalData('4 floor, door 12')).not.toContain('phone')

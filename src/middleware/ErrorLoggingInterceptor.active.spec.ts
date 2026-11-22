@@ -7,6 +7,7 @@ import {
   ErrorCode,
   ForbiddenException,
   NotFoundException,
+  PersonalDataWarningException,
   VerificationCodeException,
 } from '../errors'
 import { Prisma } from '@prisma/types'
@@ -193,6 +194,51 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(loggerWarnSpy).not.toHaveBeenCalled()
       expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
       expect(loggerErrorSpy).toHaveBeenCalledWith('Endpoint returned error', err)
+    })
+  })
+
+  describe('PersonalDataWarningException (row 82 review)', () => {
+    let loggerInfoSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      loggerInfoSpy = jest.spyOn(interceptor.logger, 'info').mockImplementation(() => interceptor.logger)
+    })
+
+    afterEach(() => {
+      loggerInfoSpy.mockRestore()
+    })
+
+    it('logs one logger.info with the route pattern and no stack, and NO logger.error or logger.warn', async () => {
+      const err = new PersonalDataWarningException('Notes describe the place, never the person.')
+      const context = makeMockContext('http', {
+        method: 'POST',
+        route: { path: '/api/courier/v1/location-notes' },
+        url: '/api/courier/v1/location-notes',
+      })
+
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      expect(loggerErrorSpy).not.toHaveBeenCalled()
+      expect(loggerWarnSpy).not.toHaveBeenCalled()
+      expect(loggerInfoSpy).toHaveBeenCalledTimes(1)
+      expect(loggerInfoSpy).toHaveBeenCalledWith(
+        'Address note personal data warning: POST /api/courier/v1/location-notes'
+      )
+    })
+
+    it('does not leak note text in the info log', async () => {
+      const err = new PersonalDataWarningException('Notes describe the place, never the person.')
+      const context = makeMockContext('http', {
+        method: 'POST',
+        route: { path: '/api/courier/v1/location-notes' },
+        url: '/api/courier/v1/location-notes',
+      })
+
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      const infoMessage = loggerInfoSpy.mock.calls[0][0]
+      expect(infoMessage).not.toContain('6941234567')
+      expect(infoMessage).not.toContain('Notes describe')
     })
   })
 })
