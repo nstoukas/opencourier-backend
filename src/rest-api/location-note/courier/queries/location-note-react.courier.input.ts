@@ -1,12 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { EnumLocationNoteReactionType } from '@prisma/types'
-import { IsEnum } from 'class-validator'
+import { IsIn } from 'class-validator'
 
+// Spec 0053 (AC-5): downvotes left the app, so an upvote is the only reaction a rider can send (a
+// second upvote takes it back). Older DOWNVOTE rows stay in the table, unused.
 export class LocationNoteReactCourierInput {
   @ApiProperty({
     required: true,
-    enum: EnumLocationNoteReactionType,
+    enum: [EnumLocationNoteReactionType.UPVOTE],
   })
-  @IsEnum(EnumLocationNoteReactionType)
+  @IsIn([EnumLocationNoteReactionType.UPVOTE])
   reaction: EnumLocationNoteReactionType
 }

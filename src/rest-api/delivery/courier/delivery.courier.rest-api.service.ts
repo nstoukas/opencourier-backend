@@ -15,15 +15,18 @@ import {
 import { EnumProductReportSource } from '@prisma/types'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
-import { DeliveryNotFoundException } from 'src/errors'
+import { DeliveryNotFoundException, PersonalDataWarningException } from 'src/errors'
+import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryWhereArgs } from 'src/domains/delivery/types/delivery-where-args.type'
 import { IDeliveryReportIssue } from 'src/domains/delivery/interfaces/IDeliveryReportIssue'
 import { IDeliveryMarkAsDelivered } from 'src/domains/delivery/interfaces/IDeliveryMarkAsDelivered'
-import { LocationNoteDomainService } from 'src/domains/location-note/location-note.domain.service'
+import {
+  AddressNoteStop,
+  LocationNoteDomainService,
+  toDeliveryForNotes,
+} from 'src/domains/location-note/location-note.domain.service'
 import { IDeliveryMarkAsPickedUp } from 'src/domains/delivery/interfaces/IDeliveryMarkAsPickedUp'
-import { LocationNoteReactionDomainService } from 'src/domains/location-note-reaction/location-note-reaction.domain.service'
-import { LocationNoteWithReactionCounts } from './types/location-note-with-reaction-counts.type'
 import { InProgressDeliveryCourier } from './types/in-progress-delivery.courier.type'
 import { NewDeliveryCourier } from './types/new-delivery.courier.type'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
@@ -45,12 +48,13 @@ export class DeliveryRestApiCourierService {
   constructor(
     private deliveryDomainService: DeliveryDomainService,
     private locationNoteDomainService: LocationNoteDomainService,
-    private locationNoteReactionDomainService: LocationNoteReactionDomainService,
     private deliveryIssueDomainService: DeliveryIssueDomainService,
     private productReportDomainService: ProductReportDomainService,
     private removalRequestRepository: RemovalRequestRepository,
     // Spec 0047: optional for the tests that build this service by hand; Nest always injects it.
-    private splitRequestRepository?: SplitRequestRepository
+    private splitRequestRepository?: SplitRequestRepository,
+    // Spec 0053: the job step's note needs the delivery's points. Optional for the same reason.
+    private deliveryRepository?: DeliveryRepository
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -94,32 +98,11 @@ export class DeliveryRestApiCourierService {
 
     const deliveries = await this.deliveryDomainService.getMany(args, page, perPage)
 
-    const deliveryDropoffLocationIds = deliveries.data.map((delivery) => delivery.dropoffLocationId)
-    const deliveryPickupLocationIds = deliveries.data.map((delivery) => delivery.pickupLocationId)
-
-    const locationNotes = await this.locationNoteDomainService.getManyByLocationIds([
-      ...deliveryDropoffLocationIds,
-      ...deliveryPickupLocationIds,
-    ])
-
-    const noteReactionCountsById = await this.locationNoteReactionDomainService.getCountsByNoteIds(
-      locationNotes.map((note) => note.id)
-    )
-    const courierReactionsToNotes = await this.locationNoteReactionDomainService.getReactionByCourierOnNoteIds(
-      locationNotes.map((note) => note.id),
+    // Spec 0053 (AC-3): each stop's notes by distance, without their authors.
+    const notesByDelivery = await this.locationNoteDomainService.notesForJobs(
+      deliveries.data as InProgressDeliveryCourier[],
       courierId
     )
-
-    const locationNotesWithReactions = locationNotes.map((note) => {
-      const reactionCounts = noteReactionCountsById[note.id] || { upvotes: 0, downvotes: 0 }
-
-      return new LocationNoteWithReactionCounts(
-        note,
-        reactionCounts.upvotes,
-        reactionCounts.downvotes,
-        courierReactionsToNotes[note.id] || null
-      )
-    })
 
     // Spec 0035: the newest request on each job, shown only while it is open or refused.
     const removalRequests = await this.removalRequestRepository.findNewestByCourierForDeliveries(
@@ -154,12 +137,9 @@ export class DeliveryRestApiCourierService {
       ) ?? null
 
     const deliveriesWithNotes = deliveries.data.map((delivery) => {
-      const dropoffLocationNotes = locationNotesWithReactions.filter(
-        (note) => note.locationId === delivery.dropoffLocationId
-      )
-      const pickupLocationNotes = locationNotesWithReactions.filter(
-        (note) => note.locationId === delivery.pickupLocationId
-      )
+      const notes = notesByDelivery.get(delivery.id)
+      const dropoffLocationNotes = notes?.dropoff ?? []
+      const pickupLocationNotes = notes?.pickup ?? []
 
       return {
         ...delivery,
@@ -295,14 +275,7 @@ export class DeliveryRestApiCourierService {
       delivery.status !== EnumDeliveryStatus.PICKED_UP &&
       updatedDelivery.status === EnumDeliveryStatus.PICKED_UP
     ) {
-      // Add the location note for the delivery
-      await this.locationNoteDomainService.create({
-        note: input.note,
-        deliveryId,
-        courierId,
-        actor: EnumLocationNoteActor.COURIER,
-        locationId: delivery.pickupLocationId,
-      })
+      await this.saveStepNote(deliveryId, courierId, 'PICKUP', input.note)
     }
 
     return updatedDelivery
@@ -346,17 +319,35 @@ export class DeliveryRestApiCourierService {
       delivery.status !== EnumDeliveryStatus.DROPPED_OFF &&
       updatedDelivery.status === EnumDeliveryStatus.DROPPED_OFF
     ) {
-      // Add the location note for the delivery
-      await this.locationNoteDomainService.create({
-        note: input.note,
-        deliveryId,
-        courierId,
-        actor: EnumLocationNoteActor.COURIER,
-        locationId: delivery.dropoffLocationId,
-      })
+      await this.saveStepNote(deliveryId, courierId, 'DROPOFF', input.note)
     }
 
     return updatedDelivery
+  }
+
+  // A note sent with the pickup or drop off step (upstream's job step field). Spec 0053: it sits on
+  // that stop's point like any note, and since a job step has no way to show the personal data
+  // warning, a note that looks like personal data is not saved (the step itself still counts). The
+  // note is never logged; only that one was left out.
+  private async saveStepNote(deliveryId: string, courierId: string, stop: AddressNoteStop, note: string) {
+    const read = await this.deliveryRepository?.findByIdOrThrowWithLocations(deliveryId)
+    const delivery = read ? toDeliveryForNotes(read) : null
+    if (!delivery) return
+    try {
+      await this.locationNoteDomainService.createForStop({
+        delivery,
+        stop,
+        note: note.slice(0, 255),
+        courierId,
+        actor: EnumLocationNoteActor.COURIER,
+      })
+    } catch (error) {
+      if (error instanceof PersonalDataWarningException) {
+        this.logger.log(`ADDRESS_NOTE_NOT_SAVED delivery ${deliveryId}: the step's note looked like personal data`)
+        return
+      }
+      throw error
+    }
   }
 
   async markAsOnTheWay(deliveryId: string, courierId: string) {

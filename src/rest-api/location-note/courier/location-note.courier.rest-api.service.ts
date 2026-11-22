@@ -1,51 +1,67 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { LocationNoteDomainService } from 'src/domains/location-note/location-note.domain.service'
-import { ILocationNoteCreate } from 'src/domains/location-note/interfaces/ILocationNoteCreate'
+import {
+  LocationNoteDomainService,
+  AddressNoteStop,
+  toDeliveryForNotes,
+} from 'src/domains/location-note/location-note.domain.service'
 import { LocationNoteWhereArgs } from 'src/domains/location-note/types/location-note-where-args.type'
-import { LocationDomainService } from 'src/domains/location/location.domain.service'
-import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import * as errors from 'src/errors'
-import { EnumLocationNoteReactionType } from '@prisma/types'
+import { EnumLocationNoteActor, EnumLocationNoteReactionType } from '@prisma/types'
+import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
+import { isRecordNotFoundError } from 'src/prisma.util'
 
 @Injectable()
 export class LocationNoteRestApiCourierService {
   private readonly logger = new Logger(LocationNoteRestApiCourierService.name)
   constructor(
     private locationNoteDomainService: LocationNoteDomainService,
-    private deliveryDomainService: DeliveryDomainService,
-    private locationDomainService: LocationDomainService
+    private deliveryRepository: DeliveryRepository
   ) {}
 
-  async create(input: ILocationNoteCreate) {
-    if (input.deliveryId) {
-      const delivery = await this.deliveryDomainService.getById(input.deliveryId)
-
-      if (!delivery) {
-        throw new errors.DeliveryNotFoundException('Delivery not found')
-      }
-    }
-
-    if (input.locationId) {
-      const location = await this.locationDomainService.getById(input.locationId)
-
-      if (!location) {
-        throw new errors.LocationNotFoundException('Location not found')
-      }
-    }
-
-    const locationNote = await this.locationNoteDomainService.create(input)
-
-    return locationNote
+  // Spec 0053 (AC-2): a rider adds a note only on a job they hold (accepted and not yet over); any
+  // other delivery answers like a missing one. The point comes from the job, never from the phone.
+  async create(
+    input: { deliveryId: string; stop: AddressNoteStop; note: string; confirmed?: boolean },
+    courierId: string
+  ) {
+    const delivery = await this.findHeldDeliveryWithLocations(input.deliveryId, courierId)
+    return this.locationNoteDomainService.createForStop({
+      delivery,
+      stop: input.stop,
+      note: input.note,
+      confirmed: input.confirmed,
+      courierId,
+      actor: EnumLocationNoteActor.COURIER,
+    })
   }
 
-  async update(noteId: string, note: string, courierId: string) {
+  private async findHeldDeliveryWithLocations(deliveryId: string, courierId: string) {
+    try {
+      const delivery = toDeliveryForNotes(
+        await this.deliveryRepository.findByIdOrThrowWithLocations(deliveryId, {
+          courierId,
+          status: { in: DELIVERY_ONGOING_STATUSES },
+        })
+      )
+      if (!delivery) throw new errors.DeliveryNotFoundException('Delivery not found')
+      return delivery
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        throw new errors.DeliveryNotFoundException('Delivery not found')
+      }
+      throw error
+    }
+  }
+
+  async update(noteId: string, note: string, courierId: string, confirmed?: boolean) {
     const locationNote = await this.locationNoteDomainService.findByIdOrThrow(noteId)
 
     if (locationNote.courierId !== courierId) {
       throw new errors.NotFoundException('Location note not found')
     }
 
-    const updatedNote = await this.locationNoteDomainService.update(locationNote.id, note)
+    const updatedNote = await this.locationNoteDomainService.update(locationNote.id, note, confirmed)
 
     return updatedNote
   }
@@ -60,8 +76,14 @@ export class LocationNoteRestApiCourierService {
     return locationNote
   }
 
-  async getById(deliveryId: string, courierId: string) {
-    const locationNote = await this.locationNoteDomainService.getById(deliveryId)
+  // Spec 0053 (AC-7).
+  async flag(locationNoteId: string, courierId: string, reason: string | null) {
+    await this.locationNoteDomainService.flag(locationNoteId, courierId, reason)
+  }
+
+  // AC-3: only the rider's own note.
+  async getById(noteId: string, courierId: string) {
+    const locationNote = await this.locationNoteDomainService.getById(noteId)
 
     if (locationNote.courierId !== courierId) {
       throw new errors.NotFoundException('Location note not found')

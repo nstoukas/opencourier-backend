@@ -3,7 +3,7 @@ import { splitLeaveFrom } from 'src/domains/split/split'
 import { DEFAULT_SPLIT_ANSWER_MINUTES } from 'src/constants'
 import { DeliveryCourierDto } from './delivery.courier.dto'
 import { ApiProperty } from '@nestjs/swagger'
-import { LocationNoteCourierWithReactionCountsDto } from 'src/rest-api/location-note/courier/dtos/location-note-with-reaction-counts.courier.dto'
+import { AddressNoteCourierDto } from 'src/rest-api/location-note/courier/dtos/address-note.courier.dto'
 import { InProgressDeliveryCourier } from '../types/in-progress-delivery.courier.type'
 import { LocationCourierDto } from 'src/rest-api/location/courier/dto/location.courier.dto'
 import { EnumDeliveryStatus } from '@prisma/types'
@@ -17,11 +17,12 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
   @ApiProperty({ type: LocationCourierDto })
   dropoffLocation: LocationCourierDto
 
-  @ApiProperty({ type: LocationNoteCourierWithReactionCountsDto, isArray: true })
-  pickupLocationNotes: LocationNoteCourierWithReactionCountsDto[]
+  // Spec 0053 (AC-3): the notes within 30 m of each stop, at most 10, without their authors.
+  @ApiProperty({ type: AddressNoteCourierDto, isArray: true })
+  pickupLocationNotes: AddressNoteCourierDto[]
 
-  @ApiProperty({ type: LocationNoteCourierWithReactionCountsDto, isArray: true })
-  dropOffLocationNotes: LocationNoteCourierWithReactionCountsDto[]
+  @ApiProperty({ type: AddressNoteCourierDto, isArray: true })
+  dropOffLocationNotes: AddressNoteCourierDto[]
 
   // Spec 0033 (AC-5), while the rider waits at the restaurant: when they may leave, and when the wait
   // starts earning (null when it will not). Worked out here so the phone only counts down to them.
@@ -68,11 +69,7 @@ export class InProgressDeliveryCourierDto extends DeliveryCourierDto {
     this.pickupLocation = new LocationCourierDto(data.pickupLocation)
     this.dropoffLocation = new LocationCourierDto(data.dropoffLocation)
 
-    this.pickupLocationNotes = data.pickupLocationNotes.map(
-      (note) => new LocationNoteCourierWithReactionCountsDto(note)
-    )
-    this.dropOffLocationNotes = data.dropoffLocationNotes.map(
-      (note) => new LocationNoteCourierWithReactionCountsDto(note)
-    )
+    this.pickupLocationNotes = data.pickupLocationNotes.map((note) => new AddressNoteCourierDto(note))
+    this.dropOffLocationNotes = data.dropoffLocationNotes.map((note) => new AddressNoteCourierDto(note))
   }
 }

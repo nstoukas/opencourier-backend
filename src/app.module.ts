@@ -49,7 +49,6 @@ import { CourierDomainModule } from './domains/courier/courier.domain.module'
 import { DeliveryEventDomainModule } from './domains/delivery-event/delivery-event.domain.module'
 import { DeliveryQuoteDomainModule } from './domains/delivery-quote/delivery-quote.domain.module'
 import { DeliveryDomainModule } from './domains/delivery/delivery.domain.module'
-import { LocationNoteReactionDomainModule } from './domains/location-note-reaction/location-note-reaction.domain.module'
 import { LocationNoteDomainModule } from './domains/location-note/location-note.domain.module'
 import { PartnerDomainModule } from './domains/partner/partner.domain.module'
 import { PayoutDomainModule } from './domains/payout/partner.domain.module'
@@ -75,7 +74,6 @@ const DOMAIN_MODULES: ModuleMetadata['imports'] = [
   CourierSettingDomainModule,
   DeliveryDomainModule,
   LocationNoteDomainModule,
-  LocationNoteReactionDomainModule,
   DeliveryQuoteDomainModule,
   PartnerDomainModule,
   DeliveryEventDomainModule,

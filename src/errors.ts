@@ -53,6 +53,9 @@ export enum ErrorCode {
   // Data validation
   MISSING_DATA = 'MISSING_DATA',
   INVALID_DATA = 'INVALID_DATA',
+  // Spec 0053 (AC-4): an address note that looks like it holds a name, phone or email, sent without
+  // `confirmed: true`. The app reads this code to offer Edit or Save anyway.
+  PERSONAL_DATA_WARNING = 'PERSONAL_DATA_WARNING',
 
   // Integrations
   INTEGRATION_ERROR = 'INTEGRATION_ERROR',
@@ -305,6 +308,14 @@ export class InvalidDataException extends ApiException {
 export class CreateFailedException extends ApiException {
   constructor(message: string, options?: HttpExceptionOptions) {
     super(ErrorCode.CREATE_FAILED, message, 422, options)
+  }
+}
+
+// 422: an address note that looks like it holds personal data (spec 0053, AC-4). The message is the
+// fixed warning sentence and never repeats the note, so no log records what the rider typed.
+export class PersonalDataWarningException extends ApiException {
+  constructor(message: string, options?: HttpExceptionOptions) {
+    super(ErrorCode.PERSONAL_DATA_WARNING, message, 422, options)
   }
 }
 

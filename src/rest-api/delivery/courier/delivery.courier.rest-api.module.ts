@@ -5,7 +5,6 @@ import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.co
 import { LocationNoteDomainModule } from 'src/domains/location-note/location-note.domain.module'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
 import { DeliveryIssueDomainModule } from 'src/domains/delivery-issue/delivery-issue.domain.module'
-import { LocationNoteReactionDomainModule } from 'src/domains/location-note-reaction/location-note-reaction.domain.module'
 import { CancelledJobsCourierService } from './cancelled-jobs.courier.service'
 import { CancelledJobsCourierRestApiController } from './cancelled-jobs.courier.rest-api.controller'
 import { DropoffPointCourierService } from './dropoff-point.courier.service'
@@ -24,7 +23,6 @@ import { LeaveWaitCourierRestApiController } from './leave-wait.courier.rest-api
   exports: [DeliveryRestApiCourierService],
   imports: [ProductReportDomainModule, DeliveryDomainModule,
     LocationNoteDomainModule,
-    LocationNoteReactionDomainModule,
     DeliveryIssueDomainModule,
     ConfigDomainModule,
     OsrmRoutingModule,

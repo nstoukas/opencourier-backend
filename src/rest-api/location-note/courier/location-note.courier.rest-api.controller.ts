@@ -3,7 +3,7 @@ import * as swagger from '@nestjs/swagger'
 import * as errors from 'src/errors'
 import { COURIER_API_V1_PREFIX } from '../../../constants'
 import { LocationNoteCourierPaginatedDto } from './dtos/location-note.courier.paginated.dto'
-import { EnumLocationNoteActor, EnumUserRole } from '@prisma/types'
+import { EnumUserRole } from '@prisma/types'
 import { Roles } from 'src/decorators/roles.decorator'
 import { LocationNoteFindManyCourierArgs } from './queries/location-note-find-many.courier.args'
 import { CurrentUserCourier } from 'src/decorators/currentUserCourier.decorator'
@@ -14,6 +14,7 @@ import { LocationNoteRestApiCourierService } from './location-note.courier.rest-
 import { LocationNoteReactCourierInput } from './queries/location-note-react.courier.input'
 import { LocationNoteReactionCourierDto } from './dtos/location-note-reaction.courier.dto'
 import { LocationNoteUpdateCourierInput } from './queries/location-note-update.courier.input'
+import { LocationNoteFlagCourierInput } from './queries/location-note-flag.courier.input'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('location-notes')
@@ -31,17 +32,16 @@ export class LocationNoteCourierRestApiController {
   @swagger.ApiForbiddenResponse({
     type: errors.ForbiddenException,
   })
+  @swagger.ApiNotFoundResponse({ type: errors.DeliveryNotFoundException })
+  @swagger.ApiUnprocessableEntityResponse({ type: errors.PersonalDataWarningException })
   @swagger.ApiOperation({ summary: 'Create a location note' })
   @Roles(EnumUserRole.COURIER)
   async createNote(
     @common.Body() data: LocationNoteCreateCourierInput,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<LocationNoteCourierDto> {
-    const locationNote = await this.locationNoteRestApiCourierService.create({
-      ...data,
-      courierId: courier.id,
-      actor: EnumLocationNoteActor.COURIER,
-    })
+    // Spec 0053 (AC-2, AC-4): on a job this rider holds; 422 PERSONAL_DATA_WARNING unless confirmed.
+    const locationNote = await this.locationNoteRestApiCourierService.create(data, courier.id)
 
     return new LocationNoteCourierDto(locationNote)
   }
@@ -63,7 +63,12 @@ export class LocationNoteCourierRestApiController {
     @common.Param('locationNoteId') locationNoteId: string,
     @CurrentUserCourier() courier: CourierEntity
   ): Promise<LocationNoteCourierDto> {
-    const locationNote = await this.locationNoteRestApiCourierService.update(locationNoteId, data.note, courier.id)
+    const locationNote = await this.locationNoteRestApiCourierService.update(
+      locationNoteId,
+      data.note,
+      courier.id,
+      data.confirmed
+    )
 
     return new LocationNoteCourierDto(locationNote)
   }
@@ -92,6 +97,22 @@ export class LocationNoteCourierRestApiController {
     )
 
     return new LocationNoteReactionCourierDto(locationNoteReaction)
+  }
+
+  // Spec 0053 (AC-7): flag a note for an admin, once per rider (a repeat changes nothing).
+  @common.Post(':locationNoteId/flag')
+  @common.HttpCode(204)
+  @swagger.ApiBody({ type: LocationNoteFlagCourierInput })
+  @swagger.ApiNoContentResponse()
+  @swagger.ApiNotFoundResponse({ type: errors.NotFoundException })
+  @swagger.ApiOperation({ summary: 'Flag a location note for an admin' })
+  @Roles(EnumUserRole.COURIER)
+  async flagNote(
+    @common.Body() data: LocationNoteFlagCourierInput,
+    @common.Param('locationNoteId') locationNoteId: string,
+    @CurrentUserCourier() courier: CourierEntity
+  ): Promise<void> {
+    await this.locationNoteRestApiCourierService.flag(locationNoteId, courier.id, data.reason?.trim() || null)
   }
 
   @common.Get('')

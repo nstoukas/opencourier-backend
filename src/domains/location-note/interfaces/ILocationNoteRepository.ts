@@ -12,6 +12,5 @@ export interface ILocationNoteRepository {
     page?: number,
     perPage?: number
   ): Promise<PaginatedResult<LocationNoteEntity>>
-  findManyByLocationIds(ids: string[]): Promise<LocationNoteEntity[]>
   delete(locationNoteId: string): Promise<LocationNote>
 }
