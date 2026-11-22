@@ -293,18 +293,29 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     const groupId = randomUUID()
     // Copied into plain objects, the shape a Json column takes.
     const stopSequence = stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
-    return this.prisma.$transaction(async (tx) => {
-      const job = await tx.delivery.updateMany({
-        where: { id: jobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
-        data: { offerGroupId: groupId, stopSequence },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const job = await tx.delivery.updateMany({
+          where: { id: jobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
+          data: { offerGroupId: groupId, stopSequence },
+        })
+        if (job.count !== 1) throw new RollBack()
+        const addOn = await tx.delivery.updateMany({
+          where: { id: addOnId, courierId },
+          data: { offerGroupId: groupId, stopSequence },
+        })
+        // agy review: the added order is no longer this rider's (moved by an admin in the moment since the
+        // accept). Throwing inside an interactive transaction undoes every write it made, so the job does not
+        // keep a group id that no other delivery shares, nor a stop list naming an order its rider lost.
+        if (addOn.count !== 1) throw new RollBack()
+        return true
       })
-      if (job.count !== 1) {
-        await tx.delivery.updateMany({ where: { id: addOnId }, data: { stopSequence: Prisma.DbNull } })
-        return false
-      }
-      await tx.delivery.updateMany({ where: { id: addOnId, courierId }, data: { offerGroupId: groupId, stopSequence } })
-      return true
-    })
+    } catch (error) {
+      if (!(error instanceof RollBack)) throw error
+      // Not joined: the added order goes on alone, without the stop list that names the job.
+      await this.prisma.delivery.updateMany({ where: { id: addOnId }, data: { stopSequence: Prisma.DbNull } })
+      return false
+    }
   }
 
   // Spec 0048: the deliveries of a stack still open for this rider by this offer (nobody has taken them),
