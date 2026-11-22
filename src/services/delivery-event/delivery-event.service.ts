@@ -103,6 +103,7 @@ import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.serv
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { CourierMatch, DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
 import { DeliveryCalculationService } from '../delivery-calculation/delivery-calculation.service'
+import { IDeliveryAmountsCalculationsResult } from '../delivery-calculation/interfaces/IDeliveryAmountsCalculationsResult'
 import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.courier.dto'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -1972,15 +1973,24 @@ export class DeliveryEventService {
     const second = plan.partner
 
     // Amounts first, then the offer, as for a single one (flow 1): each from its own quote, the rider's pay
-    // its full base plus its own distance (value 3: full fee per order).
-    const firstAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
-      deliveryId: first.id,
-      courierId: courier.id,
-    })
-    const secondAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
-      deliveryId: second.id,
-      courierId: courier.id,
-    })
+    // its full base plus its own distance (value 3: full fee per order). If either cannot be worked out (a
+    // missing quote, say), no stack: the first order goes out alone, as findStackPartner promises (review of
+    // row 80), and its own calculation below then fails or succeeds exactly as without stacking.
+    let firstAmounts: IDeliveryAmountsCalculationsResult
+    let secondAmounts: IDeliveryAmountsCalculationsResult
+    try {
+      firstAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+        deliveryId: first.id,
+        courierId: courier.id,
+      })
+      secondAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+        deliveryId: second.id,
+        courierId: courier.id,
+      })
+    } catch (error) {
+      this.logger.error(`Could not work out the pay of a stack of ${first.id} and ${second.id}; offering ${first.id} alone: ${error}`)
+      return 'ALONE'
+    }
     const expiryEnabled = await this.configDomainService.instanceConfig.getOfferExpiryEnabled()
     const expirySeconds = expiryEnabled ? await this.configDomainService.instanceConfig.getOfferExpirySeconds() : null
     const offeredAt = new Date()
