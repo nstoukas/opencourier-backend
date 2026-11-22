@@ -98,7 +98,8 @@ export class DeliveryRestApiCourierService {
 
     const deliveries = await this.deliveryDomainService.getMany(args, page, perPage)
 
-    // Spec 0053 (AC-3): each stop's notes by distance, without their authors.
+    // Spec 0053 (AC-3): each stop's notes by distance, without their authors. The cast is safe because
+    // `getMany` includes both Locations (`pickupLocation`, `dropoffLocation`) on every delivery it reads.
     const notesByDelivery = await this.locationNoteDomainService.notesForJobs(
       deliveries.data as InProgressDeliveryCourier[],
       courierId

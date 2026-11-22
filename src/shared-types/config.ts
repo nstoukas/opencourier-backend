@@ -90,7 +90,8 @@ export type InstanceConfigSettings = {
   chatQuickRepliesDispatch: string[]
   chatQuickRepliesCourier: string[]
   chatRetentionDays: number
-  // Address notes (spec 0053): days a courier note is kept without an upvote.
+  // Address notes (spec 0053): days a note about a place (rider, admin or restaurant) is kept when no rider
+  // other than its author upvotes it.
   addressNoteRetentionDays: number
   // Review requests (spec 0038): whole days a person has to answer, and the largest pay correction in cents.
   reviewAnswerDays: number
