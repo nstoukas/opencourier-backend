@@ -126,6 +126,7 @@ model Courier {
   Transfer              Transfer[]
   locationNotes         LocationNote[]
   locationNoteReactions LocationNoteReaction[]
+  locationNoteFlags     LocationNoteFlag[]
   courierCompensations  CourierCompensation[]
   deliveryIssues        DeliveryIssue[]
   removalRequests       DeliveryRemovalRequest[]
@@ -402,6 +403,10 @@ model Delivery {
   // Spec 0016: when the rider moved the drop off pin (at most once per delivery). The delivery's own
   // Location never moves; the move is a DROPOFF_POINT_CORRECTED event and reaches the saved customer.
   dropoffPointCorrectedAt DateTime? @postgres.Timestamptz(6)
+  // Spec 0053 (cross check 1): the point the rider moved the pin to, written with the
+  // DROPOFF_POINT_CORRECTED event, so courier notes find the real door. Null until a move.
+  dropoffCorrectedLatitude  Float?
+  dropoffCorrectedLongitude Float?
   // Spec 0020: when the rider accepted, and until when they may hand it back for free (both null
   // whenever no rider holds the delivery).
   acceptedAt              DateTime? @postgres.Timestamptz(6)
@@ -612,6 +617,39 @@ model LocationNote {
   courierId     String?
   couriers      Courier?               @relation(fields: [courierId], references: [id], onDelete: Cascade)
   noteReactions LocationNoteReaction[]
+
+  // Spec 0053: the point the note is about (the drop off point as the rider found it, or the
+  // restaurant's), and when a rider last confirmed it (creation, then each upvote by someone else).
+  // A note not confirmed for addressNoteRetentionDays is deleted by the nightly job.
+  latitude        Float
+  longitude       Float
+  lastConfirmedAt DateTime           @default(now())
+  flags           LocationNoteFlag[]
+
+  @@index([lastConfirmedAt])
+  @@index([latitude, longitude])
+}
+
+// Spec 0053 (AC-7): a rider's flag on a note, once per rider. Dismissing the flags deletes these rows.
+model LocationNoteFlag {
+  id             String       @id @default(cuid())
+  locationNoteId String
+  locationNote   LocationNote @relation(fields: [locationNoteId], references: [id], onDelete: Cascade)
+  courierId      String
+  courier        Courier      @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  reason         String?      @postgres.VarChar(200)
+  createdAt      DateTime     @default(now())
+
+  @@unique([locationNoteId, courierId])
+}
+
+// Spec 0053 (AC-7): an admin deleted a note. Who, which note and when; the note's text is not kept,
+// and both ids are plain strings, so the row outlives the note and the admin account.
+model AddressNoteDeletion {
+  id             String   @id @default(cuid())
+  adminUserId    String
+  locationNoteId String
+  createdAt      DateTime @default(now())
 }
 
 model LocationNoteReaction {

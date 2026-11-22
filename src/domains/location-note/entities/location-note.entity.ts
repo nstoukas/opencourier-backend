@@ -9,6 +9,11 @@ export class LocationNoteEntity implements LocationNote {
 
   courierId: string | null
 
+  // Spec 0053: the point the note is about, and when a rider last confirmed it.
+  latitude: number
+  longitude: number
+  lastConfirmedAt: Date
+
   createdAt: Date
   updatedAt: Date
 
@@ -19,6 +24,10 @@ export class LocationNoteEntity implements LocationNote {
     this.courierId = data.courierId
     this.locationId = data.locationId
     this.deliveryId = data.deliveryId
+
+    this.latitude = data.latitude
+    this.longitude = data.longitude
+    this.lastConfirmedAt = data.lastConfirmedAt
 
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

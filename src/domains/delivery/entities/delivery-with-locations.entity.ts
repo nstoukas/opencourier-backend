@@ -29,6 +29,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
   dropoffFloor: string | null
   dropoffDoorbell: string | null
   dropoffPointCorrectedAt: Date | null
+  // Spec 0053 (cross check 1): where the rider moved the pin to; null until a move.
+  dropoffCorrectedLatitude: number | null
+  dropoffCorrectedLongitude: number | null
   // Spec 0020: when the rider accepted, and the end of the free hand back.
   acceptedAt: Date | null
   // Spec 0033: the first promise, the rider's arrival, leaving after a wait, and an owed wait.
@@ -132,6 +135,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.dropoffFloor = data.dropoffFloor
     this.dropoffDoorbell = data.dropoffDoorbell
     this.dropoffPointCorrectedAt = data.dropoffPointCorrectedAt
+    this.dropoffCorrectedLatitude = data.dropoffCorrectedLatitude
+    this.dropoffCorrectedLongitude = data.dropoffCorrectedLongitude
     this.acceptedAt = data.acceptedAt
     this.promisedReadyAt = data.promisedReadyAt
     this.arrivedAtPickupAt = data.arrivedAtPickupAt

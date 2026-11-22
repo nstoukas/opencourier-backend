@@ -95,7 +95,13 @@ export class DropoffPointCourierService {
     const claimed = await this.deliveryRepository.updateIfMatches(
       deliveryId,
       { courierId, dropoffPointCorrectedAt: null, status: { in: DROPOFF_POINT_CORRECTABLE_STATUSES } },
-      { dropoffPointCorrectedAt: new Date() }
+      // Spec 0053 (cross check 1): the new point is kept in columns as well as the event's message,
+      // so courier notes sit at the real door.
+      {
+        dropoffPointCorrectedAt: new Date(),
+        dropoffCorrectedLatitude: newPoint.latitude,
+        dropoffCorrectedLongitude: newPoint.longitude,
+      }
     )
     if (!claimed) {
       // Say which race was lost: another move, or the job moved on.
@@ -124,7 +130,11 @@ export class DropoffPointCourierService {
       // Nothing was recorded, so the move is given back and the rider can try again. A failure here is
       // logged on its own; the error the rider gets is still the first one.
       try {
-        await this.deliveryRepository.updateIfMatches(deliveryId, { courierId }, { dropoffPointCorrectedAt: null })
+        await this.deliveryRepository.updateIfMatches(
+          deliveryId,
+          { courierId },
+          { dropoffPointCorrectedAt: null, dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null }
+        )
       } catch (releaseError) {
         this.logger.error(`DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${releaseError}`)
       }
