@@ -8,6 +8,7 @@ import {
   offlineCountsMidShift,
 } from 'src/domains/shift/shift-offline'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
+import { CacheService } from 'src/services/cache/cache.service'
 import { OfflineEventForAdmin, ShiftBookingRepository } from 'src/persistence/repositories/shift-booking.repository'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 
@@ -16,6 +17,12 @@ import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 // and a sweep finds every change, whichever of the five status writers made it.
 const SHIFT_OFFLINE_SWEEP_JOB = 'shift-offline-sweep'
 const EVERY_MINUTE = '* * * * *'
+// agy's review of row 79: the end of the window the last sweep judged, kept in Redis so a restart does
+// not judge the same changes again. Each Offline change is judged once, under the break limit in force
+// when its break ended; a later, lower limit cannot turn an earlier break into a record (cross check 1).
+export const SHIFT_OFFLINE_WATERMARK_KEY = 'shift-offline-sweep:judged-up-to'
+// Past the look back window an old watermark changes nothing, so it may expire.
+const WATERMARK_TTL_SECONDS = 24 * 3_600
 
 export const OFFLINE_EVENT_SENTENCES = {
   missing: 'This item is not on the list.',
@@ -34,7 +41,8 @@ export class ShiftOfflineService implements OnModuleInit {
     private readonly bookings: ShiftBookingRepository,
     private readonly configDomainService: ConfigDomainService,
     private readonly bullMQService: BullMQService,
-    private readonly taskBusService: TaskBusService
+    private readonly taskBusService: TaskBusService,
+    private readonly cacheService: CacheService
   ) {
     // When the tick comes due, BullMQProcessor hands it to the task bus by name, which calls this.
     this.taskBusService.registerTaskHandler(SHIFT_OFFLINE_SWEEP_JOB, async () => {
@@ -66,8 +74,19 @@ export class ShiftOfflineService implements OnModuleInit {
     const lookback = new Date(upTo.getTime() - OFFLINE_SWEEP_LOOKBACK_HOURS * 3_600_000)
     // Review fix: never before Shifts was last switched on, so an Offline while Shifts was off leaves nothing.
     const switchedOnAt = await this.bookings.shiftsLastSwitchedOnAt()
-    const from = switchedOnAt && switchedOnAt > lookback ? switchedOnAt : lookback
+    let from = switchedOnAt && switchedOnAt > lookback ? switchedOnAt : lookback
+    // Only the changes after the last judged moment (1 ms later: the window's start is inclusive and
+    // the database keeps milliseconds). If the limit was raised, upTo can fall behind the watermark,
+    // and the window is empty until it catches up: those changes were judged already.
+    const judgedUpTo = await this.cacheService.get<string>(SHIFT_OFFLINE_WATERMARK_KEY)
+    if (judgedUpTo) {
+      const afterJudged = new Date(new Date(judgedUpTo).getTime() + 1)
+      if (afterJudged > from) from = afterJudged
+    }
+    if (from > upTo) return 0
     let written = 0
+    // The earliest change that failed: the watermark stops just before it, so the next tick tries it again.
+    let firstFailedAt: Date | null = null
     for (const change of await this.bookings.offlineChangesWithoutEvent(from, upTo)) {
       try {
         const breakEnds = new Date(change.createdAt.getTime() + breakMs)
@@ -92,8 +111,11 @@ export class ShiftOfflineService implements OnModuleInit {
       } catch (error) {
         // One change failing must not stop the others; the next tick tries it again.
         this.logger.error(`Could not check status change ${change.id} for a shift offline record: ${error}`)
+        if (!firstFailedAt) firstFailedAt = change.createdAt
       }
     }
+    const judged = firstFailedAt ? new Date(firstFailedAt.getTime() - 1) : upTo
+    await this.cacheService.save(SHIFT_OFFLINE_WATERMARK_KEY, judged.toISOString(), WATERMARK_TTL_SECONDS)
     return written
   }
 
