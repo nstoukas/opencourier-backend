@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { DEFAULT_LANGUAGE, Language, translate } from 'src/localization/translate'
 import { ConfigService } from '@nestjs/config'
 import { EnumUserRole } from '@prisma/types'
 import { createHmac, randomInt, timingSafeEqual } from 'crypto'
@@ -149,7 +150,10 @@ export class PasswordResetService implements OnModuleInit {
     const name = (storedName ?? '').trim()
     try {
       // Sent to the stored address, never the typed one (they can differ in capitals).
-      await this.mailService.send({ to: rider.user.email as string, ...buildResetEmail(code, name) })
+      await this.mailService.send({
+        to: rider.user.email as string,
+        ...buildResetEmail(code, name, rider.user.language),
+      })
     } catch (error) {
       // AC-12 and AC-13: the user id and what kind of failure, never the error's message, which can
       // quote the recipient's address. The rider can ask again after the minute's wait.
@@ -224,24 +228,29 @@ export function describeError(error: unknown): string {
     .join(' ')
 }
 
-// AC-9: the reset email, Greek first then English. The code is never in the subject (it shows on
-// lock screens and in mail lists).
-export function buildResetEmail(code: string, coopName: string): { subject: string; text: string; html: string } {
-  const greekName = coopName || 'τον συνεταιρισμό'
-  const englishName = coopName || 'the co-op'
-  const subject = `Κωδικός επαναφοράς για ${greekName} / Password reset code for ${englishName}`
-  const greek =
-    'Πληκτρολόγησε αυτόν τον κωδικό στην εφαρμογή για να ορίσεις νέο κωδικό πρόσβασης. Ισχύει για 15 λεπτά. Αν δεν το ζήτησες εσύ, αγνόησε αυτό το μήνυμα.'
-  const english =
-    "Type this code in the app to set a new password. It works for 15 minutes. If you didn't ask for it, ignore this email."
+// AC-9: the reset email in both languages, the rider's own first (spec 0054, cross check 8: User.language;
+// Greek first when they never chose). Both stay, because a rider who forgot a password may also have a
+// phone in the other language. The words are in src/localization (server.mail). The code is never in the
+// subject (it shows on lock screens and in mail lists).
+export function buildResetEmail(
+  code: string,
+  coopName: string,
+  language: Language = DEFAULT_LANGUAGE
+): { subject: string; text: string; html: string } {
+  const other: Language = language === 'el' ? 'en' : 'el'
+  const subjectIn = (lang: Language) =>
+    translate(lang, 'server.mail.resetSubject', { coop: coopName || translate(lang, 'server.mail.coopFallback') })
+  const subject = `${subjectIn(language)} / ${subjectIn(other)}`
+  const first = translate(language, 'server.mail.resetBody')
+  const second = translate(other, 'server.mail.resetBody')
 
-  const text = `${code}\n\n${greek}\n\n${english}\n`
+  const text = `${code}\n\n${first}\n\n${second}\n`
   // The code in large type first (AC-9), then the two sentences. Only fixed text goes in the HTML.
   const html =
     '<div style="font-family: sans-serif; font-size: 16px; line-height: 1.5">' +
     `<p style="font-size: 32px; font-weight: bold; letter-spacing: 6px; margin: 0 0 24px">${code}</p>` +
-    `<p>${escapeHtml(greek)}</p>` +
-    `<p>${escapeHtml(english)}</p>` +
+    `<p>${escapeHtml(first)}</p>` +
+    `<p>${escapeHtml(second)}</p>` +
     '</div>'
   return { subject, text, html }
 }

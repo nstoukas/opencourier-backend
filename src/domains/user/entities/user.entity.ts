@@ -1,4 +1,5 @@
 import { EnumUserRole, User } from '@prisma/types'
+import { Language, languageOf } from 'src/localization/translate'
 
 export class UserEntity implements User {
   id: string
@@ -16,8 +17,12 @@ export class UserEntity implements User {
   declare apiKeyCreatedAt: Date | null
   // When an admin last set this user's password; older tokens are refused (spec 0013).
   credentialsChangedAt: Date | null
+  // The language this person reads the apps in (spec 0054); mails to them use it too.
+  language: Language
 
-  constructor(data: User) {
+  // `& { language?: string }`: the column comes with spec 0054's migration, so this compiles before and
+  // after `prisma generate` adds it to User. A missing or unknown value reads as Greek.
+  constructor(data: User & { language?: string }) {
     this.id = data.id
     this.email = data.email
     this.password = data.password
@@ -25,6 +30,7 @@ export class UserEntity implements User {
 
     this.username = data.username
     this.credentialsChangedAt = data.credentialsChangedAt
+    this.language = languageOf(data.language)
 
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

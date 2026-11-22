@@ -1,4 +1,6 @@
 import * as common from '@nestjs/common'
+import { LanguageDto, LanguageInput } from 'src/rest-api/common/dtos/language.dto'
+import { UserDomainService } from 'src/domains/user/user.domain.service'
 import * as swagger from '@nestjs/swagger'
 import { COURIER_API_V1_PREFIX } from '../../../constants'
 import { CourierDomainService } from '../../../domains/courier/courier.domain.service'
@@ -30,12 +32,29 @@ export class CourierCourierRestApiController {
     private readonly courierDomainService: CourierDomainService,
     private readonly deliveryEventService: DeliveryEventService,
     // Spec 0051. Optional only so tests that build the controller by hand keep compiling; Nest injects it.
-    private readonly courierAccountService?: CourierAccountService
+    private readonly courierAccountService?: CourierAccountService,
+    // Spec 0054. Optional for the same reason; Nest injects it.
+    private readonly userDomainService?: UserDomainService
   ) {}
 
   private get accounts(): CourierAccountService {
     if (!this.courierAccountService) throw new Error('CourierAccountService was not injected')
     return this.courierAccountService
+  }
+
+  // Spec 0054 (AC-1): the language chosen in the app's Settings, saved on the server so pushes, mails and
+  // the next sign in follow it. The phone keeps its own copy for the first screen.
+  @common.Put('language')
+  @swagger.ApiBody({ type: LanguageInput })
+  @swagger.ApiOkResponse({ type: LanguageDto })
+  @Roles(EnumUserRole.COURIER)
+  async setLanguage(
+    @CurrentUserCourier() courier: CourierEntity,
+    @common.Body() body: LanguageInput
+  ): Promise<LanguageDto> {
+    if (!this.userDomainService) throw new Error('UserDomainService was not injected')
+    await this.userDomainService.setLanguage(courier.userId, body.language)
+    return new LanguageDto(body.language)
   }
 
   // Spec 0051 (AC-7): "Changes by the co-op", this rider's own account record, newest first. The actor is

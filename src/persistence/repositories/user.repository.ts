@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { User } from '@prisma/types'
+import { Prisma, User } from '@prisma/types'
+import { Language } from 'src/localization/translate'
 import { assign } from 'lodash'
 import { UserEntity } from '../../domains/user/entities/user.entity'
 import { IUserRepository } from '../../domains/user/interfaces/IUserRepository'
@@ -167,6 +168,14 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     })
 
     return assign(this.toDomain(result))
+  }
+
+  // Spec 0054 (AC-1, AC-2): the language a person chose. Only this column, nothing else from a request.
+  // The data goes through a plain record because the generated client learns the column only at the
+  // `prisma generate` after its migration; until then the typed input has no `language` field.
+  async setLanguage(userId: string, language: Language): Promise<void> {
+    const data: Record<string, unknown> = { language }
+    await this.prisma.user.update({ where: { id: userId }, data: data as Prisma.UserUpdateInput, select: { id: true } })
   }
 
   async deleteById(userId: string) {

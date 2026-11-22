@@ -4,9 +4,10 @@ import { CourierCourierRestApiController } from './courier.courier.rest-api.cont
 import { CourierDomainModule } from '../../../domains/courier/courier.domain.module'
 import { DeliveryEventDomainModule } from 'src/domains/delivery-event/delivery-event.domain.module'
 import { ConfigDomainModule } from 'src/domains/config/config.domain.module'
+import { UserDomainModule } from 'src/domains/user/user.domain.module'
 
 @Module({
-  imports: [CourierDomainModule, DeliveryEventDomainModule, ConfigDomainModule, CourierAccountModule],
+  imports: [CourierDomainModule, DeliveryEventDomainModule, ConfigDomainModule, CourierAccountModule, UserDomainModule],
   controllers: [CourierCourierRestApiController],
 })
 export class CourierCourierRestApiModule {}

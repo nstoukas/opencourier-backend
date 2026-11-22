@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { Language } from 'src/localization/translate'
 import { EnumUserRole } from '@prisma/types'
 import { assign } from 'lodash'
 import { AblyService } from 'src/integrations/ably/ably.service'
@@ -152,6 +153,11 @@ export class AuthDomainService {
       session,
       user,
     })
+  }
+
+  // Spec 0054 (AC-2): the language a restaurant or an admin chose in the web app's header.
+  async setLanguage(userId: string, language: Language): Promise<void> {
+    await this.userDomainService.setLanguage(userId, language)
   }
 
   async getMe(userId: string) {

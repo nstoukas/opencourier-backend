@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { languageOf, translate } from 'src/localization/translate'
 import {
   EnumCourierAccountChangeKind,
   EnumCourierDeliverySetting,
@@ -321,15 +322,19 @@ export class CourierAccountService {
   }
 
   // Cross check 11: a notice to the OLD address. Mail off, or a failure: logged by id, never the addresses.
+  // Spec 0054 (cross check 8): in the rider's own language (User.language), from src/localization.
   private async tellOldAddress(oldEmail: string | null, newEmail: string, userId: string): Promise<void> {
     if (!oldEmail || !this.mailService.isConfigured()) return
     try {
+      // The whole row, not a select: the generated client learns `language` only after spec 0054's migration.
+      const user = await this.prisma.user.findUnique({ where: { id: userId } })
+      const language = languageOf((user as { language?: string } | null)?.language)
       const stored = (await this.configDomainService.instanceConfig.getDetails()).name as string | undefined
-      const coop = (stored ?? '').trim() || 'the co-op'
-      const text = `Your login email for ${coop} was changed to ${newEmail}. If you did not expect this, contact the co-op.`
+      const coop = (stored ?? '').trim() || translate(language, 'server.mail.coopFallback')
+      const text = translate(language, 'server.mail.emailChangedBody', { coop, newEmail })
       await this.mailService.send({
         to: oldEmail,
-        subject: `Your login email for ${coop} was changed`,
+        subject: translate(language, 'server.mail.emailChangedSubject', { coop }),
         text,
         html: `<p>${escapeHtml(text)}</p>`,
       })

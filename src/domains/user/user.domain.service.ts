@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { Language } from 'src/localization/translate'
 import { UserRepository } from 'src/persistence/repositories/user.repository'
 import { UserEntity } from './entities/user.entity'
 import { IUserUpdate } from './interfaces/IUserUpdate'
@@ -60,6 +61,12 @@ export class UserDomainService {
 
   async updateMe(user: UserEntity, data: IUserUpdate) {
     return this.userRepository.updateById(user.id, data)
+  }
+
+  // Spec 0054: the language a person reads the apps in, saved from the courier app's Settings or a web
+  // app's header switch.
+  async setLanguage(userId: string, language: Language): Promise<void> {
+    await this.userRepository.setLanguage(userId, language)
   }
 
   async deleteMe(user: UserEntity) {
