@@ -65,9 +65,12 @@ export function stackRefusal(first: StackCandidate, second: StackCandidate): str
   if (!isSameRestaurant(first, second) && (first.foodReadyAt === null || second.foodReadyAt === null)) {
     return 'two restaurants, and not both marked ready'
   }
+  // Legs of one order share their restaurant and orderReference (spec 0046); two restaurants may both use "1001".
   if (
     first.legCount !== null &&
     second.legCount !== null &&
+    first.partnerId !== null &&
+    first.partnerId === second.partnerId &&
     first.orderReference !== null &&
     first.orderReference === second.orderReference
   ) {

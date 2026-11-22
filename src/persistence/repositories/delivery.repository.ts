@@ -327,9 +327,10 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         courierId: null,
         OR: places,
         boxUnits: { lte: maxUnits },
-        // Never two legs of one order (spec 0046); a single delivery or another order is fine.
-        ...(delivery.legCount !== null && delivery.orderReference
-          ? { NOT: { orderReference: delivery.orderReference, legCount: { not: null } } }
+        // Never two legs of one order (spec 0046): the same restaurant and orderReference, as siblingLegHeldSql
+        // compares them. A single delivery, or another restaurant's order with the same reference, is fine.
+        ...(delivery.legCount !== null && delivery.orderReference && delivery.partnerId
+          ? { NOT: { partnerId: delivery.partnerId, orderReference: delivery.orderReference, legCount: { not: null } } }
           : {}),
       },
       include: { pickupLocation: { select: { latitude: true, longitude: true } } },
