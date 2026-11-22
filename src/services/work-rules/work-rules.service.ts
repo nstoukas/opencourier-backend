@@ -204,8 +204,11 @@ export class WorkRulesService {
     }
     // Spec 0048 (AC-1, row 81): mid job add ons, said only while the co-op has them on. Cross check 2: the
     // rider reads that an add on is answered only when stopped, and that one offered with food in the box
-    // never rings insistently and gets twice the usual time.
-    if (settings.addOnOffersEnabled) {
+    // never rings insistently and gets twice the usual time. Review fixes: WHENEVER_FITS says plainly that an
+    // add on can come while a free rider is available, and the add on's own deadline (decision 81.14) is
+    // given in seconds, since it applies whether Offer expiry is on or off. Not said while dispatch chooses
+    // every rider by hand (STATIC), when no add on is ever offered (review fix, the locked override).
+    if (settings.addOnOffersEnabled && settings.courierMatcherType !== EnumCourierMatcherType.STATIC) {
       const moment =
         settings.addOnMoment === EnumAddOnMoment.BEFORE_DROPOFF
           ? 'any time before you drop off your current order'
@@ -215,11 +218,15 @@ export class WorkRulesService {
       offers.push(
         `While you are on a job, you may be offered one more order on the way, ${moment}. This happens ${
           settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
-            ? 'whenever it fits'
+            ? 'whenever it fits, even when a free rider is available'
             : 'only when that order found no free rider'
         }. The offer shows how many km and minutes it adds. Declining it is free and changes nothing about your current order, and it is never accepted automatically. It pays in full, exactly as it would alone, your current customer's food arrives at most ${
           settings.twoOrderDelayLimitMinutes
-        } minutes later, and both orders always fit in your box. Answer an add on only when you are stopped: one offered while you carry food never rings insistently and gives you twice the usual time to answer.`
+        } minutes later, and both orders always fit in your box. Answer an add on only when you are stopped. You have ${
+          settings.offerExpirySeconds
+        } seconds to answer one; while you carry food you have ${
+          settings.offerExpirySeconds * 2
+        } seconds and it never rings insistently. An unanswered add on goes back to matching.`
       )
     }
 
