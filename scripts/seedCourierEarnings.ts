@@ -1,6 +1,7 @@
 import { config as loadEnv } from 'dotenv'
 loadEnv()
 
+import { eventText, storedEventText } from 'src/domains/delivery-event/event-text'
 import {
   EnumCountryCode,
   EnumDeliveryEventSource,
@@ -198,7 +199,7 @@ async function main() {
         oldStatus: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
         newStatus: EnumDeliveryStatus.DROPPED_OFF,
         transitionSuccessful: true,
-        message: 'Seeded completed delivery',
+        ...storedEventText(eventText('SEEDED_COMPLETED', {})),
         createdAt: droppedOffAt,
       },
     })

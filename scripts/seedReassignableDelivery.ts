@@ -1,6 +1,7 @@
 import { config as loadEnv } from 'dotenv'
 loadEnv()
 
+import { eventText, storedEventText } from 'src/domains/delivery-event/event-text'
 import {
   EnumCountryCode,
   EnumDeliveryEventSource,
@@ -114,7 +115,7 @@ async function main() {
       oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       newStatus: EnumDeliveryStatus.ACCEPTED,
       transitionSuccessful: true,
-      message: 'Seeded reassignment fixture',
+      ...storedEventText(eventText('SEEDED_REASSIGNMENT', {})),
     },
   })
 

@@ -24,6 +24,7 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
+import { eventText } from 'src/domains/delivery-event/event-text'
 
 // Every minute: start the stops whose start passed, finish the ones whose end passed (spec 0014,
 // AC-11). A repeatable job, because a one off job whose handler fails is never retried here.
@@ -183,12 +184,14 @@ export class DispatchStopService implements OnModuleInit {
   // every minute while the stop is on.
   private async sweep(stop: DispatchStop, actor: EnumEventActor): Promise<void> {
     const why = reasonWords(stop.reason)
-    const ended = await this.deliveryEventService.endAllOpenOffersForDispatchStop(`Ended: dispatch stopped (${why})`)
+    const ended = await this.deliveryEventService.endAllOpenOffersForDispatchStop(
+      eventText('DISPATCH_STOP_OFFER_ENDED', { reason: stop.reason })
+    )
 
     let returned = 0
     const held = await this.deliveryRepository.findAllHeldBeforePickup()
     for (const delivery of held) {
-      if (await this.returnToWaiting(delivery.id, delivery.courierId, why, actor)) returned += 1
+      if (await this.returnToWaiting(delivery.id, delivery.courierId, stop.reason, why, actor)) returned += 1
     }
     if (ended > 0 || returned > 0) {
       this.logger.log(`Dispatch stop ${stop.id}: ${ended} offers ended, ${returned} deliveries returned to waiting`)
@@ -211,6 +214,7 @@ export class DispatchStopService implements OnModuleInit {
   private async returnToWaiting(
     deliveryId: string,
     courierId: string | null,
+    reason: EnumDispatchStopReason,
     why: string,
     actor: EnumEventActor
   ): Promise<boolean> {
@@ -221,7 +225,7 @@ export class DispatchStopService implements OnModuleInit {
         deliveryId,
         courierId,
         actor,
-        `Dispatch stopped (${why})`
+        eventText('DISPATCH_STOP_RETURNED', { reason })
       )
     } catch (error) {
       this.logger.error(`Returning delivery ${deliveryId} to waiting failed: ${error}`)

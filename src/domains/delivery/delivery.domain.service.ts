@@ -1,4 +1,5 @@
 import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { RIDER_DEACTIVATED_SENTENCE } from 'src/domains/courier/account-upkeep'
 import { CourierWaitRules } from 'src/domains/delivery/wait-pay'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
@@ -17,12 +18,11 @@ import type {
   DeliveryFoodReadyEvent,
   DeliveryReadyDelayedEvent,
 } from 'src/shared-types/delivery-events'
-import { BOX_SIZE_WORDS, boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
+import { boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
 import { OrderLeg, missingLegNumbers } from './legs'
 import { STACK_CHANGED_SENTENCE, STACK_NOT_AUTOMATIC_SENTENCE } from './stack'
 import { ADD_ON_NOT_AUTOMATIC_SENTENCE, isAddOnOffer } from './add-on'
 import { adminLabel } from 'src/domains/partner-billing/billing-month'
-import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryWhereArgs } from './types/delivery-where-args.type'
@@ -79,6 +79,11 @@ import { ICourierTap } from './interfaces/ICourierTap'
 // A message, not a column: there is then no field to count one rider's taps by (value 5).
 export function arrivalHow(detected?: boolean): string {
   return detected === true ? ' (detected by the app)' : ' (tapped by the rider)'
+}
+
+// Spec 0054: the same, as the code an event message carries (server.enum.arrivalHow in the translations).
+export function arrivalCode(detected?: boolean): 'DETECTED' | 'TAPPED' {
+  return detected === true ? 'DETECTED' : 'TAPPED'
 }
 
 // A restaurant row always has its own usual prep time; this covers a test delivery with no partner.
@@ -250,7 +255,7 @@ export class DeliveryDomainService {
         type: EnumDeliveryEventType.BOX_SIZE_ASSUMED,
         actor: EnumEventActor.SYSTEM,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: `No box size was sent, so it counts as ${BOX_SIZE_WORDS[boxSize]} (${boxUnits} units), the co-op's default`,
+        ...eventText('BOX_SIZE_ASSUMED', { size: boxSize, units: boxUnits }),
       }
       // Review fix: a failed insert must not stop the order. Before this guard it threw before CREATED,
       // and the delivery stayed in CREATED, never offered. The columns still say it was assumed.
@@ -266,7 +271,14 @@ export class DeliveryDomainService {
       type: EnumDeliveryEventType.CREATED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Delivery was created delivery ${delivery.id} from partner ${input.partnerId}, ready at ${clock(readyAt)}${busyExtraMinutes > 0 ? `, busy mode +${busyExtraMinutes} min` : ''}`,
+      ...(busyExtraMinutes > 0
+        ? eventText('CREATED_BUSY', {
+            deliveryId: delivery.id,
+            partnerId: input.partnerId ?? null,
+            readyAt: readyAt.toISOString(),
+            busyMinutes: busyExtraMinutes,
+          })
+        : eventText('CREATED', { deliveryId: delivery.id, partnerId: input.partnerId ?? null, readyAt: readyAt.toISOString() })),
     })
 
     return delivery
@@ -296,9 +308,12 @@ export class DeliveryDomainService {
       type: EnumDeliveryEventType.BOX_SIZE_CHANGED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Box size changed by the restaurant from ${BOX_SIZE_WORDS[delivery.boxSize]} (${
-        delivery.boxUnits
-      } units) to ${BOX_SIZE_WORDS[newSize]} (${boxUnits} units)`,
+      ...eventText('BOX_SIZE_CHANGED_BY_RESTAURANT', {
+        fromSize: delivery.boxSize,
+        fromUnits: delivery.boxUnits,
+        toSize: newSize,
+        toUnits: boxUnits,
+      }),
     }
     await this.deliveryEventService.recordBoxEvent(changedEvent, delivery.status)
   }
@@ -332,7 +347,7 @@ export class DeliveryDomainService {
       type: EnumDeliveryEventType.READY_DELAYED,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `+${minutes} min, ready at ${clock(next)}`,
+      ...eventText('READY_DELAYED', { minutes, readyAt: next.toISOString() }),
     }
     await this.deliveryEventService.recordReadyEvent(delayed, delivery.status)
     const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -363,7 +378,7 @@ export class DeliveryDomainService {
       type: EnumDeliveryEventType.FOOD_READY,
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
-      message: `Food ready at ${clock(now)}`,
+      ...eventText('FOOD_READY', { at: now.toISOString() }),
     }
     await this.deliveryEventService.recordReadyEvent(ready, delivery.status)
     const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -476,7 +491,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
-      message: `Courier ${courierId} accepted delivery ${delivery.id}${automatic ? ' (accepted automatically)' : ''}`,
+      ...eventText(automatic ? 'ACCEPTED_AUTOMATICALLY' : 'ACCEPTED', { courierId, deliveryId: delivery.id }),
     })
 
     // processDeliveryEvent never throws; it records a failure instead. If the accept did not take,
@@ -550,9 +565,9 @@ export class DeliveryDomainService {
         actor: EnumEventActor.COURIER,
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: `Courier ${courierId} accepted delivery ${member.id}${
-          other ? `, offered together with delivery ${other.id}` : ''
-        }`,
+        ...(other
+          ? eventText('ACCEPTED_TOGETHER', { courierId, deliveryId: member.id, otherDeliveryId: other.id })
+          : eventText('ACCEPTED', { courierId, deliveryId: member.id })),
       })
       const after = await this.deliveryRepository.findByIdOrThrow(member.id)
       return !(after.status === EnumDeliveryStatus.ASSIGNING_COURIER && after.courierId === courierId)
@@ -641,7 +656,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
-      message: `Courier ${courierId} rejected delivery ${delivery.id}`,
+      ...eventText('REJECTED', { courierId, deliveryId: delivery.id }),
     })
 
     return delivery
@@ -664,7 +679,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
       cancelledBy,
-      message: `Delivery ${delivery.id} was canceled by partner ${delivery.partnerId} (cancelled by: ${cancelledBy})`,
+      ...eventText('CANCELED_BY_PARTNER', { deliveryId: delivery.id, partnerId: delivery.partnerId, cancelledBy }),
     }
     await this.deliveryEventService.processDeliveryEvent(canceledEvent)
 
@@ -690,7 +705,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was status changed: courier arrived at dropoff location: ${delivery.courierId}${arrivalHow(detected)}`,
+      ...eventText('ARRIVED_AT_DROPOFF', { deliveryId: delivery.id, courierId: delivery.courierId, how: arrivalCode(detected) }),
     })
 
     // Read again after the event, so the rider's app can see whether the step moved the delivery
@@ -716,7 +731,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was marked as delivered by courier ${delivery.courierId}`,
+      ...eventText('MARKED_DELIVERED', { deliveryId: delivery.id, courierId: delivery.courierId }),
       deliveredData,
     })
 
@@ -742,7 +757,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was marked as dispatched by courier ${delivery.courierId}`,
+      ...eventText('MARKED_DISPATCHED', { deliveryId: delivery.id, courierId: delivery.courierId }),
     })
 
     // Read again after the event, so the rider's app can see whether the step moved the delivery
@@ -766,7 +781,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was status changed: courier arrived at pickup location: ${delivery.courierId}${arrivalHow(detected)}`,
+      ...eventText('ARRIVED_AT_PICKUP', { deliveryId: delivery.id, courierId: delivery.courierId, how: arrivalCode(detected) }),
     })
 
     // Read again after the event, so the rider's app can see whether the step moved the delivery
@@ -792,7 +807,7 @@ export class DeliveryDomainService {
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
       ...(occurredAt ? { occurredAt } : {}),
-      message: `Delivery ${delivery.id} was marked as pickedup by courier ${delivery.courierId}`,
+      ...eventText('MARKED_PICKED_UP', { deliveryId: delivery.id, courierId: delivery.courierId }),
     })
 
     return this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -813,7 +828,7 @@ export class DeliveryDomainService {
       actor: EnumEventActor.COURIER,
       courierId: delivery.courierId,
       source: EnumDeliveryEventSource.OPENCOURIER,
-      message: `Delivery ${delivery.id} was marked as on the way by courier ${delivery.courierId}`,
+      ...eventText('MARKED_ON_THE_WAY', { deliveryId: delivery.id, courierId: delivery.courierId }),
     })
 
     return delivery
@@ -944,8 +959,20 @@ export class DeliveryDomainService {
       throw error
     }
 
-    // Names this award, so a second reassign between the same two riders is never read as this one.
-    const eventMessage = `${awardMessage} (award ${compensationId})`
+    // Names this award, so a second reassign between the same two riders is never read as this one. In
+    // English this is `${awardMessage} (award ${compensationId})`, word for word (spec 0054).
+    const reassignedText = message
+      ? eventText('REASSIGNED_WITH_NOTE', {
+          droppedCourierId,
+          newCourierId,
+          policy,
+          amount,
+          currency: currencyCode,
+          note: message,
+          awardId: compensationId,
+        })
+      : eventText('REASSIGNED', { droppedCourierId, newCourierId, policy, amount, currency: currencyCode, awardId: compensationId })
+    const eventMessage = reassignedText.message
     const reassignedEvent: DeliveryReassignedEvent = {
       deliveryId,
       type: EnumDeliveryEventType.REASSIGNED,
@@ -956,7 +983,7 @@ export class DeliveryDomainService {
       droppedCourierId,
       // Spec 0044 (AC-6): named in the new offer's reason.
       adminUserId: box.admin?.id ?? null,
-      message: eventMessage,
+      ...reassignedText,
     }
 
     let reloadedDelivery
@@ -1065,16 +1092,16 @@ export class DeliveryDomainService {
     admin: AdminRef | undefined
   ): Promise<void> {
     const current = await this.deliveryRepository.findByIdOrThrow(deliveryId)
-    const who = admin ? adminLabel(admin) : 'an admin'
+    const units = { deliveryUnits, heldUnits, boxUnits: RIDER_BOX_UNITS, totalUnits: heldUnits + deliveryUnits }
     const overEvent: DeliveryBoxOverCapacityConfirmedEvent = {
       deliveryId,
       type: EnumDeliveryEventType.BOX_OVER_CAPACITY_CONFIRMED,
       actor: EnumEventActor.ADMIN,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: `${who} confirmed giving this order (${deliveryUnits} units) to a rider already holding ${heldUnits} of ${RIDER_BOX_UNITS} units, ${
-        heldUnits + deliveryUnits
-      } in all`,
+      ...(admin
+        ? eventText('BOX_OVER_CAPACITY_CONFIRMED', { admin: adminLabel(admin), ...units })
+        : eventText('BOX_OVER_CAPACITY_CONFIRMED_UNNAMED', units)),
     }
     await this.deliveryEventService.recordBoxEvent(overEvent, current.status)
   }
@@ -1123,6 +1150,8 @@ export class DeliveryDomainService {
   // `admin`: who submitted it, named on a box over capacity record (spec 0043, AC-6).
   async submitDeliveryEvent(event: ISubmitDeliveryEvent, message?: string, admin?: AdminRef) {
     const actor = EnumEventActor.ADMIN
+    // Spec 0054 (cross check 5): an admin's own words go on the record untranslated, as a note.
+    const adminNote = message ? eventText('ADMIN_NOTE', { note: message }) : {}
 
     // Who cancelled belongs only to a cancellation (spec 0015): anywhere else it is a mistake.
     if (event.cancelledBy !== undefined && event.eventType !== EnumDeliveryEventType.CANCELED) {
@@ -1138,7 +1167,7 @@ export class DeliveryDomainService {
           type: EnumDeliveryEventType.CONFIRMED,
           actor,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message,
+          ...adminNote,
         }
         await this.deliveryEventService.processDeliveryEvent(confirmedEvent)
         break
@@ -1192,7 +1221,7 @@ export class DeliveryDomainService {
           deliveryId: event.deliveryId,
           type: EnumDeliveryEventType.DISPATCHED,
           actor,
-          message,
+          ...adminNote,
           source: EnumDeliveryEventSource.OPENCOURIER,
         }
         await this.deliveryEventService.processDeliveryEvent(dispatchedEvent)
@@ -1203,7 +1232,7 @@ export class DeliveryDomainService {
           type: EnumDeliveryEventType.REJECTED,
           actor,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message,
+          ...adminNote,
         }
         await this.deliveryEventService.processDeliveryEvent(rejectedEvent)
         break
@@ -1212,7 +1241,7 @@ export class DeliveryDomainService {
           deliveryId: event.deliveryId,
           type: EnumDeliveryEventType.PICKED_UP,
           actor,
-          message,
+          ...adminNote,
           source: EnumDeliveryEventSource.OPENCOURIER,
         }
         await this.deliveryEventService.processDeliveryEvent(pickedUpEvent)
@@ -1225,7 +1254,7 @@ export class DeliveryDomainService {
           source: EnumDeliveryEventSource.OPENCOURIER,
           // An admin acting on the co-op's own decision unless they say the restaurant or customer asked.
           cancelledBy: event.cancelledBy ?? EnumCancelledBy.COOP,
-          message: `order canceled by admin (cancelled by: ${event.cancelledBy ?? EnumCancelledBy.COOP})`,
+          ...eventText('CANCELED_BY_ADMIN', { cancelledBy: event.cancelledBy ?? EnumCancelledBy.COOP }),
         }
         await this.deliveryEventService.processDeliveryEvent(canceledEvent)
         break
@@ -1235,7 +1264,7 @@ export class DeliveryDomainService {
           type: EnumDeliveryEventType.DROPPED_OFF,
           actor,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message,
+          ...adminNote,
           deliveredData: {},
         }
         await this.deliveryEventService.processDeliveryEvent(droppedOffEvent)
@@ -1246,7 +1275,7 @@ export class DeliveryDomainService {
           type: EnumDeliveryEventType.FAILED,
           actor,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message,
+          ...adminNote,
         }
         await this.deliveryEventService.processDeliveryEvent(failedEvent)
         break

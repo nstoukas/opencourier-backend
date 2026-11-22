@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { DeliveryEvent, EnumDeliveryEventType } from '@prisma/types'
+import { DeliveryEvent, EnumDeliveryEventType, Prisma } from '@prisma/types'
 
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { EntityRepository } from '../EntityRepository'
@@ -17,7 +17,10 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
   }
 
   async create(data: IDeliveryEventCreateInput) {
-    const result = await this.prisma.deliveryEvent.create({ data })
+    // Spec 0054 (AC-4): a Json column takes no plain null, so params are only sent when there are some.
+    const { messageParams, ...rest } = data
+    const row = { ...rest, ...(messageParams ? { messageParams: messageParams as Prisma.InputJsonValue } : {}) }
+    const result = await this.prisma.deliveryEvent.create({ data: row })
     return this.toDomain(result)
   }
 

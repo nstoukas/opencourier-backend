@@ -9,6 +9,8 @@ export class RemovalRequestAdminDto {
   @ApiProperty({ type: String }) courierId: string
   @ApiProperty({ type: String }) courierName: string
   @ApiProperty({ type: String }) label: string
+  // Spec 0054 (AC-7): the Greek label, or null; each app shows its reader's language, else the other one.
+  @ApiProperty({ type: String, nullable: true }) labelEl: string | null
   @ApiProperty({ type: Boolean }) paidToRider: boolean
   @ApiProperty({ type: Boolean }) chargedToRestaurant: boolean
   @ApiProperty({ type: String, nullable: true }) note: string | null
@@ -27,6 +29,8 @@ export class RemovalRequestAdminDto {
     this.courierId = request.courierId
     this.courierName = `${request.courier.firstName} ${request.courier.lastName}`.trim()
     this.label = request.label
+    // Read through a widened type so this compiles before and after the column is generated.
+    this.labelEl = (request as { labelEl?: string | null }).labelEl ?? null
     this.paidToRider = request.paidToRider
     this.chargedToRestaurant = request.chargedToRestaurant
     this.note = request.note

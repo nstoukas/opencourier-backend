@@ -30,6 +30,11 @@ model User {
   // refused, so a changed password signs the old phone out. Null: never changed.
   credentialsChangedAt DateTime?
 
+  // The language this person reads the apps in, 'el' or 'en' (spec 0054, AC-1 and AC-2). A rider's
+  // phone sends it from Settings; the web apps save it from the header's switch. Mails to this person
+  // use it too. Greek unless they chose English.
+  language String @default("el") @postgres.VarChar(5)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -556,7 +561,14 @@ model DeliveryEvent {
   eventSource          EnumDeliveryEventSource
   oldStatus            EnumDeliveryStatus?
   newStatus            EnumDeliveryStatus?
+  // The English sentence, rendered from messageCode and messageParams when they are set (spec 0054,
+  // AC-4), so logs and older readers still work. Rows from before spec 0054 have only this.
   message              String?
+  // Spec 0054 (AC-4): what the record says, as a code from src/shared-types/event-messages.ts and its
+  // values (ids, cents, ISO times, enum codes, people's own words as `note`). Each app shows it in its
+  // reader's language. Null on rows written before spec 0054, which show `message` as recorded.
+  messageCode          String?
+  messageParams        Json?
 
   delivery   Delivery @relation(fields: [deliveryId], references: [id])
   deliveryId String
@@ -1067,6 +1079,9 @@ model SplitRequest {
 model RemovalReason {
   id                  String    @id @default(cuid())
   label               String    @postgres.VarChar(60)
+  // The same label in Greek (spec 0054, AC-7). `label` is the English one. Null on a reason no one has
+  // translated yet: the apps then show the other language.
+  labelEl             String?   @postgres.VarChar(60)
   paidToRider         Boolean   @default(true)
   chargedToRestaurant Boolean   @default(false)
   // Whether the rider must write a note with this reason.
@@ -1100,6 +1115,8 @@ model DeliveryRemovalRequest {
   reason              RemovalReason            @relation(fields: [reasonId], references: [id])
   // Copied from the reason when the rider sends it, so editing the reason never changes this request.
   label               String                   @postgres.VarChar(60)
+  // The reason's Greek label, copied with `label` (spec 0054, cross check 10). Null when the reason had none.
+  labelEl             String?                  @postgres.VarChar(60)
   paidToRider         Boolean
   chargedToRestaurant Boolean
   // The rider's own words: never in a log, a push to anyone else, or an event message.

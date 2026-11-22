@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import {
   EnumCancelledBy,
   EnumDeliveryEventSource,
@@ -78,7 +79,8 @@ export class CancelledJobsCourierService {
             actor: EnumEventActor.COURIER,
             source: EnumDeliveryEventSource.OPENCOURIER,
             courierId,
-            message: note === '' ? 'Food returned to the restaurant' : note,
+            // The rider's own words, if any, untranslated (spec 0054, cross check 5).
+            ...(note === '' ? eventText('FOOD_RETURNED', {}) : eventText('RIDER_NOTE', { note })),
           },
           delivery.status
         )
@@ -90,7 +92,7 @@ export class CancelledJobsCourierService {
             actor: EnumEventActor.COURIER,
             source: EnumDeliveryEventSource.OPENCOURIER,
             courierId,
-            message: note,
+            ...(note === '' ? {} : eventText('RIDER_NOTE', { note })),
           },
           delivery.status
         )

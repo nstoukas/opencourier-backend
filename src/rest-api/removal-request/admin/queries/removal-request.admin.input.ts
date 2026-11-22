@@ -28,6 +28,15 @@ export class RemovalReasonCreateAdminInput {
   @MaxLength(60)
   label: string
 
+  // Spec 0054 (AC-7): the same label in Greek. Optional here so an older admin page still saves; an empty
+  // text clears it, and the apps then show the English label.
+  @ApiProperty({ type: String, required: false, maxLength: 60, nullable: true })
+  @IsOptional()
+  @RefuseIfNotSentAsString()
+  @IsString()
+  @MaxLength(60)
+  labelEl?: string | null
+
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()
   @RefuseIfNotSentAsBoolean()
@@ -55,6 +64,15 @@ export class RemovalReasonUpdateAdminInput {
   @IsString()
   @MaxLength(60)
   label?: string
+
+  // Spec 0054 (AC-7): the same label in Greek. Optional here so an older admin page still saves; an empty
+  // text clears it, and the apps then show the English label.
+  @ApiProperty({ type: String, required: false, maxLength: 60, nullable: true })
+  @IsOptional()
+  @RefuseIfNotSentAsString()
+  @IsString()
+  @MaxLength(60)
+  labelEl?: string | null
 
   @ApiProperty({ type: Boolean, required: false })
   @IsOptional()

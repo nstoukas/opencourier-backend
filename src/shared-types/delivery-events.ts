@@ -5,6 +5,7 @@ import {
   EnumDeliveryStatus,
   EnumCancelledBy,
 } from '@prisma/types'
+import type { EventMessageCode, EventMessageParams } from './event-messages'
 
 // DELIVERY EVENTS
 export { EnumDeliveryEventType, EnumEventActor, EnumDeliveryEventSource, EnumDeliveryStatus, EnumCancelledBy }
@@ -15,7 +16,11 @@ export interface BaseDeliveryEvent {
   actor: EnumEventActor
   source: EnumDeliveryEventSource
   courierId?: string | null
+  // The English sentence. Since spec 0054 it is rendered from messageCode and messageParams: build all
+  // three with eventText() (src/domains/delivery-event/event-text.ts), never by hand.
   message?: string
+  messageCode?: EventMessageCode
+  messageParams?: EventMessageParams
   // When the event happened, if not when it is processed: a rider's job step that waited on the
   // phone for signal (spec 0009). Left out, the stored occurredAt is the moment it is saved.
   occurredAt?: Date

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
 import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -34,10 +35,12 @@ export const MINIMUM_MOVE_METRES = 10
 // What happened to the restaurant's saved customer, as the event message says it (AC-10).
 type SavedCustomerOutcome = 'updated' | 'none' | 'changed-since'
 
-const OUTCOME_SENTENCE: Record<SavedCustomerOutcome, string> = {
-  updated: 'saved customer updated',
-  none: 'no saved customer',
-  'changed-since': 'saved customer not changed: the restaurant moved its pin since the order',
+// Spec 0054: as a code the record carries; its words are server.enum.savedCustomerOutcome in the
+// translation files (in English the same sentences as before).
+const OUTCOME_CODE: Record<SavedCustomerOutcome, 'UPDATED' | 'NONE' | 'CHANGED_SINCE'> = {
+  updated: 'UPDATED',
+  none: 'NONE',
+  'changed-since': 'CHANGED_SINCE',
 }
 
 // A rider's drop off pin move (spec 0016). The delivery's own Location, quote, price and pay never
@@ -118,9 +121,12 @@ export class DropoffPointCourierService {
           actor: EnumEventActor.COURIER,
           source: EnumDeliveryEventSource.OPENCOURIER,
           courierId,
-          message:
-            `Drop off pin moved ${metres} m by the rider, from ${formatPoint(oldPoint)} to ${formatPoint(newPoint)}; ` +
-            OUTCOME_SENTENCE[outcome],
+          ...eventText('DROPOFF_MOVED_BY_RIDER', {
+            metres,
+            from: formatPoint(oldPoint),
+            to: formatPoint(newPoint),
+            outcome: OUTCOME_CODE[outcome],
+          }),
         },
         delivery.status
       )

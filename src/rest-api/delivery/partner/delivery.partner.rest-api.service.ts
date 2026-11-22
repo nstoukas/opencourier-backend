@@ -6,6 +6,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import {
   LEG_LABELS_LOCKED_SENTENCE,
   LEG_REFERENCE_REQUIRED_SENTENCE,
@@ -423,7 +424,7 @@ export class DeliveryPartnerRestApiService {
           type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
           actor: EnumEventActor.PARTNER,
           source: EnumDeliveryEventSource.PARTNER_APP,
-          message: `Drop off pin moved ${metres} m by the restaurant, from ${oldPoint} to ${newPoint}`,
+          ...eventText('DROPOFF_MOVED_BY_RESTAURANT', { metres, from: oldPoint, to: newPoint }),
         },
         delivery.status
       )

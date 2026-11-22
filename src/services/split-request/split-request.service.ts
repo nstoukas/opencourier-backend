@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { eventPart, eventText } from 'src/domains/delivery-event/event-text'
+import { EventPart } from 'src/shared-types/event-messages'
 import {
   BoxSize,
   EnumCancelledBy,
@@ -20,7 +22,6 @@ import {
   SplitLeg,
   cleanLegs,
   legNumbersAfterSplit,
-  legsText,
   orderReferenceForSplit,
   splitLeaveFrom,
   splitLegsProblem,
@@ -92,7 +93,7 @@ export class SplitRequestService {
       actor: EnumEventActor.COURIER,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: `Rider asked to split the order: ${legsText(proposed)} (split ${created.id})`,
+      ...eventText('SPLIT_REQUESTED', { count: proposed.length, sizes: boxParts(proposed), splitId: created.id }),
     }
     await this.deliveryEventService.recordSplitEvent(event, delivery.status)
     return created
@@ -127,7 +128,7 @@ export class SplitRequestService {
       actor: EnumEventActor.COURIER,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: `Rider left after ${minutes} min with no answer to split ${open.id}; the order goes back to the restaurant to send again`,
+      ...eventText('SPLIT_LEFT', { minutes, splitId: open.id }),
     }
     // Row 11 review: each step after the close runs on its own, so a failed record never keeps the rider
     // from leaving; the wait has its stamp and the sweep.
@@ -142,7 +143,7 @@ export class SplitRequestService {
       actor: EnumEventActor.SYSTEM,
       source: EnumDeliveryEventSource.OPENCOURIER,
       cancelledBy: EnumCancelledBy.RESTAURANT,
-      message: "Cancelled: didn't fit one box, and dispatch did not split it in time. Send it again with the right sizes.",
+      ...eventText('SPLIT_LEFT_CANCELLED', {}),
     }
     await this.deliveryEventService.processDeliveryEvent(cancel)
   }
@@ -190,7 +191,7 @@ export class SplitRequestService {
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId: request.courierId,
       // The admin by id; their sentence goes to the rider only, never into the record's message.
-      message: `Admin ${admin.id} refused split ${request.id}: it fits one box`,
+      ...eventText('SPLIT_REFUSED', { adminId: admin.id, splitId: request.id }),
     }
     await this.afterClose(`record the refusal of split ${request.id}`, () =>
       this.deliveryEventService.recordSplitEvent(event, delivery.status)
@@ -421,9 +422,16 @@ export class SplitRequestService {
       actor: EnumEventActor.ADMIN,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId: request.courierId,
-      message: `Admin ${admin.id} split the order (split ${request.id}): ${legsText(legs)}; this is leg ${numbers.keptNumber} of ${
-        numbers.legCount
-      }, new legs ${created.map((leg) => leg.id).join(', ')}`,
+      ...eventText('SPLIT_CONFIRMED', {
+        adminId: admin.id,
+        splitId: request.id,
+        count: legs.length,
+        sizes: boxParts(legs),
+        legNumber: numbers.keptNumber,
+        legCount: numbers.legCount,
+        // Ids, the same in every language: one text, as the English record had it.
+        newLegIds: created.map((leg) => leg.id).join(', '),
+      }),
     }
     // Row 11 review: each step after the commit runs on its own, so one failure never skips the rest. The
     // wait has its stamp and the sweep; the legs have the sweep (cross check 7).
@@ -437,7 +445,7 @@ export class SplitRequestService {
         type: EnumDeliveryEventType.BOX_SIZE_CHANGED,
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: `Admin ${admin.id} set the size to ${keptSize} with the split (was ${delivery.boxSize})`,
+        ...eventText('BOX_SIZE_SET_BY_SPLIT', { adminId: admin.id, size: keptSize, wasSize: delivery.boxSize }),
       }
       await this.afterClose(`record the size change of split ${request.id}`, () =>
         this.deliveryEventService.recordBoxEvent(sizeEvent, delivery.status)
@@ -481,7 +489,7 @@ export class SplitRequestService {
           type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_SPLIT,
           actor: EnumEventActor.SYSTEM,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message: `Restaurant charged ${leg.chargeCents} ${leg.currencyCode} (cents), this leg's rider pay, for split ${requestId}`,
+          ...eventText('PARTNER_CHARGED_FOR_SPLIT', { amount: leg.chargeCents, currency: leg.currencyCode, splitId: requestId }),
         }
         await this.deliveryEventService.recordSplitEvent(charged, EnumDeliveryStatus.CREATED)
       }
@@ -490,7 +498,14 @@ export class SplitRequestService {
         type: EnumDeliveryEventType.CREATED,
         actor: admin ? EnumEventActor.ADMIN : EnumEventActor.SYSTEM,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: `Leg ${leg.legNumber} made by split ${requestId}${admin ? ` (admin ${admin.id})` : ''}, size ${leg.boxSize}`,
+        ...(admin
+          ? eventText('SPLIT_LEG_CREATED_BY_ADMIN', {
+              legNumber: leg.legNumber,
+              splitId: requestId,
+              adminId: admin.id,
+              size: leg.boxSize,
+            })
+          : eventText('SPLIT_LEG_CREATED', { legNumber: leg.legNumber, splitId: requestId, size: leg.boxSize })),
       })
       return true
     } catch (error) {
@@ -536,4 +551,10 @@ export class SplitRequestService {
     }
     return started
   }
+}
+
+// Spec 0054: the boxes of a split as parts of an event message (`{{sizes, list}}`): "Small and Large" in
+// English, as legsText wrote them, and each app's own words for the sizes.
+function boxParts(legs: { boxSize: BoxSize }[]): EventPart[] {
+  return legs.map((leg) => eventPart('BOX', { size: leg.boxSize }))
 }

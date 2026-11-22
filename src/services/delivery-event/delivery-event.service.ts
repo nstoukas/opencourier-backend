@@ -4,12 +4,12 @@ import { SIBLING_LEG_HELD_SENTENCE } from 'src/domains/delivery/legs'
 import {
   MAX_DELIVERIES_HELD,
   THIRD_DELIVERY_REFUSED_SENTENCE,
-  describeStops,
   stackPairBlockKey,
   stackStopsOf,
+  stopParts,
 } from 'src/domains/delivery/stack'
 import { TwoOrderService, StackPlan, AddOnPlan } from 'src/services/two-order/two-order.service'
-import { addOnFigures, addOnJobIdOf, describeAddOn } from 'src/domains/delivery/add-on'
+import { addOnFigures, addOnJobIdOf, addOnPart } from 'src/domains/delivery/add-on'
 import { randomUUID } from 'crypto'
 import { OfferReasonInput, addOnOfferReason, adminOfferReason, stackOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
@@ -115,7 +115,7 @@ import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cach
 import { OfferPushService } from '../pushNotification/offer-push.service'
 import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
-import { adminRefusedMessage, clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
@@ -123,6 +123,8 @@ import { eventLogLine } from 'src/domains/delivery-event/utils/event-log-line'
 import { latestCompletedWait, paidWaitMinutes, splitWindowsUntil, waitOfKey } from 'src/domains/delivery/wait-pay'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { roundMoney } from 'src/core/utils/money'
+import { EventText, eventPart, eventText, storedEventText } from 'src/domains/delivery-event/event-text'
+import { EventPart } from 'src/shared-types/event-messages'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -207,7 +209,8 @@ type OfferStepResult = 'OFFERED' | 'NO_COURIER' | 'NOT_WAITING' | 'STOPPED' | 'N
 
 // What the timing check of one offer came to (spec 0031): how long to hold it, and the words the
 // OFFERED event adds. `note` is empty when the offer is not a timed one.
-type OfferTiming = { dueInMs: number; note: string }
+// `note`: what the OFFERED record says about the timing, as parts of its message (spec 0054).
+type OfferTiming = { dueInMs: number; note: EventPart[] }
 
 @Injectable()
 export class DeliveryEventService {
@@ -336,7 +339,7 @@ export class DeliveryEventService {
           await this.saveDeliveryEvent(deliveryEvent, {
             transitionSuccessful: false,
             oldStatus: currentStatus,
-            message: `No transition from ${currentStatus} via ${deliveryEvent.type}; the rider's step arrived after the delivery changed`,
+            text: eventText('TAP_TOO_LATE', { fromStatus: currentStatus, eventType: deliveryEvent.type }),
           })
         }
         return
@@ -433,7 +436,7 @@ export class DeliveryEventService {
           EnumEventActor.ADMIN,
           null,
           null,
-          '',
+          [],
           adminOfferReason(deliveryEvent.adminUserId)
         )
         await this.sendOfferToRider(newCourier, updatedDelivery)
@@ -618,7 +621,8 @@ export class DeliveryEventService {
         transitionSuccessful: false,
         oldStatus: currentStatus, // the status the Delivery was in when the attempt failed
         newStatus, // the status the state machine said the attempt was heading for
-        message: (error as Error).message,
+        // The error's own sentence, as before: a developer's English, kept untranslated as a note.
+        text: eventText('TRANSITION_FAILED', { note: (error as Error).message }),
       })
     }
   }
@@ -740,9 +744,10 @@ export class DeliveryEventService {
         type: EnumDeliveryEventType.CONFIRMED,
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: message
-          ? `Admin offered delivery to courier ${courierId}: ${message}`
-          : `Admin offered delivery to courier ${courierId}`,
+        // The admin's own words, if any, travel untranslated as a note (spec 0054, cross check 5).
+        ...(message
+          ? eventText('ADMIN_OFFERED_WITH_NOTE', { courierId, note: message })
+          : eventText('ADMIN_OFFERED', { courierId })),
       }
 
       await this.saveDeliveryEvent(auditEvent, {
@@ -756,7 +761,7 @@ export class DeliveryEventService {
         EnumEventActor.ADMIN,
         null,
         replacedCourierId,
-        '',
+        [],
         adminOfferReason(adminUserId)
       )
       // The delivery is no longer waiting, so its backstop retry is not needed.
@@ -842,7 +847,7 @@ export class DeliveryEventService {
           courierId,
           offeredAt: delivery.offeredAt,
           reason: 'OFFLINE',
-          message: 'Rider went offline',
+          text: eventText('RIDER_WENT_OFFLINE', {}),
         })
       } catch (error) {
         this.logger.error(`Could not end offer of delivery ${delivery.id}: ${error}`, (error as Error).stack)
@@ -907,7 +912,7 @@ export class DeliveryEventService {
       courierId: payload.courierId,
       offeredAt,
       reason: 'EXPIRED',
-      message: `Offer expired after ${seconds} s`,
+      text: eventText('OFFER_EXPIRED_AFTER', { seconds }),
     })
   }
 
@@ -950,9 +955,9 @@ export class DeliveryEventService {
     courierId: string
     offeredAt: Date | null
     reason: OfferEndedReason
-    message: string
+    text: EventText
   }): Promise<number> {
-    const { deliveryId, courierId, reason, message } = args
+    const { deliveryId, courierId, reason, text } = args
 
     const stillThisOffer: Prisma.DeliveryWhereInput = {
       status: EnumDeliveryStatus.ASSIGNING_COURIER,
@@ -986,7 +991,7 @@ export class DeliveryEventService {
     if (isStack && reason === 'EXPIRED') await this.blockStackPair(ids)
 
     for (const id of ended) {
-      await this.followUpEndedOffer(id, courierId, reason, isStack ? `${message} (one of two orders offered together)` : message)
+      await this.followUpEndedOffer(id, courierId, reason, isStack ? stackVariantOf(text) : text)
     }
     return ended.length
   }
@@ -1058,7 +1063,7 @@ export class DeliveryEventService {
     deliveryId: string,
     courierId: string,
     reason: OfferEndedReason,
-    message: string
+    text: EventText
   ): Promise<void> {
     // Tell the rider first, so their screen drops the offer before matching takes its time.
     try {
@@ -1076,7 +1081,7 @@ export class DeliveryEventService {
       actor: EnumEventActor.SYSTEM,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message,
+      ...text,
     }
     // Saves OFFER_EXPIRED and offers the delivery to the next rider, like a decline.
     try {
@@ -1250,9 +1255,9 @@ export class DeliveryEventService {
         actor: EnumEventActor.COURIER,
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: `Courier ${courierId} rejected delivery ${member.id}${
-          partnerId ? `, offered together with delivery ${partnerId}` : ''
-        }`,
+        ...(partnerId
+          ? eventText('REJECTED_TOGETHER', { courierId, deliveryId: member.id, otherDeliveryId: partnerId })
+          : eventText('REJECTED', { courierId, deliveryId: member.id })),
       }
       await this.processDeliveryEvent(rejected)
     }
@@ -1315,7 +1320,7 @@ export class DeliveryEventService {
           actor: EnumEventActor.SYSTEM,
           courierId,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message: `Courier ${courierId} accepted delivery ${delivery.id} as part of two orders offered together; completed by the minute sweep`,
+          ...eventText('ACCEPTED_BY_SWEEP', { courierId, deliveryId: delivery.id }),
         }
         await this.processDeliveryEvent(accepted)
         const after = await this.deliveryRepository.findById(delivery.id)
@@ -1350,7 +1355,7 @@ export class DeliveryEventService {
 
   // Start of a dispatch stop (spec 0014, AC-5, step 1): every open offer ends, its rider told, with
   // no skip list entry. Never throws; returns how many ended.
-  async endAllOpenOffersForDispatchStop(message: string): Promise<number> {
+  async endAllOpenOffersForDispatchStop(text: EventText): Promise<number> {
     let open: DeliveryEntity[]
     try {
       open = await this.deliveryRepository.findAllOpenOffers()
@@ -1367,7 +1372,7 @@ export class DeliveryEventService {
           courierId: delivery.matchedCourierId,
           offeredAt: delivery.offeredAt,
           reason: 'STOPPED',
-          message,
+          text,
         })
         ended += done
       } catch (error) {
@@ -1386,7 +1391,7 @@ export class DeliveryEventService {
     deliveryId: string,
     courierId: string,
     actor: EnumEventActor,
-    message: string
+    text: EventText
   ): Promise<{ returned: false } | { returned: true; totalCompensation: number | null; currencyCode: string }> {
     const delivery = await this.deliveryRepository.findById(deliveryId)
     const returnable: EnumDeliveryStatus[] = [
@@ -1427,7 +1432,7 @@ export class DeliveryEventService {
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
       occurredAt: endedAt,
-      message,
+      ...text,
     }
     try {
       await this.saveDeliveryEvent(event, {
@@ -1490,7 +1495,7 @@ export class DeliveryEventService {
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
       // The window's length is a co-op setting, so the message names none (row 71 review).
-      message: written ? 'Handed back within the free window' : 'Hand back refused: the order changed first',
+      ...(written ? eventText('HANDED_BACK', {}) : eventText('HAND_BACK_REFUSED', {})),
     }
 
     if (!written) {
@@ -1580,7 +1585,7 @@ export class DeliveryEventService {
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
       occurredAt,
-      message: written ? 'Left the restaurant after waiting past the limit' : 'Leaving refused: the order changed first',
+      ...(written ? eventText('LEFT_AFTER_WAIT', {}) : eventText('LEAVE_REFUSED', {})),
     }
 
     if (!written) {
@@ -1747,7 +1752,7 @@ export class DeliveryEventService {
         actor: EnumEventActor.SYSTEM,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: award.courierId,
-        message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; wait ${waitOf}`,
+        ...waitPaidText(award, waitOf),
       }
       await this.saveDeliveryEvent(event, {
         transitionSuccessful: true,
@@ -1881,7 +1886,7 @@ export class DeliveryEventService {
     // after the rider is chosen, so every path that offers passes through it (as the dispatch stop
     // above does), and each try chooses the rider and the time afresh.
     const timing =
-      options.ignoreTiming === true ? { dueInMs: 0, note: '' } : await this.offerTimingOf(match)
+      options.ignoreTiming === true ? { dueInMs: 0, note: [] } : await this.offerTimingOf(match)
     if (timing.dueInMs > 0) {
       const retrySeconds = await this.configDomainService.instanceConfig.getNoCourierRetrySeconds()
       // At most one retry period away, so a setting switched off or a rider coming free counts soon.
@@ -2030,7 +2035,7 @@ export class DeliveryEventService {
   private async offerStack(
     match: CourierMatch,
     plan: StackPlan,
-    timingNote: string
+    timingNote: EventPart[]
   ): Promise<OfferStepResult | 'ALONE'> {
     const { courier } = match
     const first = match.delivery
@@ -2099,11 +2104,13 @@ export class DeliveryEventService {
     }
 
     this.logger.log(`Deliveries ${first.id} and ${second.id} are being offered together to courier: ${courier.id}`)
-    const stops = describeStops(plan.sequence.stops)
-    for (const [delivery, partner, note] of [
+    const stops = stopParts(plan.sequence.stops)
+    // The timing note goes on the first order's record only, as before.
+    const pairs: [DeliveryEntity, DeliveryEntity, EventPart[]][] = [
       [first, second, timingNote],
-      [second, first, ''],
-    ] as const) {
+      [second, first, []],
+    ]
+    for (const [delivery, partner, note] of pairs) {
       // The event says which order it was paired with and the stops, so members can audit each pairing
       // (value 1; scope row 80, Done when). Ids only, never an address.
       try {
@@ -2113,7 +2120,7 @@ export class DeliveryEventService {
           EnumEventActor.SYSTEM,
           offerExpiresAt,
           null,
-          `${note}; offered together with delivery ${partner.id}, stops: ${stops}`,
+          [...note, eventPart('STACK_PAIRED', { otherDeliveryId: partner.id, stops })],
           stackOfferReason(match.reason, partner.id, plan.sequence)
         )
       } catch (error) {
@@ -2217,7 +2224,7 @@ export class DeliveryEventService {
         EnumEventActor.SYSTEM,
         offerExpiresAt,
         null,
-        `; ${describeAddOn(job.id, sequence, plan.carryingFood, plan.freeRiderFound)}`,
+        [addOnPart(job.id, sequence, plan.carryingFood, plan.freeRiderFound)],
         addOnOfferReason({
           strategy: plan.strategy,
           currentDeliveryId: job.id,
@@ -2286,7 +2293,7 @@ export class DeliveryEventService {
         type: EnumDeliveryEventType.NO_COURIER_AVAILABLE,
         actor: EnumEventActor.SYSTEM,
         source: EnumDeliveryEventSource.OPENCOURIER,
-        message: 'No rider free; the delivery waits and is matched again when one is',
+        ...eventText('NO_COURIER_AVAILABLE', {}),
       }
       await this.saveDeliveryEvent(noCourierEvent, {
         transitionSuccessful: true,
@@ -2309,18 +2316,21 @@ export class DeliveryEventService {
     actor: EnumEventActor,
     offerExpiresAt: Date | null,
     replacedCourierId: string | null = null,
-    timingNote = '',
+    // Spec 0054: what else the record says (timing, the stack's partner and stops, the add on), as parts.
+    notes: EventPart[] = [],
     reason: OfferReasonInput | null = null
   ): Promise<void> {
-    const deadline = offerExpiresAt ? `answer by ${offerExpiresAt.toISOString()}` : 'no deadline'
-    const replaced = replacedCourierId ? `; moved by an admin from the open offer to courier ${replacedCourierId}` : ''
+    const deadline = offerExpiresAt
+      ? eventPart('OFFER_DEADLINE', { at: offerExpiresAt.toISOString() })
+      : eventPart('OFFER_NO_DEADLINE', {})
+    const replaced = replacedCourierId ? [eventPart('OFFER_MOVED_BY_ADMIN', { courierId: replacedCourierId })] : []
     const offeredEvent: DeliveryOfferedEvent = {
       deliveryId,
       type: EnumDeliveryEventType.OFFERED,
       actor,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
-      message: `Offered to courier ${courierId}, ${deadline}${replaced}${timingNote}`,
+      ...eventText('OFFERED', { courierId, deadline, extras: [...replaced, ...notes] }),
     }
     const saved = await this.saveDeliveryEvent(offeredEvent, {
       transitionSuccessful: true,
@@ -2350,23 +2360,29 @@ export class DeliveryEventService {
   }): Promise<OfferTiming> {
     const config = this.configDomainService.instanceConfig
     if (!(await config.getOfferTimingEnabled())) {
-      return match.delivery.undispatchedAt ? this.holdAfterRiderLeft(match.delivery) : { dueInMs: 0, note: '' }
+      return match.delivery.undispatchedAt ? this.holdAfterRiderLeft(match.delivery) : { dueInMs: 0, note: [] }
     }
     const readyTime = match.delivery.foodReadyAt ?? match.delivery.readyAt
-    if (!readyTime) return { dueInMs: 0, note: '' }
+    if (!readyTime) return { dueInMs: 0, note: [] }
 
     // Only asked when the matcher did not work it out. A null from the matcher already means no route.
     const travelSeconds =
       match.travelSeconds !== undefined
         ? match.travelSeconds
         : await this.roadSecondsToPickup(match.courier.id, match.pickupLocation)
-    if (travelSeconds === null) return { dueInMs: 0, note: `, ready ${clock(readyTime)}, travel unknown` }
+    if (travelSeconds === null) return { dueInMs: 0, note: [eventPart('TIMING_TRAVEL_UNKNOWN', { readyAt: readyTime.toISOString() })] }
 
     const leadMinutes = await config.getOfferLeadMinutes()
     const dueAt = readyTime.getTime() - travelSeconds * 1000 - leadMinutes * 60_000
     return {
       dueInMs: dueAt - Date.now(),
-      note: `, ready ${clock(readyTime)}, travel ~${Math.round(travelSeconds / 60)} min, lead ${leadMinutes} min`,
+      note: [
+        eventPart('TIMING_TRAVEL', {
+          readyAt: readyTime.toISOString(),
+          travelMinutes: Math.round(travelSeconds / 60),
+          leadMinutes,
+        }),
+      ],
     }
   }
 
@@ -2374,11 +2390,11 @@ export class DeliveryEventService {
   // is still not offered again until the food is ready or nearly due. No travel time here: that is
   // part of Timed offers. Food marked ready, or no ready time at all, goes out as usual.
   private async holdAfterRiderLeft(delivery: { readyAt: Date | null; foodReadyAt: Date | null }): Promise<OfferTiming> {
-    if (delivery.foodReadyAt || !delivery.readyAt) return { dueInMs: 0, note: '' }
+    if (delivery.foodReadyAt || !delivery.readyAt) return { dueInMs: 0, note: [] }
     const leadMinutes = await this.configDomainService.instanceConfig.getOfferLeadMinutes()
     return {
       dueInMs: delivery.readyAt.getTime() - leadMinutes * 60_000 - Date.now(),
-      note: `, ready ${clock(delivery.readyAt)}, lead ${leadMinutes} min`,
+      note: [eventPart('TIMING_LEAD', { readyAt: delivery.readyAt.toISOString(), leadMinutes })],
     }
   }
 
@@ -2596,9 +2612,13 @@ export class DeliveryEventService {
           actor: EnumEventActor.SYSTEM,
           source: EnumDeliveryEventSource.OPENCOURIER,
           courierId: award.courierId,
-          message:
-            `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents) under ${award.policy} ` +
-            `for cancellation by ${delivery.cancelledBy ?? EnumCancelledBy.COOP}`,
+          ...eventText('CANCELLATION_PAY', {
+            courierId: award.courierId,
+            amount: award.amount,
+            currency: award.currencyCode,
+            policy: award.policy,
+            cancelledBy: delivery.cancelledBy ?? EnumCancelledBy.COOP,
+          }),
         }
         await this.recordCancellationEvent(event, delivery.status)
       }
@@ -2750,7 +2770,14 @@ export class DeliveryEventService {
             actor: EnumEventActor.SYSTEM,
             source: EnumDeliveryEventSource.OPENCOURIER,
             courierId: award.courierId,
-            message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents): ${award.message}; split ${request.id}`,
+            ...eventText('COURIER_PAID_FOR_SPLIT_WAIT', {
+              courierId: award.courierId,
+              amount: award.amount,
+              currency: award.currencyCode,
+              minutes,
+              centsPerMinute,
+              splitId: request.id,
+            }),
           }
           await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: delivery.status, newStatus: delivery.status })
         }
@@ -2804,7 +2831,7 @@ export class DeliveryEventService {
       actor: EnumEventActor.SYSTEM,
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId: open.courierId,
-      message: `Split request ${open.id} closed: the order moved on before dispatch answered`,
+      ...eventText('SPLIT_VOIDED', { splitId: open.id }),
     }
     try {
       await this.recordSplitEvent(event, status)
@@ -2830,7 +2857,7 @@ export class DeliveryEventService {
       type: EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED,
       actor: EnumEventActor.SYSTEM,
       source: EnumDeliveryEventSource.OPENCOURIER,
-      message: `Restaurant's split leg charge of ${voided.amount} ${voided.currencyCode} (cents) taken back: no rider ever took this leg`,
+      ...eventText('SPLIT_LEG_CHARGE_VOIDED', { amount: voided.amount, currency: voided.currencyCode }),
     }
     await this.recordSplitEvent(event, status)
   }
@@ -2862,7 +2889,9 @@ export class DeliveryEventService {
   async removeRiderBeforePickup(
     delivery: DeliveryEntity,
     courierId: string,
-    label: string
+    label: string,
+    // Spec 0054: the request's Greek label too, copied into the record with `label` (cross check 6).
+    labelEl: string | null = null
   ): Promise<DeliveryRemovalApprovedEvent | null> {
     const deliveryId = delivery.id
     const oldStatus = delivery.status
@@ -2905,7 +2934,7 @@ export class DeliveryEventService {
       source: EnumDeliveryEventSource.OPENCOURIER,
       courierId,
       occurredAt: endedAt,
-      message: `Removal approved: ${label}`,
+      ...eventText('REMOVAL_APPROVED', removalLabels({ label, labelEl })),
     }
     try {
       await this.saveDeliveryEvent(event, {
@@ -2992,7 +3021,14 @@ export class DeliveryEventService {
         actor: EnumEventActor.SYSTEM,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: request.courierId,
-        message: `Courier ${request.courierId} paid ${request.payAmount ?? 0} ${delivery.currencyCode} (cents) under ${request.payPolicy}: ${request.label}; removal ${request.id}`,
+        ...eventText('COURIER_PAID_FOR_REMOVAL', {
+          courierId: request.courierId,
+          amount: request.payAmount ?? 0,
+          currency: delivery.currencyCode,
+          policy: request.payPolicy,
+          ...removalLabels(request),
+          requestId: request.id,
+        }),
       }
       await this.recordRemovalEvent(event, delivery.status)
     }
@@ -3022,7 +3058,12 @@ export class DeliveryEventService {
           type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL,
           actor: EnumEventActor.SYSTEM,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message: `Restaurant charged ${amount} ${delivery.currencyCode} (cents): ${request.label}; removal ${request.id}`,
+          ...eventText('PARTNER_CHARGED_FOR_REMOVAL', {
+            amount,
+            currency: delivery.currencyCode,
+            ...removalLabels(request),
+            requestId: request.id,
+          }),
         }
         await this.recordRemovalEvent(event, delivery.status)
       }
@@ -3065,7 +3106,11 @@ export class DeliveryEventService {
           actor: EnumEventActor.SYSTEM,
           source: EnumDeliveryEventSource.OPENCOURIER,
           courierId: award.courierId,
-          message: `Courier ${award.courierId} paid ${award.amount} ${award.currencyCode} (cents) for the trip back to the restaurant`,
+          ...eventText('COURIER_PAID_FOR_RETURN_TRIP', {
+            courierId: award.courierId,
+            amount: award.amount,
+            currency: award.currencyCode,
+          }),
         }
         await this.recordRemovalEvent(event, delivery.status)
       }
@@ -3319,7 +3364,8 @@ export class DeliveryEventService {
       transitionSuccessful: boolean
       oldStatus?: EnumDeliveryStatus // the status the Delivery was actually in
       newStatus?: EnumDeliveryStatus // the status this event moved it to, or tried to
-      message?: string
+      // Spec 0054: a text that replaces the event's own (a failed row says why it failed).
+      text?: EventText
     }
   ) {
     // Only OFFERED and OFFER_EXPIRED name a rider in the courierId column (spec 0002). Every
@@ -3376,7 +3422,8 @@ export class DeliveryEventService {
       ...(deliveryEvent.occurredAt ? { occurredAt: deliveryEvent.occurredAt } : {}),
       actor: deliveryEvent.actor,
       eventSource: deliveryEvent.source,
-      message: outcome.message || deliveryEvent.message || null,
+      // Spec 0054 (AC-4): the code, its values and the English sentence rendered from them, together.
+      ...storedEventText(outcome.text ?? deliveryEvent),
       newStatus: outcome.newStatus || null,
       oldStatus: outcome.oldStatus || null,
       deliveryId: deliveryEvent.deliveryId,
@@ -3486,4 +3533,44 @@ export class DeliveryEventService {
       deliveryId,
     })
   }
+}
+
+// Spec 0054: the same ended offer, said of one order of two offered together. Each code that ends an offer
+// has a stack twin, so the record keeps its shape (cross check 6: a new shape is a new code).
+const STACK_VARIANT: Partial<Record<EventText['messageCode'], EventText['messageCode']>> = {
+  OFFER_EXPIRED_AFTER: 'OFFER_EXPIRED_AFTER_STACK',
+  RIDER_WENT_OFFLINE: 'RIDER_WENT_OFFLINE_STACK',
+  DISPATCH_STOP_OFFER_ENDED: 'DISPATCH_STOP_OFFER_ENDED_STACK',
+}
+
+function stackVariantOf(text: EventText): EventText {
+  const code = STACK_VARIANT[text.messageCode]
+  if (!code) return text
+  // The twin takes the same params as the code it stands for (see EVENT_MESSAGE_CODES).
+  return eventText(code, text.messageParams as never)
+}
+
+// Spec 0054: the wait pay event's text, from what the rider's award row says. The minutes and rate are
+// numbers on the award (spec 0036), so the record can be shown in any language; an award from before those
+// columns keeps its English sentence as a note.
+function waitPaidText(
+  award: { courierId: string; amount: number; currencyCode: string; message: string | null; waitMinutes: number | null },
+  waitOf: string
+): EventText {
+  const base = { courierId: award.courierId, amount: award.amount, currency: award.currencyCode, waitOf }
+  if (award.waitMinutes && award.amount % award.waitMinutes === 0) {
+    return eventText('COURIER_PAID_FOR_WAIT', {
+      ...base,
+      minutes: award.waitMinutes,
+      centsPerMinute: award.amount / award.waitMinutes,
+    })
+  }
+  return eventText('COURIER_PAID_FOR_WAIT_NOTE', { ...base, note: award.message ?? '' })
+}
+
+// Spec 0054 (cross check 6): a removal reason's two labels as a record carries them. A reason with no Greek
+// label shows its English one in Greek too, so neither language reads blank.
+// `labelEl?` is optional so a request row is accepted whether or not the generated client has the column yet.
+export function removalLabels(source: { label: string; labelEl?: string | null }): { label: string; labelEl: string } {
+  return { label: source.label, labelEl: source.labelEl || source.label }
 }

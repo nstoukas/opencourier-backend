@@ -33,6 +33,8 @@ export type RemovalRequestForAdmin = Prisma.DeliveryRemovalRequestGetPayload<{ i
 
 export type RemovalReasonInput = {
   label: string
+  // Spec 0054 (AC-7): the Greek label; null clears it.
+  labelEl?: string | null
   paidToRider?: boolean
   chargedToRestaurant?: boolean
   needsNote?: boolean
@@ -44,6 +46,8 @@ export type CreateRemovalRequestInput = {
   courierId: string
   reasonId: string
   label: string
+  // Spec 0054 (cross check 10): the reason's Greek label, copied with `label` (null or left out: none).
+  labelEl?: string | null
   paidToRider: boolean
   chargedToRestaurant: boolean
   note: string | null
@@ -53,8 +57,17 @@ const ACTIVE_REASON = { removedAt: null } satisfies Prisma.RemovalReasonWhereInp
 
 // What the settings record keeps of a reason (spec 0038, AC-12): the fields that decide what a rider
 // sees and is paid. Its order and its note rule are left out, so editing only those records nothing.
-function recordedReason(reason: Pick<RemovalReason, 'label' | 'paidToRider' | 'chargedToRestaurant'>) {
-  return { label: reason.label, paidToRider: reason.paidToRider, chargedToRestaurant: reason.chargedToRestaurant }
+// Spec 0054: the Greek label is what riders reading Greek see, so it is recorded too (`labelEl?` lets this
+// compile before the generated client has the column).
+function recordedReason(
+  reason: Pick<RemovalReason, 'label' | 'paidToRider' | 'chargedToRestaurant'> & { labelEl?: string | null }
+) {
+  return {
+    label: reason.label,
+    labelEl: reason.labelEl ?? null,
+    paidToRider: reason.paidToRider,
+    chargedToRestaurant: reason.chargedToRestaurant,
+  }
 }
 
 // Spec 0035: the co-op's reasons, and riders' requests to come off a delivery. Every status change
@@ -123,6 +136,7 @@ export class RemovalRequestRepository extends EntityRepository {
       const after = recordedReason(reason)
       if (
         before.label !== after.label ||
+        before.labelEl !== after.labelEl ||
         before.paidToRider !== after.paidToRider ||
         before.chargedToRestaurant !== after.chargedToRestaurant
       ) {

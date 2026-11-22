@@ -7,7 +7,9 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DELIVERY_ONGOING_STATUSES, DELIVERY_PICKED_UP_STATUSES } from 'src/shared-types/stateMachine'
 import { EnumAddOnMoment } from 'src/shared-types/stacking'
-import { POINT, StackCandidate, StackStop, describeStops, stackRefusal, stackStopsOf } from './stack'
+import { POINT, StackCandidate, StackStop, describeStops, stackRefusal, stackStopsOf, stopParts } from './stack'
+import { eventPart } from 'src/domains/delivery-event/event-text'
+import { EventPart } from 'src/shared-types/event-messages'
 
 // What a phone reads when its automatic accept reaches an add on (AC-8): the rider must look at what it adds.
 export const ADD_ON_NOT_AUTOMATIC_SENTENCE =
@@ -253,4 +255,24 @@ export function describeAddOn(
   return `offered as one more order on the way, added to the job of delivery ${jobId}${adds}, stops: ${describeStops(
     sequence.stops
   )}${calm}${why}`
+}
+
+// Spec 0054: describeAddOn as a part of the OFFERED record, so each app can say it in its reader's
+// language. In English it renders as "; " followed by describeAddOn's sentence, word for word.
+export function addOnPart(
+  jobId: string,
+  sequence: AddOnSequence,
+  carryingFood: boolean,
+  freeRiderFound: boolean
+): EventPart {
+  const figures = addOnFigures(sequence.extraMetres, sequence.extraSeconds)
+  return eventPart('ADD_ON', {
+    jobId,
+    figures: figures
+      ? [eventPart('ADD_ON_FIGURES', { extraKm: figures.extraKm, extraMinutes: figures.extraMinutes })]
+      : [],
+    stops: stopParts(sequence.stops),
+    calm: carryingFood ? [eventPart('ADD_ON_CARRYING_FOOD', {})] : [],
+    why: freeRiderFound ? eventPart('ADD_ON_FREE_RIDER_FOUND', {}) : eventPart('ADD_ON_NO_FREE_RIDER', {}),
+  })
 }

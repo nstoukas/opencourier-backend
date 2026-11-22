@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import {
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
@@ -70,7 +71,10 @@ export class ProductReportDomainService {
       type: EnumDeliveryEventType.PRODUCT_REPORTED,
       actor: ACTOR_OF[source],
       source: source === 'PARTNER' ? EnumDeliveryEventSource.PARTNER_APP : EnumDeliveryEventSource.OPENCOURIER,
-      message: `Reported ${input.kind}${itemName ? `: ${itemName}` : ''} (${source})`,
+      // The item name is the restaurant's or rider's own words: a param, never translated (cross check 5).
+      ...(itemName
+        ? eventText('PRODUCT_REPORTED_ITEM', { kind: input.kind, itemName, source })
+        : eventText('PRODUCT_REPORTED', { kind: input.kind, source })),
       ...(courierId ? { courierId } : {}),
     }
     await this.deliveryEventService.recordProductReportEvent(event, delivery.status)
@@ -98,7 +102,7 @@ export class ProductReportDomainService {
           type: EnumDeliveryEventType.PRODUCT_REPORT_RESOLVED,
           actor: EnumEventActor.ADMIN,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          message: `Report resolved (${report.kind})`,
+          ...eventText('PRODUCT_REPORT_RESOLVED', { kind: report.kind }),
         },
         delivery.status
       )

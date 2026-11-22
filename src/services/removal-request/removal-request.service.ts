@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { eventText } from 'src/domains/delivery-event/event-text'
+import { removalLabels } from 'src/services/delivery-event/delivery-event.service'
 import {
   DeliveryRemovalRequest,
   EnumCancelledBy,
@@ -87,6 +89,7 @@ export class RemovalRequestService {
       courierId,
       reasonId: reason.id,
       label: reason.label,
+      labelEl: (reason as { labelEl?: string | null }).labelEl ?? null,
       paidToRider: reason.paidToRider,
       chargedToRestaurant: reason.chargedToRestaurant,
       note,
@@ -110,7 +113,7 @@ export class RemovalRequestService {
         actor: EnumEventActor.COURIER,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId,
-        message: `Removal requested: ${reason.label}`,
+        ...eventText('REMOVAL_REQUESTED', removalLabels(request)),
       },
       delivery.status
     )
@@ -141,7 +144,7 @@ export class RemovalRequestService {
         actor: EnumEventActor.COURIER,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId,
-        message: `Removal request withdrawn: ${open.label}`,
+        ...eventText('REMOVAL_WITHDRAWN', removalLabels(open)),
       },
       delivery.status
     )
@@ -181,7 +184,7 @@ export class RemovalRequestService {
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: request.courierId,
-        message: `Removal request declined: ${request.label}`,
+        ...eventText('REMOVAL_DECLINED', removalLabels(request)),
       },
       delivery.status
     )
@@ -255,7 +258,12 @@ export class RemovalRequestService {
     request: DeliveryRemovalRequest
   ): Promise<EnumDeliveryStatus> {
     const oldStatus = delivery.status
-    const event = await this.deliveryEventService.removeRiderBeforePickup(delivery, request.courierId, request.label)
+    const event = await this.deliveryEventService.removeRiderBeforePickup(
+      delivery,
+      request.courierId,
+      request.label,
+      (request as { labelEl?: string | null }).labelEl ?? null
+    )
     if (!event) {
       await this.recordMissedApproval(request, oldStatus)
       await this.undoClaim(request)
@@ -281,7 +289,7 @@ export class RemovalRequestService {
       actor: EnumEventActor.ADMIN,
       source: EnumDeliveryEventSource.OPENCOURIER,
       cancelledBy: EnumCancelledBy.COOP,
-      message: `Cancelled because a removal was approved after pickup: ${request.label}`,
+      ...eventText('REMOVAL_CANCELLED_AFTER_PICKUP', removalLabels(request)),
     }
     try {
       await this.deliveryEventService.processDeliveryEvent(cancel)
@@ -304,7 +312,7 @@ export class RemovalRequestService {
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: request.courierId,
-        message: `Removal approved after pickup, order cancelled: ${request.label}`,
+        ...eventText('REMOVAL_APPROVED_AFTER_PICKUP', removalLabels(request)),
       },
       EnumDeliveryStatus.CANCELED
     )
@@ -373,7 +381,7 @@ export class RemovalRequestService {
         actor: EnumEventActor.ADMIN,
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: request.courierId,
-        message: `Approval did not take: the order changed first (${request.label})`,
+        ...eventText('REMOVAL_APPROVAL_FAILED', removalLabels(request)),
       },
       status,
       false
@@ -452,8 +460,10 @@ export class RemovalRequestService {
   // The global validation pipe keeps body fields it has no rule for, so name the ones a reason may
   // change: a body carrying removedAt must not get past the last reason check.
   private editableReasonFields(input: Partial<RemovalReasonInput>): Partial<RemovalReasonInput> {
-    const { label, paidToRider, chargedToRestaurant, needsNote, position } = input
-    return { label, paidToRider, chargedToRestaurant, needsNote, position }
+    const { label, labelEl, paidToRider, chargedToRestaurant, needsNote, position } = input
+    // Spec 0054: an empty Greek label is stored as null (no translation yet), never as ''.
+    const greek = labelEl === undefined ? undefined : labelEl?.trim() || null
+    return { label, labelEl: greek, paidToRider, chargedToRestaurant, needsNote, position }
   }
 
   async updateReason(

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { eventText, storedEventText } from 'src/domains/delivery-event/event-text'
 import {
   EnumCourierCompensationReason,
   EnumDeliveryEventSource,
@@ -121,7 +122,7 @@ export class ReviewRequestRepository extends EntityRepository {
               oldStatus: null,
               newStatus: null,
               // The topic only: the rider's note never goes in an event (AC-4).
-              message: `Review requested: ${input.topic}`,
+              ...storedEventText(eventText('REVIEW_REQUESTED', { topic: input.topic })),
             },
           })
         }
@@ -165,7 +166,7 @@ export class ReviewRequestRepository extends EntityRepository {
             oldStatus: null,
             newStatus: null,
             // The outcome only: the admin's answer never goes in an event (AC-4).
-            message: `Review answered: ${input.outcome}`,
+            ...storedEventText(eventText('REVIEW_ANSWERED', { outcome: input.outcome })),
           },
         })
       }
@@ -195,7 +196,14 @@ export class ReviewRequestRepository extends EntityRepository {
             transitionSuccessful: true,
             oldStatus: null,
             newStatus: null,
-            message: `Courier ${request.courierId} paid ${input.correction.amountCents} ${input.correction.currencyCode} (cents) for review ${id}`,
+            ...storedEventText(
+              eventText('COURIER_PAID_FOR_REVIEW', {
+                courierId: request.courierId,
+                amount: input.correction.amountCents,
+                currency: input.correction.currencyCode,
+                reviewId: id,
+              })
+            ),
           },
         })
       }

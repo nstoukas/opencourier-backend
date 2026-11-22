@@ -6,6 +6,8 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { RIDER_BOX_UNITS } from './box'
+import { eventPart } from 'src/domains/delivery-event/event-text'
+import { EventPart } from 'src/shared-types/event-messages'
 
 // Never more than two deliveries held by one rider at once (spec 0048, key invariants; cross check 10).
 // VROOM is the locked tool for 3 or more, and it comes last (AGENTS.md, staged dispatch path).
@@ -197,6 +199,14 @@ function toStop(point: number, firstId: string, secondId: string): StackStop {
 // event's message (value 1: members can read the order of stops on the record). Ids only, no address.
 export function describeStops(stops: StackStop[]): string {
   return stops.map((s) => `${s.stop === 'PICKUP' ? 'pickup' : 'drop off'} ${s.deliveryId.slice(0, 8)}`).join(', ')
+}
+
+// Spec 0054: the same stops as parts of an event message, so each app can say them in its reader's language
+// (they render as describeStops in English, joined by `{{stops, comma}}`).
+export function stopParts(stops: StackStop[]): EventPart[] {
+  return stops.map((s) =>
+    eventPart(s.stop === 'PICKUP' ? 'STOP_PICKUP' : 'STOP_DROPOFF', { shortId: s.deliveryId.slice(0, 8) })
+  )
 }
 
 // The Redis key that keeps two orders from being stacked together again for 20 minutes after their stack
