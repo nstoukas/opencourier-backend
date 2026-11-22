@@ -35,7 +35,8 @@ export function adminOfferReason(adminUserId: string | null | undefined): OfferR
 }
 
 // Spec 0048 (AC-4): the reason one delivery of a stack carries. The matcher's reason for the rider (scored on
-// the first pickup, which both orders share in slice 1), marked STACK, with the other delivery's id, the order
+// the first delivery's pickup; with two restaurants, slice 2, the second pickup passed its own distance
+// filter), marked STACK, with the other delivery's id, the order
 // of the four stops and how much later each customer's food arrives than alone. The rider's own why
 // (whyYouFrom) is an allow list, so none of these keys reach a rider until spec 0045's list names them.
 // null when the matcher gave no reason (the offer is still made; saveOfferedEvent logs the gap).

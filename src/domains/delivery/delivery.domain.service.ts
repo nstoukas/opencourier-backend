@@ -33,6 +33,7 @@ import {
   EnumEventActor,
   EnumCourierCompensationReason,
   EnumCancelledBy,
+  Prisma,
 } from '@prisma/types'
 import { IDeliveryUpdate } from './interfaces/IDeliveryUpdate'
 import { DeliveryOfferView } from './types/delivery-offer-view.type'
@@ -528,7 +529,7 @@ export class DeliveryDomainService {
         await this.deliveryRepository.updateIfMatches(
           member.id,
           { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null, stopSequence: Prisma.DbNull }
         )
       }
       throw error

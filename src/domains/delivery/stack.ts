@@ -3,6 +3,8 @@
 // box.ts). TwoOrderService feeds them the deliveries and the road times; the claim and the accept in the
 // repositories hold the same limits under a lock.
 
+import { EnumDeliveryStatus } from '@prisma/types'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { RIDER_BOX_UNITS } from './box'
 
 // Never more than two deliveries held by one rider at once (spec 0048, key invariants; cross check 10).
@@ -39,17 +41,30 @@ export interface StackCandidate {
   boxUnits: number
   orderReference: string | null
   legCount: number | null
+  // When the restaurant marked the food ready (row 21), or null while it has not.
+  foodReadyAt: Date | null
+}
+
+// Same restaurant means the same partner and the same pickup point (decision 80.1a): the stops are then
+// worked out from one real place. A partner with two kitchens counts as two restaurants.
+export function isSameRestaurant(
+  first: Pick<StackCandidate, 'partnerId' | 'pickupLocationId'>,
+  second: Pick<StackCandidate, 'partnerId' | 'pickupLocationId'>
+): boolean {
+  return first.partnerId !== null && first.partnerId === second.partnerId && first.pickupLocationId === second.pickupLocationId
 }
 
 // Why two deliveries cannot be stacked, or null when they can, for everything that needs no road time
-// (AC-2). Slice 1 stacks orders of the same restaurant only: the same partner and the same pickup point
-// (operator, 2026-11-20: "same restaurant stacks first"). Two legs of one order are never stacked: legs
-// exist so that one rider never carries the whole order (spec 0046).
+// (AC-2). Orders of the same restaurant (slice 1), or of two restaurants when both are already marked
+// ready (slice 2, row 80's Done when): a rider never waits at one restaurant while the other order's
+// food goes cold. Two legs of one order are never stacked: legs exist so that one rider never carries
+// the whole order (spec 0046).
 export function stackRefusal(first: StackCandidate, second: StackCandidate): string | null {
   if (first.id === second.id) return 'the same delivery'
   if (first.boxUnits + second.boxUnits > RIDER_BOX_UNITS) return 'they do not fit in one box together'
-  if (!first.partnerId || first.partnerId !== second.partnerId) return 'not the same restaurant'
-  if (first.pickupLocationId !== second.pickupLocationId) return 'not the same pickup point'
+  if (!isSameRestaurant(first, second) && (first.foodReadyAt === null || second.foodReadyAt === null)) {
+    return 'two restaurants, and not both marked ready'
+  }
   if (
     first.legCount !== null &&
     second.legCount !== null &&
@@ -88,7 +103,7 @@ export interface StackSequence {
 
 // The four stops as point numbers, in every order where each pickup comes before its own drop off: six
 // orders in all. A same restaurant pair has both pickups at one point, so some of these are the same
-// route; the first one found wins a tie, so the answer is always the same for the same input.
+// route; two restaurants (slice 2) give six different routes. The first one found wins a tie, so the answer is always the same for the same input.
 const ORDERS: number[][] = [
   [POINT.FIRST_PICKUP, POINT.SECOND_PICKUP, POINT.FIRST_DROPOFF, POINT.SECOND_DROPOFF],
   [POINT.FIRST_PICKUP, POINT.SECOND_PICKUP, POINT.SECOND_DROPOFF, POINT.FIRST_DROPOFF],
@@ -186,4 +201,54 @@ export function describeStops(stops: StackStop[]): string {
 export function stackPairBlockKey(oneId: string, otherId: string): string {
   const [low, high] = [oneId, otherId].sort()
   return `stack-pair-block-${low}-${high}`
+}
+
+// Spec 0048 (cross check 6): the stored `stopSequence` read back, or null when it is missing or not the
+// shape the stack offer writes (four stops of exactly two deliveries). A Json column can hold anything,
+// so every reader goes through this check rather than trusting a cast.
+export function stackStopsOf(value: unknown): StackStop[] | null {
+  if (!Array.isArray(value) || value.length !== 4) return null
+  const stops: StackStop[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return null
+    const { deliveryId, stop } = item as Record<string, unknown>
+    if (typeof deliveryId !== 'string' || (stop !== 'PICKUP' && stop !== 'DROPOFF')) return null
+    stops.push({ deliveryId, stop })
+  }
+  return new Set(stops.map((s) => s.deliveryId)).size === 2 ? stops : null
+}
+
+// What the stop sequence rule reads of each delivery of a stack.
+export interface StackMemberState {
+  status: EnumDeliveryStatus
+  matchedCourierId: string | null
+  courierId: string | null
+}
+
+// Spec 0048 (cross check 6): whether the two deliveries of a stack are still with one rider, so their
+// stop sequence still holds: both open offers to that rider, or both jobs that rider holds (or one of
+// each, while a group accept lands). Anything else (an order delivered, cancelled, moved, handed back,
+// offered to someone else) means the survivor goes on alone and the sequence is cleared on both.
+export function pairStillTogether(members: StackMemberState[]): boolean {
+  if (members.length !== 2) return false
+  const riders = members.map((member) => {
+    if (member.status === EnumDeliveryStatus.ASSIGNING_COURIER) return member.matchedCourierId
+    return DELIVERY_ONGOING_STATUSES.includes(member.status) ? member.courierId : null
+  })
+  return riders[0] !== null && riders[0] === riders[1]
+}
+
+// The statuses in which a delivery's pickup is still ahead of the rider (the route's own list, spec 0018).
+const PICKUP_STILL_AHEAD_STATUSES: EnumDeliveryStatus[] = [
+  EnumDeliveryStatus.ASSIGNING_COURIER,
+  EnumDeliveryStatus.ACCEPTED,
+  EnumDeliveryStatus.DISPATCHED,
+  EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+]
+
+// Spec 0048 (AC-10): whether a stop is already behind the rider, from its delivery's status. A pickup is
+// done once the food is picked up; a drop off once the order is no longer on its way (delivered or ended).
+export function isStopDone(stop: StackStopKind, status: EnumDeliveryStatus): boolean {
+  if (stop === 'PICKUP') return !PICKUP_STILL_AHEAD_STATUSES.includes(status)
+  return status !== EnumDeliveryStatus.ASSIGNING_COURIER && !DELIVERY_ONGOING_STATUSES.includes(status)
 }

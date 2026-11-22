@@ -476,6 +476,12 @@ model Delivery {
   // and ended together. Set on both by the stack offer, null on every single offer; cleared when an open
   // stack ends or loses its partner, and kept after a group accept as the link admins see (cross check 7).
   offerGroupId       String?
+  // Spec 0048 (cross check 6): the order of a stack's four stops, `[{ deliveryId, stop: "PICKUP" | "DROPOFF" }]`,
+  // the same list on both deliveries. Written with the stack offer, kept through the accept, and cleared on
+  // both (null) as soon as the two are no longer with one rider (an order ended, moved or was handed back):
+  // the survivor then goes on alone. Advisory only: each delivery keeps its own status machine. Null on
+  // every single offer.
+  stopSequence       Json?
 
   // A cancellation (spec 0015). Set with the CANCELED status write, which is conditional, so
   // cancelledFromStatus is always the status the cancellation really came from; it decides the

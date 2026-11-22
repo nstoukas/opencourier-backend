@@ -389,6 +389,7 @@ export class DeliveryEventService {
             offerExpiresAt: null,
             // Spec 0048: the new rider's offer is a single one; the stack this job came from stays on its events.
             offerGroupId: null,
+            stopSequence: Prisma.DbNull,
             // No rider holds it now (spec 0020): no accept time, no hand back.
             acceptedAt: null,
             handBackUntil: null,
@@ -404,6 +405,9 @@ export class DeliveryEventService {
             `Delivery ${deliveryId} changed while it was being reassigned; nothing was moved`
           )
         }
+        // Spec 0048 (cross check 6): this job left its stack (the write above took its link), so the order
+        // its rider keeps goes on alone, with no stop sequence.
+        if (dbDelivery.offerGroupId) await this.settleStackStops(dbDelivery.offerGroupId, deliveryId)
 
         // Sets status via the state machine result, saves the DeliveryEvent, notifies partner.
         const updatedDelivery = await this.updateDeliveryAndSendNotifications(
@@ -690,6 +694,7 @@ export class DeliveryEventService {
         offerExpiresAt: null,
         // Spec 0048: an admin's offer is a single one, even when it moves one order of an open stack.
         offerGroupId: null,
+        stopSequence: Prisma.DbNull,
         totalCost,
         totalCompensation,
         fee,
@@ -1027,6 +1032,7 @@ export class DeliveryEventService {
         offerExpiresAt: null,
         // Spec 0048: an ended offer is no longer part of a stack.
         offerGroupId: null,
+        stopSequence: Prisma.DbNull,
       })
     } catch (error) {
       if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
@@ -1223,7 +1229,7 @@ export class DeliveryEventService {
             offeredAt: delivery.offeredAt,
             courierId: null,
           },
-          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null, stopSequence: Prisma.DbNull }
         )
       } finally {
         if (!declined && addedToSkipList) await this.undoSkipListEntry(member.id, courierId)
@@ -1282,6 +1288,17 @@ export class DeliveryEventService {
       }
     }
     return completed
+  }
+
+  // Spec 0048 (cross check 6): clears the group's stop sequence once its two deliveries are no longer with
+  // one rider (settleStopSequence decides). Never throws: a sequence left behind is only advisory.
+  private async settleStackStops(groupId: string, changedDeliveryId: string): Promise<void> {
+    try {
+      const cleared = await this.deliveryRepository.settleStopSequence(groupId)
+      if (cleared > 0) this.logger.log(`Delivery ${changedDeliveryId} left its stack; the stop sequence was cleared`)
+    } catch (error) {
+      this.logger.error(`Could not settle the stop sequence of delivery ${changedDeliveryId}: ${error}`)
+    }
   }
 
   // Spec 0048 (AC-5): the other delivery of an open stack keeps its offer as a single one. Never throws.
@@ -1863,6 +1880,7 @@ export class DeliveryEventService {
         feePercentage,
         // Spec 0048: a single offer belongs to no stack, whatever link an earlier accepted stack left.
         offerGroupId: null,
+        stopSequence: Prisma.DbNull,
       }
     )
     if (claim === 'TWO_HELD') {
@@ -1967,11 +1985,15 @@ export class DeliveryEventService {
     const offeredAt = new Date()
     const offerExpiresAt = expirySeconds !== null ? new Date(offeredAt.getTime() + expirySeconds * 1000) : null
     const offerGroupId = randomUUID()
+    // Cross check 6: the order of the four stops, the same list on both, so the offer card and the job
+    // screens draw one route through them. Copied into plain objects, the shape a Json column takes.
+    const stopSequence = plan.sequence.stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
     const offerOf = (amounts: typeof firstAmounts) => ({
       matchedCourierId: courier.id,
       offeredAt,
       offerExpiresAt,
       offerGroupId,
+      stopSequence,
       totalCost: amounts.totalCost,
       totalCompensation: amounts.totalCompensation,
       fee: amounts.fee,
@@ -1994,7 +2016,7 @@ export class DeliveryEventService {
         await this.deliveryRepository.updateIfMatches(
           id,
           { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courier.id, offeredAt, courierId: null },
-          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null, stopSequence: Prisma.DbNull }
         )
       }
       this.logger.log(`Dispatch stopped while deliveries ${first.id} and ${second.id} were being offered; offer taken back`)
@@ -2029,11 +2051,13 @@ export class DeliveryEventService {
       await this.removeNoCourierRetry(delivery.id)
     }
 
-    // Both offers reach the phone, each carrying offerGroupId, so the app can show them as one pair.
+    // Both offers reach the open app, each carrying offerGroupId, so it shows them as one pair. Only the first
+    // is pushed (cross check 11: one push per stack); the push names the other order, and a phone that wakes
+    // to it loads both from the server.
     for (const id of [first.id, second.id]) {
       try {
         const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(id)
-        await this.sendOfferToRider(courier, updatedDelivery)
+        await this.sendOfferToRider(courier, updatedDelivery, id === first.id)
       } catch (error) {
         this.logger.error(`Could not send the offer of ${id} to courier ${courier.id}: ${error}`)
       }
@@ -2917,11 +2941,13 @@ export class DeliveryEventService {
   // push to their phones. Push is started, not awaited, so Google being slow or down never delays
   // or undoes an offer (AC-2). `finally` starts it even if the socket send threw, since a locked
   // phone is exactly the one the socket cannot reach.
-  private async sendOfferToRider(courier: { id: string; userId: string }, delivery: DeliveryEntity) {
+  // `push` false: the open app hears of it, but no push goes out (the second order of a stack, whose push
+  // the first one's carries, spec 0048 cross check 11).
+  private async sendOfferToRider(courier: { id: string; userId: string }, delivery: DeliveryEntity, push = true) {
     try {
       await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(delivery))
     } finally {
-      this.offerPushService.newOffer(courier.id, delivery.id)
+      if (push) this.offerPushService.newOffer(courier.id, delivery.id)
     }
   }
 
@@ -3210,6 +3236,21 @@ export class DeliveryEventService {
         if (moved?.offerGroupId) await this.releaseStackPartners(moved.offerGroupId, moved.id)
       } catch (error) {
         this.logger.error(`Could not release the stack partner of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+    }
+
+    // Spec 0048 (cross check 6): once the two deliveries of a stack are no longer with one rider (an order
+    // delivered, cancelled, moved or handed back), the stop sequence is cleared on both and the survivor
+    // goes on alone. Checked on every status change of a delivery that is part of a stack; one rule, here,
+    // so a future path cannot forget it. Guarded: a sequence left behind is only advisory.
+    if (outcome.transitionSuccessful && outcome.oldStatus !== outcome.newStatus) {
+      try {
+        const changed = await this.deliveryRepository.findById(deliveryEvent.deliveryId)
+        if (changed?.offerGroupId && changed.stopSequence !== null) {
+          await this.settleStackStops(changed.offerGroupId, changed.id)
+        }
+      } catch (error) {
+        this.logger.error(`Could not settle the stop sequence of delivery ${deliveryEvent.deliveryId}: ${error}`)
       }
     }
 

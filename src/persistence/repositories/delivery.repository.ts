@@ -22,7 +22,9 @@ import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
 import { heldBoxCountSql, heldBoxUnitsSql, siblingLegHeldSql } from './courier.repository'
-import { MAX_DELIVERIES_HELD } from 'src/domains/delivery/stack'
+import { MAX_DELIVERIES_HELD, pairStillTogether } from 'src/domains/delivery/stack'
+import { haversineDistanceInMetres } from 'src/core/utils/distance'
+import { GeoPosition } from 'src/shared-types'
 import { OrderLeg } from 'src/domains/delivery/legs'
 import { wouldOverfillBox } from 'src/domains/delivery/box'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
@@ -274,32 +276,73 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         courierId: null,
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
       },
-      data: { offerGroupId: null },
+      // Spec 0048 (cross check 6): alone now, so no stop sequence either.
+      data: { offerGroupId: null, stopSequence: Prisma.DbNull },
     })
     return released.count
   }
 
-  // Spec 0048 (AC-4, cross check 4): deliveries that could be stacked with `delivery`: waiting for a rider
-  // with nobody offered, from the same restaurant and pickup point, with room for both in one box, not
-  // another leg of the same order. The one waiting longest first (its latest NO_COURIER_AVAILABLE, else its
-  // creation, as findIdsWaitingForCourierOldestFirst counts). At most `limit`: each one costs a road table.
-  async findStackPartnerCandidates(delivery: DeliveryEntity, maxUnits: number, limit: number): Promise<DeliveryEntity[]> {
-    if (!delivery.partnerId) return []
-    const rows = await this.prisma.delivery.findMany({
+  // Spec 0048 (cross check 6): the stop sequence of a stack holds only while both deliveries are with one
+  // rider (pairStillTogether). Once they are not, it is cleared on every delivery of the group, so the
+  // survivor goes on alone and no screen draws a stop the rider no longer has. Returns how many were
+  // cleared (0 while the pair holds). `Prisma.DbNull` is how Prisma writes SQL NULL into a Json column:
+  // a plain `null` there would be ambiguous with the JSON value null, so Prisma refuses it.
+  async settleStopSequence(groupId: string): Promise<number> {
+    const members = await this.prisma.delivery.findMany({
+      where: { offerGroupId: groupId },
+      select: { status: true, matchedCourierId: true, courierId: true },
+    })
+    if (pairStillTogether(members)) return 0
+    const cleared = await this.prisma.delivery.updateMany({
+      where: { offerGroupId: groupId, NOT: { stopSequence: { equals: Prisma.DbNull } } },
+      data: { stopSequence: Prisma.DbNull },
+    })
+    return cleared.count
+  }
+
+  // Spec 0048 (AC-4, AC-2, cross check 4): deliveries that could be stacked with `delivery`: waiting for a
+  // rider with nobody offered, with room for both in one box, not another leg of the same order, and either
+  // from the same restaurant and pickup point, or (slice 2) marked ready while `delivery` is marked ready
+  // too. With `near`, only those whose pickup is within the co-op's maxAssignmentDistance of the rider (the
+  // second order's own distance filter, cross check 4), measured in a straight line as the matcher's
+  // filter is. The one waiting longest first (its latest NO_COURIER_AVAILABLE, else its creation, as
+  // findIdsWaitingForCourierOldestFirst counts). At most `limit`: each one costs a road table.
+  async findStackPartnerCandidates(
+    delivery: DeliveryEntity,
+    maxUnits: number,
+    limit: number,
+    near?: { rider: GeoPosition; maxMetres: number | null }
+  ): Promise<DeliveryEntity[]> {
+    const places: Prisma.DeliveryWhereInput[] = []
+    if (delivery.partnerId) places.push({ partnerId: delivery.partnerId, pickupLocationId: delivery.pickupLocationId })
+    if (delivery.foodReadyAt !== null) places.push({ foodReadyAt: { not: null } })
+    if (places.length === 0) return []
+    const found = await this.prisma.delivery.findMany({
       where: {
         id: { not: delivery.id },
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         matchedCourierId: null,
         courierId: null,
-        partnerId: delivery.partnerId,
-        pickupLocationId: delivery.pickupLocationId,
+        OR: places,
         boxUnits: { lte: maxUnits },
         // Never two legs of one order (spec 0046); a single delivery or another order is fine.
         ...(delivery.legCount !== null && delivery.orderReference
           ? { NOT: { orderReference: delivery.orderReference, legCount: { not: null } } }
           : {}),
       },
+      include: { pickupLocation: { select: { latitude: true, longitude: true } } },
     })
+    // The pickup point is read only for the distance filter; the rest of the row is a plain delivery.
+    const rows = found
+      .filter(({ pickupLocation }) => {
+        if (!near || near.maxMetres === null) return true
+        if (!pickupLocation) return false
+        return (
+          haversineDistanceInMetres(near.rider.latitude, near.rider.longitude, pickupLocation.latitude, pickupLocation.longitude) <=
+          near.maxMetres
+        )
+      })
+      .map(({ pickupLocation: _pickupLocation, ...row }) => row)
     if (rows.length === 0) return []
     const since = await this.findLatestNoCourierAvailableAt(rows.map((row) => row.id))
     return this.toDomainMany(rows)

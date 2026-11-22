@@ -25,7 +25,7 @@ export interface StackPlan {
 // Spec 0048 (Decision): the pairing logic, beside the matcher. DeliveryEventService asks it, once the
 // matcher has chosen a free rider for a delivery, whether a second waiting delivery should go to the same
 // rider in one offer. It reads and decides; it writes nothing (the claim does, under the rider's lock).
-// Slice 1: orders of the same restaurant only.
+// Orders of the same restaurant (slice 1), or of two restaurants when both are marked ready (slice 2).
 @Injectable()
 export class TwoOrderService {
   private readonly logger = new Logger(TwoOrderService.name)
@@ -59,11 +59,16 @@ export class TwoOrderService {
       const room = RIDER_BOX_UNITS - first.boxUnits - (await this.courierRepository.heldBoxUnits(courierId))
       if (room < 1) return null
 
-      const candidates = await this.deliveryRepository.findStackPartnerCandidates(first, room, STACK_CANDIDATE_LIMIT)
-      if (candidates.length === 0) return null
-
       const riderAt = await this.courierRepository.getCurrentLocation(courierId)
       if (!riderAt) return null
+      // Cross check 4: the second order's pickup must be within the co-op's distance of the rider, as for
+      // any offer of it (the setting is in km; null means no limit).
+      const maxKm = await config.getMaxAssignmentDistance()
+      const candidates = await this.deliveryRepository.findStackPartnerCandidates(first, room, STACK_CANDIDATE_LIMIT, {
+        rider: riderAt,
+        maxMetres: maxKm ? maxKm * 1000 : null,
+      })
+      if (candidates.length === 0) return null
       const firstPlaces = await this.deliveryRepository.findByIdOrThrowWithLocations(first.id)
       if (!firstPlaces.pickupLocation || !firstPlaces.dropoffLocation) return null
 
@@ -72,8 +77,8 @@ export class TwoOrderService {
         if (refusal) continue
         // Cross check 9: the two were stacked, and the stack was declined or missed, in the last 20 minutes.
         if (await this.cacheService.get<boolean>(stackPairBlockKey(first.id, candidate.id))) continue
-        // Cross check 4: the second order's own filters apply to the rider. Its skip list; its distance is the
-        // first order's, since both are picked up at the same point (stackRefusal).
+        // Cross check 4: the second order's own filters apply to the rider. Its skip list here; its distance
+        // from the rider in the candidate query above.
         const skipped = await this.cacheService.getOrDefault<string[]>(
           CacheHelpers.getDeliveryRejectedCouriersKey(candidate.id),
           []
