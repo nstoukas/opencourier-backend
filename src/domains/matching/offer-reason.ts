@@ -58,3 +58,38 @@ export function stackOfferReason(
     },
   }
 }
+
+// Spec 0048 (AC-6, row 81, cross check 3): the reason an add on offer carries. No matcher chose this rider:
+// among riders holding exactly one job, the add on goes to the one it adds the fewest minutes to (ties by
+// road time to the new pickup). So the strategy is the co-op's matcher setting at the time, marked ADD_ON,
+// with the current job's id, the stop order, each customer's extra wait, what it adds (km and minutes, as
+// the phone shows them), whether the rider was carrying food (cross check 2) and how many riders were
+// compared. Like a stack's keys, none of these reach a rider until spec 0045's allow list names them.
+export function addOnOfferReason(args: {
+  strategy: OfferReasonStrategy
+  currentDeliveryId: string
+  sequence: StackSequence & { extraSeconds: number; extraMetres: number; secondsToNewPickup: number }
+  extraKm: number
+  extraMinutes: number
+  carryingFood: boolean
+  candidateCount: number
+}): OfferReasonInput {
+  const { sequence } = args
+  return {
+    strategy: args.strategy,
+    kind: 'ADD_ON',
+    values: {
+      currentDeliveryId: args.currentDeliveryId,
+      sequence: sequence.stops,
+      delaySeconds: sequence.delaySeconds,
+      totalSeconds: sequence.totalSeconds,
+      extraMetres: sequence.extraMetres,
+      extraSeconds: sequence.extraSeconds,
+      extraKm: args.extraKm,
+      extraMinutes: args.extraMinutes,
+      roadSecondsToPickup: sequence.secondsToNewPickup,
+      carryingFood: args.carryingFood,
+    },
+    candidateCount: args.candidateCount,
+  }
+}

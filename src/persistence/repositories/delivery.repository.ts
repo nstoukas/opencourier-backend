@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { randomUUID } from 'crypto'
 import {
   Delivery,
   EnumCancelledBy,
@@ -22,7 +23,8 @@ import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
 import { heldBoxCountSql, heldBoxUnitsSql, liveDeliveryCountSql, siblingLegHeldSql } from './courier.repository'
-import { MAX_DELIVERIES_HELD, pairStillTogether } from 'src/domains/delivery/stack'
+import { MAX_DELIVERIES_HELD, StackStop, pairStillTogether } from 'src/domains/delivery/stack'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { GeoPosition } from 'src/shared-types'
 import { OrderLeg } from 'src/domains/delivery/legs'
@@ -36,8 +38,9 @@ export type PrismaDeliveryWithLocations = Delivery & {
   dropoffLocation: Location | null
 }
 
-// What a locked claim came to. TWO_HELD (spec 0048): the rider already holds two deliveries.
-export type ClaimOutcome = 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG' | 'TWO_HELD'
+// What a locked claim came to. TWO_HELD (spec 0048): the rider already holds two deliveries. JOB_CHANGED
+// (row 81): an add on's claim found the rider's job no longer the one job they hold.
+export type ClaimOutcome = 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG' | 'TWO_HELD' | 'JOB_CHANGED'
 
 // Spec 0048: one half of a stacked offer's claim, the delivery and what its offer writes.
 export interface StackClaimPart {
@@ -106,6 +109,21 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return claim.outcome
   }
 
+  // Row 81 (AC-6, AC-11): an add on offer's claim, the same locked claim as a single offer (deactivation,
+  // legs, the limit of two, the box) plus one check under the same lock: the rider still holds `jobId`, and
+  // nothing else. A job dropped off, handed back or moved between the plan and this write would leave the
+  // offer naming a job the rider no longer has, so it answers JOB_CHANGED and writes nothing.
+  async claimAddOnWithinBox(
+    deliveryId: string,
+    courierId: string,
+    jobId: string,
+    where: Prisma.DeliveryWhereInput,
+    data: IDeliveryUpdate
+  ): Promise<ClaimOutcome> {
+    const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false, jobId)
+    return claim.outcome
+  }
+
   // The locked claim itself, shared by the automatic offer and the admin's hand offer (review fix:
   // the admin's check was a read before a separate write, so it could race a claim for the same
   // rider). `allowOverCapacity`: the admin confirmed going past a full box; the write then goes ahead
@@ -118,7 +136,9 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     courierId: string,
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate,
-    allowOverCapacity: boolean
+    allowOverCapacity: boolean,
+    // Row 81: set by an add on's claim only (claimAddOnWithinBox).
+    addOnToJobId?: string
   ): Promise<{
     outcome: ClaimOutcome
     heldUnits: number
@@ -147,6 +167,13 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         Prisma.sql`SELECT (${liveDeliveryCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
       )
       if ((count[0]?.held ?? 0) >= MAX_DELIVERIES_HELD) return { outcome: 'TWO_HELD', heldUnits: 0, deliveryUnits: 0 }
+      if (addOnToJobId !== undefined) {
+        // The one live delivery counted above must be this job, still the rider's and before its drop off.
+        const job = await tx.delivery.count({
+          where: { id: addOnToJobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
+        })
+        if (job !== 1 || (count[0]?.held ?? 0) !== 1) return { outcome: 'JOB_CHANGED', heldUnits: 0, deliveryUnits: 0 }
+      }
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
       if (!delivery) return { outcome: 'NOT_WAITING', heldUnits: 0, deliveryUnits: 0 }
       const rows = await tx.$queryRaw<Array<{ held: number }>>(
@@ -249,6 +276,31 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       if (error instanceof RollBack) return false
       throw error
     }
+  }
+
+  // Row 81 (AC-10): an add on was accepted. From here the two jobs are a pair like an accepted stack: one new
+  // offerGroupId on both and the stop list on both, so the job screens, the route and the admin pages show
+  // them together, and the stack rule (pairStillTogether) clears the list once they part. Only if the job is
+  // still the rider's before its drop off; otherwise the added order goes on alone (its list cleared). A
+  // fresh id rather than the job's old one: a job left over from an earlier stack may still carry that
+  // pair's id (cross check 7), and three deliveries under one id would never count as a pair. Returns
+  // whether they were joined.
+  async joinAcceptedAddOn(addOnId: string, jobId: string, courierId: string, stops: StackStop[]): Promise<boolean> {
+    const groupId = randomUUID()
+    // Copied into plain objects, the shape a Json column takes.
+    const stopSequence = stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.delivery.updateMany({
+        where: { id: jobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
+        data: { offerGroupId: groupId, stopSequence },
+      })
+      if (job.count !== 1) {
+        await tx.delivery.updateMany({ where: { id: addOnId }, data: { stopSequence: Prisma.DbNull } })
+        return false
+      }
+      await tx.delivery.updateMany({ where: { id: addOnId, courierId }, data: { offerGroupId: groupId, stopSequence } })
+      return true
+    })
   }
 
   // Spec 0048: the deliveries of a stack still open for this rider by this offer (nobody has taken them),

@@ -26,6 +26,10 @@ const LIVE_DELIVERY_SELECT = {
   undispatchedAt: true,
   // Spec 0048 (AC-12): two deliveries offered or carried together share it.
   offerGroupId: true,
+  // Row 81 (AC-12): an open add on names the rider's job in its stop list, and what it adds.
+  stopSequence: true,
+  addOnExtraMetres: true,
+  addOnExtraSeconds: true,
   pickupLocation: { select: { latitude: true, longitude: true } },
   courier: { select: { firstName: true, lastName: true } },
 } satisfies Prisma.DeliverySelect

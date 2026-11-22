@@ -8,6 +8,7 @@ import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
 import { isRecordNotFoundError } from 'src/prisma.util'
 import { DeliveryRouteLegKind } from './dtos/delivery-route.courier.dto'
 import { StackStop, StackStopKind, isStopDone, stackStopsOf } from 'src/domains/delivery/stack'
+import { isAddOnOffer } from 'src/domains/delivery/add-on'
 
 // Before pickup the rider rides to the restaurant first; from PICKED_UP on, straight to the customer.
 const BEFORE_PICKUP_STATUSES: EnumDeliveryStatus[] = [
@@ -82,10 +83,12 @@ export class DeliveryRouteCourierService {
     const rider = courier.currentLocation ?? null
 
     // Spec 0048 (AC-10): a delivery of a stack draws the route through every stop still ahead, in the
-    // stack's order, whichever of its two deliveries the app asks with.
+    // stack's order, whichever of its two deliveries the app asks with. Row 81: an open add on offer draws
+    // the same route through the rider's job and the added order, so the card shows what it adds.
     const stackStops = stackStopsOf(delivery.stopSequence)
-    if (stackStops && delivery.offerGroupId) {
-      const route = await this.stackRoute(delivery, stackStops, courier, rider)
+    const addOn = isAddOnOffer(delivery)
+    if (stackStops && (delivery.offerGroupId || addOn)) {
+      const route = await this.stackRoute(delivery, stackStops, courier, rider, addOn)
       if (route) return route
     }
 
@@ -137,18 +140,22 @@ export class DeliveryRouteCourierService {
     delivery: StackRouteMember & { offerGroupId: string | null },
     stops: StackStop[],
     courier: CourierEntity,
-    rider: GeoPosition | null
+    rider: GeoPosition | null,
+    addOn = false
   ): Promise<DeliveryRoute | null> {
     const partnerId = stops.find((stop) => stop.deliveryId !== delivery.id)?.deliveryId
     if (!partnerId || !stops.some((stop) => stop.deliveryId === delivery.id)) return null
-    let partner: (StackRouteMember & { offerGroupId: string | null }) | null = null
+    let partner: (StackRouteMember & { offerGroupId: string | null; courierId: string | null }) | null = null
     try {
       partner = await this.readVisible(partnerId, courier)
     } catch (error) {
       if (error instanceof DeliveryNotFoundException) return null
       throw error
     }
-    if (partner.offerGroupId !== delivery.offerGroupId) return null
+    // The pair's two deliveries share one group; an open add on has none yet, and its partner is the job
+    // this rider holds (readVisible above also lets an offer through, so the job is checked to be held).
+    const addOnToHeldJob = addOn && partner.courierId === courier.id
+    if (!addOnToHeldJob && partner.offerGroupId !== delivery.offerGroupId) return null
 
     const members = new Map<string, StackRouteMember>([
       [delivery.id, delivery],

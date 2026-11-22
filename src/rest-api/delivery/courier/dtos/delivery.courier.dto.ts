@@ -1,6 +1,7 @@
 import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import { StackStopKind, stackStopsOf } from 'src/domains/delivery/stack'
+import { addOnFigures, isAddOnOffer } from 'src/domains/delivery/add-on'
 import { EnumDeliverableAction, EnumDeliveryStatus, EnumUndeliverableAction, Prisma } from '@prisma/types'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
@@ -253,6 +254,18 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: () => StackStopCourierDto, isArray: true, nullable: true })
   stackStops: StackStopCourierDto[] | null
 
+  // Spec 0048 (row 81, AC-6): true while this is an open add on offer, one more order on the way while the
+  // rider is on a job; its stackStops then name that job. extraKm and extraMinutes are what it adds to the
+  // job ("+2.1 km, +7 min"); null when it is no open add on. After the accept the two are a pair like a stack.
+  @ApiProperty({ type: Boolean })
+  addOn: boolean
+
+  @ApiProperty({ type: Number, nullable: true })
+  extraKm: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  extraMinutes: number | null
+
   // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
   @ApiProperty({ type: Date, nullable: true })
   handBackUntil: Date | null
@@ -362,6 +375,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.offerExpiresAt = data.offerExpiresAt
     this.offerGroupId = data.offerGroupId ?? null
     this.stackStops = stackStopsOf(data.stopSequence)
+    this.addOn = isAddOnOffer(data)
+    const figures = this.addOn ? addOnFigures(data.addOnExtraMetres ?? null, data.addOnExtraSeconds ?? null) : null
+    this.extraKm = figures?.extraKm ?? null
+    this.extraMinutes = figures?.extraMinutes ?? null
 
     if ('pickupLocation' in data && data.pickupLocation) {
       this.pickupLocationFormattedAddress = formatAddress(data.pickupLocation)

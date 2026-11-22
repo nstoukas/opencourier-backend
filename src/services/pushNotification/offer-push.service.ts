@@ -13,6 +13,7 @@ import {
 } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
 import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
+import { addOnJobIdOf, isAddOnOffer, isCarryingFood } from 'src/domains/delivery/add-on'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { TaskBusService } from '../taskBus/taskBus.service'
@@ -276,7 +277,11 @@ export class OfferPushService {
       // Read after the wait, so serverNow and the TTL count from when the message really goes.
       const now = new Date()
       const stack = await this.stackOf(courierId, source.delivery)
-      const card = buildOfferCardPayload({ ...source, trip, stack }, { serverNow: now, insistent })
+      const addOn = await this.addOnOf(courierId, source.delivery)
+      // Row 81 (cross check 2): an add on offered while the rider carries food never rings insistently, so the
+      // 2 minute louder re-send is not sent for it.
+      if (insistent && addOn?.calm) return
+      const card = buildOfferCardPayload({ ...source, trip, stack, addOn }, { serverNow: now, insistent })
 
       // Seconds left to the deadline, or the default with no deadline, so a stale offer never rings.
       const { offeredAt, offerExpiresAt } = source.delivery
@@ -300,7 +305,7 @@ export class OfferPushService {
       // louder channel (AC-7). Set once per offer, from the first push only. It is set even when
       // every send above failed: that later re-send is the retry, so a push lost now still gets a
       // second chance.
-      if (!insistent && !offerExpiresAt && offeredAt) {
+      if (!insistent && !offerExpiresAt && offeredAt && !addOn?.calm) {
         await this.scheduleInsist(deliveryId, courierId, offeredAt)
       }
     } catch (error) {
@@ -399,6 +404,25 @@ export class OfferPushService {
   }
 
   // Deletes dead tokens and logs other failures by delivery id and error code only.
+  // Row 81: for an open add on offer, whether the rider carries food already (the job its stop list names is
+  // picked up), so the phone answers calmly (cross check 2). null for any other offer. A failed read of the
+  // job counts as carrying: erring towards the calm alert is the safe direction.
+  private async addOnOf(
+    courierId: string,
+    delivery: Parameters<typeof isAddOnOffer>[0]
+  ): Promise<{ calm: boolean } | null> {
+    if (!isAddOnOffer(delivery)) return null
+    const jobId = addOnJobIdOf(delivery)
+    try {
+      const job = jobId ? await this.deliveryRepository.findById(jobId) : null
+      if (!job || job.courierId !== courierId) return { calm: true }
+      return { calm: isCarryingFood(job.status) }
+    } catch (error) {
+      this.logger.error(`Could not read the job of add on ${delivery.id}; sending it calmly: ${error}`)
+      return { calm: true }
+    }
+  }
+
   private async handleSendResult(deliveryId: string, type: NotificationEventType, result: PushSendResult) {
     if (result.failureCodes.length > 0) {
       this.logger.warn(`${type} push for delivery ${deliveryId} failed on some devices: ${result.failureCodes.join(', ')}`)

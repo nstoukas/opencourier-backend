@@ -176,6 +176,45 @@ export class OsrmRoutingService {
   // points, so no solver is needed (VROOM stays last). Not cached: the rider's position moves. An entry
   // OSRM could not route is null; a failed request throws ServiceUnavailableException, and the caller then
   // offers no stack. No coordinate reaches a log line (value 5).
+  // Spec 0048 (row 81, AC-6): the same table with road metres as well, for an add on's "+2.1 km". One call
+  // asks OSRM for both annotations. Throws ServiceUnavailableException like getDurationMatrix.
+  async getDurationAndDistanceMatrix(
+    points: { latitude: number; longitude: number }[]
+  ): Promise<{ seconds: (number | null)[][]; metres: (number | null)[][] }> {
+    if (!this.baseUrl) {
+      throw new EnvVarMissingException(OSRM_URL)
+    }
+    if (points.length === 0) return { seconds: [], metres: [] }
+    const coordinates = points.map((p) => `${p.longitude},${p.latitude}`).join(';')
+    const url = `${this.baseUrl}/table/v1/driving/${coordinates}?annotations=duration,distance`
+    // Each row of OSRM's answer as numbers, or null where it found no route.
+    const read = (rows: unknown[]): (number | null)[][] =>
+      rows.map((row) =>
+        points.map((_, to) => {
+          const value = Array.isArray(row) ? row[to] : null
+          return typeof value === 'number' && Number.isFinite(value) ? value : null
+        })
+      )
+    try {
+      const response = await this.httpService.axiosRef.get(url, { timeout: this.timeoutMs })
+      const data = response.data
+      if (
+        data?.code !== 'Ok' ||
+        !Array.isArray(data?.durations) ||
+        !Array.isArray(data?.distances) ||
+        data.durations.length !== points.length ||
+        data.distances.length !== points.length
+      ) {
+        throw new Error(`code: ${data?.code || 'InvalidResponse'}`)
+      }
+      return { seconds: read(data.durations), metres: read(data.distances) }
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error)
+      this.logger.error(`OSRM table request failed: ${reason}`)
+      throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
+    }
+  }
+
   async getDurationMatrix(points: { latitude: number; longitude: number }[]): Promise<(number | null)[][]> {
     if (!this.baseUrl) {
       throw new EnvVarMissingException(OSRM_URL)

@@ -459,6 +459,68 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
     })
   }
 
+  // Spec 0048 (row 81, cross check 3): the second candidate query, for add ons. Riders holding exactly one
+  // delivery under the busy rule (liveDeliveriesWhere), and that one a job (no open offer), with the usual
+  // filters: a position, Online or Last Call, no active SOS, not deactivated, room in the box for this
+  // delivery, no other leg of its order, not on its skip list, and within maxAssignmentDistance of its pickup
+  // measured from where the rider is. Nearest first, at most `limit`: each one costs a road table. Each row
+  // names the rider's job, so the caller can check the co-op's add on moment and work out the stop order.
+  async findAddOnCandidates(
+    args: ICourierFindNearestArgs,
+    limit: number
+  ): Promise<Array<{ courierId: string; jobId: string; distance: number; courierLocation: GeoPosition }>> {
+    const { location, excludeCourierIds, maxDistanceInKM } = args
+    const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
+    const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${location.longitude}, ${location.latitude}), 4326)::geography`
+    const distance = Prisma.sql`ST_Distance("Courier"."currentLocation"::geography, ${point})`
+    const maxDistanceInMeters = maxDistanceInKM ? maxDistanceInKM * 1000 : null
+
+    // JOIN LATERAL runs the inner query once per rider row, so "job" is that rider's own job.
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; jobId: string; distance: number; currentLocation: string }>>(
+      Prisma.sql`
+      SELECT
+        "Courier"."id",
+        "job"."jobId",
+        ST_AsGeoJSON("Courier"."currentLocation") AS "currentLocation",
+        ${distance} AS distance
+      FROM "Courier"
+      JOIN LATERAL (
+        SELECT "Delivery"."id" AS "jobId"
+        FROM "Delivery"
+        WHERE "Delivery"."courierId" = "Courier"."id"
+          AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
+        LIMIT 1
+      ) AS "job" ON TRUE
+      WHERE "Courier"."currentLocation" IS NOT NULL
+      AND "Courier"."status"::text IN (${Prisma.join(courierActiveStatuses, ',')})
+      -- Exactly one live delivery, and it is the job above: never a third, never beside an open offer
+      AND (${liveDeliveryCountSql(Prisma.sql`"Courier"."id"`)}) = 1
+      AND NOT EXISTS (${activeSosCourierSubQuery()})
+      AND "Courier"."deactivatedAt" IS NULL
+      ${boxRoomCondition(args.boxUnits)}
+      ${siblingLegCondition(args.siblingOfDeliveryId)}
+      ${
+        excludeCourierIds && excludeCourierIds.length > 0
+          ? Prisma.sql`AND "Courier"."id" NOT IN (${Prisma.join(excludeCourierIds, ',')})`
+          : Prisma.empty
+      }
+      ${maxDistanceInMeters ? Prisma.sql`AND ${distance} <= ${maxDistanceInMeters}` : Prisma.empty}
+      ORDER BY distance
+      LIMIT ${limit}
+    `
+    )
+    return rows.map((row) => {
+      // GeoJSON lists a point as [longitude, latitude].
+      const position = JSON.parse(row.currentLocation)
+      return {
+        courierId: row.id,
+        jobId: row.jobId,
+        distance: row.distance,
+        courierLocation: { latitude: position.coordinates[1], longitude: position.coordinates[0] },
+      }
+    })
+  }
+
   async findNearestAvailableCourier(args: ICourierFindNearestArgs) {
     const { location } = args
     const result = await this.nearestAvailableRows(args, 1)

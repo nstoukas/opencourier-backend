@@ -3,7 +3,15 @@ import { EnumDeliveryEventType } from '@prisma/types'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RIDER_BOX_UNITS } from 'src/domains/delivery/box'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
-import { StackSequence, bestStackSequence, stackPairBlockKey, stackRefusal } from 'src/domains/delivery/stack'
+import { StackSequence, bestStackSequence, isSameRestaurant, stackPairBlockKey, stackRefusal } from 'src/domains/delivery/stack'
+import {
+  AddOnSequence,
+  addOnMomentAllows,
+  addOnRefusal,
+  bestAddOnSequence,
+  isCarryingFood,
+} from 'src/domains/delivery/add-on'
+import { OfferReasonStrategy } from 'src/domains/matching/offer-reason'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
@@ -16,10 +24,26 @@ import { EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 // costs one road table, so the offer is never held up by a long list.
 const STACK_CANDIDATE_LIMIT = 5
 
+// Row 81 (cross check 3): how many riders on a job are compared for an add on, the nearest first. The same
+// reason as above: each one costs a road table.
+const ADD_ON_CANDIDATE_LIMIT = 5
+
 // A stack ready to be offered: the second delivery and the order of the four stops (spec 0048, AC-4).
 export interface StackPlan {
   partner: DeliveryEntity
   sequence: StackSequence
+}
+
+// Row 81: an add on ready to be offered: the rider on a job, that job, the stop order through both jobs
+// and what it adds (AC-6), whether the rider carries food already (cross check 2: a calm offer then), how
+// many riders were compared, and the co-op's matcher setting the reason records.
+export interface AddOnPlan {
+  courierId: string
+  job: DeliveryEntity
+  sequence: AddOnSequence
+  carryingFood: boolean
+  candidateCount: number
+  strategy: OfferReasonStrategy
 }
 
 // Spec 0048 (Decision): the pairing logic, beside the matcher. DeliveryEventService asks it, once the
@@ -119,6 +143,98 @@ export class TwoOrderService {
       return null
     } catch (error) {
       this.logger.error(`Looking for a stack with delivery ${first.id} failed; offering it alone: ${error}`)
+      return null
+    }
+  }
+
+  // Row 81 (AC-6, AC-3, cross check 3): the rider on a job who should be offered `delivery` as one more order
+  // on the way, or null. `freeRiderFound`: the usual candidate query found a free rider. Under SHORTAGE_ONLY
+  // an add on is looked for only when it did not; under WHENEVER_FITS at every matching, and a fitting add on
+  // then goes before the free rider (decision 81.3). `isDue`: whether the offer would go out now for that
+  // rider, given the seconds until they reach the pickup through both jobs (timed offers, spec 0031). The
+  // winner adds the fewest whole minutes; a tie goes to the shorter road time to the new pickup. Never
+  // throws: anything it cannot read means no add on, and the delivery goes on exactly as without add ons.
+  async findAddOn(
+    delivery: DeliveryEntity,
+    freeRiderFound: boolean,
+    isDue: (courierId: string, secondsToPickup: number) => Promise<boolean>
+  ): Promise<AddOnPlan | null> {
+    try {
+      const config = this.configDomainService.instanceConfig
+      if (!(await config.getAddOnOffersEnabled())) return null
+      const [policy, delayLimitMinutes, moment, maxKm, strategy] = await Promise.all([
+        config.getTwoOrderPolicy(),
+        config.getTwoOrderDelayLimitMinutes(),
+        config.getAddOnMoment(),
+        config.getMaxAssignmentDistanceInKM(),
+        config.getCourierMatcherTypeSetting(),
+      ])
+      if (freeRiderFound && policy === EnumTwoOrderPolicy.SHORTAGE_ONLY) return null
+
+      const places = await this.deliveryRepository.findByIdOrThrowWithLocations(delivery.id)
+      if (!places.pickupLocation || !places.dropoffLocation) return null
+      // The delivery's own filters apply to the rider, as for any offer of it: its skip list, its distance.
+      const skipped = await this.cacheService.getOrDefault<string[]>(CacheHelpers.getDeliveryRejectedCouriersKey(delivery.id), [])
+      const candidates = await this.courierRepository.findAddOnCandidates(
+        {
+          location: places.pickupLocation,
+          maxDistanceInKM: maxKm,
+          excludeCourierIds: skipped,
+          boxUnits: delivery.boxUnits,
+          siblingOfDeliveryId: delivery.id,
+        },
+        ADD_ON_CANDIDATE_LIMIT
+      )
+
+      const plans: AddOnPlan[] = []
+      for (const candidate of candidates) {
+        const job = await this.deliveryRepository.findByIdOrThrowWithLocations(candidate.jobId)
+        if (!job.pickupLocation || !job.dropoffLocation) continue
+        if (!addOnMomentAllows(moment, job.status, isSameRestaurant(job, delivery))) continue
+        const carryingFood = isCarryingFood(job.status)
+        if (addOnRefusal(job, delivery, carryingFood)) continue
+
+        let table: { seconds: (number | null)[][]; metres: (number | null)[][] }
+        try {
+          table = await this.osrmRoutingService.getDurationAndDistanceMatrix([
+            candidate.courierLocation,
+            job.pickupLocation,
+            places.pickupLocation,
+            job.dropoffLocation,
+            places.dropoffLocation,
+          ])
+        } catch (error) {
+          // Cross check 5: with OSRM down, no add on is offered at all.
+          this.logger.warn(`No road times for an add on of delivery ${delivery.id}; no add on`)
+          return null
+        }
+        const sequence = bestAddOnSequence({
+          currentId: job.id,
+          newId: delivery.id,
+          seconds: table.seconds,
+          metres: table.metres,
+          currentPickedUp: carryingFood,
+          currentReadyAtMs: readyAtMs(job),
+          newReadyAtMs: readyAtMs(delivery),
+          nowMs: Date.now(),
+          delayLimitSeconds: delayLimitMinutes * 60,
+        })
+        if (!sequence) continue
+        if (!(await isDue(candidate.courierId, sequence.secondsToNewPickup))) continue
+        plans.push({ courierId: candidate.courierId, job, sequence, carryingFood, candidateCount: candidates.length, strategy })
+      }
+      if (plans.length === 0) return null
+
+      // Cross check 3: the fewest extra minutes wins (whole minutes, as the rider reads them), then the shorter
+      // road time to the new pickup: the factor every automatic matcher weighs (decision 81.4).
+      plans.sort(
+        (a, b) =>
+          Math.round(a.sequence.extraSeconds / 60) - Math.round(b.sequence.extraSeconds / 60) ||
+          a.sequence.secondsToNewPickup - b.sequence.secondsToNewPickup
+      )
+      return plans[0] ?? null
+    } catch (error) {
+      this.logger.error(`Looking for an add on of delivery ${delivery.id} failed; no add on: ${error}`)
       return null
     }
   }

@@ -20,6 +20,7 @@ import type {
 import { BOX_SIZE_WORDS, boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
 import { OrderLeg, missingLegNumbers } from './legs'
 import { STACK_CHANGED_SENTENCE, STACK_NOT_AUTOMATIC_SENTENCE } from './stack'
+import { ADD_ON_NOT_AUTOMATIC_SENTENCE, isAddOnOffer } from './add-on'
 import { adminLabel } from 'src/domains/partner-billing/billing-month'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
@@ -430,6 +431,9 @@ export class DeliveryDomainService {
       if (automatic) throw new ConflictException(STACK_NOT_AUTOMATIC_SENTENCE)
       return this.acceptStack(delivery, courierId)
     }
+    // Row 81 (AC-8): one more order on the way is never accepted by the phone on its own either: the rider
+    // must see what it adds to the job they are on. The rider's own accept goes through as a single one.
+    if (automatic && isAddOnOffer(delivery)) throw new ConflictException(ADD_ON_NOT_AUTOMATIC_SENTENCE)
 
     // Take the offer in one conditional update. The expiry job and the offline hook only end an
     // offer nobody has taken (courierId null), so once this succeeds neither can touch it, and if
@@ -618,7 +622,8 @@ export class DeliveryDomainService {
           offeredAt: delivery.offeredAt,
           courierId: null,
         },
-        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        // Row 81: a declined add on also loses its stop list through the rider's job (null on any other single).
+        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
       )
     } catch (error) {
       if (addedToSkipList) await this.removeCourierFromRejectedList(deliveryId, courierId)

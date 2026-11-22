@@ -4,6 +4,7 @@ import { DISPATCH_ATTENTION_ROW_LIMIT, INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
 import { median } from 'src/domains/partner/wait-record'
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
+import { addOnFigures, addOnJobIdOf, isAddOnOffer } from 'src/domains/delivery/add-on'
 import {
   DeliveredToday,
   LiveDelivery,
@@ -67,6 +68,9 @@ export type AttentionRow = {
   // Only on an OFFER_UNANSWERED row of a stack (spec 0048, AC-12): the other order offered with it.
   pairedDeliveryId?: string
   pairedOrderReference?: string | null
+  // Row 81 (AC-12): true on an OFFER_UNANSWERED row of an add on, one more order offered to a rider on a job;
+  // the paired fields above then name that job.
+  addOn?: boolean
 }
 
 export type DispatchBoardCards = {
@@ -225,6 +229,29 @@ export function offerUnansweredRows(
           pairedOrderReference: partner.orderReference,
         }
       }
+      // Row 81 (AC-12): one more order offered to a rider on a job. The row names the job and what it adds.
+      const job = addOnJobOf(delivery, live)
+      if (job) {
+        const figures = addOnFigures(delivery.addOnExtraMetres, delivery.addOnExtraSeconds)
+        const adds = figures ? ` (+${figures.extraKm} km, +${figures.extraMinutes} min)` : ''
+        return {
+          id: `${ATTENTION_KIND.OFFER_UNANSWERED}:${delivery.id}`,
+          kind: ATTENTION_KIND.OFFER_UNANSWERED,
+          since: delivery.offerExpiresAt === null ? offeredAt : null,
+          sortAt: offeredAt,
+          deliveryId: delivery.id,
+          ...NO_SOURCE_IDS,
+          ...deliveryFields(delivery),
+          riderName: name,
+          detail: `Offered to ${name ?? 'a courier'} as one more order on the way with ${
+            job.orderReference ?? 'their job'
+          }${adds}, unanswered`,
+          held: false,
+          pairedDeliveryId: job.id,
+          pairedOrderReference: job.orderReference,
+          addOn: true,
+        }
+      }
       return {
         id: `${ATTENTION_KIND.OFFER_UNANSWERED}:${delivery.id}`,
         kind: ATTENTION_KIND.OFFER_UNANSWERED,
@@ -238,6 +265,14 @@ export function offerUnansweredRows(
         held: false,
       }
     })
+}
+
+// Row 81 (AC-12): for an open add on offer, the job it would ride with: the delivery its stop list names,
+// carried by the rider it is offered to. null for anything else.
+function addOnJobOf(delivery: LiveDelivery, live: LiveDelivery[]): LiveDelivery | null {
+  if (!isAddOnOffer(delivery)) return null
+  const jobId = addOnJobIdOf(delivery)
+  return live.find((d) => d.id === jobId && isCarried(d) && d.courierId === delivery.matchedCourierId) ?? null
 }
 
 // Spec 0048 (AC-12): the other delivery of the same stack, offered to the same rider or carried by them,
@@ -408,7 +443,11 @@ export function buildMap(live: LiveDelivery[], couriers: WorkingCourier[]): Disp
   const carryingOf = (courierId: string) =>
     live.flatMap((d) => {
       // Spec 0048 (AC-12): `paired` marks the two orders of a stack, offered or carried together.
-      const paired = stackPartnerOf(d, live) !== null ? { paired: true } : {}
+      // Row 81: an open add on is paired with the job it would ride with (that job is marked from its side too).
+      const paired =
+        stackPartnerOf(d, live) !== null || addOnJobOf(d, live) !== null || live.some((o) => addOnJobOf(o, live)?.id === d.id)
+          ? { paired: true }
+          : {}
       if (isCarried(d) && d.courierId === courierId) {
         return [{ deliveryId: d.id, orderReference: d.orderReference, offered: false, ...paired }]
       }

@@ -6,10 +6,12 @@ import {
   THIRD_DELIVERY_REFUSED_SENTENCE,
   describeStops,
   stackPairBlockKey,
+  stackStopsOf,
 } from 'src/domains/delivery/stack'
-import { TwoOrderService, StackPlan } from 'src/services/two-order/two-order.service'
+import { TwoOrderService, StackPlan, AddOnPlan } from 'src/services/two-order/two-order.service'
+import { addOnFigures, addOnJobIdOf, describeAddOn } from 'src/domains/delivery/add-on'
 import { randomUUID } from 'crypto'
-import { OfferReasonInput, adminOfferReason, stackOfferReason } from 'src/domains/matching/offer-reason'
+import { OfferReasonInput, addOnOfferReason, adminOfferReason, stackOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
 import type {
   DeliveryFoodReadyEvent,
@@ -1834,17 +1836,44 @@ export class DeliveryEventService {
     }
 
     const match = await this.deliveryMatchingService.findCourierForDelivery(deliveryId)
-    if (!match) {
-      this.logger.log(`No courier found for delivery ${deliveryId}`)
-      return 'NO_COURIER'
-    }
-    const { courier } = match
 
     // No matcher offers work to a rider in an active SOS (spec 0022, AC-7; decision 73.11). The two
     // automatic matchers already leave such riders out in their SQL; this one check also covers the
     // STATIC matcher, which returns its configured rider without asking whether they are free. The
     // delivery then waits as if no rider were free, and the backstop retry tries again.
-    if (await this.courierRepository.hasActiveSos(courier.id)) {
+    const riderInSos = match ? await this.courierRepository.hasActiveSos(match.courier.id) : false
+
+    // Spec 0048 (row 81, AC-6, AC-3): with Add on offers on, one more order for a rider already on a job.
+    // Looked for when no free rider was found (a shortage), or at every matching under WHENEVER_FITS, where a
+    // fitting add on goes before the free rider (decision 81.3). Anything that keeps it from being written
+    // leaves this delivery exactly where it was without add ons: offered to the free rider, or waiting.
+    if (this.twoOrderService) {
+      const freeRiderFound = match !== undefined && !riderInSos
+      const delivery = match?.delivery ?? (await this.deliveryRepository.findByIdOrThrow(deliveryId))
+      const plan = await this.twoOrderService.findAddOn(delivery, freeRiderFound, async (courierId, secondsToPickup) => {
+        if (options.ignoreTiming === true) return true
+        const pickupLocation = match?.pickupLocation ?? (await this.deliveryRepository.findByIdOrThrowWithLocations(deliveryId)).pickupLocation
+        if (!pickupLocation) return true
+        const addOnTiming = await this.offerTimingOf({
+          courier: { id: courierId },
+          delivery,
+          pickupLocation,
+          travelSeconds: secondsToPickup,
+        })
+        return addOnTiming.dueInMs <= 0
+      })
+      if (plan) {
+        const added = await this.offerAddOn(delivery, plan)
+        if (added !== 'NOT_ADDED') return added
+      }
+    }
+
+    if (!match) {
+      this.logger.log(`No courier found for delivery ${deliveryId}`)
+      return 'NO_COURIER'
+    }
+    const { courier } = match
+    if (riderInSos) {
       this.logger.log(`Courier ${courier.id} has an active SOS; delivery ${deliveryId} is not offered to them`)
       return 'NO_COURIER'
     }
@@ -2110,6 +2139,133 @@ export class DeliveryEventService {
       }
     }
     return 'OFFERED'
+  }
+
+  // Spec 0048 (row 81, AC-6): offers `delivery` to a rider already on a job, as one more order on the way. A
+  // single offer of this one delivery (the job is never touched: AC-7), claimed under the rider's lock with
+  // the check that the job is still the one thing they hold, its own amounts from its own quote (AC-9: the
+  // added order pays in full), the stop list through both jobs (for the card and the route, AC-10), what it
+  // adds in metres and seconds, and an OFFERED event whose reason is kind ADD_ON (value 1). Cross check 2: an
+  // add on offered while the rider carries food gets twice the usual time to answer, and the push never
+  // rings insistently (offer-push.service). 'NOT_ADDED' when nothing was written: the caller goes on as
+  // without add ons.
+  private async offerAddOn(delivery: DeliveryEntity, plan: AddOnPlan): Promise<OfferStepResult | 'NOT_ADDED'> {
+    const { courierId, job, sequence } = plan
+    let amounts: IDeliveryAmountsCalculationsResult
+    try {
+      amounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+        deliveryId: delivery.id,
+        courierId,
+      })
+    } catch (error) {
+      this.logger.error(`Could not work out the pay of delivery ${delivery.id} as an add on; no add on: ${error}`)
+      return 'NOT_ADDED'
+    }
+    const expiryEnabled = await this.configDomainService.instanceConfig.getOfferExpiryEnabled()
+    const baseSeconds = expiryEnabled ? await this.configDomainService.instanceConfig.getOfferExpirySeconds() : null
+    // Cross check 2: twice the time while carrying food, so the rider can stop before answering.
+    const expirySeconds = baseSeconds !== null && plan.carryingFood ? baseSeconds * 2 : baseSeconds
+    const offeredAt = new Date()
+    const offerExpiresAt = expirySeconds !== null ? new Date(offeredAt.getTime() + expirySeconds * 1000) : null
+    const stopSequence = sequence.stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
+
+    const claim = await this.deliveryRepository.claimAddOnWithinBox(
+      delivery.id,
+      courierId,
+      job.id,
+      { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
+      {
+        matchedCourierId: courierId,
+        offeredAt,
+        offerExpiresAt,
+        totalCost: amounts.totalCost,
+        totalCompensation: amounts.totalCompensation,
+        fee: amounts.fee,
+        feePercentage: amounts.feePercentage,
+        // Alone until accepted: the job joins it under one offerGroupId only then (joinAcceptedAddOn).
+        offerGroupId: null,
+        stopSequence,
+        addOnExtraMetres: sequence.extraMetres,
+        addOnExtraSeconds: sequence.extraSeconds,
+      }
+    )
+    if (claim !== 'CLAIMED') {
+      this.logger.log(`Add on of delivery ${delivery.id} to courier ${courierId} not written (${claim})`)
+      return claim === 'NOT_WAITING' ? 'NOT_WAITING' : 'NOT_ADDED'
+    }
+
+    // A stop that began while this matching ran: take it back (row 29 review), as for a single offer.
+    if (await this.dispatchStopRepository.findOn(new Date())) {
+      await this.deliveryRepository.updateIfMatches(
+        delivery.id,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courierId, offeredAt, courierId: null },
+        { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
+      )
+      this.logger.log(`Dispatch stopped while delivery ${delivery.id} was being offered as an add on; offer taken back`)
+      return 'STOPPED'
+    }
+
+    this.logger.log(`Delivery ${delivery.id} is being offered to courier ${courierId} as an add on to delivery ${job.id}`)
+    const figures = addOnFigures(sequence.extraMetres, sequence.extraSeconds)
+    try {
+      await this.saveOfferedEvent(
+        delivery.id,
+        courierId,
+        EnumEventActor.SYSTEM,
+        offerExpiresAt,
+        null,
+        `; ${describeAddOn(job.id, sequence, plan.carryingFood)}`,
+        addOnOfferReason({
+          strategy: plan.strategy,
+          currentDeliveryId: job.id,
+          sequence,
+          extraKm: figures?.extraKm ?? 0,
+          extraMinutes: figures?.extraMinutes ?? 0,
+          carryingFood: plan.carryingFood,
+          candidateCount: plan.candidateCount,
+        })
+      )
+    } catch (error) {
+      this.logger.error(`Could not record OFFERED for delivery ${delivery.id}: ${error}`, (error as Error).stack)
+    }
+    if (expirySeconds !== null) {
+      await this.scheduleOfferExpiry(delivery.id, courierId, offeredAt, expirySeconds * 1000)
+    }
+    await this.removeNoCourierRetry(delivery.id)
+
+    try {
+      const courier = await this.courierRepository.findById(courierId)
+      const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(delivery.id)
+      if (courier) await this.sendOfferToRider(courier, updatedDelivery)
+    } catch (error) {
+      // The phone still finds the offer on its next fetch of new deliveries.
+      this.logger.error(`Could not send the add on offer of ${delivery.id} to courier ${courierId}: ${error}`)
+    }
+    return 'OFFERED'
+  }
+
+  // Row 81 (AC-10): an add on that left its offer. Accepted by the rider holding the job its stop list names:
+  // the two become a pair (joinAcceptedAddOn). Ended any other way (cancelled, moved by an admin, accepted
+  // for another rider): its stop list is cleared, since it names a job that is not its rider's. Never throws:
+  // the list is only advisory.
+  private async settleAddOnLeavingOffer(delivery: DeliveryEntity): Promise<void> {
+    const jobId = addOnJobIdOf(delivery)
+    if (!jobId) return
+    try {
+      const stops = delivery.stopSequence !== null ? stackStopsOf(delivery.stopSequence) : null
+      if (delivery.status === EnumDeliveryStatus.ACCEPTED && delivery.courierId && stops) {
+        const joined = await this.deliveryRepository.joinAcceptedAddOn(delivery.id, jobId, delivery.courierId, stops)
+        this.logger.log(
+          joined
+            ? `Add on ${delivery.id} accepted; it rides with delivery ${jobId}`
+            : `Add on ${delivery.id} accepted after delivery ${jobId} left its rider; it goes on alone`
+        )
+        return
+      }
+      await this.deliveryRepository.updateIfMatches(delivery.id, { offerGroupId: null }, { stopSequence: Prisma.DbNull })
+    } catch (error) {
+      this.logger.error(`Could not settle the stop list of add on ${delivery.id}: ${error}`)
+    }
   }
 
   // Matching found nobody (flow 4): one NO_COURIER_AVAILABLE per waiting spell, then the backstop.
@@ -3281,6 +3437,9 @@ export class DeliveryEventService {
       try {
         const moved = await this.deliveryRepository.findById(deliveryEvent.deliveryId)
         if (moved?.offerGroupId) await this.releaseStackPartners(moved.offerGroupId, moved.id)
+        // Row 81: an add on (alone, with a stop list through the rider's job) joins that job when its rider
+        // accepted it, and loses the list on any other way out. One rule, here, like the stack's above.
+        else if (moved && moved.stopSequence !== null) await this.settleAddOnLeavingOffer(moved)
       } catch (error) {
         this.logger.error(`Could not release the stack partner of delivery ${deliveryEvent.deliveryId}: ${error}`)
       }

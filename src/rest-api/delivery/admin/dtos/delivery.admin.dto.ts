@@ -2,6 +2,7 @@ import { OfferReasonAdminDto } from './offer-reason.admin.dto'
 import { BoxSize } from '@prisma/types'
 import { ApiProperty } from '@nestjs/swagger'
 import { StackStopKind, stackStopsOf } from 'src/domains/delivery/stack'
+import { addOnFigures, isAddOnOffer } from 'src/domains/delivery/add-on'
 import {
   EnumCancelledBy,
   EnumDeliverableAction,
@@ -268,6 +269,17 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: () => StackStopAdminDto, isArray: true, nullable: true })
   stackStops: StackStopAdminDto[] | null
 
+  // Spec 0048 (row 81, AC-12): true while this is an open add on offer to a rider on a job (its stackStops
+  // name the job), and what the add on was offered as adding, kept after it as the record (null if never).
+  @ApiProperty({ type: Boolean })
+  addOn: boolean
+
+  @ApiProperty({ type: Number, nullable: true })
+  addOnExtraKm: number | null
+
+  @ApiProperty({ type: Number, nullable: true })
+  addOnExtraMinutes: number | null
+
   // The rider currently offered this delivery, while it is still looking for a rider.
   @ApiProperty({ type: String, nullable: true })
   matchedCourierName: string | null
@@ -383,6 +395,10 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
     this.offerExpiresAt = data.offerExpiresAt
     this.offerGroupId = data.offerGroupId ?? null
     this.stackStops = stackStopsOf(data.stopSequence)
+    this.addOn = isAddOnOffer(data)
+    const figures = addOnFigures(data.addOnExtraMetres ?? null, data.addOnExtraSeconds ?? null)
+    this.addOnExtraKm = figures?.extraKm ?? null
+    this.addOnExtraMinutes = figures?.extraMinutes ?? null
     this.matchedCourierName = offerView?.matchedCourierName ?? null
     this.waitingForCourierSince = offerView?.waitingForCourierSince ?? null
     this.cancelledBy = data.cancelledBy ?? null

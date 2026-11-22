@@ -36,6 +36,10 @@ export const OFFER_CARD_PAYLOAD_KEYS = [
   // delivery id; '' for a single offer. Ids only: the phone loads both orders from the server.
   'offerGroupId',
   'partnerDeliveryId',
+  // Spec 0048 (row 81): '1' for an add on, one more order on the way while on a job; '' otherwise. 'calm' is
+  // '1' when the rider carries food already (cross check 2): the phone then never rings insistently.
+  'addOn',
+  'calm',
 ] as const
 
 // `(typeof X)[number]` is "any one element of the array X": the union 'deliveryId' | 'offeredAt' | ...
@@ -62,6 +66,8 @@ export interface OfferCardSource {
   trip: OfferTrip
   // Spec 0048: set when this offer is one of two orders offered together (the push names the other).
   stack?: { offerGroupId: string; partnerDeliveryId: string } | null
+  // Row 81: set when this offer is an add on; `calm` while the rider carries food (cross check 2).
+  addOn?: { calm: boolean } | null
 }
 
 export interface OfferCardOptions {
@@ -97,6 +103,8 @@ export function buildOfferCardPayload(source: OfferCardSource, options: OfferCar
     ...legPayload(delivery),
     offerGroupId: source.stack?.offerGroupId ?? '',
     partnerDeliveryId: source.stack?.partnerDeliveryId ?? '',
+    addOn: source.addOn ? '1' : '',
+    calm: source.addOn?.calm ? '1' : '',
   }
 
   return payload
