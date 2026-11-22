@@ -1,0 +1,294 @@
+import { EnumDeliveryStatus, Prisma } from '@prisma/types'
+import { DeliveryRepository } from './delivery.repository'
+import { PrismaService } from 'src/services/prisma/prisma.service'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types'
+import { StackStop } from 'src/domains/delivery/stack'
+
+describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & decision 81.22)', () => {
+  let repository: DeliveryRepository
+  let mockPrisma: any
+  let fakeTx: {
+    $queryRaw: jest.Mock
+    delivery: {
+      count: jest.Mock
+      findUnique: jest.Mock
+      updateMany: jest.Mock
+    }
+  }
+
+  beforeEach(() => {
+    fakeTx = {
+      $queryRaw: jest.fn(),
+      delivery: {
+        count: jest.fn(),
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
+    }
+
+    // Interactive transaction mock: executes the callback with fakeTx.
+    // If the callback throws (such as RollBack), the transaction promise rejects.
+    mockPrisma = {
+      $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb(fakeTx)),
+      delivery: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+
+    repository = new DeliveryRepository(mockPrisma as unknown as PrismaService)
+  })
+
+  describe('claimAddOnWithinBox (spec 0048 AC-6, AC-11, decision 81.22)', () => {
+    const courierId = 'courier-r81'
+    const deliveryId = 'del-addon-1'
+    const jobId = 'job-held-1'
+    const allowedJobStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+    ]
+
+    test('happy path: returns CLAIMED when rider holds exactly the job in an allowed status and box fits', async () => {
+      // 1. Not deactivated
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      // 2. Sibling leg check: no sibling leg held
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      // 3. Live delivery count: exactly 1 held
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 1 }])
+      // 4. Job check: held job is still this courier's in allowedJobStatuses
+      fakeTx.delivery.count.mockResolvedValueOnce(1)
+      // 5. Read delivery boxUnits
+      fakeTx.delivery.findUnique.mockResolvedValueOnce({ boxUnits: 30 })
+      // 6. Held box units sum
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 20 }]) // 20 + 30 = 50 <= 100
+      // 7. Update conditional write hits
+      fakeTx.delivery.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        allowedJobStatuses,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('CLAIMED')
+      expect(fakeTx.delivery.count).toHaveBeenCalledWith({
+        where: {
+          id: jobId,
+          courierId,
+          status: { in: allowedJobStatuses },
+        },
+      })
+      expect(fakeTx.delivery.updateMany).toHaveBeenCalledWith({
+        where: {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          id: deliveryId,
+          boxUnits: 30,
+        },
+        data: { matchedCourierId: courierId },
+      })
+    })
+
+    test('returns JOB_CHANGED when held job count is 0 (job completed, dropped off, or reassigned)', async () => {
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 1 }]) // live count was 1
+      // Job count returns 0 because jobId is no longer held by courierId in allowedJobStatuses
+      fakeTx.delivery.count.mockResolvedValueOnce(0)
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        allowedJobStatuses,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('JOB_CHANGED')
+      // Delivery was never read or updated
+      expect(fakeTx.delivery.findUnique).not.toHaveBeenCalled()
+      expect(fakeTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('returns JOB_CHANGED when live delivery count is not 1 (e.g. held count is 0)', async () => {
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      // Live count is 0 (rider finished job)
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 0 }])
+      fakeTx.delivery.count.mockResolvedValueOnce(1)
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        allowedJobStatuses,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('JOB_CHANGED')
+      expect(fakeTx.delivery.findUnique).not.toHaveBeenCalled()
+      expect(fakeTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('returns JOB_CHANGED when held job transitioned past the allowed addOnMoment status', async () => {
+      // E.g. Moment was BEFORE_PICKUP (job must be ACCEPTED or DISPATCHED),
+      // but rider tapped PICKED_UP in the moment between matching and claim.
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 1 }])
+      // Count query filters by status: { in: allowedJobStatuses }.
+      // Since status in DB is now PICKED_UP, count returns 0.
+      fakeTx.delivery.count.mockResolvedValueOnce(0)
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        [EnumDeliveryStatus.ACCEPTED, EnumDeliveryStatus.DISPATCHED],
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('JOB_CHANGED')
+      expect(fakeTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('returns BOX_FULL when held job and add-on exceed 100 box units', async () => {
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 1 }])
+      fakeTx.delivery.count.mockResolvedValueOnce(1)
+      fakeTx.delivery.findUnique.mockResolvedValueOnce({ boxUnits: 60 })
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 50 }]) // 50 + 60 = 110 > 100
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        allowedJobStatuses,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('BOX_FULL')
+      expect(fakeTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('returns NOT_WAITING when delivery conditional write misses', async () => {
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ exists: false }])
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 1 }])
+      fakeTx.delivery.count.mockResolvedValueOnce(1)
+      fakeTx.delivery.findUnique.mockResolvedValueOnce({ boxUnits: 30 })
+      fakeTx.$queryRaw.mockResolvedValueOnce([{ held: 20 }])
+      // Missed write: count === 0
+      fakeTx.delivery.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      const outcome = await repository.claimAddOnWithinBox(
+        deliveryId,
+        courierId,
+        jobId,
+        allowedJobStatuses,
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: courierId }
+      )
+
+      expect(outcome).toBe('NOT_WAITING')
+    })
+  })
+
+  describe('joinAcceptedAddOn (spec 0048 AC-10, agy review fix 6a3720c, decision 81.22)', () => {
+    const courierId = 'courier-r81'
+    const addOnId = 'del-addon-1'
+    const jobId = 'job-held-1'
+    const stops: StackStop[] = [
+      { deliveryId: jobId, stop: 'PICKUP' },
+      { deliveryId: addOnId, stop: 'PICKUP' },
+      { deliveryId: jobId, stop: 'DROPOFF' },
+      { deliveryId: addOnId, stop: 'DROPOFF' },
+    ]
+
+    test('happy path: joins both deliveries into the same offerGroupId and stopSequence', async () => {
+      // Both updateMany calls return count: 1
+      fakeTx.delivery.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // job update
+        .mockResolvedValueOnce({ count: 1 }) // addOn update
+
+      const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
+
+      expect(joined).toBe(true)
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+
+      // 1. Job updated with groupId and stopSequence
+      expect(fakeTx.delivery.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: jobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
+        data: {
+          offerGroupId: expect.any(String),
+          stopSequence: stops.map((s) => ({ deliveryId: s.deliveryId, stop: s.stop })),
+        },
+      })
+
+      // 2. Add-on updated with same groupId and stopSequence
+      const assignedGroupId = fakeTx.delivery.updateMany.mock.calls[0][0].data.offerGroupId
+      expect(fakeTx.delivery.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: addOnId, courierId },
+        data: {
+          offerGroupId: assignedGroupId,
+          stopSequence: stops.map((s) => ({ deliveryId: s.deliveryId, stop: s.stop })),
+        },
+      })
+
+      // Fallback cleanup not called on success
+      expect(mockPrisma.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('job miss: when job is no longer ongoing with this courier, rolls back and clears stopSequence on addOn', async () => {
+      // Job update misses (count: 0) because job ended or moved
+      fakeTx.delivery.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
+
+      expect(joined).toBe(false)
+      // addOn update inside transaction was not called because job threw RollBack
+      expect(fakeTx.delivery.updateMany).toHaveBeenCalledTimes(1)
+      // Outside transaction: addOn's stopSequence is cleared to DbNull so it goes on alone
+      expect(mockPrisma.delivery.updateMany).toHaveBeenCalledWith({
+        where: { id: addOnId },
+        data: { stopSequence: Prisma.DbNull },
+      })
+    })
+
+    test('add-on miss (agy review fix 6a3720c): when add-on update misses, transaction rolls back so job keeps no orphan groupId', async () => {
+      // Job update hits (count: 1), but addOn update misses (count: 0 - e.g. admin moved addOn order)
+      fakeTx.delivery.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // job write hits
+        .mockResolvedValueOnce({ count: 0 }) // addOn write misses
+
+      const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
+
+      expect(joined).toBe(false)
+      expect(fakeTx.delivery.updateMany).toHaveBeenCalledTimes(2)
+
+      // The transaction threw RollBack, rolling back the job update in the DB.
+      // Outside transaction: addOn's stopSequence is cleared to DbNull
+      expect(mockPrisma.delivery.updateMany).toHaveBeenCalledWith({
+        where: { id: addOnId },
+        data: { stopSequence: Prisma.DbNull },
+      })
+    })
+
+    test('rethrows unexpected database error that is not a RollBack', async () => {
+      const dbError = new Error('Database connection failed')
+      fakeTx.delivery.updateMany.mockRejectedValueOnce(dbError)
+
+      await expect(repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)).rejects.toThrow(
+        'Database connection failed'
+      )
+
+      expect(mockPrisma.delivery.updateMany).not.toHaveBeenCalled()
+    })
+  })
+})

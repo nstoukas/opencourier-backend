@@ -234,6 +234,109 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
       )
     })
 
+    describe('SAME_RESTAURANT moment and crowding out prevention (spec 0048, agy review, decision 81.22)', () => {
+      it('returns null immediately without querying candidates when delivery has no partnerId', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-no-partner', { partnerId: null as any })
+
+        const result = await service.findAddOn(delivery, false, async () => true)
+
+        expect(result).toBeNull()
+        expect(mockCourierRepo.findAddOnCandidates).not.toHaveBeenCalled()
+      })
+
+      it('passes sameRestaurantAs with partnerId and pickupLocationId to candidate query when partnerId is set', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-same-rest', {
+          partnerId: 'partner-taverna-1',
+          pickupLocationId: 'loc-pickup-taverna',
+        })
+
+        await service.findAddOn(delivery, false, async () => true)
+
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sameRestaurantAs: {
+              partnerId: 'partner-taverna-1',
+              pickupLocationId: 'loc-pickup-taverna',
+            },
+          }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.SAME_RESTAURANT)
+        )
+      })
+
+      it('leaves sameRestaurantAs undefined for BEFORE_PICKUP and BEFORE_DROPOFF moments', async () => {
+        // 1. BEFORE_PICKUP
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.BEFORE_PICKUP)
+        const del1 = makeDelivery('del-1', { partnerId: 'partner-1', pickupLocationId: 'loc-1' })
+        await service.findAddOn(del1, false, async () => true)
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sameRestaurantAs: undefined }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.BEFORE_PICKUP)
+        )
+
+        // 2. BEFORE_DROPOFF
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.BEFORE_DROPOFF)
+        const del2 = makeDelivery('del-2', { partnerId: 'partner-1', pickupLocationId: 'loc-1' })
+        await service.findAddOn(del2, false, async () => true)
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sameRestaurantAs: undefined }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.BEFORE_DROPOFF)
+        )
+      })
+
+      it('prevents candidate crowding out: passes sameRestaurantAs so riders on jobs for other stores do not displace eligible rider', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-target', {
+          partnerId: 'partner-target',
+          pickupLocationId: 'loc-pickup-target',
+        })
+
+        mockCourierRepo.findAddOnCandidates.mockResolvedValueOnce([
+          {
+            courierId: 'courier-target-restaurant',
+            jobId: 'job-target-restaurant',
+            distance: 800,
+            courierLocation: { latitude: 39.362, longitude: 22.942 },
+          },
+        ])
+
+        mockDeliveryRepo.findByIdOrThrowWithLocations.mockImplementation((id: string) => {
+          if (id === 'job-target-restaurant') {
+            return Promise.resolve(
+              makeDeliveryWithLocs('job-target-restaurant', {
+                partnerId: 'partner-target',
+                pickupLocationId: 'loc-pickup-target',
+                status: EnumDeliveryStatus.ACCEPTED,
+                courierId: 'courier-target-restaurant',
+              })
+            )
+          }
+          return Promise.resolve(
+            makeDeliveryWithLocs(id, {
+              partnerId: 'partner-target',
+              pickupLocationId: 'loc-pickup-target',
+            })
+          )
+        })
+
+        const result = await service.findAddOn(delivery, false, async () => true)
+
+        expect(result).not.toBeNull()
+        expect(result!.courierId).toBe('courier-target-restaurant')
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sameRestaurantAs: { partnerId: 'partner-target', pickupLocationId: 'loc-pickup-target' },
+          }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.SAME_RESTAURANT)
+        )
+      })
+    })
+
     it('skips candidates whose job is not allowed by addOnMoment', async () => {
       // Moment is BEFORE_PICKUP, but candidate's job is already PICKED_UP
       mockDeliveryRepo.findByIdOrThrowWithLocations.mockImplementation((id: string) => {
