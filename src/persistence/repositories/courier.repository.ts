@@ -59,7 +59,11 @@ export function liveDeliveriesWhere(riderId: Prisma.Sql): Prisma.Sql {
         AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
       ) OR (
         "Delivery"."matchedCourierId" = ${riderId}
-        AND "Delivery"."courierId" IS NULL
+        -- agy review of row 80: an accept writes courierId first, while the status is still ASSIGNING_COURIER,
+        -- and ACCEPTED moves it a moment later (for the second order of a pair, up to the minute sweep).
+        -- Counted in that moment too, as heldBoxDeliveriesWhere does, or the rider looks free and the limit
+        -- of two can be passed by a hand offer.
+        AND ("Delivery"."courierId" IS NULL OR "Delivery"."courierId" = ${riderId})
         AND "Delivery"."status"::text = ${EnumDeliveryStatus.ASSIGNING_COURIER}
       )`
 }
