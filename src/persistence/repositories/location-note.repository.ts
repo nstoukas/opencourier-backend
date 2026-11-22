@@ -33,6 +33,19 @@ const ADMIN_NOTE_INCLUDE = {
   flags: { select: { id: true, reason: true, createdAt: true }, orderBy: { createdAt: 'desc' as const } },
 }
 
+// Row 82 review: one upvote per rider per note. The reaction table has no unique index (upstream), so
+// a quick double tap can leave two rows; each rider counts once however many rows they have.
+type UpvoteRow = { locationNoteId: string; courierId: string }
+function distinctRiders(reactions: UpvoteRow[]): UpvoteRow[] {
+  const seen = new Set<string>()
+  return reactions.filter((reaction) => {
+    const key = `${reaction.locationNoteId} ${reaction.courierId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 @Injectable()
 export class LocationNoteRepository extends EntityRepository implements ILocationNoteRepository {
   constructor(prisma: PrismaService) {
@@ -169,7 +182,7 @@ export class LocationNoteRepository extends EntityRepository implements ILocatio
         select: { locationNoteId: true },
       }),
     ])
-    for (const reaction of reactions) {
+    for (const reaction of distinctRiders(reactions)) {
       if (reaction.courierId === courierId) upvotedByMe.add(reaction.locationNoteId)
       if (reaction.courierId === authorOf.get(reaction.locationNoteId)) continue
       upvotes.set(reaction.locationNoteId, (upvotes.get(reaction.locationNoteId) ?? 0) + 1)
@@ -231,7 +244,7 @@ export class LocationNoteRepository extends EntityRepository implements ILocatio
       where: { locationNoteId: { in: ids }, reaction: EnumLocationNoteReactionType.UPVOTE },
       select: { locationNoteId: true, courierId: true },
     })
-    for (const reaction of reactions) {
+    for (const reaction of distinctRiders(reactions)) {
       if (reaction.courierId === authorOf.get(reaction.locationNoteId)) continue
       counts.set(reaction.locationNoteId, (counts.get(reaction.locationNoteId) ?? 0) + 1)
     }
