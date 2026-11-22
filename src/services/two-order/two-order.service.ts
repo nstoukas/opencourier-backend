@@ -21,7 +21,7 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { CacheService } from 'src/services/cache/cache.service'
 import { CacheHelpers } from 'src/services/cache/cache.helpers'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
-import { EnumTwoOrderPolicy } from 'src/shared-types/stacking'
+import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 
 // How many waiting orders are tried as the second order of a stack, the longest waiting first. Each one
 // costs one road table, so the offer is never held up by a long list.
@@ -187,6 +187,12 @@ export class TwoOrderService {
       if (freeRiderFound && policy === EnumTwoOrderPolicy.SHORTAGE_ONLY) return null
       const jobStatuses = addOnJobStatuses(moment)
 
+      // agy review: under SAME_RESTAURANT only a job from this order's restaurant counts, so the query asks for
+      // those jobs only (a rider on another restaurant's job never takes one of the five places). An order with
+      // no restaurant can never be "the same restaurant" (isSameRestaurant), so there is no add on for it.
+      const sameRestaurant = moment === EnumAddOnMoment.SAME_RESTAURANT
+      if (sameRestaurant && !delivery.partnerId) return null
+
       const places = await this.deliveryRepository.findByIdOrThrowWithLocations(delivery.id)
       if (!places.pickupLocation || !places.dropoffLocation) return null
       // The delivery's own filters apply to the rider, as for any offer of it: its skip list, its distance.
@@ -198,6 +204,11 @@ export class TwoOrderService {
           excludeCourierIds: skipped,
           boxUnits: delivery.boxUnits,
           siblingOfDeliveryId: delivery.id,
+          // `undefined` (left out) for the other two moments, where any restaurant's job may qualify.
+          sameRestaurantAs:
+            sameRestaurant && delivery.partnerId
+              ? { partnerId: delivery.partnerId, pickupLocationId: delivery.pickupLocationId }
+              : undefined,
         },
         ADD_ON_CANDIDATE_LIMIT,
         jobStatuses
