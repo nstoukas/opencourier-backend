@@ -13,6 +13,8 @@ const DEFAULT_COMPLAINTS_BUCKET = 'complaints'
 
 // MinIO's answers for "no such file", checked on the error's `code`.
 const NOT_FOUND_CODES = new Set(['NoSuchKey', 'NotFound'])
+// How long a passed bucket check is trusted before the next upload asks MinIO again (5 minutes).
+const BUCKET_RECHECK_MS = 5 * 60 * 1000
 
 // Turns `http://localhost:9000` into the pieces the MinIO client wants. Exported for tests.
 export function minioOptionsFrom(endpoint: string, accessKey: string, secretKey: string): ClientOptions {
@@ -39,7 +41,8 @@ export class MinioStorageService extends StorageProvider implements OnModuleInit
   private readonly logger = new Logger(MinioStorageService.name)
   private readonly client: Client | null
   private readonly bucket: string
-  private bucketReady = false
+  // When the bucket last passed the check below (ms since 1970), or null before the first pass.
+  private bucketCheckedAt: number | null = null
 
   constructor(configService: ConfigService) {
     super()
@@ -90,9 +93,10 @@ export class MinioStorageService extends StorageProvider implements OnModuleInit
   }
 
   // Makes the bucket if it is missing, and refuses one that carries a policy (a policy is how a bucket
-  // is made readable by anyone). Remembered once it passed, so each upload does not ask again.
+  // is made readable by anyone). A pass is remembered for BUCKET_RECHECK_MS, then asked again, so a
+  // policy added while the server runs stops photo uploads within minutes, not only at the next start.
   private async ensureBucket() {
-    if (this.bucketReady) return
+    if (this.bucketCheckedAt !== null && Date.now() - this.bucketCheckedAt < BUCKET_RECHECK_MS) return
     const client = this.requireClient()
     if (!(await client.bucketExists(this.bucket))) {
       try {
@@ -105,7 +109,7 @@ export class MinioStorageService extends StorageProvider implements OnModuleInit
     if (await this.hasPolicy(client)) {
       throw new Error(`Bucket "${this.bucket}" has an access policy; complaint photos must stay private`)
     }
-    this.bucketReady = true
+    this.bucketCheckedAt = Date.now()
   }
 
   private async hasPolicy(client: Client): Promise<boolean> {
