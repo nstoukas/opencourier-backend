@@ -112,15 +112,18 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
   // Row 81 (AC-6, AC-11): an add on offer's claim, the same locked claim as a single offer (deactivation,
   // legs, the limit of two, the box) plus one check under the same lock: the rider still holds `jobId`, and
   // nothing else. A job dropped off, handed back or moved between the plan and this write would leave the
-  // offer naming a job the rider no longer has, so it answers JOB_CHANGED and writes nothing.
+  // offer naming a job the rider no longer has, so it answers JOB_CHANGED and writes nothing. `jobStatuses`
+  // (review fix): the statuses the co-op's add on moment allows, so a job picked up between the plan and
+  // this write also answers JOB_CHANGED under BEFORE_PICKUP or SAME_RESTAURANT.
   async claimAddOnWithinBox(
     deliveryId: string,
     courierId: string,
     jobId: string,
+    jobStatuses: EnumDeliveryStatus[],
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate
   ): Promise<ClaimOutcome> {
-    const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false, jobId)
+    const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false, { jobId, jobStatuses })
     return claim.outcome
   }
 
@@ -137,8 +140,8 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate,
     allowOverCapacity: boolean,
-    // Row 81: set by an add on's claim only (claimAddOnWithinBox).
-    addOnToJobId?: string
+    // Row 81: set by an add on's claim only (claimAddOnWithinBox): the job and the statuses it may be in.
+    addOnTo?: { jobId: string; jobStatuses: EnumDeliveryStatus[] }
   ): Promise<{
     outcome: ClaimOutcome
     heldUnits: number
@@ -167,10 +170,11 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         Prisma.sql`SELECT (${liveDeliveryCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
       )
       if ((count[0]?.held ?? 0) >= MAX_DELIVERIES_HELD) return { outcome: 'TWO_HELD', heldUnits: 0, deliveryUnits: 0 }
-      if (addOnToJobId !== undefined) {
-        // The one live delivery counted above must be this job, still the rider's and before its drop off.
+      if (addOnTo !== undefined) {
+        // The one live delivery counted above must be this job, still the rider's and at a moment the co-op
+        // allows (never past its drop off).
         const job = await tx.delivery.count({
-          where: { id: addOnToJobId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
+          where: { id: addOnTo.jobId, courierId, status: { in: addOnTo.jobStatuses } },
         })
         if (job !== 1 || (count[0]?.held ?? 0) !== 1) return { outcome: 'JOB_CHANGED', heldUnits: 0, deliveryUnits: 0 }
       }

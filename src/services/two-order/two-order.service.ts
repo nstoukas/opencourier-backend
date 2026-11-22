@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { EnumDeliveryEventType } from '@prisma/types'
+import { EnumDeliveryEventType, EnumDeliveryStatus } from '@prisma/types'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RIDER_BOX_UNITS } from 'src/domains/delivery/box'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { StackSequence, bestStackSequence, isSameRestaurant, stackPairBlockKey, stackRefusal } from 'src/domains/delivery/stack'
+import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
+import { GeoPosition } from 'src/shared-types'
 import {
   AddOnSequence,
+  addOnJobStatuses,
   addOnMomentAllows,
   addOnRefusal,
   bestAddOnSequence,
@@ -44,6 +47,12 @@ export interface AddOnPlan {
   carryingFood: boolean
   candidateCount: number
   strategy: OfferReasonStrategy
+  // Review fix (value 1): the policy in force and whether the usual query found a free rider, so the
+  // record says why the add on went to a rider on a job (under WHENEVER_FITS it can go before a free one).
+  policy: EnumTwoOrderPolicy
+  freeRiderFound: boolean
+  // Review fix: the job statuses the co-op's moment allows, checked again under the lock at the claim.
+  jobStatuses: EnumDeliveryStatus[]
 }
 
 // Spec 0048 (Decision): the pairing logic, beside the matcher. DeliveryEventService asks it, once the
@@ -151,13 +160,14 @@ export class TwoOrderService {
   // on the way, or null. `freeRiderFound`: the usual candidate query found a free rider. Under SHORTAGE_ONLY
   // an add on is looked for only when it did not; under WHENEVER_FITS at every matching, and a fitting add on
   // then goes before the free rider (decision 81.3). `isDue`: whether the offer would go out now for that
-  // rider, given the seconds until they reach the pickup through both jobs (timed offers, spec 0031). The
-  // winner adds the fewest whole minutes; a tie goes to the shorter road time to the new pickup. Never
-  // throws: anything it cannot read means no add on, and the delivery goes on exactly as without add ons.
+  // rider, given the seconds until they reach the pickup through both jobs and the pickup itself (timed
+  // offers, spec 0031). The winner adds the fewest whole minutes; a tie goes to the shorter road time to the
+  // new pickup. Never throws: anything it cannot read means no add on, and the delivery goes on exactly as
+  // without add ons. Never under the STATIC matcher (review fix, below).
   async findAddOn(
     delivery: DeliveryEntity,
     freeRiderFound: boolean,
-    isDue: (courierId: string, secondsToPickup: number) => Promise<boolean>
+    isDue: (courierId: string, secondsToPickup: number, pickupLocation: GeoPosition) => Promise<boolean>
   ): Promise<AddOnPlan | null> {
     try {
       const config = this.configDomainService.instanceConfig
@@ -169,7 +179,13 @@ export class TwoOrderService {
         config.getMaxAssignmentDistanceInKM(),
         config.getCourierMatcherTypeSetting(),
       ])
+      // Review fix (AGENTS.md, locked: "STATIC matcher = the override"): while the matcher setting is STATIC,
+      // every order goes to the rider the admin named, and nobody else, exactly as an ordinary offer does. An
+      // add on would send it to some other rider on a job (under WHENEVER_FITS, or when the named rider is in
+      // an SOS), so there is none.
+      if (strategy === EnumCourierMatcherType.STATIC) return null
       if (freeRiderFound && policy === EnumTwoOrderPolicy.SHORTAGE_ONLY) return null
+      const jobStatuses = addOnJobStatuses(moment)
 
       const places = await this.deliveryRepository.findByIdOrThrowWithLocations(delivery.id)
       if (!places.pickupLocation || !places.dropoffLocation) return null
@@ -183,7 +199,8 @@ export class TwoOrderService {
           boxUnits: delivery.boxUnits,
           siblingOfDeliveryId: delivery.id,
         },
-        ADD_ON_CANDIDATE_LIMIT
+        ADD_ON_CANDIDATE_LIMIT,
+        jobStatuses
       )
 
       const plans: AddOnPlan[] = []
@@ -220,13 +237,25 @@ export class TwoOrderService {
           delayLimitSeconds: delayLimitMinutes * 60,
         })
         if (!sequence) continue
-        if (!(await isDue(candidate.courierId, sequence.secondsToNewPickup))) continue
-        plans.push({ courierId: candidate.courierId, job, sequence, carryingFood, candidateCount: candidates.length, strategy })
+        if (!(await isDue(candidate.courierId, sequence.secondsToNewPickup, places.pickupLocation))) continue
+        plans.push({
+          courierId: candidate.courierId,
+          job,
+          sequence,
+          carryingFood,
+          candidateCount: candidates.length,
+          strategy,
+          policy,
+          freeRiderFound,
+          jobStatuses,
+        })
       }
       if (plans.length === 0) return null
 
       // Cross check 3: the fewest extra minutes wins (whole minutes, as the rider reads them), then the shorter
-      // road time to the new pickup: the factor every automatic matcher weighs (decision 81.4).
+      // road time to the new pickup: the factor every automatic matcher weighs (decision 81.4). In the compare
+      // below, `x || y` means: when the minutes differ (x is not 0), they decide; when they are equal, x is 0
+      // and the road time y decides.
       plans.sort(
         (a, b) =>
           Math.round(a.sequence.extraSeconds / 60) - Math.round(b.sequence.extraSeconds / 60) ||
