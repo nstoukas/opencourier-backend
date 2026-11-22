@@ -183,12 +183,12 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         { courierId, offerExpiresAt: null }
       )
 
-      // Claim given back: clears courierId, matchedCourierId, offeredAt, offerExpiresAt
+      // Claim given back: clears courierId, matchedCourierId, offeredAt, offerExpiresAt, and stopSequence
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
         2,
         deliveryId,
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
       )
 
       // No ACCEPTED event is processed
@@ -226,12 +226,12 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
           { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courierId, offeredAt, courierId: null },
           { courierId, offerExpiresAt: null }
         )
-        // Given back: only while this rider still holds it, and the whole offer is cleared.
+        // Given back: only while this rider still holds it, and the whole offer (including stopSequence) is cleared.
         expect(mockDeliveryRepository.updateIfMatches).toHaveBeenNthCalledWith(
           2,
           deliveryId,
           { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
         )
         expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
       })

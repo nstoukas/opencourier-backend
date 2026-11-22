@@ -965,4 +965,194 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(count).toBe(0)
     })
   })
+
+  // Spec 0048 (row 81, cross check 3, rulings & decision 81.22): candidate query for mid-job add-on offers
+  describe('findAddOnCandidates (spec 0048 row 81, cross check 3, decision 81.22)', () => {
+    const defaultArgs = {
+      location: { latitude: 39.362, longitude: 22.942 },
+    }
+
+    test('builds SQL text with JOIN LATERAL, job statuses, distance, courier active statuses, and limit', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(defaultArgs, 5)
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(querySql).toBeDefined()
+      expect(typeof querySql.sql).toBe('string')
+      expect(Array.isArray(querySql.values)).toBe(true)
+
+      // Query structure: selects id, jobId, currentLocation as GeoJSON, and distance
+      expect(querySql.sql).toContain('SELECT')
+      expect(querySql.sql).toContain('"Courier"."id"')
+      expect(querySql.sql).toContain('"job"."jobId"')
+      expect(querySql.sql).toContain('ST_AsGeoJSON("Courier"."currentLocation") AS "currentLocation"')
+      expect(querySql.sql).toContain('FROM "Courier"')
+
+      // JOIN LATERAL for the rider's current job
+      expect(querySql.sql).toContain('JOIN LATERAL (')
+      expect(querySql.sql).toContain('SELECT "Delivery"."id" AS "jobId"')
+      expect(querySql.sql).toContain('FROM "Delivery"')
+      expect(querySql.sql).toContain('"Delivery"."courierId" = "Courier"."id"')
+      expect(querySql.sql).toContain('"Delivery"."status"::text IN')
+      expect(querySql.sql).toContain('LIMIT 1')
+      expect(querySql.sql).toContain(') AS "job" ON TRUE')
+
+      // Default job statuses are DELIVERY_ONGOING_STATUSES
+      for (const status of DELIVERY_ONGOING_STATUSES) {
+        expect(querySql.values).toContain(status)
+      }
+
+      // Courier active statuses: ONLINE and LAST_CALL
+      expect(querySql.sql).toContain('"Courier"."status"::text IN')
+      expect(querySql.values).toContain(EnumCourierStatus.ONLINE)
+      expect(querySql.values).toContain(EnumCourierStatus.LAST_CALL)
+
+      // Order by distance and limit
+      expect(querySql.sql).toContain('ORDER BY distance')
+      expect(querySql.sql).toContain('LIMIT')
+      expect(querySql.values).toContain(5)
+    })
+
+    test('restricts lateral job statuses when custom jobStatuses are passed (e.g. BEFORE_PICKUP moment)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      const beforePickupStatuses = [EnumDeliveryStatus.ACCEPTED, EnumDeliveryStatus.DISPATCHED]
+      await repository.findAddOnCandidates(defaultArgs, 5, beforePickupStatuses)
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      // The lateral join binds jobStatuses right after the location coordinates (values[0] and values[1])
+      const lateralBoundStatuses = querySql.values.slice(2, 2 + beforePickupStatuses.length)
+      expect(lateralBoundStatuses).toEqual(beforePickupStatuses)
+      // The lateral join parameters only have ACCEPTED and DISPATCHED, not PICKED_UP
+      expect(lateralBoundStatuses).not.toContain(EnumDeliveryStatus.PICKED_UP)
+      expect(lateralBoundStatuses).not.toContain(EnumDeliveryStatus.ON_THE_WAY)
+    })
+
+    test('includes restaurant condition under sameRestaurantAs (agy review fix eaf23ca)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(
+        {
+          ...defaultArgs,
+          sameRestaurantAs: { partnerId: 'partner-kitchen-1', pickupLocationId: 'loc-pickup-1' },
+        },
+        5
+      )
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(querySql.sql).toContain('AND "Delivery"."partnerId" =')
+      expect(querySql.sql).toContain('AND "Delivery"."pickupLocationId" =')
+      expect(querySql.values).toContain('partner-kitchen-1')
+      expect(querySql.values).toContain('loc-pickup-1')
+    })
+
+    test('omits restaurant condition when sameRestaurantAs is undefined', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(defaultArgs, 5)
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(querySql.sql).not.toContain('"Delivery"."partnerId" =')
+      expect(querySql.sql).not.toContain('"Delivery"."pickupLocationId" =')
+    })
+
+    test('enforces busy rule: exactly 1 live delivery (never a third, never beside open offer)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(defaultArgs, 5)
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      // Checks liveDeliveryCountSql("Courier"."id") = 1
+      expect(querySql.sql).toContain('SELECT COUNT(*)::int FROM "Delivery" WHERE')
+      expect(querySql.sql).toContain(') = 1')
+    })
+
+    test('enforces active SOS exclusion, deactivated null, and currentLocation not null', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(defaultArgs, 5)
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      // SOS check
+      expect(querySql.sql).toContain('NOT EXISTS')
+      expect(querySql.sql).toContain('"SosIncident"."courierId" = "Courier"."id"')
+      expect(querySql.sql).toContain('"SosIncident"."closedAt" IS NULL')
+      // Deactivated check
+      expect(querySql.sql).toContain('AND "Courier"."deactivatedAt" IS NULL')
+      // Current location not null
+      expect(querySql.sql).toContain('"Courier"."currentLocation" IS NOT NULL')
+    })
+
+    test('applies boxRoomCondition and siblingLegCondition when provided in args', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(
+        {
+          ...defaultArgs,
+          boxUnits: 35,
+          siblingOfDeliveryId: 'del-parent-order',
+        },
+        5
+      )
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      // Box room condition
+      expect(querySql.sql).toContain('-- Room left in the box (spec 0043, AC-5)')
+      expect(querySql.sql).toContain('SELECT COALESCE(SUM("Delivery"."boxUnits"), 0)::int FROM "Delivery"')
+      expect(querySql.sql).toContain('+ ? <= ?')
+      expect(querySql.values).toContain(35)
+      expect(querySql.values).toContain(100)
+      // Sibling leg condition
+      expect(querySql.sql).toContain('-- Not a rider holding another leg of this order (spec 0046, AC-4)')
+      expect(querySql.values).toContain('del-parent-order')
+    })
+
+    test('supports optional excludeCourierIds and maxDistanceInKM', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+      await repository.findAddOnCandidates(
+        {
+          ...defaultArgs,
+          excludeCourierIds: ['courier-skip-1'],
+          maxDistanceInKM: 3,
+        },
+        5
+      )
+
+      const querySql: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(querySql.sql).toContain('AND "Courier"."id" NOT IN')
+      expect(querySql.values).toContain('courier-skip-1')
+      expect(querySql.sql).toContain('ST_Distance("Courier"."currentLocation"::geography')
+      expect(querySql.values).toContain(3000) // 3 km in metres
+    })
+
+    test('maps raw query rows to domain result with GeoPosition latitude and longitude', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([
+        {
+          id: 'courier-r81',
+          jobId: 'job-held-1',
+          distance: 450.2,
+          currentLocation: JSON.stringify({
+            type: 'Point',
+            coordinates: [22.951, 39.362], // [lon, lat]
+          }),
+        },
+      ])
+
+      const results = await repository.findAddOnCandidates(defaultArgs, 5)
+
+      expect(results).toHaveLength(1)
+      expect(results[0]).toEqual({
+        courierId: 'courier-r81',
+        jobId: 'job-held-1',
+        distance: 450.2,
+        courierLocation: {
+          latitude: 39.362,
+          longitude: 22.951,
+        },
+      })
+    })
+  })
 })

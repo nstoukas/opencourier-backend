@@ -467,12 +467,21 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   // names the rider's job, so the caller can check the co-op's add on moment and work out the stop order.
   // `jobStatuses` (review fix): only jobs in a status the co-op's moment allows count, so riders past that
   // moment never take one of the `limit` places from a rider who qualifies.
+  // `sameRestaurantAs` (agy review): under the SAME_RESTAURANT moment, only a job from that restaurant and
+  // pickup point counts, for the same reason: riders on other restaurants' jobs would otherwise fill the
+  // `limit` places, be refused in code afterwards, and hide a rider waiting at the right restaurant.
+  // `ICourierFindNearestArgs & { ... }` means "every field of ICourierFindNearestArgs, plus this one".
   async findAddOnCandidates(
-    args: ICourierFindNearestArgs,
+    args: ICourierFindNearestArgs & { sameRestaurantAs?: { partnerId: string; pickupLocationId: string } },
     limit: number,
     jobStatuses: EnumDeliveryStatus[] = DELIVERY_ONGOING_STATUSES
   ): Promise<Array<{ courierId: string; jobId: string; distance: number; courierLocation: GeoPosition }>> {
-    const { location, excludeCourierIds, maxDistanceInKM } = args
+    const { location, excludeCourierIds, maxDistanceInKM, sameRestaurantAs } = args
+    // The same test as isSameRestaurant (stack.ts): one restaurant and one pickup point.
+    const restaurantCondition = sameRestaurantAs
+      ? Prisma.sql`AND "Delivery"."partnerId" = ${sameRestaurantAs.partnerId}
+          AND "Delivery"."pickupLocationId" = ${sameRestaurantAs.pickupLocationId}`
+      : Prisma.empty
     const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
     const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${location.longitude}, ${location.latitude}), 4326)::geography`
     const distance = Prisma.sql`ST_Distance("Courier"."currentLocation"::geography, ${point})`
@@ -492,6 +501,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         FROM "Delivery"
         WHERE "Delivery"."courierId" = "Courier"."id"
           AND "Delivery"."status"::text IN (${Prisma.join(jobStatuses, ',')})
+          ${restaurantCondition}
         LIMIT 1
       ) AS "job" ON TRUE
       WHERE "Courier"."currentLocation" IS NOT NULL

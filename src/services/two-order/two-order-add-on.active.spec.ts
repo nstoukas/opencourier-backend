@@ -9,6 +9,7 @@ import { CacheHelpers } from 'src/services/cache/cache.helpers'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import { EnumCourierMatcherType, EnumDeliveryStatus } from 'src/shared-types'
+import { addOnJobStatuses } from 'src/domains/delivery/add-on'
 import { TwoOrderService } from './two-order.service'
 
 // Spec 0048 (row 81): TwoOrderService finds a mid job add on offer for a rider on a job.
@@ -179,12 +180,29 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
 
       expect(result).not.toBeNull()
       expect(result!.courierId).toBe('courier-1')
+      expect(result!.policy).toBe(EnumTwoOrderPolicy.WHENEVER_FITS)
+      expect(result!.freeRiderFound).toBe(true)
+      expect(result!.jobStatuses).toEqual(addOnJobStatuses(EnumAddOnMoment.BEFORE_PICKUP))
       expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalled()
     })
   })
 
+  describe('STATIC matcher override (Decision 81.15, locked override in AGENTS.md)', () => {
+    it('returns null immediately without searching candidates when courierMatcherType is STATIC', async () => {
+      mockConfigService.instanceConfig.getCourierMatcherTypeSetting.mockResolvedValueOnce(
+        EnumCourierMatcherType.STATIC
+      )
+      const delivery = makeDelivery('new-del')
+
+      const result = await service.findAddOn(delivery, false, async () => true)
+
+      expect(result).toBeNull()
+      expect(mockCourierRepo.findAddOnCandidates).not.toHaveBeenCalled()
+    })
+  })
+
   describe('candidate filtering & queries (cross check 3)', () => {
-    it('passes pickupLocation, maxDistanceInKM, skip list, boxUnits, and siblingOfDeliveryId to candidate query', async () => {
+    it('passes pickupLocation, maxDistanceInKM, skip list, boxUnits, siblingOfDeliveryId, and jobStatuses to candidate query', async () => {
       const delivery = makeDelivery('del-to-match', { boxUnits: 45 })
       mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-skipped-1'])
 
@@ -198,8 +216,125 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
           boxUnits: 45,
           siblingOfDeliveryId: 'del-to-match',
         },
-        5 // ADD_ON_CANDIDATE_LIMIT
+        5, // ADD_ON_CANDIDATE_LIMIT
+        addOnJobStatuses(EnumAddOnMoment.BEFORE_PICKUP)
       )
+    })
+
+    it('passes DELIVERY_ONGOING_STATUSES to candidate query when addOnMoment is BEFORE_DROPOFF', async () => {
+      mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.BEFORE_DROPOFF)
+      const delivery = makeDelivery('del-to-match')
+
+      await service.findAddOn(delivery, false, async () => true)
+
+      expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalledWith(
+        expect.any(Object),
+        5,
+        addOnJobStatuses(EnumAddOnMoment.BEFORE_DROPOFF)
+      )
+    })
+
+    describe('SAME_RESTAURANT moment and crowding out prevention (spec 0048, agy review, decision 81.22)', () => {
+      it('returns null immediately without querying candidates when delivery has no partnerId', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-no-partner', { partnerId: null as any })
+
+        const result = await service.findAddOn(delivery, false, async () => true)
+
+        expect(result).toBeNull()
+        expect(mockCourierRepo.findAddOnCandidates).not.toHaveBeenCalled()
+      })
+
+      it('passes sameRestaurantAs with partnerId and pickupLocationId to candidate query when partnerId is set', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-same-rest', {
+          partnerId: 'partner-taverna-1',
+          pickupLocationId: 'loc-pickup-taverna',
+        })
+
+        await service.findAddOn(delivery, false, async () => true)
+
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sameRestaurantAs: {
+              partnerId: 'partner-taverna-1',
+              pickupLocationId: 'loc-pickup-taverna',
+            },
+          }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.SAME_RESTAURANT)
+        )
+      })
+
+      it('leaves sameRestaurantAs undefined for BEFORE_PICKUP and BEFORE_DROPOFF moments', async () => {
+        // 1. BEFORE_PICKUP
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.BEFORE_PICKUP)
+        const del1 = makeDelivery('del-1', { partnerId: 'partner-1', pickupLocationId: 'loc-1' })
+        await service.findAddOn(del1, false, async () => true)
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sameRestaurantAs: undefined }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.BEFORE_PICKUP)
+        )
+
+        // 2. BEFORE_DROPOFF
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.BEFORE_DROPOFF)
+        const del2 = makeDelivery('del-2', { partnerId: 'partner-1', pickupLocationId: 'loc-1' })
+        await service.findAddOn(del2, false, async () => true)
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sameRestaurantAs: undefined }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.BEFORE_DROPOFF)
+        )
+      })
+
+      it('prevents candidate crowding out: passes sameRestaurantAs so riders on jobs for other stores do not displace eligible rider', async () => {
+        mockConfigService.instanceConfig.getAddOnMoment.mockResolvedValueOnce(EnumAddOnMoment.SAME_RESTAURANT)
+        const delivery = makeDelivery('del-target', {
+          partnerId: 'partner-target',
+          pickupLocationId: 'loc-pickup-target',
+        })
+
+        mockCourierRepo.findAddOnCandidates.mockResolvedValueOnce([
+          {
+            courierId: 'courier-target-restaurant',
+            jobId: 'job-target-restaurant',
+            distance: 800,
+            courierLocation: { latitude: 39.362, longitude: 22.942 },
+          },
+        ])
+
+        mockDeliveryRepo.findByIdOrThrowWithLocations.mockImplementation((id: string) => {
+          if (id === 'job-target-restaurant') {
+            return Promise.resolve(
+              makeDeliveryWithLocs('job-target-restaurant', {
+                partnerId: 'partner-target',
+                pickupLocationId: 'loc-pickup-target',
+                status: EnumDeliveryStatus.ACCEPTED,
+                courierId: 'courier-target-restaurant',
+              })
+            )
+          }
+          return Promise.resolve(
+            makeDeliveryWithLocs(id, {
+              partnerId: 'partner-target',
+              pickupLocationId: 'loc-pickup-target',
+            })
+          )
+        })
+
+        const result = await service.findAddOn(delivery, false, async () => true)
+
+        expect(result).not.toBeNull()
+        expect(result!.courierId).toBe('courier-target-restaurant')
+        expect(mockCourierRepo.findAddOnCandidates).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sameRestaurantAs: { partnerId: 'partner-target', pickupLocationId: 'loc-pickup-target' },
+          }),
+          5,
+          addOnJobStatuses(EnumAddOnMoment.SAME_RESTAURANT)
+        )
+      })
     })
 
     it('skips candidates whose job is not allowed by addOnMoment', async () => {
@@ -407,12 +542,13 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
   })
 
   describe('timed offers (decision 81.9)', () => {
-    it('skips candidate when isDue returns false', async () => {
+    it('skips candidate when isDue returns false, passing courierId, secondsToNewPickup, and pickupLocation', async () => {
       const delivery = makeDelivery('new-del')
-      // isDue answers false: offer is not yet due
-      const result = await service.findAddOn(delivery, false, async () => false)
+      const isDueSpy = jest.fn().mockResolvedValue(false)
+      const result = await service.findAddOn(delivery, false, isDueSpy)
 
       expect(result).toBeNull()
+      expect(isDueSpy).toHaveBeenCalledWith('courier-1', expect.any(Number), pickupLoc)
     })
   })
 })
