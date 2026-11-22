@@ -42,6 +42,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   admin can race safely; a miss answers 409 "This offer has ended" (spec 0002).
 - A rider holding an open offer counts as busy (`busyCourierDeliverySubQuery`): one moped, one job,
   offered or accepted.
+- One predicate, `liveDeliveriesWhere` in `courier.repository.ts`, is both the matchers' busy rule and
+  the limit of two (`liveDeliveryCount`, the claim's `TWO_HELD`, the admin 409); a taken offer still in
+  `ASSIGNING_COURIER` counts. Change it in one place. Stacking (`stackingEnabled`) is off by default,
+  so on dev every rider gets one job unless a check switches it on (spec 0048).
 - Push is off unless `FIREBASE_SERVICE_ACCOUNT_PATH` names a readable service account file; off,
   it logs "push is off" once and offers go over the live connection only. Dev runs with it off.
 - Saved customers are personal data: the HTTP logger drops the query string of any `/customers` path,
