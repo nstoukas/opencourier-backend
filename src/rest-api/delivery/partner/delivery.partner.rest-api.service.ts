@@ -384,6 +384,10 @@ export class DeliveryPartnerRestApiService {
 
     const updatedDelivery = await this.deliveryDomainService.update(delivery.id, {
       dropoffLocationId,
+      // Spec 0053 (row 82 review): the newest move wins. A restaurant's move after a rider's clears the
+      // rider's corrected point, so the notes and the route both follow the restaurant's new point.
+      // `dropoffPointCorrectedAt` stays: it is spec 0016's "already moved once" mark, not a point.
+      ...(pointMoved ? { dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null } : {}),
       pickupNotes: input.pickupNotes,
       pickupVerification: input.pickupVerification as any as JsonValue,
       pickupReadyAt: input.pickupReadyAt,
