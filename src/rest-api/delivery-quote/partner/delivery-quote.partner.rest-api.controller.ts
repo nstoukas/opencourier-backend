@@ -13,7 +13,8 @@ import {
 import { CurrentUserPartner } from 'src/decorators/currentUserPartner.decorator'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
-import { ConflictException, ServiceUnavailableException } from '@nestjs/common'
+import { ConflictException, HttpStatus, ServiceUnavailableException } from '@nestjs/common'
+import { refusalBody } from 'src/localization/coded-sentence'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('delivery-quotes')
@@ -62,10 +63,18 @@ export class DeliveryQuotePartnerRestApiController {
     if (!creationResult.deliveryQuote) {
       if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING) {
         // Spec 0029: this restaurant's state, not the service being down, so 409 and not 503 (decision 34.8).
-        throw new ConflictException(creationResult.failureMessage ?? 'This restaurant cannot place orders right now.')
+        const sentence = creationResult.failureSentence
+        throw new ConflictException(
+          sentence
+            ? refusalBody(HttpStatus.CONFLICT, sentence)
+            : creationResult.failureMessage ?? 'This restaurant cannot place orders right now.'
+        )
       }
       if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED) {
-        throw new ServiceUnavailableException(creationResult.failureMessage ?? 'Delivery is stopped.')
+        const sentence = creationResult.failureSentence
+        throw new ServiceUnavailableException(
+          sentence ? refusalBody(HttpStatus.SERVICE_UNAVAILABLE, sentence) : creationResult.failureMessage ?? 'Delivery is stopped.'
+        )
       }
       if (creationResult.failureReason === DeliveryQuoteCreationFailureReason.OUTSIDE_SERVICE_AREA) {
         throw new ServiceUnavailableException(

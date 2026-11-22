@@ -1,11 +1,12 @@
 import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
-import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { stoppedSentence } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { CodedSentence } from 'src/localization/coded-sentence'
 import { Injectable, Logger } from '@nestjs/common'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
-import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
+import { partnerAvailabilitySentence } from 'src/domains/partner/partner-availability'
 import { NotFoundException } from 'src/errors'
 import { CourierMatcherService } from 'src/services/courier-matcher/courier-matcher.service'
 import { DeliverQuoteCreatePartnerInput } from './queries/delivery-quote-create.partner.input'
@@ -26,6 +27,8 @@ type DeliveryQuoteCreationResult = {
   failureReason?: DeliveryQuoteCreationFailureReason
   // The sentence the restaurant reads, when the reason carries one (DISPATCH_STOPPED).
   failureMessage?: string
+  // The same sentence as a code with values (spec 0054, AC-6), for the refusal the controller throws.
+  failureSentence?: CodedSentence
 }
 
 @Injectable()
@@ -55,22 +58,25 @@ export class DeliveryQuotePartnerRestApiService {
 
     // Spec 0029, AC-4: this restaurant's own state comes before the stop below.
     const now = new Date()
-    const refusal = partnerAvailabilityRefusal(partner, now)
+    const refusal = partnerAvailabilitySentence(partner, now)
     if (refusal) {
       return {
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING,
-        failureMessage: refusal,
+        failureMessage: refusal.message,
+        failureSentence: refusal,
       }
     }
 
     // Spec 0014, AC-6: no delivery is ordered while dispatch is stopped; the restaurant is told until when.
     const stop = await this.dispatchStopRepository.findOn(now)
     if (stop) {
+      const stopped = stoppedSentence('RESTAURANT', stop, now)
       return {
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED,
-        failureMessage: restaurantStoppedMessage(stop, now),
+        failureMessage: stopped.message,
+        failureSentence: stopped,
       }
     }
 

@@ -21,6 +21,14 @@ export class PartnerAvailabilityAdminDto {
   @ApiProperty({ type: String, nullable: true })
   notAcceptingReason: string | null
 
+  // Spec 0054 (AC-6): the same sentence by code (a key of `server.error`), and its values, so the app can
+  // say it in its reader's language. Null while the restaurant is accepting orders.
+  @ApiProperty({ type: String, nullable: true })
+  notAcceptingCode: string | null
+
+  @ApiProperty({ type: Object, nullable: true })
+  notAcceptingParams: Record<string, string | number | null> | null
+
   constructor(data: PartnerAvailabilityAdminDto) {
     this.busyExtraMinutes = data.busyExtraMinutes
     this.pausedUntil = data.pausedUntil
@@ -28,6 +36,8 @@ export class PartnerAvailabilityAdminDto {
     this.disabledReason = data.disabledReason
     this.acceptingOrders = data.acceptingOrders
     this.notAcceptingReason = data.notAcceptingReason
+    this.notAcceptingCode = data.notAcceptingCode
+    this.notAcceptingParams = data.notAcceptingParams
   }
 }
 

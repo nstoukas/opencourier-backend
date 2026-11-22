@@ -2,6 +2,7 @@ import type { ChatUnreadThread } from 'src/domains/chat/chat.domain.service'
 import { EnumCourierStatus, EnumDeliveryIssueReason, EnumDeliveryStatus } from '@prisma/types'
 import { DISPATCH_ATTENTION_ROW_LIMIT, INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
+import { SentenceParams } from 'src/localization/coded-sentence'
 import { median } from 'src/domains/partner/wait-record'
 import { DeliveryOfferView } from 'src/domains/delivery/types/delivery-offer-view.type'
 import { addOnFigures, addOnJobIdOf, isAddOnOffer } from 'src/domains/delivery/add-on'
@@ -61,6 +62,12 @@ export type AttentionRow = {
   riderName: string | null
   customerLabel: string | null
   detail: string
+  // Spec 0054 (AC-2, review of 2026-11-22): `detail` as a code (a key of `server.board` in
+  // src/localization/en.ts) with its values, so the admin page says it in its reader's language. A `note`
+  // value is the person's own words, shown on a second line as written. Null when the line has no words of
+  // the co-op's own (a chat preview, an SOS line) or a name it needs is missing: the page then shows `detail`.
+  detailCode: string | null
+  detailParams: SentenceParams | null
   held: boolean
   // Only on a REMOVAL_REQUEST row (spec 0035): the request, and whether the food is with the rider.
   removalRequestId?: string
@@ -71,6 +78,11 @@ export type AttentionRow = {
   // Row 81 (AC-12): true on an OFFER_UNANSWERED row of an add on, one more order offered to a rider on a job;
   // the paired fields above then name that job.
   addOn?: boolean
+}
+
+// A row's `detailCode` and `detailParams` (spec 0054): no params without a code.
+function codedDetail(code: string | null, params: SentenceParams): Pick<AttentionRow, 'detailCode' | 'detailParams'> {
+  return code ? { detailCode: code, detailParams: params } : { detailCode: null, detailParams: null }
 }
 
 export type DispatchBoardCards = {
@@ -194,6 +206,9 @@ export function waitingForRiderRows(
         ...deliveryFields(delivery),
         riderName: null,
         detail: held && readyTime ? `Not offered yet, food ready ${clock(readyTime)}` : 'No courier accepted',
+        ...(held
+          ? codedDetail('NOT_OFFERED_YET', { readyAt: readyTime.toISOString() })
+          : codedDetail('NO_COURIER_ACCEPTED', {})),
         held,
       }
     })
@@ -224,6 +239,10 @@ export function offerUnansweredRows(
           ...deliveryFields(delivery),
           riderName: name,
           detail: `Offered to ${name ?? 'a courier'} together with ${partner.orderReference ?? 'another order'}, unanswered`,
+          ...codedDetail(name && partner.orderReference ? 'OFFERED_PAIR' : null, {
+            rider: name,
+            otherOrder: partner.orderReference,
+          }),
           held: false,
           pairedDeliveryId: partner.id,
           pairedOrderReference: partner.orderReference,
@@ -246,6 +265,11 @@ export function offerUnansweredRows(
           detail: `Offered to ${name ?? 'a courier'} as one more order on the way with ${
             job.orderReference ?? 'their job'
           }${adds}, unanswered`,
+          ...codedDetail(name && job.orderReference ? (figures ? 'OFFERED_ADD_ON' : 'OFFERED_ADD_ON_NO_FIGURES') : null, {
+            rider: name,
+            job: job.orderReference,
+            ...(figures ? { extraKm: figures.extraKm, extraMinutes: figures.extraMinutes } : {}),
+          }),
           held: false,
           pairedDeliveryId: job.id,
           pairedOrderReference: job.orderReference,
@@ -262,6 +286,7 @@ export function offerUnansweredRows(
         ...deliveryFields(delivery),
         riderName: name,
         detail: `Offered to ${name ?? 'a courier'}, unanswered`,
+        ...codedDetail(name ? 'OFFERED' : null, { rider: name }),
         held: false,
       }
     })
@@ -309,6 +334,11 @@ export function restaurantLateRows(live: LiveDelivery[], now: Date): AttentionRo
       ...deliveryFields(delivery),
       riderName,
       detail: `${riderName ?? 'A courier'} waiting at ${delivery.pickupBusinessName}, food was due ${clock(promised)}`,
+      ...codedDetail(riderName ? 'RESTAURANT_LATE' : null, {
+        rider: riderName,
+        restaurant: delivery.pickupBusinessName,
+        promisedAt: promised.toISOString(),
+      }),
       held: false,
     })
   }
@@ -336,6 +366,7 @@ export function riderReportRows(issues: OpenDeliveryIssue[]): AttentionRow[] {
       ...deliveryFields(issue.delivery),
       riderName,
       detail: issue.note ? `${headline}\n${issue.note}` : headline,
+      ...codedDetail('RIDER_REPORT', { rider: riderName, reason: issue.reason, note: issue.note }),
       held: false,
     }
   })
@@ -361,6 +392,15 @@ export function removalRequestRows(requests: OpenRemovalRequest[]): AttentionRow
       ...deliveryFields(request.delivery),
       riderName,
       detail: request.note ? `${headline}\n${request.note}` : headline,
+      ...codedDetail(`REMOVAL_${request.paidToRider ? 'PAID' : 'NOT_PAID'}${pickedUp ? '_PICKED_UP' : ''}`, {
+        rider: riderName,
+        label: request.label,
+        // The label as copied when the rider asked (spec 0054, AC-7); the English one when it had no Greek.
+        // Read through a cast, as removal-request.service.ts does, so this compiles against a Prisma client
+        // generated before the column existed.
+        labelEl: (request as { labelEl?: string | null }).labelEl ?? request.label,
+        note: request.note,
+      }),
       held: false,
       removalRequestId: request.id,
       pickedUp,
@@ -395,6 +435,7 @@ export function unreadMessageRows(threads: ChatUnreadThread[]): AttentionRow[] {
       riderName: isRider ? thread.name : null,
       customerLabel: null,
       detail: preview ? `${thread.name}: ${preview}` : thread.name,
+      ...codedDetail(null, {}),
       held: false,
     }
   })
@@ -420,6 +461,7 @@ export function sosRows(incidents: SosIncidentWithPeople[]): AttentionRow[] {
       riderName,
       customerLabel: null,
       detail: `${riderName}, SOS`,
+      ...codedDetail(null, {}),
       held: false,
     }
   })

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -10,14 +11,15 @@ import { eventText } from 'src/domains/delivery-event/event-text'
 import {
   LEG_LABELS_LOCKED_SENTENCE,
   LEG_REFERENCE_REQUIRED_SENTENCE,
-  LEG_TAKEN_SENTENCE,
   legLabelsProblem,
-  siblingConflict,
+  legTakenSentence,
+  siblingConflictSentence,
 } from 'src/domains/delivery/legs'
 import { isUniqueConstraintError } from 'src/prisma.util'
 import { ProductReportDomainService, ProductReportInput } from 'src/domains/product-report/product-report.domain.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
-import { partnerAvailabilityRefusal } from 'src/domains/partner/partner-availability'
+import { partnerAvailabilitySentence } from 'src/domains/partner/partner-availability'
+import { refusalBody } from 'src/localization/coded-sentence'
 import {
   EnumProductReportSource,
   EnumCancelledBy,
@@ -31,7 +33,7 @@ import { DeliveryEventService } from 'src/services/delivery-event/delivery-event
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { partnerHistoryWhere, refuseIfNotVisibleToPartner } from './partner-history'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
-import { restaurantStoppedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { stoppedSentence } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { DeliveryQuoteDomainService } from 'src/domains/delivery-quote/delivery-quote.domain.service'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import {
@@ -145,14 +147,16 @@ export class DeliveryPartnerRestApiService {
 
     // Spec 0029, AC-4: a paused or disabled restaurant places no order, whatever the dispatch stop says.
     const now = new Date()
-    const refusal = partnerAvailabilityRefusal(partner, now)
-    if (refusal) throw new ConflictException(refusal)
+    const refusal = partnerAvailabilitySentence(partner, now)
+    if (refusal) throw new ConflictException(refusalBody(HttpStatus.CONFLICT, refusal))
 
     // Spec 0014, AC-6: refused before anything is created, so a quote taken before a stop cannot
     // place an order during it.
     const stop = await this.dispatchStopRepository.findOn(now)
     if (stop) {
-      throw new ServiceUnavailableException(restaurantStoppedMessage(stop, now))
+      throw new ServiceUnavailableException(
+        refusalBody(HttpStatus.SERVICE_UNAVAILABLE, stoppedSentence('RESTAURANT', stop, now))
+      )
     }
 
     // Spec 0046 (AC-1, key invariants): the leg labels, checked before anything is read or created. One
@@ -166,8 +170,8 @@ export class DeliveryPartnerRestApiService {
     }
     if (leg) {
       const siblings = await this.deliveryDomainService.getOrderLegsOf(partnerId, input.orderReference)
-      const conflict = siblingConflict(leg, siblings)
-      if (conflict) throw new ConflictException(conflict)
+      const conflict = siblingConflictSentence(leg, siblings)
+      if (conflict) throw new ConflictException(refusalBody(HttpStatus.CONFLICT, conflict))
     }
 
     const deliveryQuote = await this.deliveryQuoteDomainService.getByIdOrThrow(input.quoteId)
@@ -305,7 +309,7 @@ export class DeliveryPartnerRestApiService {
       const target = (error as { meta?: { target?: unknown } }).meta?.target
       const onLegIndex = Array.isArray(target) ? target.includes('legNumber') : String(target ?? '').includes('legNumber')
       if (leg && error instanceof Error && isUniqueConstraintError(error) && onLegIndex) {
-        throw new ConflictException(LEG_TAKEN_SENTENCE(leg.legNumber, leg.legCount))
+        throw new ConflictException(refusalBody(HttpStatus.CONFLICT, legTakenSentence(leg.legNumber, leg.legCount)))
       }
       throw error
     }

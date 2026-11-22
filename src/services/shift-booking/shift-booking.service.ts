@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common'
+import { refusalBody } from 'src/localization/coded-sentence'
 import { EnumShiftBookingEventType, EnumShiftBookingStatus, ShiftBooking } from '@prisma/types'
 import { INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
@@ -187,7 +188,11 @@ export class ShiftBookingService {
     const booking = await this.ownBooked(courierId, bookingId)
     const noticeHours = await this.configDomainService.instanceConfig.getShiftDropNoticeHours()
     const until = dropDeadline(booking.startsAt, noticeHours)
-    if (now > until) throw new ConflictException(SHIFT_SENTENCES.dropTooLate(dropUntilText(until, now)))
+    if (now > until) {
+      const message = SHIFT_SENTENCES.dropTooLate(dropUntilText(until, now))
+      const tooLate = { code: 'SHIFT_DROP_TOO_LATE', params: { until: until.toISOString() }, message }
+      throw new ConflictException(refusalBody(HttpStatus.CONFLICT, tooLate))
+    }
     await this.bookings.transaction(async (tx) => {
       const done = await this.bookings.updateIf(
         tx,

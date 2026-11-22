@@ -20,6 +20,9 @@ export class DispatchAttentionRowAdminDto {
   @ApiProperty({ type: String, nullable: true }) riderName: string | null
   @ApiProperty({ type: String, nullable: true }) customerLabel: string | null
   @ApiProperty({ type: String }) detail: string
+  // Spec 0054 (AC-2): `detail` by code (a key of `server.board`) with its values; null when it has none.
+  @ApiProperty({ type: String, nullable: true }) detailCode: string | null
+  @ApiProperty({ type: Object, nullable: true }) detailParams: Record<string, string | number | null> | null
   @ApiProperty({ type: Boolean }) held: boolean
   // Only on a REMOVAL_REQUEST row (spec 0035), null otherwise.
   @ApiProperty({ type: String, nullable: true }) removalRequestId: string | null
@@ -45,6 +48,8 @@ export class DispatchAttentionRowAdminDto {
     this.riderName = row.riderName
     this.customerLabel = row.customerLabel
     this.detail = row.detail
+    this.detailCode = row.detailCode
+    this.detailParams = row.detailParams
     this.held = row.held
     this.removalRequestId = row.removalRequestId ?? null
     this.pickedUp = row.pickedUp ?? null

@@ -2,7 +2,8 @@
 // build; a Greek speaking member checks it (docs/translations/greek-review.md) before go live.
 // Wording rules (AC-10): plain everyday Greek, the polite plural, never the familiar singular;
 // "διανομέας" for rider, "κατάστημα" for restaurant, "συνεταιρισμός" for the co-op; no Greeklish.
-// Times use the `clock` formatter (24 hour, Athens), never the raw ISO text the English record keeps.
+// Times use the `clock` formatter (24 hour, Athens), never the raw ISO text the English record keeps; money
+// uses `money` ("3,50 €") and a distance `decimal` ("1,2"), where the English record keeps raw cents.
 import { Translations } from './en'
 
 // `: Translations` makes TypeScript refuse this object if a key of en.ts is missing or extra.
@@ -66,25 +67,25 @@ export const el: Translations = {
       LEFT_AFTER_WAIT: 'Έφυγε από το κατάστημα αφού περίμενε πέρα από το όριο',
       LEAVE_REFUSED: 'Η αποχώρηση δεν έγινε: η παραγγελία είχε ήδη αλλάξει',
       COURIER_PAID_FOR_WAIT:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ): αναμονή {{minutes}} λεπτών με {{centsPerMinute}} λεπτά του ευρώ το λεπτό· αναμονή {{waitOf}}',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}}: αναμονή {{minutes}} λεπτών με {{centsPerMinute, money}} το λεπτό· αναμονή {{waitOf}}',
       COURIER_PAID_FOR_WAIT_NOTE:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ): {{note}}· αναμονή {{waitOf}}',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}}: {{note}}· αναμονή {{waitOf}}',
 
       CANCELED_BY_PARTNER:
         'Η παραγγελία {{deliveryId}} ακυρώθηκε από το κατάστημα {{partnerId}} (ακύρωση από: $t(server.enum.cancelledBy.{{cancelledBy}}))',
       CANCELED_BY_ADMIN:
         'Ο διαχειριστής ακύρωσε την παραγγελία (ακύρωση από: $t(server.enum.cancelledBy.{{cancelledBy}}))',
       CANCELLATION_PAY:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ) με τον κανόνα {{policy}} για ακύρωση από $t(server.enum.cancelledBy.{{cancelledBy}})',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}} με τον κανόνα {{policy}} για ακύρωση από $t(server.enum.cancelledBy.{{cancelledBy}})',
       FOOD_RETURNED: 'Το φαγητό επιστράφηκε στο κατάστημα',
 
       ADMIN_NOTE: '{{note}}',
       RIDER_NOTE: '{{note}}',
 
       REASSIGNED:
-        'Ο διαχειριστής μετέφερε την παραγγελία από τον διανομέα {{droppedCourierId}} στον διανομέα {{newCourierId}}· ο κανόνας πληρωμής {{policy}} δίνει {{amount}} {{currency}} (λεπτά του ευρώ) στον διανομέα που την έχασε (αποζημίωση {{awardId}})',
+        'Ο διαχειριστής μετέφερε την παραγγελία από τον διανομέα {{droppedCourierId}} στον διανομέα {{newCourierId}}· ο κανόνας πληρωμής {{policy}} δίνει {{amount, money}} στον διανομέα που την έχασε (αποζημίωση {{awardId}})',
       REASSIGNED_WITH_NOTE:
-        'Ο διαχειριστής μετέφερε την παραγγελία από τον διανομέα {{droppedCourierId}} στον διανομέα {{newCourierId}}· ο κανόνας πληρωμής {{policy}} δίνει {{amount}} {{currency}} (λεπτά του ευρώ) στον διανομέα που την έχασε: {{note}} (αποζημίωση {{awardId}})',
+        'Ο διαχειριστής μετέφερε την παραγγελία από τον διανομέα {{droppedCourierId}} στον διανομέα {{newCourierId}}· ο κανόνας πληρωμής {{policy}} δίνει {{amount, money}} στον διανομέα που την έχασε: {{note}} (αποζημίωση {{awardId}})',
 
       DISPATCH_STOP_RETURNED: 'Παύση διανομών ($t(server.enum.dispatchStopReason.{{reason}}))',
 
@@ -96,11 +97,11 @@ export const el: Translations = {
       REMOVAL_CANCELLED_AFTER_PICKUP: 'Ακυρώθηκε επειδή εγκρίθηκε αποδέσμευση μετά την παραλαβή: {{labelEl}}',
       REMOVAL_APPROVAL_FAILED: 'Η έγκριση δεν έγινε: η παραγγελία είχε ήδη αλλάξει ({{labelEl}})',
       COURIER_PAID_FOR_REMOVAL:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ) με τον κανόνα {{policy}}: {{labelEl}}· αποδέσμευση {{requestId}}',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}} με τον κανόνα {{policy}}: {{labelEl}}· αποδέσμευση {{requestId}}',
       PARTNER_CHARGED_FOR_REMOVAL:
-        'Χρέωση καταστήματος {{amount}} {{currency}} (λεπτά του ευρώ): {{labelEl}}· αποδέσμευση {{requestId}}',
+        'Χρέωση καταστήματος {{amount, money}}: {{labelEl}}· αποδέσμευση {{requestId}}',
       COURIER_PAID_FOR_RETURN_TRIP:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ) για τη διαδρομή επιστροφής στο κατάστημα',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}} για τη διαδρομή επιστροφής στο κατάστημα',
 
       SPLIT_REQUESTED:
         'Ο διανομέας ζήτησε διαχωρισμό της παραγγελίας: {{count}} κουτιά: {{sizes, list}} (διαχωρισμός {{splitId}})',
@@ -117,16 +118,16 @@ export const el: Translations = {
       SPLIT_LEG_CREATED_BY_ADMIN:
         'Σκέλος {{legNumber}} από τον διαχωρισμό {{splitId}} (διαχειριστής {{adminId}}), μέγεθος $t(server.enum.boxSize.{{size}})',
       PARTNER_CHARGED_FOR_SPLIT:
-        'Χρέωση καταστήματος {{amount}} {{currency}} (λεπτά του ευρώ), η αμοιβή του διανομέα αυτού του σκέλους, για τον διαχωρισμό {{splitId}}',
+        'Χρέωση καταστήματος {{amount, money}}, η αμοιβή του διανομέα αυτού του σκέλους, για τον διαχωρισμό {{splitId}}',
       SPLIT_LEG_CHARGE_VOIDED:
-        'Η χρέωση του καταστήματος για το σκέλος, {{amount}} {{currency}} (λεπτά του ευρώ), ακυρώθηκε: κανένας διανομέας δεν πήρε αυτό το σκέλος',
+        'Η χρέωση του καταστήματος για το σκέλος, {{amount, money}}, ακυρώθηκε: κανένας διανομέας δεν πήρε αυτό το σκέλος',
       COURIER_PAID_FOR_SPLIT_WAIT:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ): αναμονή {{minutes}} λεπτών όσο ο συντονισμός χώριζε την παραγγελία, με {{centsPerMinute}} λεπτά του ευρώ το λεπτό· διαχωρισμός {{splitId}}',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}}: αναμονή {{minutes}} λεπτών όσο ο συντονισμός χώριζε την παραγγελία, με {{centsPerMinute, money}} το λεπτό· διαχωρισμός {{splitId}}',
 
       REVIEW_REQUESTED: 'Αίτημα επανεξέτασης: $t(server.enum.reviewTopic.{{topic}})',
       REVIEW_ANSWERED: 'Απάντηση στην επανεξέταση: $t(server.enum.reviewOutcome.{{outcome}})',
       COURIER_PAID_FOR_REVIEW:
-        'Ο διανομέας {{courierId}} πληρώθηκε {{amount}} {{currency}} (λεπτά του ευρώ) για την επανεξέταση {{reviewId}}',
+        'Ο διανομέας {{courierId}} πληρώθηκε {{amount, money}} για την επανεξέταση {{reviewId}}',
 
       DROPOFF_MOVED_BY_RIDER:
         'Ο διανομέας μετακίνησε το σημείο παράδοσης κατά {{metres}} μ., από {{from}} σε {{to}}· $t(server.enum.savedCustomerOutcome.{{outcome}})',
@@ -154,7 +155,7 @@ export const el: Translations = {
       STACK_PAIRED: '· προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}}, στάσεις: {{stops, comma}}',
       ADD_ON:
         '· προτάθηκε ως μία ακόμα παραγγελία στον δρόμο, μαζί με τη δουλειά της παραγγελίας {{jobId}}{{figures}}, στάσεις: {{stops, comma}}{{calm}}{{why}}',
-      ADD_ON_FIGURES: ' (+{{extraKm}} χλμ., +{{extraMinutes}} λεπτά)',
+      ADD_ON_FIGURES: ' (+{{extraKm, decimal}} χλμ., +{{extraMinutes}} λεπτά)',
       ADD_ON_CARRYING_FOOD:
         '· ο διανομέας μεταφέρει φαγητό, οπότε διπλάσιος χρόνος απάντησης και χωρίς επίμονο κουδούνισμα',
       ADD_ON_FREE_RIDER_FOUND:
@@ -179,10 +180,17 @@ export const el: Translations = {
       reviewOutcome: { STANDS: 'η απόφαση ισχύει', CHANGED: 'η απόφαση άλλαξε' },
       productReportKind: { WRONG_ITEM: 'λάθος προϊόν', MISSING_ITEM: 'προϊόν που λείπει' },
       productReportSource: { COURIER: 'από τον διανομέα', PARTNER: 'από το κατάστημα', ADMIN: 'από τον συνεταιρισμό' },
+      deliveryIssueReason: {
+        WRONG_ADDRESS: 'Λάθος διεύθυνση',
+        NO_SIGNAL: 'Χωρίς ίντερνετ, GPS ή σήμα',
+        ORDER_HANDED: 'Η παραγγελία δόθηκε στον πελάτη',
+        FOOD_NOT_READY: 'Δηλώθηκε έτοιμη αλλά δεν ήταν',
+        OTHER: 'Άλλο',
+      },
       deliveryStatus: {
         CREATED: 'δημιουργήθηκε',
         ASSIGNING_COURIER: 'αναζήτηση διανομέα',
-        ACCEPTED: 'αποδεκτή',
+        ACCEPTED: 'έγινε αποδεκτή',
         DISPATCHED: 'καθ’ οδόν προς το κατάστημα',
         COURIER_ARRIVED_AT_PICKUP_LOCATION: 'στο κατάστημα',
         PICKED_UP: 'παραλήφθηκε',
@@ -296,7 +304,61 @@ export const el: Translations = {
       OFFLINE_ITEM_MISSING: 'Αυτό το στοιχείο δεν είναι στη λίστα.',
       OFFLINE_ITEM_ALREADY_FOLLOWED_UP: 'Αυτό το στοιχείο έχει ήδη διεκπεραιωθεί.',
       BOX_OVER_CAPACITY:
-        'Αυτό θα γέμιζε το κουτί του διανομέα πάνω από το όριο: μεταφέρει {{heldUnits}} από 100 μονάδες και αυτή η παραγγελία παίρνει {{deliveryUnits}}. Επιβεβαιώστε για να την αναθέσετε παρ’ όλα αυτά.',
+        'Αυτό θα γέμιζε το κουτί του διανομέα πάνω από το όριο: μεταφέρει {{heldUnits}} από {{boxUnits}} μονάδες και αυτή η παραγγελία παίρνει {{deliveryUnits}}. Επιβεβαιώστε για να την αναθέσετε παρ’ όλα αυτά.',
+      LEAVE_WAIT_TOO_SOON:
+        'Μπορείτε να φύγετε {{minutes}} λεπτά μετά την ώρα που είχε υποσχεθεί το κατάστημα, ή μετά την άφιξή σας αν ήταν αργότερα.',
+      SPLIT_LEAVE_TOO_SOON: 'Μπορείτε να φύγετε αν περάσουν {{minutes}} λεπτά χωρίς απάντηση από τον συντονισμό.',
+      SHIFT_DROP_TOO_LATE:
+        'Δεν μπορείτε πια να αποδεσμευτείτε από αυτή τη βάρδια. Μπορούσατε έως τις {{until, when}}· μπορείτε ακόμα να τη διαθέσετε για ανταλλαγή.',
+      LEG_TAKEN: 'Το σκέλος {{legNumber}} από {{legCount}} αυτής της παραγγελίας έχει ήδη σταλεί.',
+      LEG_COUNT_MISMATCH:
+        'Αυτή η παραγγελία στάλθηκε σε {{sentCount}} σκέλη· το σκέλος {{legNumber}} από {{legCount}} δεν ταιριάζει.',
+      PARTNER_DISABLED: 'Ο συνεταιρισμός έχει απενεργοποιήσει αυτό το κατάστημα: {{reason}}',
+      PARTNER_DISABLED_NO_REASON: 'Ο συνεταιρισμός έχει απενεργοποιήσει αυτό το κατάστημα, χωρίς αιτιολογία',
+      PARTNER_PAUSED: 'Οι παραγγελίες έχουν παυθεί έως τις {{until, clock}}.',
+      DISPATCH_STOPPED_RESTAURANT: 'Οι διανομές έχουν σταματήσει έως τις {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT_OPEN: 'Οι διανομές έχουν σταματήσει μέχρι να ξαναρχίσουν ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_ADMIN: 'Οι διανομές έχουν σταματήσει έως τις {{until, when}}.',
+      DISPATCH_STOPPED_ADMIN_OPEN: 'Οι διανομές έχουν σταματήσει μέχρι να ξαναρχίσουν.',
+    },
+
+    notice: {
+      DISPATCH_STOPPED_RIDER: 'Οι διανομές έχουν σταματήσει έως τις {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RIDER_OPEN: 'Οι διανομές έχουν σταματήσει μέχρι να τις ξεκινήσει ξανά ο συνεταιρισμός ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT: 'Οι διανομές έχουν σταματήσει έως τις {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT_OPEN: 'Οι διανομές έχουν σταματήσει μέχρι να ξαναρχίσουν ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER:
+        'Οι διανομές σταματούν {{startsAt, day}} {{startsAt, clock}} έως {{endsAt, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER_SAME_DAY:
+        'Οι διανομές σταματούν {{startsAt, day}} {{startsAt, clock}} έως {{endsAt, clock}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER_OPEN:
+        'Οι διανομές σταματούν {{startsAt, day}} από τις {{startsAt, clock}} μέχρι να ξαναρχίσουν ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT:
+        'Οι διανομές σταματούν {{startsAt, day}} {{startsAt, clock}} έως {{endsAt, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT_SAME_DAY:
+        'Οι διανομές σταματούν {{startsAt, day}} {{startsAt, clock}} έως {{endsAt, clock}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT_OPEN:
+        'Οι διανομές σταματούν {{startsAt, day}} από τις {{startsAt, clock}} μέχρι να ξαναρχίσουν ($t(server.enum.dispatchStopReason.{{reason}})).',
+    },
+
+    board: {
+      NOT_OFFERED_YET: 'Δεν έχει προταθεί ακόμα, το φαγητό είναι έτοιμο στις {{readyAt, clock}}',
+      NO_COURIER_ACCEPTED: 'Κανένας διανομέας δεν την αποδέχτηκε',
+      OFFERED: '{{rider}}: προτάθηκε, χωρίς απάντηση',
+      OFFERED_PAIR: '{{rider}}: προτάθηκε μαζί με την παραγγελία {{otherOrder}}, χωρίς απάντηση',
+      OFFERED_ADD_ON:
+        '{{rider}}: προτάθηκε ως μία ακόμα παραγγελία στον δρόμο, μαζί με την παραγγελία {{job}} (+{{extraKm, decimal}} χλμ., +{{extraMinutes}} λεπτά), χωρίς απάντηση',
+      OFFERED_ADD_ON_NO_FIGURES:
+        '{{rider}}: προτάθηκε ως μία ακόμα παραγγελία στον δρόμο, μαζί με την παραγγελία {{job}}, χωρίς απάντηση',
+      RESTAURANT_LATE:
+        '{{rider}}: περιμένει στο κατάστημα {{restaurant}}, το φαγητό έπρεπε να είναι έτοιμο στις {{promisedAt, clock}}',
+      RIDER_REPORT: '{{rider}}: αναφορά, $t(server.enum.deliveryIssueReason.{{reason}})',
+      REMOVAL_PAID: '{{rider}}: ζητά αποδέσμευση από αυτή την παραγγελία, {{labelEl}} (με αμοιβή)',
+      REMOVAL_NOT_PAID: '{{rider}}: ζητά αποδέσμευση από αυτή την παραγγελία, {{labelEl}} (χωρίς αμοιβή)',
+      REMOVAL_PAID_PICKED_UP:
+        '{{rider}}: ζητά αποδέσμευση από αυτή την παραγγελία, {{labelEl}} (με αμοιβή). Το φαγητό έχει ήδη παραληφθεί: η έγκριση ακυρώνει την παραγγελία.',
+      REMOVAL_NOT_PAID_PICKED_UP:
+        '{{rider}}: ζητά αποδέσμευση από αυτή την παραγγελία, {{labelEl}} (χωρίς αμοιβή). Το φαγητό έχει ήδη παραληφθεί: η έγκριση ακυρώνει την παραγγελία.',
     },
 
     mail: {

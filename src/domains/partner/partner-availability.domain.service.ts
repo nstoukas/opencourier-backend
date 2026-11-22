@@ -1,8 +1,9 @@
-import { ConflictException, Injectable } from '@nestjs/common'
+import { ConflictException, HttpStatus, Injectable } from '@nestjs/common'
 import { EnumPartnerAvailabilityAction, EnumUserRole } from '@prisma/types'
 import { PartnerAvailabilityChangeRepository } from 'src/persistence/repositories/partner-availability-change.repository'
 import { PartnerEntity } from './entities/partner.entity'
-import { disabledSentence, pauseInForce } from './partner-availability'
+import { refusalBody } from 'src/localization/coded-sentence'
+import { disabledCodedSentence, pauseInForce } from './partner-availability'
 
 const CHANGES_SHOWN = 50
 
@@ -82,6 +83,8 @@ export class PartnerAvailabilityDomainService {
   }
 
   private refuseIfDisabled(partner: PartnerEntity): void {
-    if (partner.disabledAt) throw new ConflictException(disabledSentence(partner.disabledReason))
+    if (partner.disabledAt) {
+      throw new ConflictException(refusalBody(HttpStatus.CONFLICT, disabledCodedSentence(partner.disabledReason)))
+    }
   }
 }

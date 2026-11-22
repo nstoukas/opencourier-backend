@@ -1,6 +1,7 @@
 import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
 import { SPLIT_SENTENCES } from 'src/domains/split/split'
-import { ConflictException, Injectable } from '@nestjs/common'
+import { ConflictException, HttpStatus, Injectable } from '@nestjs/common'
+import { refusalBody } from 'src/localization/coded-sentence'
 import { EnumDeliveryStatus } from '@prisma/types'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { DeliveryNotFoundException } from 'src/errors'
@@ -53,7 +54,8 @@ export class LeaveWaitCourierService {
       !delivery.arrivedAtPickupAt ||
       occurredAt < waitLeaveFrom(delivery.promisedReadyAt, delivery.arrivedAtPickupAt, limitMinutes)
     ) {
-      throw new ConflictException(tooSoonMessage(limitMinutes))
+      const tooSoon = { code: 'LEAVE_WAIT_TOO_SOON', params: { minutes: limitMinutes }, message: tooSoonMessage(limitMinutes) }
+      throw new ConflictException(refusalBody(HttpStatus.CONFLICT, tooSoon))
     }
 
     const left = await this.deliveryEventService.leaveWait(delivery, courierId, occurredAt)

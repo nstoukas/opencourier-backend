@@ -10,7 +10,10 @@ import { codeForSentence } from '../localization/error-sentences'
 // `NotFoundError`, thrown by every `...OrThrow` read, is a subclass of it, so it is caught too.
 import { Prisma } from '@prisma/types'
 
-// Spec 0054 (AC-6): codes too general to tell a person anything. When such a refusal carries one of the
+// Spec 0054 (AC-6): the specific codes this filter sends (from error-sentences.ts, or a coded sentence's
+// own) are plain strings, keys of `server.error` in src/localization/en.ts, not members of the ErrorCode
+// enum, so the Swagger type of `code` lists only the general ones.
+// Codes too general to tell a person anything. When such a refusal carries one of the
 // fixed sentences, its specific code replaces it. UNAUTHORIZED and FORBIDDEN are never replaced: the apps
 // sign out on them.
 const GENERIC_CODES: ReadonlySet<string> = new Set([
@@ -27,7 +30,9 @@ export class HttpExceptionFilter extends BaseExceptionFilter {
     const ctx = host.switchToHttp()
     const response = ctx.getResponse<Response>()
     if (exception instanceof ApiException) {
-      const specific = GENERIC_CODES.has(exception.code) ? codeForSentence(exception.message) : null
+      // A sentence with values names its own code (DispatchStoppedError); a fixed sentence is looked up.
+      const specific =
+        exception.sentenceCode ?? (GENERIC_CODES.has(exception.code) ? codeForSentence(exception.message) : null)
       response.status(exception.getStatus()).json({
         code: specific ?? exception.code,
         message: exception.message,

@@ -1,6 +1,7 @@
 import { DispatchStop, EnumDispatchStopReason } from '@prisma/types'
 import { INSTANCE_TIMEZONE } from 'src/constants'
 import { dayjs } from 'src/core/utils/time'
+import { CodedSentence } from 'src/localization/coded-sentence'
 
 // Spec 0014. Every dispatch stop time is entered and shown in the instance's time zone (Athens),
 // and stored as UTC. All the sentences riders, restaurants and admins read are built here, on the
@@ -101,4 +102,46 @@ export function riderNextMessage(stop: StopTimes, now: Date): string {
 export function adminRefusedMessage(stop: StopTimes, now: Date): string {
   const until = untilWords(effectiveEnd(stop), now) ?? 'until it is restarted'
   return `Dispatch is stopped ${until}.`
+}
+
+// ── The same sentences as codes with values (spec 0054, AC-6, review of 2026-11-22) ─────────────
+// Each function below returns the code of the matching sentence above, its values, and the English
+// sentence itself, so an app can say it in its reader's language (src/localization/coded-sentence.ts).
+// The words "today", "tomorrow" and "on 3 August" are left to the app, which fills them in from the ISO
+// times when it shows the sentence. The codes are keys of `server.notice` (banners) and `server.error`
+// (refusals) in src/localization/en.ts and el.ts.
+
+type Audience = 'RIDER' | 'RESTAURANT'
+
+// A stop in force, to a rider or a restaurant (the banner, and the restaurant's refusal).
+export function stoppedSentence(audience: Audience, stop: StopTimes, now: Date): CodedSentence {
+  const end = effectiveEnd(stop)
+  const message = audience === 'RIDER' ? riderStoppedMessage(stop, now) : restaurantStoppedMessage(stop, now)
+  return end
+    ? { code: `DISPATCH_STOPPED_${audience}`, params: { reason: stop.reason, until: end.toISOString() }, message }
+    : { code: `DISPATCH_STOPPED_${audience}_OPEN`, params: { reason: stop.reason }, message }
+}
+
+// A stop that starts soon, to a rider or a restaurant. Like windowWords: the end's day is said only when it
+// is not the start's day (Athens time).
+export function nextSentence(audience: Audience, stop: StopTimes, now: Date): CodedSentence {
+  const message = audience === 'RIDER' ? riderNextMessage(stop, now) : restaurantNextMessage(stop, now)
+  const startsAt = stop.startsAt.toISOString()
+  const base = `DISPATCH_STOPS_${audience}`
+  if (!stop.endsAt) return { code: `${base}_OPEN`, params: { reason: stop.reason, startsAt }, message }
+  const sameDay = athens(stop.startsAt).format('YYYY-MM-DD') === athens(stop.endsAt).format('YYYY-MM-DD')
+  return {
+    code: sameDay ? `${base}_SAME_DAY` : base,
+    params: { reason: stop.reason, startsAt, endsAt: stop.endsAt.toISOString() },
+    message,
+  }
+}
+
+// To an admin whose hand offer or reassignment was refused.
+export function adminRefusedSentence(stop: StopTimes, now: Date): CodedSentence {
+  const end = effectiveEnd(stop)
+  const message = adminRefusedMessage(stop, now)
+  return end
+    ? { code: 'DISPATCH_STOPPED_ADMIN', params: { until: end.toISOString() }, message }
+    : { code: 'DISPATCH_STOPPED_ADMIN_OPEN', params: {}, message }
 }

@@ -12,12 +12,11 @@ import { resolveReassignmentPayout } from 'src/domains/delivery/utils/reassignme
 import {
   LocalDateTime,
   athensToUtc,
+  nextSentence,
   reasonWords,
-  restaurantNextMessage,
-  restaurantStoppedMessage,
-  riderNextMessage,
-  riderStoppedMessage,
+  stoppedSentence,
 } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { CodedSentence, SentenceParams } from 'src/localization/coded-sentence'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
@@ -31,8 +30,17 @@ import { eventText } from 'src/domains/delivery-event/event-text'
 const DISPATCH_STOP_TICK_JOB = 'dispatch-stop-tick'
 const EVERY_MINUTE = '* * * * *'
 
-// What a rider or a restaurant reads about a stop: never who created it (spec 0014, AC-10).
-export type DispatchStopView = { reason: EnumDispatchStopReason; startsAt: Date; endsAt: Date | null; message: string }
+// What a rider or a restaurant reads about a stop: never who created it (spec 0014, AC-10). `message` is the
+// English sentence; `messageCode` (a key of `server.notice`) and `messageParams` let the app say it in its
+// reader's language (spec 0054, AC-6).
+export type DispatchStopView = {
+  reason: EnumDispatchStopReason
+  startsAt: Date
+  endsAt: Date | null
+  message: string
+  messageCode: string
+  messageParams: SentenceParams
+}
 export type DispatchState = { current: DispatchStopView | null; next: DispatchStopView | null }
 
 // Stopping all dispatch for heat or a storm (spec 0014): creating, ending and cancelling stops, what
@@ -141,11 +149,10 @@ export class DispatchStopService implements OnModuleInit {
     const current = await this.dispatchStopRepository.findOn(now)
     const limit = new Date(now.getTime() + DISPATCH_STOP_LOOKAHEAD_HOURS * 3600 * 1000)
     const next = (await this.dispatchStopRepository.findScheduled(now)).find((stop) => stop.startsAt <= limit) ?? null
-    const stopped = audience === 'courier' ? riderStoppedMessage : restaurantStoppedMessage
-    const upcoming = audience === 'courier' ? riderNextMessage : restaurantNextMessage
+    const who = audience === 'courier' ? 'RIDER' : 'RESTAURANT'
     return {
-      current: current ? this.view(current, stopped(current, now)) : null,
-      next: next ? this.view(next, upcoming(next, now)) : null,
+      current: current ? this.view(current, stoppedSentence(who, current, now)) : null,
+      next: next ? this.view(next, nextSentence(who, next, now)) : null,
     }
   }
 
@@ -264,7 +271,14 @@ export class DispatchStopService implements OnModuleInit {
     return utc
   }
 
-  private view(stop: DispatchStop, message: string): DispatchStopView {
-    return { reason: stop.reason, startsAt: stop.startsAt, endsAt: stop.endedAt ?? stop.endsAt, message }
+  private view(stop: DispatchStop, sentence: CodedSentence): DispatchStopView {
+    return {
+      reason: stop.reason,
+      startsAt: stop.startsAt,
+      endsAt: stop.endedAt ?? stop.endsAt,
+      message: sentence.message,
+      messageCode: sentence.code,
+      messageParams: sentence.params,
+    }
   }
 }

@@ -169,6 +169,13 @@ export const en = {
       reviewOutcome: { STANDS: 'the decision stands', CHANGED: 'the decision was changed' },
       productReportKind: { WRONG_ITEM: 'a wrong item', MISSING_ITEM: 'a missing item' },
       productReportSource: { COURIER: 'by the rider', PARTNER: 'by the restaurant', ADMIN: 'by the co-op' },
+      deliveryIssueReason: {
+        WRONG_ADDRESS: 'Wrong address',
+        NO_SIGNAL: 'No internet, GPS or signal',
+        ORDER_HANDED: 'Order handed to the customer',
+        FOOD_NOT_READY: 'Marked ready but not ready',
+        OTHER: 'Other',
+      },
       deliveryStatus: {
         CREATED: 'created',
         ASSIGNING_COURIER: 'looking for a rider',
@@ -283,7 +290,65 @@ export const en = {
       OFFLINE_ITEM_ALREADY_FOLLOWED_UP: 'This item was already followed up.',
       // Thrown with params (spec 0054, AC-6): the numbers travel in the answer's `params`.
       BOX_OVER_CAPACITY:
-        'This would put the rider past a full box: they hold {{heldUnits}} of 100 units and this order takes {{deliveryUnits}}. Confirm to assign anyway.',
+        'This would put the rider past a full box: they hold {{heldUnits}} of {{boxUnits}} units and this order takes {{deliveryUnits}}. Confirm to assign anyway.',
+      // Thrown with params as well (spec 0054, AC-6, review of 2026-11-22): sentences with a number, a time or
+      // a name in them (src/localization/coded-sentence.ts). Times are ISO in `params`, shown on Athens time.
+      LEAVE_WAIT_TOO_SOON:
+        'You can leave {{minutes}} min after the promised time, or after you arrived if that was later.',
+      SPLIT_LEAVE_TOO_SOON: 'You can leave after {{minutes}} min without an answer from dispatch.',
+      SHIFT_DROP_TOO_LATE:
+        'This shift can no longer be dropped. You could drop it until {{until, when}}; you can still offer it as a swap.',
+      LEG_TAKEN: 'Leg {{legNumber}} of {{legCount}} of this order was already sent.',
+      LEG_COUNT_MISMATCH:
+        'This order was sent as {{sentCount}} legs; leg {{legNumber}} of {{legCount}} does not match.',
+      PARTNER_DISABLED: 'The co-op has disabled this restaurant: {{reason}}',
+      PARTNER_DISABLED_NO_REASON: 'The co-op has disabled this restaurant: no reason given',
+      PARTNER_PAUSED: 'Ordering is paused until {{until, clock}}.',
+      DISPATCH_STOPPED_RESTAURANT: 'Delivery is stopped until {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT_OPEN: 'Delivery is stopped until dispatch restarts ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_ADMIN: 'Dispatch is stopped until {{until, when}}.',
+      DISPATCH_STOPPED_ADMIN_OPEN: 'Dispatch is stopped until it is restarted.',
+    },
+
+    // Sentences that are not refusals, by code (spec 0054, AC-2, review of 2026-11-22). A dispatch stop's
+    // banner: the view sends `messageCode` and `messageParams` beside its English `message`.
+    notice: {
+      DISPATCH_STOPPED_RIDER: 'Dispatch is stopped until {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RIDER_OPEN: 'Dispatch is stopped until the co-op restarts it ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT: 'Delivery is stopped until {{until, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPPED_RESTAURANT_OPEN: 'Delivery is stopped until dispatch restarts ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER: 'Dispatch stops {{startsAt, day}} {{startsAt, clock}} to {{endsAt, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER_SAME_DAY:
+        'Dispatch stops {{startsAt, day}} {{startsAt, clock}} to {{endsAt, clock}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RIDER_OPEN:
+        'Dispatch stops {{startsAt, day}} from {{startsAt, clock}} until dispatch restarts ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT:
+        'Delivery stops {{startsAt, day}} {{startsAt, clock}} to {{endsAt, when}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT_SAME_DAY:
+        'Delivery stops {{startsAt, day}} {{startsAt, clock}} to {{endsAt, clock}} ($t(server.enum.dispatchStopReason.{{reason}})).',
+      DISPATCH_STOPS_RESTAURANT_OPEN:
+        'Delivery stops {{startsAt, day}} from {{startsAt, clock}} until dispatch restarts ($t(server.enum.dispatchStopReason.{{reason}})).',
+    },
+
+    // The dispatch board's row sentences (an attention row's `detailCode` and `detailParams`, beside its
+    // English `detail`). A row's `note`, when it has one, is the person's own words and goes on a second
+    // line as written.
+    board: {
+      NOT_OFFERED_YET: 'Not offered yet, food ready {{readyAt, clock}}',
+      NO_COURIER_ACCEPTED: 'No courier accepted',
+      OFFERED: 'Offered to {{rider}}, unanswered',
+      OFFERED_PAIR: 'Offered to {{rider}} together with {{otherOrder}}, unanswered',
+      OFFERED_ADD_ON:
+        'Offered to {{rider}} as one more order on the way with {{job}} (+{{extraKm, decimal}} km, +{{extraMinutes}} min), unanswered',
+      OFFERED_ADD_ON_NO_FIGURES: 'Offered to {{rider}} as one more order on the way with {{job}}, unanswered',
+      RESTAURANT_LATE: '{{rider}} waiting at {{restaurant}}, food was due {{promisedAt, clock}}',
+      RIDER_REPORT: '{{rider}} reported: $t(server.enum.deliveryIssueReason.{{reason}})',
+      REMOVAL_PAID: '{{rider}} asks to come off this order: {{label}} (Paid)',
+      REMOVAL_NOT_PAID: '{{rider}} asks to come off this order: {{label}} (Not paid)',
+      REMOVAL_PAID_PICKED_UP:
+        '{{rider}} asks to come off this order: {{label}} (Paid). Food already picked up: approving cancels the order.',
+      REMOVAL_NOT_PAID_PICKED_UP:
+        '{{rider}} asks to come off this order: {{label}} (Not paid). Food already picked up: approving cancels the order.',
     },
 
     // Mails (cross check 8), in the reader's User.language.

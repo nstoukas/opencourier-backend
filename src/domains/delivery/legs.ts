@@ -1,4 +1,5 @@
 import { EnumDeliveryStatus } from '@prisma/types'
+import { CodedSentence } from 'src/localization/coded-sentence'
 
 // Spec 0046 (row 10): multi leg orders. An order too big for one box is sent as N ordinary deliveries
 // ("legs") sharing the restaurant's `orderReference`, each labelled "leg 1 of 2". The storefront works
@@ -42,19 +43,35 @@ export type SiblingLeg = { legNumber: number | null; legCount: number | null }
 // Key invariants and cross check 2: a new leg must agree with the legs already sent for its order.
 // Returns the sentence for a 409, or null. The unique index catches two creates racing for one number.
 export function siblingConflict(newLeg: { legNumber: number; legCount: number }, siblings: SiblingLeg[]): string | null {
+  return siblingConflictSentence(newLeg, siblings)?.message ?? null
+}
+
+// The same check, as a code with values plus the English sentence (spec 0054, AC-6), for the 409.
+export function siblingConflictSentence(
+  newLeg: { legNumber: number; legCount: number },
+  siblings: SiblingLeg[]
+): CodedSentence | null {
   const legs = siblings.filter((sibling) => sibling.legCount !== null)
   const otherCount = legs.find((sibling) => sibling.legCount !== newLeg.legCount)
   if (otherCount) {
-    return `This order was sent as ${otherCount.legCount} legs; leg ${newLeg.legNumber} of ${newLeg.legCount} does not match.`
+    return {
+      code: 'LEG_COUNT_MISMATCH',
+      params: { sentCount: otherCount.legCount, legNumber: newLeg.legNumber, legCount: newLeg.legCount },
+      message: `This order was sent as ${otherCount.legCount} legs; leg ${newLeg.legNumber} of ${newLeg.legCount} does not match.`,
+    }
   }
   if (legs.some((sibling) => sibling.legNumber === newLeg.legNumber)) {
-    return LEG_TAKEN_SENTENCE(newLeg.legNumber, newLeg.legCount)
+    return legTakenSentence(newLeg.legNumber, newLeg.legCount)
   }
   return null
 }
 
 export const LEG_TAKEN_SENTENCE = (legNumber: number, legCount: number) =>
   `Leg ${legNumber} of ${legCount} of this order was already sent.`
+
+export function legTakenSentence(legNumber: number, legCount: number): CodedSentence {
+  return { code: 'LEG_TAKEN', params: { legNumber, legCount }, message: LEG_TAKEN_SENTENCE(legNumber, legCount) }
+}
 
 // Row 10 review: a leg needs the reference that ties it to its order.
 export const LEG_REFERENCE_REQUIRED_SENTENCE = 'A leg needs an orderReference: it is what ties the legs of an order together.'

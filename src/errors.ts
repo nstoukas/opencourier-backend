@@ -1,6 +1,8 @@
 import * as common from '@nestjs/common'
 import { ApiProperty, ApiResponse, ApiResponseOptions } from '@nestjs/swagger'
 import { HttpExceptionOptions } from '@nestjs/common/exceptions/http.exception'
+import { RIDER_BOX_UNITS } from 'src/domains/delivery/box'
+import { CodedSentence } from 'src/localization/coded-sentence'
 
 export const DEFAULT_HTTP_CODE = 418 // I'm a teapot.
 
@@ -115,6 +117,11 @@ export class ApiException extends common.HttpException {
   // language (`server.error.<code>` with these values). Left out when the sentence has none.
   @ApiProperty({ required: false, type: Object })
   params?: Record<string, string | number | null>
+
+  // Spec 0054 (AC-6, review of 2026-11-22): the code of a sentence with values of its own (a key of
+  // `server.error`), sent in place of `code` by HttpExceptionFilter. Not part of the answer's shape: the
+  // answer still has one `code`. Never set on UNAUTHORIZED or FORBIDDEN, which the apps sign out on.
+  sentenceCode?: string
 
   constructor(
     code: ErrorCode,
@@ -381,12 +388,13 @@ export class BoxOverCapacityException extends common.ConflictException {
   constructor(heldUnits: number, deliveryUnits: number) {
     super({
       code: ErrorCode.BOX_OVER_CAPACITY,
-      message: `This would put the rider past a full box: they hold ${heldUnits} of 100 units and this order takes ${deliveryUnits}. Confirm to assign anyway.`,
+      message: `This would put the rider past a full box: they hold ${heldUnits} of ${RIDER_BOX_UNITS} units and this order takes ${deliveryUnits}. Confirm to assign anyway.`,
       statusCode: 409,
       heldUnits,
       deliveryUnits,
-      // Spec 0054 (AC-6): the same numbers where every coded refusal puts them.
-      params: { heldUnits, deliveryUnits },
+      // Spec 0054 (AC-6): the same numbers where every coded refusal puts them, and the box's size, so the
+      // translated text never types in a limit of its own.
+      params: { heldUnits, deliveryUnits, boxUnits: RIDER_BOX_UNITS },
     })
   }
 }
@@ -546,5 +554,16 @@ export class BlockchainTransactionError extends ApiException {
 export class CantUpdateDeliveryStatusError extends ApiException {
   constructor(message: string, options?: HttpExceptionOptions) {
     super(ErrorCode.CANT_UPDATE_DELIVERY_STATUS, message, 409, options)
+  }
+}
+
+// Spec 0014 (AC-4) and spec 0054 (AC-6): an admin's hand offer or reassignment during a dispatch stop. Still a
+// CantUpdateDeliveryStatusError for every caller that checks the class; its answer names the stop's own code
+// and the time it ends, so the admin page can say it in its reader's language.
+export class DispatchStoppedError extends CantUpdateDeliveryStatusError {
+  constructor(sentence: CodedSentence) {
+    super(sentence.message)
+    this.sentenceCode = sentence.code
+    this.params = sentence.params
   }
 }

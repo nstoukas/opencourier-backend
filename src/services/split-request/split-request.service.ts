@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, ConflictException, HttpStatus, Injectable, Logger } from '@nestjs/common'
+import { refusalBody } from 'src/localization/coded-sentence'
 import { eventPart, eventText } from 'src/domains/delivery-event/event-text'
 import { EventPart } from 'src/shared-types/event-messages'
 import {
@@ -113,7 +114,10 @@ export class SplitRequestService {
       throw new ConflictException(SPLIT_SENTENCES.notAtPickup)
     }
     const minutes = await this.configDomainService.instanceConfig.getSplitAnswerMinutes()
-    if (now < splitLeaveFrom(open.createdAt, minutes)) throw new ConflictException(SPLIT_SENTENCES.tooSoon(minutes))
+    if (now < splitLeaveFrom(open.createdAt, minutes)) {
+      const tooSoon = { code: 'SPLIT_LEAVE_TOO_SOON', params: { minutes }, message: SPLIT_SENTENCES.tooSoon(minutes) }
+      throw new ConflictException(refusalBody(HttpStatus.CONFLICT, tooSoon))
+    }
 
     const closed = await this.splitRequestRepository.closeIfOpen(open.id, {
       status: EnumSplitRequestStatus.LEFT,
