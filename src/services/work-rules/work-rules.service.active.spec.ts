@@ -197,6 +197,42 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.offers.some((line) => line.includes('about 4 minutes before'))).toBe(true)
     })
 
+    it('includes stacked order rules in offers when stackingEnabled is true (review of row 80, ruling 2)', async () => {
+      // 1. SHORTAGE_ONLY with 10 minutes delay limit
+      ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...baseSettings,
+        stackingEnabled: true,
+        twoOrderPolicy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+        twoOrderDelayLimitMinutes: 10,
+      })
+
+      const shortageResult = await service.howItWorks()
+      expect(shortageResult.offers).toContain(
+        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens only when one of them found no free rider. You take or decline both at once, and a pair is never accepted automatically. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 10 minutes later than it would alone, and both orders always fit in your box.'
+      )
+
+      // 2. WHENEVER_FITS with 15 minutes delay limit
+      ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...baseSettings,
+        stackingEnabled: true,
+        twoOrderPolicy: EnumTwoOrderPolicy.WHENEVER_FITS,
+        twoOrderDelayLimitMinutes: 15,
+      })
+
+      const wheneverResult = await service.howItWorks()
+      expect(wheneverResult.offers).toContain(
+        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens whenever the two fit. You take or decline both at once, and a pair is never accepted automatically. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 15 minutes later than it would alone, and both orders always fit in your box.'
+      )
+
+      // 3. stackingEnabled: false omits the rule
+      ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...baseSettings,
+        stackingEnabled: false,
+      })
+      const offResult = await service.howItWorks()
+      expect(offResult.offers.some((line) => line.includes('Two orders may be offered to you together'))).toBe(false)
+    })
+
     it('reflects dynamic offerExpirySeconds (45s), pay values, and courierMatcherType in sentences (AC-11)', async () => {
       // 1. offerExpirySeconds: 45 with expiry on, quoteBaseFee: 350 (€3.50), NEAREST_COURIER
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({

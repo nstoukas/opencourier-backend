@@ -3,6 +3,8 @@ import {
   CourierRepository,
   heldBoxDeliveriesWhere,
   heldBoxUnitsSql,
+  liveDeliveriesWhere,
+  liveDeliveryCountSql,
   boxRoomCondition,
   RETURN_TRIP_HELD_HOURS,
 } from './courier.repository'
@@ -86,6 +88,29 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       expect(unitsSql.sql).toContain('SELECT COALESCE(SUM("Delivery"."boxUnits"), 0)::int FROM "Delivery" WHERE')
       expect(unitsSql.sql).toContain('"Delivery"."courierId" =')
       expect(unitsSql.sql).toContain('"Delivery"."matchedCourierId" =')
+    })
+
+    test('liveDeliveriesWhere contains ongoing statuses and open offer, omitting return trips (review of row 80, major)', () => {
+      const liveSql = liveDeliveriesWhere(riderSql)
+
+      expect(liveSql).toBeDefined()
+      expect(typeof liveSql.sql).toBe('string')
+      expect(liveSql.sql).toContain('"Delivery"."courierId" =')
+      expect(liveSql.sql).toContain('"Delivery"."status"::text IN')
+      expect(liveSql.sql).toContain('"Delivery"."matchedCourierId" =')
+      expect(liveSql.sql).toContain('"Delivery"."courierId" IS NULL')
+      expect(liveSql.sql).toContain('"Delivery"."status"::text =')
+
+      // Food being taken back (cancelled with null foodOutcome) is NOT in liveDeliveriesWhere
+      expect(liveSql.sql).not.toContain('cancelledFromStatus')
+      expect(liveSql.sql).not.toContain('foodOutcome')
+    })
+
+    test('liveDeliveryCountSql counts live deliveries and excludes exceptDeliveryId', () => {
+      const countSql = liveDeliveryCountSql(riderSql, 'del-exclude-1')
+      expect(countSql.sql).toContain('SELECT COUNT(*)::int FROM "Delivery" WHERE')
+      expect(countSql.sql).toContain('"Delivery"."id" <>')
+      expect(countSql.values).toContain('del-exclude-1')
     })
   })
 
@@ -389,6 +414,136 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       )
 
       expect(res).toBe('CLAIMED')
+    })
+
+    test('returns TWO_HELD when live deliveries count >= 2 even if allowOverCapacity is true (gap 2, spec 0048 AC-11)', async () => {
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ deactivated: false }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 2 }]) // liveDeliveryCountSql >= 2 (MAX_DELIVERIES_HELD)
+
+      const res = await deliveryRepo.claimForRiderWithinBox(
+        'del-new',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' },
+        true // allowOverCapacity
+      )
+
+      expect(res).toEqual({ outcome: 'TWO_HELD', heldUnits: 0, deliveryUnits: 0 })
+      expect(mockTx.delivery.findUnique).not.toHaveBeenCalled()
+      expect(mockTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('claimOfferWithinBox returns TWO_HELD when live deliveries count is at limit (spec 0048 AC-11)', async () => {
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ deactivated: false }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 2 }]) // liveDeliveryCountSql >= 2
+
+      const res = await deliveryRepo.claimOfferWithinBox(
+        'del-new',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' }
+      )
+
+      expect(res).toBe('TWO_HELD')
+      expect(mockTx.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('allows claim when live deliveries count < 2 even if rider carries cancelled food back (review of row 80, major)', async () => {
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ deactivated: false }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 1 }]) // liveDeliveryCountSql = 1 (< 2)
+        .mockResolvedValueOnce([{ held: 30 }]) // heldBoxUnitsSql = 30 (from cancelled return food)
+      mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 40 }) // 30 + 40 = 70 <= 100
+      mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
+
+      const res = await deliveryRepo.claimOfferWithinBox(
+        'del-new',
+        'courier-1',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER },
+        { matchedCourierId: 'courier-1' }
+      )
+
+      expect(res).toBe('CLAIMED')
+      expect(mockTx.delivery.updateMany).toHaveBeenCalled()
+
+      // Limit query used liveDeliveryCountSql (omitting cancelled returns), not heldBoxCountSql
+      const limitQuery: Prisma.Sql = mockTx.$queryRaw.mock.calls[2][0]
+      expect(limitQuery.sql).not.toContain('cancelledFromStatus')
+      expect(limitQuery.sql).not.toContain('foodOutcome')
+    })
+  })
+
+  describe('DeliveryEventService.offerToNextCourier on TWO_HELD (spec 0048 AC-11)', () => {
+    test('returns NO_COURIER and writes no OFFERED event when claimOfferWithinBox returns TWO_HELD', async () => {
+      const mockDeliveryRepo = {
+        claimOfferWithinBox: jest.fn().mockResolvedValue('TWO_HELD'),
+      }
+      const mockConfigDomainService = {
+        instanceConfig: {
+          getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+          getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
+          getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
+        },
+      }
+      const mockDeliveryMatchingService = {
+        findCourierForDelivery: jest.fn().mockResolvedValue({
+          courier: { id: 'courier-volos-1' },
+          delivery: { id: 'del-1', boxUnits: 60 },
+          pickupLocation: {},
+        }),
+      }
+      const mockDeliveryEventRepo = {
+        create: jest.fn(),
+      }
+      const mockTaskBus = {
+        queueNamed: jest.fn().mockReturnValue({ add: jest.fn() }),
+        registerTaskHandler: jest.fn(),
+      }
+
+      const mockCourierRepo = {
+        hasActiveSos: jest.fn().mockResolvedValue(false),
+      }
+
+      const mockDeliveryCalculationService = {
+        calculateDeliveryAmountsForMatchedCourier: jest.fn().mockResolvedValue({
+          totalCost: 1000,
+          totalCompensation: 400,
+          fee: 200,
+          feePercentage: 20,
+        }),
+      }
+
+      const service = new DeliveryEventService(
+        {} as any,
+        {} as any,
+        mockCourierRepo as any,
+        mockDeliveryRepo as any,
+        mockDeliveryEventRepo as any,
+        {} as any,
+        mockTaskBus as any,
+        {} as any,
+        mockDeliveryMatchingService as any,
+        mockDeliveryCalculationService as any,
+        {} as any,
+        mockConfigDomainService as any,
+        {} as any,
+        {} as any,
+        { findOn: jest.fn().mockResolvedValue(null) } as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any
+      )
+
+      const result = await (service as any).offerToNextCourier('del-1')
+
+      expect(result).toBe('NO_COURIER')
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalled()
     })
   })
 

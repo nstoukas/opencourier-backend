@@ -80,6 +80,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
     mockDeliveryRepository = {
       findOfferCardSourceOrThrow: jest.fn().mockResolvedValue(createSampleOfferCardSource()),
       findById: jest.fn(),
+      findOpenGroupMembers: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
 
     mockBullMQService = {
@@ -257,6 +258,78 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       await service.sendNewOffer('courier-1', 'del-push-1', true)
 
       expect(mockBullMQService.addJob).not.toHaveBeenCalled()
+    })
+
+    describe('Stacked offers push (spec 0048, cross check 11, review of row 80, ruling 5)', () => {
+      test('sends stack push with offerGroupId and partnerDeliveryId when open group members are found', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              offerGroupId: 'grp-stack-1',
+              offeredAt: sampleOfferedAt,
+            },
+          })
+        )
+        ;(mockDeliveryRepository.findOpenGroupMembers as jest.Mock).mockResolvedValue([
+          { id: 'del-push-1' },
+          { id: 'del-partner-2' },
+        ])
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.objectContaining({
+            offerGroupId: 'grp-stack-1',
+            partnerDeliveryId: 'del-partner-2',
+          }),
+          expect.any(Number)
+        )
+      })
+
+      test('when reading open group members throws an error, does not send push as a single offer (review of row 80, ruling 5)', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              offerGroupId: 'grp-stack-1',
+              offeredAt: sampleOfferedAt,
+            },
+          })
+        )
+        ;(mockDeliveryRepository.findOpenGroupMembers as jest.Mock).mockRejectedValue(
+          new Error('DB failure reading group')
+        )
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        // Push must NOT be sent as an ordinary single offer
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+      })
+
+      test('when delivery has no partner in group (released/ended), sends as single offer', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              offerGroupId: 'grp-stack-1',
+              offeredAt: sampleOfferedAt,
+            },
+          })
+        )
+        ;(mockDeliveryRepository.findOpenGroupMembers as jest.Mock).mockResolvedValue([
+          { id: 'del-push-1' },
+        ])
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.objectContaining({
+            offerGroupId: '',
+            partnerDeliveryId: '',
+          }),
+          expect.any(Number)
+        )
+      })
     })
 
     describe('handleOfferInsistJob', () => {

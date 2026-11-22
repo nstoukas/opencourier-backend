@@ -62,6 +62,7 @@ describe('DeliveryDomainService', () => {
       refuseIfCourierHoldsSiblingLeg: jest.fn().mockResolvedValue(undefined),
       // Spec 0048 (cross check 10): a third delivery is refused before the box question.
       refuseIfCourierHoldsTwo: jest.fn().mockResolvedValue(undefined),
+      isCourierDeactivatedAfterTake: jest.fn().mockResolvedValue(false),
       offerDeliveryToCourierAsAdmin: jest.fn(),
       occurredAtForCourierTap: jest.fn(),
       hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
@@ -1103,9 +1104,38 @@ describe('DeliveryDomainService', () => {
       })
 
       expect(mockDeliveryEventService.refuseIfCourierInSos).toHaveBeenCalledWith('courier-matched')
-      expect(acceptSpy).toHaveBeenCalledWith('del-1', 'courier-matched')
+      expect(acceptSpy).toHaveBeenCalledWith('del-1', 'courier-matched', false, true)
       expect(mockDeliveryEventService.offerDeliveryToCourierAsAdmin).not.toHaveBeenCalled()
       acceptSpy.mockRestore()
+    })
+
+    test('acceptDelivery with alone = true accepts single order without invoking acceptStack even if offerGroupId is present (decision 80.5)', async () => {
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: 'del-alone-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: 'courier-matched',
+        courierId: null,
+        offerGroupId: 'grp-stack-1',
+      } as any)
+      const acceptStackSpy = jest.spyOn(service as any, 'acceptStack')
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+      mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+        id: 'del-alone-1',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-matched',
+      } as any)
+
+      await service.acceptDelivery('del-alone-1', 'courier-matched', false, true)
+
+      expect(acceptStackSpy).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-alone-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          courierId: 'courier-matched',
+        })
+      )
+      acceptStackSpy.mockRestore()
     })
 
     test('calls offerDeliveryToCourierAsAdmin when courier is not matched to delivery and not in SOS (spec 0022, AC-7)', async () => {

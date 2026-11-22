@@ -636,7 +636,7 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
 
       // Did NOT call heldBoxUnits because the rider already held this open offer
       expect(mockCourierRepository.heldBoxUnits).not.toHaveBeenCalled()
-      expect(acceptSpy).toHaveBeenCalledWith('del-already-matched', 'courier-matched')
+      expect(acceptSpy).toHaveBeenCalledWith('del-already-matched', 'courier-matched', false, true)
       acceptSpy.mockRestore()
     })
 

@@ -94,6 +94,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         Promise.resolve({ id, userId: `user-${id}`, status: EnumCourierStatus.ONLINE, deactivatedAt: null })
       ),
       heldDeliveryCount: jest.fn().mockResolvedValue(0),
+      liveDeliveryCount: jest.fn().mockResolvedValue(0),
       heldBoxUnits: jest.fn().mockResolvedValue(0),
       getCurrentLocation: jest.fn().mockResolvedValue({ latitude: 39.36, longitude: 22.94 }),
       isDeactivatedWaitingForLock: jest.fn().mockResolvedValue(false),
@@ -306,6 +307,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       const delTaken = makeDelivery('del-unaccepted-partner', {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         courierId,
+        updatedAt: new Date(),
       })
       mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
       mockDeliveryRepo.findById.mockResolvedValueOnce(
@@ -321,6 +323,93 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           deliveryId: 'del-unaccepted-partner',
           type: EnumDeliveryEventType.ACCEPTED,
           courierId,
+        })
+      )
+    })
+
+    it('completeTakenStackAccepts: gives offer back to waiting when dispatch is stopped (review of row 80, ruling 6)', async () => {
+      const delTaken = makeDelivery('del-stopped', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        updatedAt: new Date(),
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockDispatchStopRepo.findOn.mockResolvedValueOnce({ id: 'stop-active' })
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+
+      const completed = await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(completed).toBe(0)
+      expect(processSpy).not.toHaveBeenCalled()
+      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
+        'del-stopped',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        expect.objectContaining({
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
+        })
+      )
+    })
+
+    it('completeTakenStackAccepts: gives offer back to waiting when rider is deactivated (review of row 80, ruling 6)', async () => {
+      const delTaken = makeDelivery('del-deactivated', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        updatedAt: new Date(),
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockCourierRepo.isDeactivatedWaitingForLock.mockResolvedValueOnce(true)
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+
+      const completed = await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(completed).toBe(0)
+      expect(processSpy).not.toHaveBeenCalled()
+      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
+        'del-deactivated',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        expect.objectContaining({
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
+        })
+      )
+    })
+
+    it('completeTakenStackAccepts: gives offer back to waiting when accept has kept failing for > 10 min (review of row 80, ruling 6)', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delTaken = makeDelivery('del-giving-up', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+
+      const completed = await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(completed).toBe(0)
+      expect(processSpy).not.toHaveBeenCalled()
+      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
+        'del-giving-up',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        expect.objectContaining({
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
         })
       )
     })
@@ -467,6 +556,100 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       expect(claimArgs[1].data.totalCompensation).not.toBeLessThan(420)
       expect(claimArgs[2].data.totalCompensation).not.toBeLessThan(380)
     })
+
+    it('offerStack returns ALONE if calculating amounts for second delivery throws (review of row 80, ruling 4)', async () => {
+      const first = makeDelivery('del-1')
+      const second = makeDelivery('del-2')
+      const courier = { id: courierId }
+      const match = {
+        courier,
+        delivery: first,
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+        travelSeconds: 120,
+        reason: { kind: 'FAIRNESS', values: {} },
+      }
+      const plan = {
+        partner: second,
+        sequence: {
+          stops: [
+            { deliveryId: 'del-1', stop: 'PICKUP' as const },
+            { deliveryId: 'del-2', stop: 'PICKUP' as const },
+            { deliveryId: 'del-1', stop: 'DROPOFF' as const },
+            { deliveryId: 'del-2', stop: 'DROPOFF' as const },
+          ],
+          delaySeconds: { 'del-1': 50, 'del-2': 70 },
+          totalSeconds: 300,
+        },
+      }
+
+      mockCalculationService.calculateDeliveryAmountsForMatchedCourier.mockImplementation(async ({ deliveryId }: any) => {
+        if (deliveryId === 'del-2') throw new Error('Missing quote for second delivery')
+        return { totalCost: 500, totalCompensation: 420, fee: 50, feePercentage: 10 }
+      })
+
+      const result = await (deliveryEventService as any).offerStack(match, plan, 'First order')
+
+      expect(result).toBe('ALONE')
+      expect(mockDeliveryRepo.claimStackWithinBox).not.toHaveBeenCalled()
+    })
+
+    it('offerStack emits OFFERED event for BOTH deliveries in the pair (Binding value 1, gap 3)', async () => {
+      const first = makeDelivery('del-1')
+      const second = makeDelivery('del-2')
+      const courier = { id: courierId }
+      const match = {
+        courier,
+        delivery: first,
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+        travelSeconds: 120,
+        reason: { kind: 'FAIRNESS', values: {} },
+      }
+      const plan = {
+        partner: second,
+        sequence: {
+          stops: [
+            { deliveryId: 'del-1', stop: 'PICKUP' as const },
+            { deliveryId: 'del-2', stop: 'PICKUP' as const },
+            { deliveryId: 'del-1', stop: 'DROPOFF' as const },
+            { deliveryId: 'del-2', stop: 'DROPOFF' as const },
+          ],
+          delaySeconds: { 'del-1': 50, 'del-2': 70 },
+          totalSeconds: 300,
+        },
+      }
+
+      mockDeliveryRepo.claimStackWithinBox.mockResolvedValueOnce('CLAIMED')
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation(async (id: string) => (id === 'del-1' ? first : second))
+
+      const saveOfferedSpy = jest.spyOn(deliveryEventService as any, 'saveOfferedEvent').mockResolvedValue(undefined)
+
+      const result = await (deliveryEventService as any).offerStack(match, plan, 'Note 1')
+
+      expect(result).toBe('OFFERED')
+      // Binding value 1: both deliveries must have their OFFERED DeliveryEvent saved
+      expect(saveOfferedSpy).toHaveBeenCalledTimes(2)
+      expect(saveOfferedSpy).toHaveBeenNthCalledWith(
+        1,
+        'del-1',
+        courierId,
+        EnumEventActor.SYSTEM,
+        expect.any(Date),
+        null,
+        expect.stringContaining('offered together with delivery del-2'),
+        expect.objectContaining({ kind: 'STACK', values: expect.objectContaining({ partnerDeliveryId: 'del-2' }) })
+      )
+      expect(saveOfferedSpy).toHaveBeenNthCalledWith(
+        2,
+        'del-2',
+        courierId,
+        EnumEventActor.SYSTEM,
+        expect.any(Date),
+        null,
+        expect.stringContaining('offered together with delivery del-1'),
+        expect.objectContaining({ kind: 'STACK', values: expect.objectContaining({ partnerDeliveryId: 'del-1' }) })
+      )
+      saveOfferedSpy.mockRestore()
+    })
   })
 
   // =========================================================================
@@ -474,7 +657,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
   // =========================================================================
   describe('AC-11: third delivery refusal (max 2 held)', () => {
     it('refuseIfCourierHoldsTwo throws 409 THIRD_DELIVERY_REFUSED_SENTENCE when rider already holds 2 deliveries', async () => {
-      mockCourierRepo.heldDeliveryCount.mockResolvedValueOnce(MAX_DELIVERIES_HELD)
+      mockCourierRepo.liveDeliveryCount.mockResolvedValueOnce(MAX_DELIVERIES_HELD)
 
       const call = deliveryEventService.refuseIfCourierHoldsTwo(courierId, 'del-new')
 
@@ -485,12 +668,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
     })
 
     it('refuseIfCourierHoldsTwo allows rider holding 0 or 1 delivery', async () => {
-      mockCourierRepo.heldDeliveryCount.mockResolvedValueOnce(1)
+      mockCourierRepo.liveDeliveryCount.mockResolvedValueOnce(1)
       await expect(deliveryEventService.refuseIfCourierHoldsTwo(courierId, 'del-new')).resolves.toBeUndefined()
     })
 
     it('admin hand offer throws 409 THIRD_DELIVERY_REFUSED_SENTENCE even if confirmOverCapacity is true', async () => {
-      mockCourierRepo.heldDeliveryCount.mockResolvedValueOnce(2)
+      mockCourierRepo.liveDeliveryCount.mockResolvedValueOnce(2)
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(
         new DeliveryEntity({ id: 'del-3', status: EnumDeliveryStatus.CREATED, boxUnits: 30 } as any)
       )
@@ -513,7 +696,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
     })
 
     it('admin reassignment throws 409 THIRD_DELIVERY_REFUSED_SENTENCE when target courier holds 2 deliveries', async () => {
-      mockCourierRepo.heldDeliveryCount.mockResolvedValueOnce(2)
+      mockCourierRepo.liveDeliveryCount.mockResolvedValueOnce(2)
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(
         new DeliveryEntity({
           id: 'del-reassign',

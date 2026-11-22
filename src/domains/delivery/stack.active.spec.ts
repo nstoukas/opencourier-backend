@@ -110,6 +110,24 @@ describe('Stacked orders pure domain rules (spec 0048, row 80)', () => {
       ).toBeNull()
     })
 
+    it('allows pairing legs of different restaurants sharing the same orderReference (review of row 80, ruling 7)', () => {
+      expect(
+        stackRefusal(
+          { ...baseFirst, partnerId: 'partner-A', orderReference: 'order-shared', legCount: 2, foodReadyAt: readyDate },
+          { ...baseSecond, partnerId: 'partner-B', orderReference: 'order-shared', legCount: 2, foodReadyAt: readyDate }
+        )
+      ).toBeNull()
+    })
+
+    it('refuses pairing legs of the same restaurant sharing the same orderReference (spec 0046, ruling 7)', () => {
+      expect(
+        stackRefusal(
+          { ...baseFirst, partnerId: 'partner-A', orderReference: 'order-shared', legCount: 2 },
+          { ...baseSecond, partnerId: 'partner-A', orderReference: 'order-shared', legCount: 2 }
+        )
+      ).toBe('two legs of one order')
+    })
+
     it('refuses different restaurants when neither has foodReadyAt (slice 1 vs slice 2)', () => {
       expect(
         stackRefusal(

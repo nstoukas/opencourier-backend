@@ -281,5 +281,25 @@ describe('TwoOrderService (spec 0048, row 80)', () => {
       expect(result?.sequence.stops).toHaveLength(4)
       expect(result?.sequence.totalSeconds).toBeGreaterThan(0)
     })
+
+    it('uses dynamic twoOrderDelayLimitMinutes from config instead of hard-coded 10 (AC-1, gap 1)', async () => {
+      // With default matrix, first order is delayed by 110s in sequence P1->P2->D2->D1 compared to direct (160s vs 270s).
+      // With delay limit = 1 minute (60s), 110s exceeds limit -> returns null.
+      mockConfigService.instanceConfig.getTwoOrderDelayLimitMinutes.mockResolvedValueOnce(1)
+      const first = makeDelivery('del-1')
+      const second = makeDelivery('del-2')
+      mockDeliveryRepo.findStackPartnerCandidates.mockResolvedValueOnce([second])
+
+      const resultShortLimit = await service.findStackPartner(first, courierId, async () => true)
+      expect(resultShortLimit).toBeNull()
+
+      // With delay limit = 2 minutes (120s), 110s <= 120s -> accepted!
+      mockConfigService.instanceConfig.getTwoOrderDelayLimitMinutes.mockResolvedValueOnce(2)
+      mockDeliveryRepo.findStackPartnerCandidates.mockResolvedValueOnce([second])
+
+      const resultLongLimit = await service.findStackPartner(first, courierId, async () => true)
+      expect(resultLongLimit).not.toBeNull()
+      expect(resultLongLimit?.partner.id).toBe('del-2')
+    })
   })
 })

@@ -167,12 +167,15 @@ describe('Stacking co-op settings (spec 0048, AC-1)', () => {
     })
   })
 
-  describe('rider facing labels (AC-1)', () => {
+  describe('rider facing labels (AC-1, review of row 80, ruling 2)', () => {
     it('declares rider-facing entries for stackingEnabled, twoOrderPolicy, and twoOrderDelayLimitMinutes', () => {
       const keys = Object.keys(RIDER_FACING_SETTINGS)
       expect(keys).toContain('stackingEnabled')
       expect(keys).toContain('twoOrderPolicy')
       expect(keys).toContain('twoOrderDelayLimitMinutes')
+
+      expect(RIDER_FACING_SETTINGS.stackingEnabled?.label).toBe('Two orders offered together')
+      expect(RIDER_FACING_SETTINGS.twoOrderDelayLimitMinutes?.label).toBe('Most minutes a pair may delay a customer')
 
       expect(RIDER_FACING_SETTINGS.stackingEnabled?.format(true, { distanceUnit: 'KILOMETERS', currency: 'EUR' })).toBe('on')
       expect(RIDER_FACING_SETTINGS.twoOrderPolicy?.format('WHENEVER_FITS', { distanceUnit: 'KILOMETERS', currency: 'EUR' })).toBe('whenever they fit')
