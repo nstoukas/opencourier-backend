@@ -1299,6 +1299,10 @@ export class DeliveryEventService {
                 stopped ? 'dispatch stopped' : givingUp ? 'it kept failing' : 'rider deactivated'
               }); the order waits for a rider again`
             )
+            // agy review of row 80: the other order, already the rider's job, is alone now, so its four stop
+            // sequence is cleared too (cross check 6); `delivery` is the row read before the write, so its
+            // offerGroupId still names the group.
+            if (delivery.offerGroupId) await this.settleStackStops(delivery.offerGroupId, delivery.id)
             await this.ensureBackstopIfStillWaiting(delivery.id)
           }
           continue
