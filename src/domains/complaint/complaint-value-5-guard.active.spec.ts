@@ -74,6 +74,28 @@ describe('Complaint Value 5 Guard (AC-8 & Cross check 12)', () => {
     })
   })
 
+  describe('AC-8: ComplaintCourierPagingDto contains no total or count fields', () => {
+    const complaintDtoPath = path.join(rootSrc, 'rest-api/complaint/dtos/complaint.dto.ts')
+
+    it('ensures ComplaintCourierPagingDto exists and has no total or count properties', () => {
+      expect(fs.existsSync(complaintDtoPath)).toBe(true)
+      const content = fs.readFileSync(complaintDtoPath, 'utf8')
+
+      // Extract ComplaintCourierPagingDto class slice
+      const startIdx = content.indexOf('class ComplaintCourierPagingDto')
+      expect(startIdx).toBeGreaterThanOrEqual(0)
+      const endIdx = content.indexOf('class ', startIdx + 30)
+      const classSlice = endIdx > -1 ? content.slice(startIdx, endIdx) : content.slice(startIdx)
+
+      expect(classSlice).not.toMatch(/total/i)
+      expect(classSlice).not.toMatch(/count/i)
+      expect(classSlice).toMatch(/currentPage/)
+      expect(classSlice).toMatch(/perPage/)
+      expect(classSlice).toMatch(/prevPage/)
+      expect(classSlice).toMatch(/nextPage/)
+    })
+  })
+
   describe('AC-8: No matcher inputs contain complaint fields', () => {
     const matcherFiles = findFiles(
       path.join(rootSrc, 'domains/matching'),

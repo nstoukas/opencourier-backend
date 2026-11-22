@@ -137,6 +137,23 @@ describe('ComplaintPhoto (Spec 0052, AC-2, AC-9, cross check 4)', () => {
       const corruptBytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x11, 0x22, 0x33])
       await expect(reencodeComplaintPhoto(corruptBytes)).rejects.toThrow()
     })
+
+    it('rejects an image exceeding MAX_INPUT_PIXELS (25 million pixels) decompression ceiling (ruling 2026-11-22)', async () => {
+      // 5200 x 5000 = 26,000,000 pixels (> 25M ceiling, <= 40M old ceiling)
+      const bombImage = await sharp({
+        create: {
+          width: 5200,
+          height: 5000,
+          channels: 3,
+          background: { r: 0, g: 0, b: 0 },
+        },
+      })
+        .png()
+        .toBuffer()
+
+      expect(photoKindOf(bombImage)).toBe('png')
+      await expect(reencodeComplaintPhoto(bombImage)).rejects.toThrow(/exceeds pixel limit/i)
+    })
   })
 
   describe('constants', () => {

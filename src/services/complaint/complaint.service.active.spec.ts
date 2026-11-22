@@ -944,4 +944,26 @@ describe('ComplaintService (Spec 0052, AC-1 to AC-7, AC-9, AC-10)', () => {
       )
     })
   })
+
+  // --------------------------------------------------------------------------
+  // AC-7 / AC-8: listForCourier
+  // --------------------------------------------------------------------------
+  describe('listForCourier (AC-7, AC-8 & ruling 2026-11-22)', () => {
+    it('delegates to repository findPageForCourier returning cursor paging without total', async () => {
+      const pageResult = {
+        data: [makeComplaintRecord()],
+        page: 1,
+        perPage: 10,
+        hasMore: true,
+      }
+      mockComplaintRepository.findPageForCourier.mockResolvedValue(pageResult)
+
+      const result = await service.listForCourier(courierId, { page: 1, perPage: 10 })
+
+      expect(result).toBe(pageResult)
+      expect(mockComplaintRepository.findPageForCourier).toHaveBeenCalledWith(courierId, { page: 1, perPage: 10 })
+      expect((result as any).total).toBeUndefined()
+      expect((result as any).totalItems).toBeUndefined()
+    })
+  })
 })

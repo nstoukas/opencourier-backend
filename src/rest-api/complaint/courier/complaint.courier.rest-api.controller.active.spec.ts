@@ -63,7 +63,12 @@ describe('ComplaintCourierRestApiController (Spec 0052, AC-2, AC-5, AC-7, AC-9)'
   beforeEach(() => {
     mockComplaintService = {
       fileByRider: jest.fn().mockResolvedValue(mockRecord),
-      listForCourier: jest.fn().mockResolvedValue({ data: [mockRecord], pagination: { totalItems: 1, totalPages: 1, page: 1, perPage: 20 } as any }),
+      listForCourier: jest.fn().mockResolvedValue({
+        data: [mockRecord],
+        page: 1,
+        perPage: 10,
+        hasMore: false,
+      }),
       photoForCourier: jest.fn().mockResolvedValue({ stream: Readable.from(['photo-data']), contentType: 'image/jpeg' }),
       reply: jest.fn().mockResolvedValue(mockRecord),
     } as unknown as jest.Mocked<ComplaintService>
@@ -114,13 +119,40 @@ describe('ComplaintCourierRestApiController (Spec 0052, AC-2, AC-5, AC-7, AC-9)'
     expect(mockComplaintService.fileByRider).toHaveBeenCalledWith('courier-c1', input, null)
   })
 
-  it('list delegates to complaintService.listForCourier with authenticated courier id', async () => {
+  it('list delegates to complaintService.listForCourier and returns cursor paging without total (AC-8)', async () => {
     const args = { page: 1, perPage: 10 }
     const result = await controller.list(args, courier)
 
     expect(mockComplaintService.listForCourier).toHaveBeenCalledWith('courier-c1', args)
     expect(result.data.length).toBe(1)
-    expect(result.pagination?.totalItems).toBe(1)
+    expect(result.pagination).toEqual({
+      currentPage: 1,
+      perPage: 10,
+      prevPage: null,
+      nextPage: null,
+    })
+    // AC-8: no totalItems or total on courier pagination
+    expect((result.pagination as any).totalItems).toBeUndefined()
+    expect((result.pagination as any).total).toBeUndefined()
+    expect((result.pagination as any).totalPages).toBeUndefined()
+  })
+
+  it('list sets nextPage when hasMore is true and prevPage when page > 1', async () => {
+    mockComplaintService.listForCourier.mockResolvedValue({
+      data: [mockRecord],
+      page: 2,
+      perPage: 10,
+      hasMore: true,
+    })
+
+    const result = await controller.list({ page: 2, perPage: 10 }, courier)
+
+    expect(result.pagination).toEqual({
+      currentPage: 2,
+      perPage: 10,
+      prevPage: 1,
+      nextPage: 3,
+    })
   })
 
   it('reply delegates to complaintService.reply with authenticated courier id', async () => {

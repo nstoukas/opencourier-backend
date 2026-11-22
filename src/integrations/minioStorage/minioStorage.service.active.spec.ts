@@ -121,6 +121,69 @@ describe('MinioStorageService (Spec 0052, AC-9, cross check 9)', () => {
       expect(mockClient.putObject).toHaveBeenCalled()
     })
 
+    it('caches private bucket check for 5 minutes without querying MinIO on each upload', async () => {
+      const service = createServiceWithClient(mockClient)
+      const data = Buffer.from('photo-bytes')
+      const baseTime = 1700000000000
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime)
+
+      // First upload checks bucket and policy
+      await service.put('photo-1.jpg', data, 'image/jpeg')
+      expect(mockClient.bucketExists).toHaveBeenCalledTimes(1)
+      expect(mockClient.getBucketPolicy).toHaveBeenCalledTimes(1)
+
+      // Second upload 4 minutes later reuses the cached check
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime + 4 * 60 * 1000)
+      await service.put('photo-2.jpg', data, 'image/jpeg')
+      expect(mockClient.bucketExists).toHaveBeenCalledTimes(1)
+      expect(mockClient.getBucketPolicy).toHaveBeenCalledTimes(1)
+
+      jest.spyOn(Date, 'now').mockRestore()
+    })
+
+    it('rechecks bucket policy after 5 minutes and refuses upload if a policy was added (ruling 2026-11-22)', async () => {
+      const service = createServiceWithClient(mockClient)
+      const data = Buffer.from('photo-bytes')
+      const baseTime = 1700000000000
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime)
+
+      // First upload passes with private bucket
+      await service.put('photo-1.jpg', data, 'image/jpeg')
+      expect(mockClient.putObject).toHaveBeenCalledWith('complaints', 'photo-1.jpg', expect.anything(), expect.anything(), expect.anything())
+
+      // Someone makes bucket public in MinIO during operation
+      mockClient.getBucketPolicy = jest.fn().mockResolvedValue('{"Statement":[{"Effect":"Allow","Principal":"*"}]}')
+
+      // 5 minutes and 1 second later: next upload rechecks and catches the public policy
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime + 5 * 60 * 1000 + 1000)
+      await expect(
+        service.put('photo-2.jpg', data, 'image/jpeg')
+      ).rejects.toThrow('has an access policy; complaint photos must stay private')
+
+      // photo-2.jpg is never stored
+      expect(mockClient.putObject).not.toHaveBeenCalledWith('complaints', 'photo-2.jpg', expect.anything(), expect.anything(), expect.anything())
+
+      jest.spyOn(Date, 'now').mockRestore()
+    })
+
+    it('rechecks bucket policy after 5 minutes and succeeds when bucket remains private', async () => {
+      const service = createServiceWithClient(mockClient)
+      const data = Buffer.from('photo-bytes')
+      const baseTime = 1700000000000
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime)
+
+      // First upload
+      await service.put('photo-1.jpg', data, 'image/jpeg')
+      expect(mockClient.getBucketPolicy).toHaveBeenCalledTimes(1)
+
+      // 6 minutes later: rechecks policy, still private, succeeds
+      jest.spyOn(Date, 'now').mockReturnValue(baseTime + 6 * 60 * 1000)
+      await service.put('photo-2.jpg', data, 'image/jpeg')
+      expect(mockClient.getBucketPolicy).toHaveBeenCalledTimes(2)
+
+      jest.spyOn(Date, 'now').mockRestore()
+    })
+
     it('getStream returns readable stream for stored photo', async () => {
       const service = createServiceWithClient(mockClient)
       const stream = await service.getStream('photo-key.jpg')

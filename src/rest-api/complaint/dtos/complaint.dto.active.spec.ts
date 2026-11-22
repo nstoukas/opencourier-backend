@@ -223,4 +223,24 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
       expect(new ComplaintAdminDto(recordWithIdOnly).decidedBy).toBe('admin-id-only')
     })
   })
+
+  describe('ComplaintCourierPagingDto (AC-8 & ruling 2026-11-22)', () => {
+    it('contains only cursor fields (currentPage, perPage, prevPage, nextPage) and no totals', () => {
+      const dto = {
+        currentPage: 2,
+        perPage: 15,
+        prevPage: 1,
+        nextPage: 3,
+      }
+
+      expect(dto.currentPage).toBe(2)
+      expect(dto.perPage).toBe(15)
+      expect(dto.prevPage).toBe(1)
+      expect(dto.nextPage).toBe(3)
+      expect((dto as any).total).toBeUndefined()
+      expect((dto as any).totalItems).toBeUndefined()
+      expect((dto as any).totalPages).toBeUndefined()
+      expect((dto as any).currentItems).toBeUndefined()
+    })
+  })
 })

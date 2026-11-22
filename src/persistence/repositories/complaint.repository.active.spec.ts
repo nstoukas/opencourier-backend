@@ -240,17 +240,70 @@ describe('ComplaintRepository (Spec 0052, AC-1, AC-3, AC-5, AC-6, AC-7)', () => 
   })
 
   describe('pagination & listings (AC-6, AC-7)', () => {
-    it('findPageForCourier queries where filerCourierId OR aboutCourierId matches courier', async () => {
-      await repository.findPageForCourier(courierId, { page: 2, perPage: 15 })
+    it('findPageForCourier queries where filerCourierId OR aboutCourierId matches courier with take = perPage + 1 and no count (AC-8)', async () => {
+      // Mock 16 items for perPage: 15 (indicates hasMore: true)
+      const fakeRows = Array.from({ length: 16 }, (_, i) => ({ id: `comp-${i}` }))
+      mockPrisma.complaint.findMany.mockResolvedValue(fakeRows)
 
+      const result = await repository.findPageForCourier(courierId, { page: 2, perPage: 15 })
+
+      // Queries 1 extra item to check whether older page exists
       expect(mockPrisma.complaint.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { OR: [{ filerCourierId: courierId }, { aboutCourierId: courierId }] },
-          take: 15,
+          take: 16,
           skip: 15,
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         })
       )
+
+      // AC-8: Never counts complaints per rider
+      expect(mockPrisma.complaint.count).not.toHaveBeenCalled()
+
+      // Truncates 16th item and reports hasMore: true
+      expect(result.data).toHaveLength(15)
+      expect(result.data[0]).toEqual({ id: 'comp-0' })
+      expect(result.data[14]).toEqual({ id: 'comp-14' })
+      expect(result.page).toBe(2)
+      expect(result.perPage).toBe(15)
+      expect(result.hasMore).toBe(true)
+      // Must not return total or totalItems
+      expect((result as any).total).toBeUndefined()
+      expect((result as any).totalItems).toBeUndefined()
+    })
+
+    it('findPageForCourier returns hasMore: false when items do not exceed perPage', async () => {
+      const fakeRows = [{ id: 'comp-1' }, { id: 'comp-2' }]
+      mockPrisma.complaint.findMany.mockResolvedValue(fakeRows)
+
+      const result = await repository.findPageForCourier(courierId, { page: 1, perPage: 20 })
+
+      expect(mockPrisma.complaint.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 21,
+          skip: 0,
+        })
+      )
+      expect(result.data).toHaveLength(2)
+      expect(result.hasMore).toBe(false)
+      expect(result.page).toBe(1)
+      expect(result.perPage).toBe(20)
+    })
+
+    it('findPageForCourier uses default page 1 and perPage 20 when options are empty', async () => {
+      mockPrisma.complaint.findMany.mockResolvedValue([])
+
+      const result = await repository.findPageForCourier(courierId, {})
+
+      expect(mockPrisma.complaint.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 21,
+          skip: 0,
+        })
+      )
+      expect(result.page).toBe(1)
+      expect(result.perPage).toBe(20)
+      expect(result.hasMore).toBe(false)
     })
 
     it('findPageForPartner queries by filerPartnerId and optional deliveryId', async () => {
