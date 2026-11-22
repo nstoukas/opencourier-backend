@@ -9,6 +9,7 @@ import {
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
   InstanceDetails,
+  EnumTwoOrderPolicy,
 } from 'src/shared-types/index'
 
 export class InstanceConfigSettingsInput {
@@ -39,6 +40,9 @@ export class InstanceConfigSettingsInput {
   offerTimingEnabled?: boolean
   offerLeadMinutes?: number
   offerTimingCandidates?: number
+  stackingEnabled?: boolean
+  twoOrderPolicy?: EnumTwoOrderPolicy
+  twoOrderDelayLimitMinutes?: number
   waitPayEnabled?: boolean
   waitPayFreeMinutes?: number
   shiftBreakMinutes?: number

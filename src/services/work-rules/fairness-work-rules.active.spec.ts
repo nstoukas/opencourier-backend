@@ -1,3 +1,4 @@
+import { EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -50,6 +51,9 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     offerTimingEnabled: false,
     offerLeadMinutes: 3,
     offerTimingCandidates: 5,
+    stackingEnabled: false,
+    twoOrderPolicy: EnumTwoOrderPolicy.SHORTAGE_ONLY,
+    twoOrderDelayLimitMinutes: 10,
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,

@@ -89,6 +89,8 @@ export class DeliveryEntity implements Delivery {
   // The open offer's start and end (spec 0002); null when there is no open offer, or it never expires.
   offeredAt: Date | null
   offerExpiresAt: Date | null
+  // Spec 0048 (AC-4): shared by the two deliveries of a stacked offer; null for a single offer.
+  offerGroupId: string | null
   // A cancellation and the food outcome after it (spec 0015).
   cancelledBy: EnumCancelledBy | null
   cancelledFromStatus: EnumDeliveryStatus | null
@@ -183,6 +185,7 @@ export class DeliveryEntity implements Delivery {
     this.matchedCourierId = data.matchedCourierId
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
+    this.offerGroupId = data.offerGroupId ?? null
     this.cancelledBy = data.cancelledBy
     this.cancelledFromStatus = data.cancelledFromStatus
     this.cancelledAt = data.cancelledAt

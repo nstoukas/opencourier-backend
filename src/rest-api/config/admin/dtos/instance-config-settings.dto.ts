@@ -8,6 +8,7 @@ import {
   EnumDistanceUnit,
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
+  EnumTwoOrderPolicy,
   InstanceConfigSettings,
   InstanceDetails,
 } from 'src/shared-types/index'
@@ -98,6 +99,16 @@ export class InstanceConfigSettingsDto {
 
   @ApiProperty({ type: Number })
   offerTimingCandidates: number
+
+  // Stacked orders (spec 0048, AC-1).
+  @ApiProperty({ type: Boolean })
+  stackingEnabled: boolean
+
+  @ApiProperty({ enum: EnumTwoOrderPolicy })
+  twoOrderPolicy: EnumTwoOrderPolicy
+
+  @ApiProperty({ type: Number })
+  twoOrderDelayLimitMinutes: number
 
   @ApiProperty({ type: Boolean })
   waitPayEnabled: boolean
@@ -232,6 +243,9 @@ export class InstanceConfigSettingsDto {
     this.offerTimingEnabled = data.offerTimingEnabled
     this.offerLeadMinutes = data.offerLeadMinutes
     this.offerTimingCandidates = data.offerTimingCandidates
+    this.stackingEnabled = data.stackingEnabled
+    this.twoOrderPolicy = data.twoOrderPolicy
+    this.twoOrderDelayLimitMinutes = data.twoOrderDelayLimitMinutes
     this.waitPayEnabled = data.waitPayEnabled
     this.waitPayFreeMinutes = data.waitPayFreeMinutes
     this.shiftBreakMinutes = data.shiftBreakMinutes

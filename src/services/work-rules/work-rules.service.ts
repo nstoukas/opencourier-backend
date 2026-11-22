@@ -1,4 +1,5 @@
 import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
+import { EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import { Injectable } from '@nestjs/common'
 import { PaginatedResult } from 'src/core/models/Pagination'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -187,6 +188,18 @@ export class WorkRulesService {
     if (settings.offerTimingEnabled) {
       offers.push(
         `Offers go out about ${settings.offerLeadMinutes} minutes before the restaurant says the food is ready.`
+      )
+    }
+    // Spec 0048 (AC-1): stacked orders, said only while the co-op has them on.
+    if (settings.stackingEnabled) {
+      offers.push(
+        `Two orders from the same restaurant may be offered to you together, ${
+          settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
+            ? 'whenever they fit'
+            : 'only when one of them found no free rider'
+        }. You take or decline both at once, and a pair is never accepted automatically. Each order pays in full, exactly as it would alone. The first customer's food arrives at most ${
+          settings.twoOrderDelayLimitMinutes
+        } minutes later than it would alone, and both orders always fit in your box.`
       )
     }
 

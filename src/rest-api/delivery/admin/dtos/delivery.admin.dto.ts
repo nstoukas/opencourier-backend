@@ -250,6 +250,10 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date, nullable: true })
   offerExpiresAt: Date | null
 
+  // Spec 0048 (AC-4, cross check 7): the id two stacked deliveries share; kept after the accept as the link.
+  @ApiProperty({ type: String, nullable: true })
+  offerGroupId: string | null
+
   // The rider currently offered this delivery, while it is still looking for a rider.
   @ApiProperty({ type: String, nullable: true })
   matchedCourierName: string | null
@@ -363,6 +367,7 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
 
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
+    this.offerGroupId = data.offerGroupId ?? null
     this.matchedCourierName = offerView?.matchedCourierName ?? null
     this.waitingForCourierSince = offerView?.waitingForCourierSince ?? null
     this.cancelledBy = data.cancelledBy ?? null

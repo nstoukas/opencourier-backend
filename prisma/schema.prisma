@@ -472,6 +472,10 @@ model Delivery {
   // offerExpiresAt null = it never expires (expiry off, or an admin offer).
   offeredAt          DateTime?
   offerExpiresAt     DateTime?
+  // Spec 0048 (AC-4): the two deliveries of a stacked offer share this id, so they are offered, accepted
+  // and ended together. Set on both by the stack offer, null on every single offer; cleared when an open
+  // stack ends or loses its partner, and kept after a group accept as the link admins see (cross check 7).
+  offerGroupId       String?
 
   // A cancellation (spec 0015). Set with the CANCELED status write, which is conditional, so
   // cancelledFromStatus is always the status the cancellation really came from; it decides the
@@ -529,6 +533,7 @@ model Delivery {
   @@unique([partnerId, orderReference, legNumber])
   // A rider's cancelled jobs of the last 24 hours (spec 0015).
   @@index([courierId, cancelledAt])
+  @@index([offerGroupId])
 }
 
 model DeliveryEvent {

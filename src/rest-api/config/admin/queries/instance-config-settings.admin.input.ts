@@ -10,6 +10,7 @@ import {
   EnumDistanceUnit,
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
+  EnumTwoOrderPolicy,
   InstanceDetails,
 } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
@@ -251,6 +252,25 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   @RefuseIfNotSentAsNumber()
   offerTimingCandidates?: number
+
+  // Stacked orders (spec 0048, AC-1): the switch, when two orders may go together, and the most the first
+  // customer's food may be delayed by it (0 to 30 whole minutes, in NUMERIC_SETTING_RULES).
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  stackingEnabled?: boolean
+
+  @ApiProperty({ required: false, enum: EnumTwoOrderPolicy })
+  @IsOptional()
+  @IsEnum(EnumTwoOrderPolicy)
+  twoOrderPolicy?: EnumTwoOrderPolicy
+
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  twoOrderDelayLimitMinutes?: number
 
   // Saved customers (spec 0005). Whole months; the 1 to 36 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })

@@ -79,6 +79,11 @@ import {
   DEFAULT_ADDRESS_NOTE_RETENTION_DAYS,
   ADDRESS_NOTE_RETENTION_DAYS_MIN,
   ADDRESS_NOTE_RETENTION_DAYS_MAX,
+  DEFAULT_STACKING_ENABLED,
+  DEFAULT_TWO_ORDER_POLICY,
+  DEFAULT_TWO_ORDER_DELAY_LIMIT_MINUTES,
+  TWO_ORDER_DELAY_LIMIT_MINUTES_MIN,
+  TWO_ORDER_DELAY_LIMIT_MINUTES_MAX,
   DEFAULT_REVIEW_ANSWER_DAYS,
   REVIEW_ANSWER_DAYS_MIN,
   REVIEW_ANSWER_DAYS_MAX,
@@ -114,6 +119,7 @@ import {
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
   EnumQuoteToDeliveryConversionServiceType,
+  EnumTwoOrderPolicy,
   InstanceConfigSettingOptions,
   InstanceConfigSettings,
   InstanceDetails,
@@ -339,6 +345,15 @@ export const NUMERIC_SETTING_RULES: {
     min: CHAT_RETENTION_DAYS_MIN,
     max: CHAT_RETENTION_DAYS_MAX,
   },
+  // Stacked orders (spec 0048, AC-1): minutes the first customer's food may arrive later than alone.
+  // 0 is a real choice (only stacks that delay nobody).
+  {
+    key: 'twoOrderDelayLimitMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: TWO_ORDER_DELAY_LIMIT_MINUTES_MIN,
+    max: TWO_ORDER_DELAY_LIMIT_MINUTES_MAX,
+  },
   // Address notes (spec 0053, AC-6): days a courier note is kept without an upvote.
   {
     key: 'addressNoteRetentionDays',
@@ -507,6 +522,9 @@ export class InstanceConfigDomainService {
     const offerTimingEnabled = await this.getOfferTimingEnabled()
     const offerLeadMinutes = await this.getOfferLeadMinutes()
     const offerTimingCandidates = await this.getOfferTimingCandidates()
+    const stackingEnabled = await this.getStackingEnabled()
+    const twoOrderPolicy = await this.getTwoOrderPolicy()
+    const twoOrderDelayLimitMinutes = await this.getTwoOrderDelayLimitMinutes()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
@@ -574,6 +592,9 @@ export class InstanceConfigDomainService {
       offerTimingEnabled,
       offerLeadMinutes,
       offerTimingCandidates,
+      stackingEnabled,
+      twoOrderPolicy,
+      twoOrderDelayLimitMinutes,
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
@@ -757,6 +778,13 @@ export class InstanceConfigDomainService {
     // Spec 0043: repeats the DTO's @IsEnum for any caller that does not come through the ValidationPipe.
     if (data.boxDefaultSize !== undefined && !Object.values(BoxSize).includes(data.boxDefaultSize)) {
       throw new BadRequestException('boxDefaultSize must be SMALL, MEDIUM or LARGE')
+    }
+    // Spec 0048 (AC-1): the same checks as the DTO's, for any caller that does not come through the ValidationPipe.
+    if (data.stackingEnabled !== undefined && typeof data.stackingEnabled !== 'boolean') {
+      throw new BadRequestException('stackingEnabled must be true or false')
+    }
+    if (data.twoOrderPolicy !== undefined && !Object.values(EnumTwoOrderPolicy).includes(data.twoOrderPolicy)) {
+      throw new BadRequestException('twoOrderPolicy must be SHORTAGE_ONLY or WHENEVER_FITS')
     }
 
     // The dispatch line (row 72): normalized here so the save below writes what was checked.
@@ -947,6 +975,16 @@ export class InstanceConfigDomainService {
     }
     if (data.offerTimingCandidates !== undefined) {
       save(ConfigKey.OFFER_TIMING_CANDIDATES, data.offerTimingCandidates)
+    }
+    // Stacked orders (spec 0048, AC-1).
+    if (data.stackingEnabled !== undefined) {
+      save(ConfigKey.STACKING_ENABLED, data.stackingEnabled)
+    }
+    if (data.twoOrderPolicy !== undefined) {
+      save(ConfigKey.TWO_ORDER_POLICY, data.twoOrderPolicy)
+    }
+    if (data.twoOrderDelayLimitMinutes !== undefined) {
+      save(ConfigKey.TWO_ORDER_DELAY_LIMIT_MINUTES, data.twoOrderDelayLimitMinutes)
     }
     if (data.savedCustomerRetentionMonths !== undefined) {
       save(
@@ -1544,6 +1582,33 @@ export class InstanceConfigDomainService {
       DEFAULT_OFFER_LEAD_MINUTES,
       OFFER_LEAD_MINUTES_MIN,
       OFFER_LEAD_MINUTES_MAX
+    )
+  }
+
+  // Spec 0048 (AC-1): stacked orders, off and quiet until a representative switches them on. Read at
+  // offer time, so a saved change applies to the next offer.
+  async getStackingEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.STACKING_ENABLED, DEFAULT_STACKING_ENABLED)
+    return enabled.value === true
+  }
+
+  // An unknown stored value falls back to the worker centred default, never to "whenever it fits".
+  async getTwoOrderPolicy(): Promise<EnumTwoOrderPolicy> {
+    const stored = await this.getConfigValueOrDefault(ConfigKey.TWO_ORDER_POLICY, DEFAULT_TWO_ORDER_POLICY)
+    const value = stored.value
+    if (typeof value === 'string' && (Object.values(EnumTwoOrderPolicy) as string[]).includes(value)) {
+      return value as EnumTwoOrderPolicy
+    }
+    this.logger.warn(`Invalid ${ConfigKey.TWO_ORDER_POLICY} in config (${String(value)}), using ${DEFAULT_TWO_ORDER_POLICY}`)
+    return DEFAULT_TWO_ORDER_POLICY as EnumTwoOrderPolicy
+  }
+
+  async getTwoOrderDelayLimitMinutes(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.TWO_ORDER_DELAY_LIMIT_MINUTES,
+      DEFAULT_TWO_ORDER_DELAY_LIMIT_MINUTES,
+      TWO_ORDER_DELAY_LIMIT_MINUTES_MIN,
+      TWO_ORDER_DELAY_LIMIT_MINUTES_MAX
     )
   }
 

@@ -232,6 +232,11 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: Date, nullable: true })
   offerExpiresAt: Date | null
 
+  // Spec 0048 (AC-4): two offers with the same offerGroupId are one stack, taken or declined together;
+  // null for a single offer. Only ever this rider's own pair (the courier routes scope by rider).
+  @ApiProperty({ type: String, nullable: true })
+  offerGroupId: string | null
+
   // Spec 0020: until when the rider may hand this order back for free; null when they cannot.
   @ApiProperty({ type: Date, nullable: true })
   handBackUntil: Date | null
@@ -339,6 +344,7 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     this.createdAt = data.createdAt
     this.offeredAt = data.offeredAt
     this.offerExpiresAt = data.offerExpiresAt
+    this.offerGroupId = data.offerGroupId ?? null
 
     if ('pickupLocation' in data && data.pickupLocation) {
       this.pickupLocationFormattedAddress = formatAddress(data.pickupLocation)

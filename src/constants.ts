@@ -177,6 +177,17 @@ export const OFFER_LEAD_MINUTES_MAX = 30
 export const DEFAULT_OFFER_TIMING_CANDIDATES = 5
 export const OFFER_TIMING_CANDIDATES_MIN = 1
 export const OFFER_TIMING_CANDIDATES_MAX = 20
+// Stacked orders (spec 0048, AC-1): two orders offered together to one rider. Off until the assembly
+// decides; fallbacks only. The delay limit is how much later the first customer's food may arrive than
+// it would alone, in whole minutes (0 to 30).
+export const DEFAULT_STACKING_ENABLED = false
+export const DEFAULT_TWO_ORDER_POLICY = 'SHORTAGE_ONLY'
+export const DEFAULT_TWO_ORDER_DELAY_LIMIT_MINUTES = 10
+export const TWO_ORDER_DELAY_LIMIT_MINUTES_MIN = 0
+export const TWO_ORDER_DELAY_LIMIT_MINUTES_MAX = 30
+// Spec 0048 (cross check 9): after a stack is declined or missed, the same two orders are not stacked
+// together again for this long (the skip list's 20 minutes). A network rule, not a co-op number.
+export const STACK_PAIR_BLOCK_SECONDS = 60 * 20
 export const DEFAULT_OFFER_EXPIRY_SECONDS = 60
 export const DEFAULT_NO_COURIER_RETRY_SECONDS = 30
 // Allowed ranges, enforced on save (NUMERIC_SETTING_RULES) and on read. The 20 s floor gives a
