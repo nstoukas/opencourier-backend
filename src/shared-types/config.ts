@@ -2,7 +2,7 @@ import { BoxSize, EnumDistanceUnit } from '@prisma/types'
 import { EnumCourierDietaryRestrictions } from './courier'
 import { EnumCourierCompensationCalculationType } from './courier-compensation-calculation'
 import { EnumCourierMatcherType } from './courier-matching'
-import { EnumTwoOrderPolicy } from './stacking'
+import { EnumAddOnMoment, EnumTwoOrderPolicy } from './stacking'
 import { EnumDeliveryDurationCalculationType } from './delivery-duration'
 import { EnumGeoCalculationType } from './geo-calculation'
 import { EnumQuoteCalculationType } from './quote-calculation'
@@ -52,6 +52,9 @@ export type InstanceConfigSettings = {
   stackingEnabled: boolean
   twoOrderPolicy: EnumTwoOrderPolicy
   twoOrderDelayLimitMinutes: number
+  // Mid job add ons (spec 0048, AC-1, row 81), set by co-op representatives. Off by default.
+  addOnOffersEnabled: boolean
+  addOnMoment: EnumAddOnMoment
   // Restaurant delay pay (spec 0033), set by co-op representatives.
   waitPayEnabled: boolean
   waitPayFreeMinutes: number
@@ -171,6 +174,8 @@ export enum ConfigKey {
   STACKING_ENABLED = 'stackingEnabled',
   TWO_ORDER_POLICY = 'twoOrderPolicy',
   TWO_ORDER_DELAY_LIMIT_MINUTES = 'twoOrderDelayLimitMinutes',
+  ADD_ON_OFFERS_ENABLED = 'addOnOffersEnabled',
+  ADD_ON_MOMENT = 'addOnMoment',
   WAIT_PAY_ENABLED = 'waitPayEnabled',
   WAIT_PAY_FREE_MINUTES = 'waitPayFreeMinutes',
   SHIFT_BREAK_MINUTES = 'shiftBreakMinutes',

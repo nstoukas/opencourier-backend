@@ -185,6 +185,10 @@ export const DEFAULT_TWO_ORDER_POLICY = 'SHORTAGE_ONLY'
 export const DEFAULT_TWO_ORDER_DELAY_LIMIT_MINUTES = 10
 export const TWO_ORDER_DELAY_LIMIT_MINUTES_MIN = 0
 export const TWO_ORDER_DELAY_LIMIT_MINUTES_MAX = 30
+// Mid job add ons (spec 0048, AC-1, AC-6, row 81): one more order offered to a rider already on a job. Off
+// until the assembly decides, like stacking; the moment defaults to before the first pickup.
+export const DEFAULT_ADD_ON_OFFERS_ENABLED = false
+export const DEFAULT_ADD_ON_MOMENT = 'BEFORE_PICKUP'
 // Spec 0048 (cross check 9): after a stack is declined or missed, the same two orders are not stacked
 // together again for this long (the skip list's 20 minutes). A network rule, not a co-op number.
 export const STACK_PAIR_BLOCK_SECONDS = 60 * 20

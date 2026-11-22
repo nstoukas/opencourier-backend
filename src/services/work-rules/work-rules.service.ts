@@ -1,5 +1,5 @@
 import { EnumCourierMatcherType } from 'src/shared-types/courier-matching'
-import { EnumTwoOrderPolicy } from 'src/shared-types/stacking'
+import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import { Injectable } from '@nestjs/common'
 import { PaginatedResult } from 'src/core/models/Pagination'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -200,6 +200,26 @@ export class WorkRulesService {
         }. You take or decline both at once, and a pair is never accepted automatically. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
           settings.twoOrderDelayLimitMinutes
         } minutes later than it would alone, and both orders always fit in your box.`
+      )
+    }
+    // Spec 0048 (AC-1, row 81): mid job add ons, said only while the co-op has them on. Cross check 2: the
+    // rider reads that an add on is answered only when stopped, and that one offered with food in the box
+    // never rings insistently and gets twice the usual time.
+    if (settings.addOnOffersEnabled) {
+      const moment =
+        settings.addOnMoment === EnumAddOnMoment.BEFORE_DROPOFF
+          ? 'any time before you drop off your current order'
+          : settings.addOnMoment === EnumAddOnMoment.SAME_RESTAURANT
+            ? 'before you pick up your current order, and only from the same restaurant'
+            : 'before you pick up your current order'
+      offers.push(
+        `While you are on a job, you may be offered one more order on the way, ${moment}. This happens ${
+          settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
+            ? 'whenever it fits'
+            : 'only when that order found no free rider'
+        }. The offer shows how many km and minutes it adds. Declining it is free and changes nothing about your current order, and it is never accepted automatically. It pays in full, exactly as it would alone, your current customer's food arrives at most ${
+          settings.twoOrderDelayLimitMinutes
+        } minutes later, and both orders always fit in your box. Answer an add on only when you are stopped: one offered while you carry food never rings insistently and gives you twice the usual time to answer.`
       )
     }
 

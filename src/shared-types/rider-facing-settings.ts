@@ -128,6 +128,21 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     label: 'Most minutes a pair may delay a customer',
     format: withUnit('minutes'),
   },
+  // Spec 0048 (AC-1, row 81): mid job add ons, as riders read them.
+  addOnOffersEnabled: { label: 'One more order offered while on a job', format: onOff },
+  addOnMoment: {
+    label: 'When one more order may be offered',
+    format: (value) =>
+      isMissing(value)
+        ? NO_VALUE
+        : value === 'BEFORE_PICKUP'
+          ? 'before you pick up the first order'
+          : value === 'BEFORE_DROPOFF'
+            ? 'any time before the first drop off'
+            : value === 'SAME_RESTAURANT'
+              ? 'only at the same restaurant, before the pickup'
+              : String(value),
+  },
   quoteBaseFee: { label: 'Base pay per delivery', format: money },
   quoteRatePerDistanceUnit: {
     label: 'Pay per distance',

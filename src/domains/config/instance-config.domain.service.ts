@@ -84,6 +84,8 @@ import {
   DEFAULT_TWO_ORDER_DELAY_LIMIT_MINUTES,
   TWO_ORDER_DELAY_LIMIT_MINUTES_MIN,
   TWO_ORDER_DELAY_LIMIT_MINUTES_MAX,
+  DEFAULT_ADD_ON_OFFERS_ENABLED,
+  DEFAULT_ADD_ON_MOMENT,
   DEFAULT_REVIEW_ANSWER_DAYS,
   REVIEW_ANSWER_DAYS_MIN,
   REVIEW_ANSWER_DAYS_MAX,
@@ -120,6 +122,7 @@ import {
   EnumQuoteCalculationType,
   EnumQuoteToDeliveryConversionServiceType,
   EnumTwoOrderPolicy,
+  EnumAddOnMoment,
   InstanceConfigSettingOptions,
   InstanceConfigSettings,
   InstanceDetails,
@@ -525,6 +528,8 @@ export class InstanceConfigDomainService {
     const stackingEnabled = await this.getStackingEnabled()
     const twoOrderPolicy = await this.getTwoOrderPolicy()
     const twoOrderDelayLimitMinutes = await this.getTwoOrderDelayLimitMinutes()
+    const addOnOffersEnabled = await this.getAddOnOffersEnabled()
+    const addOnMoment = await this.getAddOnMoment()
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
@@ -595,6 +600,8 @@ export class InstanceConfigDomainService {
       stackingEnabled,
       twoOrderPolicy,
       twoOrderDelayLimitMinutes,
+      addOnOffersEnabled,
+      addOnMoment,
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
@@ -785,6 +792,13 @@ export class InstanceConfigDomainService {
     }
     if (data.twoOrderPolicy !== undefined && !Object.values(EnumTwoOrderPolicy).includes(data.twoOrderPolicy)) {
       throw new BadRequestException('twoOrderPolicy must be SHORTAGE_ONLY or WHENEVER_FITS')
+    }
+    // Row 81: the add on settings, checked the same way.
+    if (data.addOnOffersEnabled !== undefined && typeof data.addOnOffersEnabled !== 'boolean') {
+      throw new BadRequestException('addOnOffersEnabled must be true or false')
+    }
+    if (data.addOnMoment !== undefined && !Object.values(EnumAddOnMoment).includes(data.addOnMoment)) {
+      throw new BadRequestException('addOnMoment must be BEFORE_PICKUP, BEFORE_DROPOFF or SAME_RESTAURANT')
     }
 
     // The dispatch line (row 72): normalized here so the save below writes what was checked.
@@ -985,6 +999,13 @@ export class InstanceConfigDomainService {
     }
     if (data.twoOrderDelayLimitMinutes !== undefined) {
       save(ConfigKey.TWO_ORDER_DELAY_LIMIT_MINUTES, data.twoOrderDelayLimitMinutes)
+    }
+    // Mid job add ons (spec 0048, AC-1, row 81).
+    if (data.addOnOffersEnabled !== undefined) {
+      save(ConfigKey.ADD_ON_OFFERS_ENABLED, data.addOnOffersEnabled)
+    }
+    if (data.addOnMoment !== undefined) {
+      save(ConfigKey.ADD_ON_MOMENT, data.addOnMoment)
     }
     if (data.savedCustomerRetentionMonths !== undefined) {
       save(
@@ -1601,6 +1622,25 @@ export class InstanceConfigDomainService {
     }
     this.logger.warn(`Invalid ${ConfigKey.TWO_ORDER_POLICY} in config (${String(value)}), using ${DEFAULT_TWO_ORDER_POLICY}`)
     return DEFAULT_TWO_ORDER_POLICY as EnumTwoOrderPolicy
+  }
+
+  // Spec 0048 (AC-1, row 81): mid job add ons, off until a representative switches them on. Read at offer
+  // time, like the stacking switch.
+  async getAddOnOffersEnabled(): Promise<boolean> {
+    const enabled = await this.getConfigValueOrDefault(ConfigKey.ADD_ON_OFFERS_ENABLED, DEFAULT_ADD_ON_OFFERS_ENABLED)
+    return enabled.value === true
+  }
+
+  // An unknown stored value falls back to the default, before the first pickup (the narrowest moment that
+  // still lets food wait for nobody, and never a moment with food already in the box).
+  async getAddOnMoment(): Promise<EnumAddOnMoment> {
+    const stored = await this.getConfigValueOrDefault(ConfigKey.ADD_ON_MOMENT, DEFAULT_ADD_ON_MOMENT)
+    const value = stored.value
+    if (typeof value === 'string' && (Object.values(EnumAddOnMoment) as string[]).includes(value)) {
+      return value as EnumAddOnMoment
+    }
+    this.logger.warn(`Invalid ${ConfigKey.ADD_ON_MOMENT} in config (${String(value)}), using ${DEFAULT_ADD_ON_MOMENT}`)
+    return DEFAULT_ADD_ON_MOMENT as EnumAddOnMoment
   }
 
   async getTwoOrderDelayLimitMinutes(): Promise<number> {

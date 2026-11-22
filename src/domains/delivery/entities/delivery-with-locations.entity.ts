@@ -96,6 +96,9 @@ export class DeliveryWithLocationsEntity implements Delivery {
   // Spec 0048 (cross check 6): a stack's stops in order, the same list on both deliveries; null when single.
   // Read it through `stackStopsOf` (stack.ts), which checks its shape.
   stopSequence: Prisma.JsonValue | null
+  // Spec 0048 (AC-6, row 81): what an add on offer adds to the current job, road metres and seconds.
+  addOnExtraMetres: number | null
+  addOnExtraSeconds: number | null
   // A cancellation and the food outcome after it (spec 0015).
   cancelledBy: EnumCancelledBy | null
   cancelledFromStatus: EnumDeliveryStatus | null
@@ -198,6 +201,8 @@ export class DeliveryWithLocationsEntity implements Delivery {
     this.offerExpiresAt = data.offerExpiresAt
     this.offerGroupId = data.offerGroupId ?? null
     this.stopSequence = data.stopSequence ?? null
+    this.addOnExtraMetres = data.addOnExtraMetres ?? null
+    this.addOnExtraSeconds = data.addOnExtraSeconds ?? null
     this.cancelledBy = data.cancelledBy
     this.cancelledFromStatus = data.cancelledFromStatus
     this.cancelledAt = data.cancelledAt

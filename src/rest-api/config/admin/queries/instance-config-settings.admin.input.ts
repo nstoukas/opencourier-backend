@@ -11,6 +11,7 @@ import {
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
   EnumTwoOrderPolicy,
+  EnumAddOnMoment,
   InstanceDetails,
 } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
@@ -271,6 +272,19 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @IsNumber()
   @RefuseIfNotSentAsNumber()
   twoOrderDelayLimitMinutes?: number
+
+  // Mid job add ons (spec 0048, AC-1, row 81): the switch, and when an add on may come. The policy and the
+  // delay limit above apply to add ons too.
+  @ApiProperty({ type: Boolean, required: false })
+  @IsOptional()
+  @IsBoolean()
+  @RefuseIfNotSentAsBoolean()
+  addOnOffersEnabled?: boolean
+
+  @ApiProperty({ required: false, enum: EnumAddOnMoment })
+  @IsOptional()
+  @IsEnum(EnumAddOnMoment)
+  addOnMoment?: EnumAddOnMoment
 
   // Saved customers (spec 0005). Whole months; the 1 to 36 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })

@@ -9,6 +9,7 @@ import {
   EnumGeoCalculationType,
   EnumQuoteCalculationType,
   EnumTwoOrderPolicy,
+  EnumAddOnMoment,
   InstanceConfigSettings,
   InstanceDetails,
 } from 'src/shared-types/index'
@@ -109,6 +110,13 @@ export class InstanceConfigSettingsDto {
 
   @ApiProperty({ type: Number })
   twoOrderDelayLimitMinutes: number
+
+  // Mid job add ons (spec 0048, AC-1, row 81).
+  @ApiProperty({ type: Boolean })
+  addOnOffersEnabled: boolean
+
+  @ApiProperty({ enum: EnumAddOnMoment })
+  addOnMoment: EnumAddOnMoment
 
   @ApiProperty({ type: Boolean })
   waitPayEnabled: boolean
@@ -246,6 +254,8 @@ export class InstanceConfigSettingsDto {
     this.stackingEnabled = data.stackingEnabled
     this.twoOrderPolicy = data.twoOrderPolicy
     this.twoOrderDelayLimitMinutes = data.twoOrderDelayLimitMinutes
+    this.addOnOffersEnabled = data.addOnOffersEnabled
+    this.addOnMoment = data.addOnMoment
     this.waitPayEnabled = data.waitPayEnabled
     this.waitPayFreeMinutes = data.waitPayFreeMinutes
     this.shiftBreakMinutes = data.shiftBreakMinutes

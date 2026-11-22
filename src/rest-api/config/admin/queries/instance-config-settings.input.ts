@@ -10,6 +10,7 @@ import {
   EnumQuoteCalculationType,
   InstanceDetails,
   EnumTwoOrderPolicy,
+  EnumAddOnMoment,
 } from 'src/shared-types/index'
 
 export class InstanceConfigSettingsInput {
@@ -43,6 +44,8 @@ export class InstanceConfigSettingsInput {
   stackingEnabled?: boolean
   twoOrderPolicy?: EnumTwoOrderPolicy
   twoOrderDelayLimitMinutes?: number
+  addOnOffersEnabled?: boolean
+  addOnMoment?: EnumAddOnMoment
   waitPayEnabled?: boolean
   waitPayFreeMinutes?: number
   shiftBreakMinutes?: number

@@ -482,6 +482,12 @@ model Delivery {
   // the survivor then goes on alone. Advisory only: each delivery keeps its own status machine. Null on
   // every single offer.
   stopSequence       Json?
+  // Spec 0048 (AC-6, row 81): what an add on offer adds to the rider's current job, in road metres and
+  // seconds (the best stop order through both jobs, minus the current job alone). Written with the add on
+  // offer, whose stopSequence names the current job; the phone shows "+2.1 km, +7 min". Kept afterwards as
+  // the record of what was offered; read only while the delivery is an open add on (see isAddOnOffer).
+  addOnExtraMetres   Int?
+  addOnExtraSeconds  Int?
 
   // A cancellation (spec 0015). Set with the CANCELED status write, which is conditional, so
   // cancelledFromStatus is always the status the cancellation really came from; it decides the
