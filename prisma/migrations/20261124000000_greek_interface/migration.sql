@@ -50,8 +50,15 @@ UPDATE "Config" AS c SET "value" = (
   ) ORDER BY e.position), '[]'::jsonb)::text
   FROM jsonb_array_elements_text(c."value"::jsonb) WITH ORDINALITY AS e(text, position)
 )
+-- Most Config values are plain text, not JSON, and SQL does not promise to test the key before the cast:
+-- the CASE does (review of 2026-11-22), so `::jsonb` only ever runs on the two preset rows, and only when
+-- the stored text starts as a list.
 WHERE c."key" IN ('chatQuickRepliesDispatch', 'chatQuickRepliesCourier')
-  AND jsonb_typeof(c."value"::jsonb) = 'array'
-  AND NOT EXISTS (
-    SELECT 1 FROM jsonb_array_elements(c."value"::jsonb) AS x(item) WHERE jsonb_typeof(x.item) <> 'string'
-  );
+  AND CASE
+    WHEN c."key" IN ('chatQuickRepliesDispatch', 'chatQuickRepliesCourier') AND c."value" ~ '^\s*\[' THEN
+      jsonb_typeof(c."value"::jsonb) = 'array'
+      AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c."value"::jsonb) AS x(item) WHERE jsonb_typeof(x.item) <> 'string'
+      )
+    ELSE false
+  END;
