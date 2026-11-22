@@ -2,7 +2,7 @@ import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nes
 import { Observable, throwError } from 'rxjs'
 import { catchError } from 'rxjs/operators'
 import { getLogger } from '../services/logger'
-import { ApiException } from '../errors'
+import { ApiException, PersonalDataWarningException } from '../errors'
 import { isRecordNotFoundError } from '../prisma.util'
 import winston from 'winston'
 
@@ -35,6 +35,12 @@ export class ErrorLoggingInterceptor implements NestInterceptor {
         // any ApiException answering 404, not only NotFoundException (row 121). A Prisma "no such row"
         // also answers 404, but it may be a bug deeper down, so it leaves one warning line, no stack.
         if (err instanceof ApiException && err.getStatus() === 404) {
+          return throwError(() => err)
+        }
+        // Spec 0053 (row 82 review): the personal data warning is an expected answer (the app then asks
+        // Edit or Save anyway), not a fault. One info line with the route; the message is never the note.
+        if (err instanceof PersonalDataWarningException) {
+          this.logger.info(`Address note personal data warning: ${routeOf(context)}`)
           return throwError(() => err)
         }
         if (err instanceof Error && isRecordNotFoundError(err)) {
