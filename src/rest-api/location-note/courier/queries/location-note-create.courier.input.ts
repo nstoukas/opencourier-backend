@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsBoolean, IsIn, IsOptional, IsString, Length } from 'class-validator'
+import { IsBoolean, IsIn, IsOptional, IsString, Length, Matches } from 'class-validator'
 import { RefuseIfNotSentAsBoolean } from 'src/decorators/refuseIfNotSentAsBoolean.decorator'
 import { RefuseIfNotSentAsString } from 'src/decorators/refuseIfNotSentAsString.decorator'
 import { ADDRESS_NOTE_STOPS, AddressNoteStop } from 'src/domains/location-note/location-note.domain.service'
@@ -13,6 +13,8 @@ export class LocationNoteCreateCourierInput {
   @IsString()
   @RefuseIfNotSentAsString()
   @Length(1, 255)
+  // Row 82 review: at least one character that is not a space, so a blank note is refused.
+  @Matches(/\S/, { message: 'note must not be blank' })
   note: string
 
   @ApiProperty({ required: true, type: String })
