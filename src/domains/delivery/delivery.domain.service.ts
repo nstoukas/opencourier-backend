@@ -400,7 +400,10 @@ export class DeliveryDomainService {
   // after (expired, moved on, cancelled) gets 409 "This offer has ended" and changes nothing.
   // `automatic`: the rider's phone accepted on its own (auto accept, spec 0020). It only marks the
   // event's message; it is not stored anywhere a rider could be counted by (value 5).
-  async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {
+  // `alone` (spec 0048, decision 80.5): an admin accepting one order of an open pair on the rider's behalf
+  // accepts that order only; the other stays offered to the same rider as a single offer (the release rule
+  // in saveDeliveryEvent runs on its ACCEPTED). Only the rider accepts a pair, after seeing both.
+  async acceptDelivery(deliveryId: string, courierId: string, automatic = false, alone = false) {
     // No rider takes work during a heat or storm stop (spec 0014; row 29 review): an offer that
     // slipped past the stop's start cannot be accepted.
     await this.deliveryEventService.refuseIfDispatchStopped()
@@ -422,7 +425,7 @@ export class DeliveryDomainService {
     }
 
     // Spec 0048 (AC-5): an offer of two orders together is accepted as a pair, by either delivery.
-    if (delivery.offerGroupId) {
+    if (delivery.offerGroupId && !alone) {
       // A pair is never accepted by the phone on its own: the rider must check both bags fit (AC-8, Follow-up).
       if (automatic) throw new ConflictException(STACK_NOT_AUTOMATIC_SENTENCE)
       return this.acceptStack(delivery, courierId)
@@ -1146,7 +1149,8 @@ export class DeliveryDomainService {
           delivery.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
           delivery.matchedCourierId === event.courierId
         ) {
-          await this.acceptDelivery(event.deliveryId, event.courierId)
+          // Spec 0048 (decision 80.5): this order alone, even when it is one of a pair offered together.
+          await this.acceptDelivery(event.deliveryId, event.courierId, false, true)
         } else {
           // Spec 0043 (AC-6, cross check 1): a hand offer that would put the rider past a full box
           // answers 409 with the numbers, unless the admin confirmed it. Accepting the offer already
