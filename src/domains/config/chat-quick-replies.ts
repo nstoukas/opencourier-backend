@@ -52,5 +52,5 @@ export function storedChatQuickReplies(value: unknown): ChatPreset[] | null {
 
 // What a reader sees of one preset: their language, else the other one (AC-7).
 export function chatPresetText(preset: ChatPreset, language: Language): string {
-  return (language === 'en' ? preset.en || preset.el : preset.el || preset.en) ?? ''
+  return language === 'en' ? preset.en || preset.el : preset.el || preset.en
 }
