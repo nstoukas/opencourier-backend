@@ -465,9 +465,12 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   // delivery, no other leg of its order, not on its skip list, and within maxAssignmentDistance of its pickup
   // measured from where the rider is. Nearest first, at most `limit`: each one costs a road table. Each row
   // names the rider's job, so the caller can check the co-op's add on moment and work out the stop order.
+  // `jobStatuses` (review fix): only jobs in a status the co-op's moment allows count, so riders past that
+  // moment never take one of the `limit` places from a rider who qualifies.
   async findAddOnCandidates(
     args: ICourierFindNearestArgs,
-    limit: number
+    limit: number,
+    jobStatuses: EnumDeliveryStatus[] = DELIVERY_ONGOING_STATUSES
   ): Promise<Array<{ courierId: string; jobId: string; distance: number; courierLocation: GeoPosition }>> {
     const { location, excludeCourierIds, maxDistanceInKM } = args
     const courierActiveStatuses = [EnumCourierStatus.ONLINE, EnumCourierStatus.LAST_CALL]
@@ -488,7 +491,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         SELECT "Delivery"."id" AS "jobId"
         FROM "Delivery"
         WHERE "Delivery"."courierId" = "Courier"."id"
-          AND "Delivery"."status"::text IN (${Prisma.join(DELIVERY_ONGOING_STATUSES, ',')})
+          AND "Delivery"."status"::text IN (${Prisma.join(jobStatuses, ',')})
         LIMIT 1
       ) AS "job" ON TRUE
       WHERE "Courier"."currentLocation" IS NOT NULL

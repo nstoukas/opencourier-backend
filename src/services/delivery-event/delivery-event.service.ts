@@ -1847,13 +1847,12 @@ export class DeliveryEventService {
     // Looked for when no free rider was found (a shortage), or at every matching under WHENEVER_FITS, where a
     // fitting add on goes before the free rider (decision 81.3). Anything that keeps it from being written
     // leaves this delivery exactly where it was without add ons: offered to the free rider, or waiting.
-    if (this.twoOrderService) {
+    // The switch is read first (review nit), so with add ons off nothing more is read than before row 81.
+    if (this.twoOrderService && (await this.configDomainService.instanceConfig.getAddOnOffersEnabled())) {
       const freeRiderFound = match !== undefined && !riderInSos
       const delivery = match?.delivery ?? (await this.deliveryRepository.findByIdOrThrow(deliveryId))
-      const plan = await this.twoOrderService.findAddOn(delivery, freeRiderFound, async (courierId, secondsToPickup) => {
+      const plan = await this.twoOrderService.findAddOn(delivery, freeRiderFound, async (courierId, secondsToPickup, pickupLocation) => {
         if (options.ignoreTiming === true) return true
-        const pickupLocation = match?.pickupLocation ?? (await this.deliveryRepository.findByIdOrThrowWithLocations(deliveryId)).pickupLocation
-        if (!pickupLocation) return true
         const addOnTiming = await this.offerTimingOf({
           courier: { id: courierId },
           delivery,
@@ -2147,7 +2146,7 @@ export class DeliveryEventService {
   // added order pays in full), the stop list through both jobs (for the card and the route, AC-10), what it
   // adds in metres and seconds, and an OFFERED event whose reason is kind ADD_ON (value 1). Cross check 2: an
   // add on offered while the rider carries food gets twice the usual time to answer, and the push never
-  // rings insistently (offer-push.service). 'NOT_ADDED' when nothing was written: the caller goes on as
+  // rings insistently (offer-push.service). Every add on has a deadline, Offer expiry on or off (81.14). 'NOT_ADDED' when nothing was written: the caller goes on as
   // without add ons.
   private async offerAddOn(delivery: DeliveryEntity, plan: AddOnPlan): Promise<OfferStepResult | 'NOT_ADDED'> {
     const { courierId, job, sequence } = plan
@@ -2161,18 +2160,22 @@ export class DeliveryEventService {
       this.logger.error(`Could not work out the pay of delivery ${delivery.id} as an add on; no add on: ${error}`)
       return 'NOT_ADDED'
     }
-    const expiryEnabled = await this.configDomainService.instanceConfig.getOfferExpiryEnabled()
-    const baseSeconds = expiryEnabled ? await this.configDomainService.instanceConfig.getOfferExpirySeconds() : null
+    // Review fix (decision 81.14): an add on always has a deadline, the co-op's offerExpirySeconds, even while
+    // Offer expiry is off for ordinary offers. Without one, a calm add on (no insistent ring, no reminders)
+    // held the order away from every other rider, free ones included, until the busy rider looked. The
+    // setting is editable in admin whether the switch is on or off; nothing is hard coded here.
+    const baseSeconds = await this.configDomainService.instanceConfig.getOfferExpirySeconds()
     // Cross check 2: twice the time while carrying food, so the rider can stop before answering.
-    const expirySeconds = baseSeconds !== null && plan.carryingFood ? baseSeconds * 2 : baseSeconds
+    const expirySeconds = plan.carryingFood ? baseSeconds * 2 : baseSeconds
     const offeredAt = new Date()
-    const offerExpiresAt = expirySeconds !== null ? new Date(offeredAt.getTime() + expirySeconds * 1000) : null
+    const offerExpiresAt = new Date(offeredAt.getTime() + expirySeconds * 1000)
     const stopSequence = sequence.stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
 
     const claim = await this.deliveryRepository.claimAddOnWithinBox(
       delivery.id,
       courierId,
       job.id,
+      plan.jobStatuses,
       { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
       {
         matchedCourierId: courierId,
@@ -2214,7 +2217,7 @@ export class DeliveryEventService {
         EnumEventActor.SYSTEM,
         offerExpiresAt,
         null,
-        `; ${describeAddOn(job.id, sequence, plan.carryingFood)}`,
+        `; ${describeAddOn(job.id, sequence, plan.carryingFood, plan.freeRiderFound)}`,
         addOnOfferReason({
           strategy: plan.strategy,
           currentDeliveryId: job.id,
@@ -2223,14 +2226,14 @@ export class DeliveryEventService {
           extraMinutes: figures?.extraMinutes ?? 0,
           carryingFood: plan.carryingFood,
           candidateCount: plan.candidateCount,
+          policy: plan.policy,
+          freeRiderFound: plan.freeRiderFound,
         })
       )
     } catch (error) {
       this.logger.error(`Could not record OFFERED for delivery ${delivery.id}: ${error}`, (error as Error).stack)
     }
-    if (expirySeconds !== null) {
-      await this.scheduleOfferExpiry(delivery.id, courierId, offeredAt, expirySeconds * 1000)
-    }
+    await this.scheduleOfferExpiry(delivery.id, courierId, offeredAt, expirySeconds * 1000)
     await this.removeNoCourierRetry(delivery.id)
 
     try {

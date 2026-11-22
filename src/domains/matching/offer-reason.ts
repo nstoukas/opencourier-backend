@@ -64,7 +64,10 @@ export function stackOfferReason(
 // road time to the new pickup). So the strategy is the co-op's matcher setting at the time, marked ADD_ON,
 // with the current job's id, the stop order, each customer's extra wait, what it adds (km and minutes, as
 // the phone shows them), whether the rider was carrying food (cross check 2) and how many riders were
-// compared. Like a stack's keys, none of these reach a rider until spec 0045's allow list names them.
+// compared. Review fix (value 1): also the two-order policy in force and whether the usual query found a
+// free rider, so a member reads why the add on went to a rider on a job: under WHENEVER_FITS it goes before
+// a free rider (decision 81.3), under SHORTAGE_ONLY only when none was found. Of these, a rider reads only
+// their own extraKm, extraMinutes and carryingFood (why-you.ts), never whether a free rider was found.
 export function addOnOfferReason(args: {
   strategy: OfferReasonStrategy
   currentDeliveryId: string
@@ -73,6 +76,8 @@ export function addOnOfferReason(args: {
   extraMinutes: number
   carryingFood: boolean
   candidateCount: number
+  policy: string
+  freeRiderFound: boolean
 }): OfferReasonInput {
   const { sequence } = args
   return {
@@ -89,6 +94,8 @@ export function addOnOfferReason(args: {
       extraMinutes: args.extraMinutes,
       roadSecondsToPickup: sequence.secondsToNewPickup,
       carryingFood: args.carryingFood,
+      policy: args.policy,
+      freeRiderFound: args.freeRiderFound,
     },
     candidateCount: args.candidateCount,
   }

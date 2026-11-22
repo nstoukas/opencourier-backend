@@ -13,7 +13,7 @@ import {
 } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS, buildOfferCardPayload } from 'src/domains/delivery/offer-card-payload'
 import { OfferTrip, UNKNOWN_OFFER_TRIP, offerTripFor } from 'src/domains/delivery/offer-trip'
-import { addOnJobIdOf, isAddOnOffer, isCarryingFood } from 'src/domains/delivery/add-on'
+import { AddOnOfferState, addOnJobIdOf, isAddOnOffer, isCarryingFood } from 'src/domains/delivery/add-on'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { TaskBusService } from '../taskBus/taskBus.service'
@@ -403,13 +403,12 @@ export class OfferPushService {
     return partner ? { offerGroupId: delivery.offerGroupId, partnerDeliveryId: partner.id } : null
   }
 
-  // Deletes dead tokens and logs other failures by delivery id and error code only.
   // Row 81: for an open add on offer, whether the rider carries food already (the job its stop list names is
   // picked up), so the phone answers calmly (cross check 2). null for any other offer. A failed read of the
   // job counts as carrying: erring towards the calm alert is the safe direction.
   private async addOnOf(
     courierId: string,
-    delivery: Parameters<typeof isAddOnOffer>[0]
+    delivery: AddOnOfferState
   ): Promise<{ calm: boolean } | null> {
     if (!isAddOnOffer(delivery)) return null
     const jobId = addOnJobIdOf(delivery)
@@ -423,6 +422,7 @@ export class OfferPushService {
     }
   }
 
+  // Deletes dead tokens and logs other failures by delivery id and error code only.
   private async handleSendResult(deliveryId: string, type: NotificationEventType, result: PushSendResult) {
     if (result.failureCodes.length > 0) {
       this.logger.warn(`${type} push for delivery ${deliveryId} failed on some devices: ${result.failureCodes.join(', ')}`)

@@ -25,6 +25,14 @@ export function isCarryingFood(status: EnumDeliveryStatus): boolean {
   return DELIVERY_PICKED_UP_STATUSES.includes(status)
 }
 
+// Review fix (row 81): the job statuses the co-op's addOnMoment allows, so the candidate query and the locked
+// claim ask for exactly these. Before this, the query took the five nearest riders on any job and the moment
+// was checked afterwards, so five riders who had already picked up could crowd out a sixth who qualified.
+// SAME_RESTAURANT's restaurant check stays in addOnMomentAllows (it needs both deliveries).
+export function addOnJobStatuses(moment: EnumAddOnMoment): EnumDeliveryStatus[] {
+  return moment === EnumAddOnMoment.BEFORE_DROPOFF ? DELIVERY_ONGOING_STATUSES : BEFORE_PICKUP_STATUSES
+}
+
 // AC-6: whether the co-op's addOnMoment allows an add on to a job in this status. `sameRestaurant`: the new
 // order comes from the job's restaurant and pickup point (isSameRestaurant).
 export function addOnMomentAllows(
@@ -228,11 +236,21 @@ export function addOnFigures(
 
 // The OFFERED event's words for an add on (value 1: members read on the record which job it was added to,
 // what it added and the stops). Ids only, never an address.
-export function describeAddOn(jobId: string, sequence: AddOnSequence, carryingFood: boolean): string {
+// Review fix (row 81, value 1): it also says why a rider on a job got it rather than a free rider: under
+// WHENEVER_FITS with a free rider found, the add on went first (decision 81.3); otherwise no free rider was found.
+export function describeAddOn(
+  jobId: string,
+  sequence: AddOnSequence,
+  carryingFood: boolean,
+  freeRiderFound: boolean
+): string {
   const figures = addOnFigures(sequence.extraMetres, sequence.extraSeconds)
   const adds = figures ? ` (+${figures.extraKm} km, +${figures.extraMinutes} min)` : ''
   const calm = carryingFood ? '; the rider carries food, so twice the time to answer and no insistent ring' : ''
+  const why = freeRiderFound
+    ? '; a free rider was found, and the co-op offers an add on whenever it fits'
+    : '; no free rider was found'
   return `offered as one more order on the way, added to the job of delivery ${jobId}${adds}, stops: ${describeStops(
     sequence.stops
-  )}${calm}`
+  )}${calm}${why}`
 }

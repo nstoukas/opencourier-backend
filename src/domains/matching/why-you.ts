@@ -40,6 +40,12 @@ const OWN_KEYS: Record<string, string[]> = {
   STATIC: [],
 }
 
+// Review fix (row 81): an add on was not chosen by the matcher's figures (its strategy is only the co-op's
+// matcher setting at the time), so reading it by strategy showed a wrong reason ("You were the nearest
+// rider"). Its own keys instead: what it added to the rider's job and whether they carried food. Never
+// whether a free rider was found, which is about other riders (cross check 1).
+const ADD_ON_KEYS = ['extraKm', 'extraMinutes', 'carryingFood']
+
 const WEIGHT_ORDER = ['roadTime', 'earnings', 'waiting', 'shift']
 
 function isPlainValue(value: unknown): value is number | boolean | string | null {
@@ -50,7 +56,8 @@ export function whyYouFrom(reason: StoredOfferReason | null): WhyYou | null {
   if (!reason) return null
   const stored = (reason.values ?? {}) as Record<string, unknown>
   const values: WhyYou['values'] = {}
-  for (const key of OWN_KEYS[reason.strategy] ?? []) {
+  const addOn = reason.kind === 'ADD_ON'
+  for (const key of addOn ? ADD_ON_KEYS : (OWN_KEYS[reason.strategy] ?? [])) {
     const value = stored[key]
     if (isPlainValue(value)) values[key] = value
   }
@@ -60,7 +67,8 @@ export function whyYouFrom(reason: StoredOfferReason | null): WhyYou | null {
   if (stored.earningsAssumed === true || stored.earningsEqual === true) delete values.centsPerHour
   const storedWeights = (reason.weights ?? {}) as Record<string, unknown>
   const weights: Record<string, number> = {}
-  for (const key of WEIGHT_ORDER) {
+  // An add on weighed nothing (no weights are stored for it); the guard keeps it so.
+  for (const key of addOn ? [] : WEIGHT_ORDER) {
     const weight = storedWeights[key]
     if (typeof weight === 'number' && weight > 0) weights[key] = weight
   }

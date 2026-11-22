@@ -464,7 +464,8 @@ export class DeliveryDomainService {
       await this.deliveryRepository.updateIfMatches(
         deliveryId,
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null }
+        // Review fix (row 81): an add on given back loses its stop list through the job, as on a decline.
+        { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
       )
       throw error
     }

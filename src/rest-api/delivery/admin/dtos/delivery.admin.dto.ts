@@ -270,7 +270,9 @@ export class DeliveryAdminDto implements Partial<DeliveryEntity> {
   stackStops: StackStopAdminDto[] | null
 
   // Spec 0048 (row 81, AC-12): true while this is an open add on offer to a rider on a job (its stackStops
-  // name the job), and what the add on was offered as adding, kept after it as the record (null if never).
+  // name the job). addOnExtraKm/Minutes: what this delivery's LAST add on offer added, kept after that offer
+  // ended as the record (null if never offered as an add on). They describe that offer, not the delivery's
+  // state now: read them only beside the ADD_ON offer reason they belong to (review fix wording).
   @ApiProperty({ type: Boolean })
   addOn: boolean
 
