@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
+import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor, Prisma } from '@prisma/types'
 import { DeliveryDomainService } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { CacheService } from 'src/services/cache/cache.service'
@@ -517,6 +517,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          stopSequence: Prisma.DbNull,
         }
       )
 

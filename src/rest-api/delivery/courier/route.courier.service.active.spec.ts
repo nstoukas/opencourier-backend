@@ -565,5 +565,50 @@ describe('DeliveryRouteCourierService (Spec 0018 AC-1, AC-2, AC-3)', () => {
       expect(result.stops).toEqual([])
       expect(result.legs.length).toBeGreaterThan(0)
     })
+
+    test('open add on offer (offerGroupId null) draws route through rider held job (AC-10, row 81)', async () => {
+      const courier = makeCourier(riderPoint)
+      const heldJobId = 'del-held-job'
+
+      const stopSequence = [
+        { deliveryId: heldJobId, stop: 'PICKUP' },
+        { deliveryId, stop: 'PICKUP' },
+        { deliveryId: heldJobId, stop: 'DROPOFF' },
+        { deliveryId, stop: 'DROPOFF' },
+      ]
+
+      // Open add-on: offerGroupId is null, matchedCourierId is courier
+      const addOnDelivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offerGroupId: null,
+        stopSequence,
+      })
+
+      // Held job: courierId is courier, ongoing status
+      const heldJob = {
+        id: heldJobId,
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        matchedCourierId: courierId,
+        offerGroupId: null,
+        pickupLocation: { latitude: 39.366, longitude: 22.946 },
+        dropoffLocation: { latitude: 39.374, longitude: 22.957 },
+      }
+
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockImplementation(async (id: string) => {
+        if (id === deliveryId) return addOnDelivery
+        if (id === heldJobId) return heldJob
+        throw new Error('Not found')
+      })
+
+      const result = await service.getRouteWithStops(deliveryId, courier)
+
+      expect(result.stops).toHaveLength(4)
+      expect(result.stops[0]).toMatchObject({ number: 1, deliveryId: heldJobId, stop: 'PICKUP' })
+      expect(result.stops[1]).toMatchObject({ number: 2, deliveryId, stop: 'PICKUP' })
+      expect(result.stops[2]).toMatchObject({ number: 3, deliveryId: heldJobId, stop: 'DROPOFF' })
+      expect(result.stops[3]).toMatchObject({ number: 4, deliveryId, stop: 'DROPOFF' })
+    })
   })
 })

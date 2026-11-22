@@ -399,4 +399,94 @@ describe('OsrmRoutingService', () => {
       )
     })
   })
+
+  describe('getDurationAndDistanceMatrix (spec 0048, row 81, AC-6)', () => {
+    const points = [
+      { latitude: 39.362, longitude: 22.942 },
+      { latitude: 39.365, longitude: 22.945 },
+    ]
+
+    test('returns empty seconds and metres when points is empty without making HTTP call', async () => {
+      const result = await service.getDurationAndDistanceMatrix([])
+      expect(result).toEqual({ seconds: [], metres: [] })
+      expect(mockHttpService.axiosRef.get).not.toHaveBeenCalled()
+    })
+
+    test('calls OSRM table with annotations=duration,distance and formats URL correctly', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'Ok',
+          durations: [
+            [0, 60],
+            [60, 0],
+          ],
+          distances: [
+            [0, 500],
+            [500, 0],
+          ],
+        },
+      })
+
+      const result = await service.getDurationAndDistanceMatrix(points)
+
+      expect(mockHttpService.axiosRef.get).toHaveBeenCalledWith(
+        'http://localhost:5000/table/v1/driving/22.942,39.362;22.945,39.365?annotations=duration,distance',
+        { timeout: 3000 }
+      )
+      expect(result.seconds).toEqual([
+        [0, 60],
+        [60, 0],
+      ])
+      expect(result.metres).toEqual([
+        [0, 500],
+        [500, 0],
+      ])
+    })
+
+    test('maps non-finite or missing entries to null', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'Ok',
+          durations: [
+            [0, null],
+            [60, 0],
+          ],
+          distances: [
+            [0, null],
+            [500, 0],
+          ],
+        },
+      })
+
+      const result = await service.getDurationAndDistanceMatrix(points)
+
+      expect(result.seconds[0]![1]).toBeNull()
+      expect(result.metres[0]![1]).toBeNull()
+    })
+
+    test('throws ServiceUnavailableException when response code is not Ok or arrays are mismatched', async () => {
+      mockHttpService.axiosRef.get.mockResolvedValueOnce({
+        data: {
+          code: 'InvalidQuery',
+          durations: [],
+          distances: [],
+        },
+      })
+
+      await expect(service.getDurationAndDistanceMatrix(points)).rejects.toThrow(
+        ServiceUnavailableException
+      )
+    })
+
+    test('throws ServiceUnavailableException and logs error without coordinates when request fails', async () => {
+      mockHttpService.axiosRef.get.mockRejectedValueOnce(new Error('Connection refused'))
+
+      await expect(service.getDurationAndDistanceMatrix(points)).rejects.toThrow(
+        ServiceUnavailableException
+      )
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Connection refused')
+      )
+    })
+  })
 })

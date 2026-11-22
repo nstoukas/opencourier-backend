@@ -395,6 +395,8 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         // Spec 0048 (AC-12, decision 80.15): paired delivery id and order reference link the other half of a stack (delivery identifiers, no per-rider timing or position).
         'pairedDeliveryId',
         'pairedOrderReference',
+        // Spec 0048 (row 81, AC-12, decision 81.12): addOn indicates whether the attention row is for an add-on offer (order pairing flag, not rider timing or position).
+        'addOn',
       ].sort()
 
       expect(Object.keys(row).sort()).toEqual(ALLOWED_ROW_PROPERTIES)

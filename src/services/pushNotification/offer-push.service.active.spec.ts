@@ -332,6 +332,114 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       })
     })
 
+    describe('Add on offers push (spec 0048, row 81, cross check 2)', () => {
+      const addOnStops = [
+        { deliveryId: 'job-held-1', stop: 'PICKUP' },
+        { deliveryId: 'del-push-1', stop: 'PICKUP' },
+        { deliveryId: 'job-held-1', stop: 'DROPOFF' },
+        { deliveryId: 'del-push-1', stop: 'DROPOFF' },
+      ]
+
+      test('sends add on push with addOn: "1" and calm: "1" when rider carries food (PICKED_UP), and does not schedule insist', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              id: 'del-push-1',
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              matchedCourierId: 'courier-1',
+              offerGroupId: null,
+              stopSequence: addOnStops,
+              offeredAt: sampleOfferedAt,
+              offerExpiresAt: null,
+            },
+          })
+        )
+        // Held job is PICKED_UP (carrying food)
+        mockDeliveryRepository.findById.mockResolvedValue({
+          id: 'job-held-1',
+          courierId: 'courier-1',
+          status: EnumDeliveryStatus.PICKED_UP,
+        } as any)
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.objectContaining({
+            addOn: '1',
+            calm: '1',
+          }),
+          expect.any(Number)
+        )
+        // Insistent re-send is NOT scheduled for a calm add on
+        expect(mockBullMQService.addJob).not.toHaveBeenCalled()
+      })
+
+      test('when rider is not carrying food (ACCEPTED), sends addOn: "1" and calm: "" and schedules insist if no deadline', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              id: 'del-push-1',
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              matchedCourierId: 'courier-1',
+              offerGroupId: null,
+              stopSequence: addOnStops,
+              offeredAt: sampleOfferedAt,
+              offerExpiresAt: null,
+            },
+          })
+        )
+        // Held job is ACCEPTED (before pickup, not carrying food)
+        mockDeliveryRepository.findById.mockResolvedValue({
+          id: 'job-held-1',
+          courierId: 'courier-1',
+          status: EnumDeliveryStatus.ACCEPTED,
+        } as any)
+
+        await service.sendNewOffer('courier-1', 'del-push-1', false)
+
+        expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.objectContaining({
+            addOn: '1',
+            calm: '',
+          }),
+          expect.any(Number)
+        )
+        // Non-calm offer without deadline schedules insist
+        expect(mockBullMQService.addJob).toHaveBeenCalledWith(
+          'offer-insist',
+          expect.any(Object),
+          expect.objectContaining({ delay: 120000 })
+        )
+      })
+
+      test('insistent re-send does not send if add on is calm', async () => {
+        mockDeliveryRepository.findOfferCardSourceOrThrow.mockResolvedValue(
+          createSampleOfferCardSource({
+            delivery: {
+              id: 'del-push-1',
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              matchedCourierId: 'courier-1',
+              offerGroupId: null,
+              stopSequence: addOnStops,
+              offeredAt: sampleOfferedAt,
+            },
+          })
+        )
+        mockDeliveryRepository.findById.mockResolvedValue({
+          id: 'job-held-1',
+          courierId: 'courier-1',
+          status: EnumDeliveryStatus.ON_THE_WAY,
+        } as any)
+
+        // Calling with insistent = true
+        await service.sendNewOffer('courier-1', 'del-push-1', true)
+
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+      })
+    })
+
     describe('handleOfferInsistJob', () => {
       const validPayload = {
         deliveryId: 'del-push-1',

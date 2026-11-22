@@ -567,6 +567,49 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
       expect(rows[0]?.riderName).toBe('Eleni')
       expect(rows[0]?.detail).toBe('Offered to Eleni, unanswered')
     })
+
+    test('an open add on offer creates attention row naming the held job and added km/min (AC-12, row 81)', () => {
+      const offeredAt = new Date('2026-11-09T13:40:00.000Z')
+      const heldJob = createLiveDelivery({
+        id: 'del-held-job-1',
+        orderReference: 'ORD-HELD-99',
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'courier-eleni',
+      })
+      const addOnOffer = createLiveDelivery({
+        id: 'del-add-on-1',
+        orderReference: 'ORD-ADD-100',
+        matchedCourierId: 'courier-eleni',
+        courierId: null,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        offeredAt,
+        offerExpiresAt: null,
+        offerGroupId: null,
+        stopSequence: [
+          { deliveryId: 'del-held-job-1', stop: 'PICKUP' },
+          { deliveryId: 'del-add-on-1', stop: 'PICKUP' },
+          { deliveryId: 'del-held-job-1', stop: 'DROPOFF' },
+          { deliveryId: 'del-add-on-1', stop: 'DROPOFF' },
+        ],
+        addOnExtraMetres: 2100,
+        addOnExtraSeconds: 420,
+      })
+
+      const offerViews = new Map<string, DeliveryOfferView>([
+        ['del-add-on-1', { matchedCourierName: 'Eleni' } as DeliveryOfferView],
+      ])
+
+      const rows = offerUnansweredRows([heldJob, addOnOffer], offerViews)
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.id).toBe(`${ATTENTION_KIND.OFFER_UNANSWERED}:del-add-on-1`)
+      expect(rows[0]?.addOn).toBe(true)
+      expect(rows[0]?.pairedDeliveryId).toBe('del-held-job-1')
+      expect(rows[0]?.pairedOrderReference).toBe('ORD-HELD-99')
+      expect(rows[0]?.detail).toBe(
+        'Offered to Eleni as one more order on the way with ORD-HELD-99 (+2.1 km, +7 min), unanswered'
+      )
+    })
   })
 
   // AC-6: RESTAURANT_LATE

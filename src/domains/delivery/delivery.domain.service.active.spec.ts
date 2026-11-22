@@ -6,6 +6,7 @@ import {
   EnumEventActor,
   EnumCourierCompensationReason,
   EnumCancelledBy,
+  Prisma,
 } from '@prisma/types'
 import { DeliveryDomainService, arrivalHow } from './delivery.domain.service'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
@@ -958,6 +959,7 @@ describe('DeliveryDomainService', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          stopSequence: Prisma.DbNull,
         }
       )
       expect(mockCacheService.save).toHaveBeenCalledWith(

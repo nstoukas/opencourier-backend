@@ -76,6 +76,8 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         // Spec 0048 (row 80, AC-2, cross check 5): stack compatibility and stop sequencing read readiness (reads only).
         'domains/delivery/stack.ts',
         'services/two-order/two-order.service.ts',
+        // Spec 0048 (row 81, AC-2, cross check 5): add-on compatibility and stop sequencing read readiness (reads only).
+        'domains/delivery/add-on.ts',
       ].sort()
     )
   })
