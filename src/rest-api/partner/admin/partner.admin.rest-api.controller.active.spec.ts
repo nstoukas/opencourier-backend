@@ -180,6 +180,7 @@ describe('PartnerAdminRestApiController', () => {
       apiKeyHash: null,
       apiKeyCreatedAt: null,
       credentialsChangedAt: null,
+      language: 'el',
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -230,6 +231,7 @@ describe('PartnerAdminRestApiController', () => {
         apiKeyHash: null,
         apiKeyCreatedAt: null,
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -258,6 +260,7 @@ describe('PartnerAdminRestApiController', () => {
         apiKeyHash: null,
         apiKeyCreatedAt: null,
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date(),
         updatedAt: new Date(),
       })

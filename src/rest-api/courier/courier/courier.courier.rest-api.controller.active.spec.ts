@@ -9,6 +9,8 @@ import { METHOD_METADATA } from '@nestjs/common/constants'
 import { RequestMethod } from '@nestjs/common'
 import { EnumCourierAccountChangeKind } from '@prisma/types'
 import { CourierAccountService } from 'src/services/courier-account/courier-account.service'
+import { UserDomainService } from 'src/domains/user/user.domain.service'
+import { LanguageDto } from 'src/rest-api/common/dtos/language.dto'
 import {
   CourierAccountChangeCourierDto,
   EmergencyContactCourierDto,
@@ -21,6 +23,7 @@ describe('CourierCourierRestApiController', () => {
 
   const mockCourier = {
     id: 'courier-777',
+    userId: 'user-courier-777',
     firstName: 'Nikos',
     lastName: 'Papastamou',
   } as CourierEntity
@@ -77,6 +80,44 @@ describe('CourierCourierRestApiController', () => {
         'courier-777',
         EnumCourierDeliverySetting.AUTO_ACCEPT
       )
+    })
+  })
+
+  describe('setLanguage (spec 0054, AC-1)', () => {
+    let mockUserDomainService: { setLanguage: jest.Mock }
+    let languageController: CourierCourierRestApiController
+
+    beforeEach(() => {
+      mockUserDomainService = {
+        setLanguage: jest.fn().mockResolvedValue(undefined),
+      }
+      languageController = new CourierCourierRestApiController(
+        mockCourierDomainService,
+        mockDeliveryEventService,
+        undefined,
+        mockUserDomainService as unknown as UserDomainService
+      )
+    })
+
+    test('calls userDomainService.setLanguage with courier userId and language, returning LanguageDto', async () => {
+      const result = await languageController.setLanguage(mockCourier, { language: 'en' })
+
+      expect(mockUserDomainService.setLanguage).toHaveBeenCalledWith('user-courier-777', 'en')
+      expect(result).toBeInstanceOf(LanguageDto)
+      expect(result.language).toBe('en')
+    })
+
+    test('throws Error when userDomainService was not injected', async () => {
+      await expect(controller.setLanguage(mockCourier, { language: 'el' })).rejects.toThrow(
+        'UserDomainService was not injected'
+      )
+    })
+
+    test('is routed at PUT language with @Roles(COURIER)', () => {
+      const fn = CourierCourierRestApiController.prototype.setLanguage
+      expect(Reflect.getMetadata(PATH_METADATA, fn)).toBe('language')
+      expect(Reflect.getMetadata(METHOD_METADATA, fn)).toBe(RequestMethod.PUT)
+      expect(Reflect.getMetadata(ROLES_KEY, fn)).toEqual([EnumUserRole.COURIER])
     })
   })
 

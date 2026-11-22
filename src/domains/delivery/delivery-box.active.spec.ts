@@ -248,6 +248,11 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
           actor: EnumEventActor.SYSTEM,
           source: EnumDeliveryEventSource.OPENCOURIER,
           message: "No box size was sent, so it counts as Medium (50 units), the co-op's default",
+          messageCode: 'BOX_SIZE_ASSUMED',
+          messageParams: {
+            size: 'MEDIUM',
+            units: 50,
+          },
         },
         EnumDeliveryStatus.CREATED
       )
@@ -345,6 +350,13 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
           actor: EnumEventActor.PARTNER,
           source: EnumDeliveryEventSource.PARTNER_APP,
           message: 'Box size changed by the restaurant from Medium (50 units) to Large (100 units)',
+          messageCode: 'BOX_SIZE_CHANGED_BY_RESTAURANT',
+          messageParams: {
+            fromSize: 'MEDIUM',
+            fromUnits: 50,
+            toSize: 'LARGE',
+            toUnits: 100,
+          },
         },
         EnumDeliveryStatus.CREATED
       )
@@ -516,6 +528,14 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
           message: `${adminLabel(
             adminUser
           )} confirmed giving this order (50 units) to a rider already holding 60 of 100 units, 110 in all`,
+          messageCode: 'BOX_OVER_CAPACITY_CONFIRMED',
+          messageParams: {
+            admin: 'admin@coop.gr',
+            deliveryUnits: 50,
+            heldUnits: 60,
+            boxUnits: 100,
+            totalUnits: 110,
+          },
         },
         EnumDeliveryStatus.CREATED
       )

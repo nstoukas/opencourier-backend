@@ -226,8 +226,8 @@ describe('RemovalRequestRepository', () => {
         data: {
           key: 'removalReason',
           subject: reasonId,
-          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
-          newValue: { label: 'Punctured tire', paidToRider: true, chargedToRestaurant: false },
+          oldValue: { label: 'Flat tire', labelEl: null, paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Punctured tire', labelEl: null, paidToRider: true, chargedToRestaurant: false },
           changedByUserId: adminId,
         },
       })
@@ -247,8 +247,8 @@ describe('RemovalRequestRepository', () => {
         data: {
           key: 'removalReason',
           subject: reasonId,
-          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
-          newValue: { label: 'Flat tire', paidToRider: false, chargedToRestaurant: false },
+          oldValue: { label: 'Flat tire', labelEl: null, paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Flat tire', labelEl: null, paidToRider: false, chargedToRestaurant: false },
           changedByUserId: adminId,
         },
       })
@@ -268,8 +268,8 @@ describe('RemovalRequestRepository', () => {
         data: {
           key: 'removalReason',
           subject: reasonId,
-          oldValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: false },
-          newValue: { label: 'Flat tire', paidToRider: true, chargedToRestaurant: true },
+          oldValue: { label: 'Flat tire', labelEl: null, paidToRider: true, chargedToRestaurant: false },
+          newValue: { label: 'Flat tire', labelEl: null, paidToRider: true, chargedToRestaurant: true },
           changedByUserId: adminId,
         },
       })
@@ -304,7 +304,7 @@ describe('RemovalRequestRepository', () => {
           key: 'removalReason',
           subject: 'new-reason-1',
           oldValue: Prisma.DbNull,
-          newValue: { label: 'Severe weather', paidToRider: true, chargedToRestaurant: true },
+          newValue: { label: 'Severe weather', labelEl: null, paidToRider: true, chargedToRestaurant: true },
           changedByUserId: 'admin-user-1',
         },
       })
@@ -336,7 +336,7 @@ describe('RemovalRequestRepository', () => {
         data: {
           key: 'removalReason',
           subject: reasonId,
-          oldValue: { label: 'Customer absent', paidToRider: false, chargedToRestaurant: true },
+          oldValue: { label: 'Customer absent', labelEl: null, paidToRider: false, chargedToRestaurant: true },
           newValue: Prisma.DbNull,
           changedByUserId: 'admin-user-1',
         },

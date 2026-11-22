@@ -59,6 +59,7 @@ describe('AuthCourierRestApiController (Spec 0013 AC-7: no public courier sign u
       apiKeyHash: null,
       apiKeyCreatedAt: null,
       credentialsChangedAt: new Date('2026-11-21T10:00:00Z'),
+      language: 'el',
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     })

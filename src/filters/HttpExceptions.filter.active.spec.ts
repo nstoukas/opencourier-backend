@@ -1,12 +1,13 @@
 import 'reflect-metadata'
-import { ArgumentsHost, Controller, Get, INestApplication } from '@nestjs/common'
+import { ArgumentsHost, ConflictException, Controller, Get, HttpException, HttpStatus, INestApplication } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { HttpAdapterHost } from '@nestjs/core'
 import { Response } from 'express'
 import request from 'supertest'
 import { HttpExceptionFilter } from './HttpExceptions.filter'
-import { ApiException, DeliveryNotFoundException, ErrorCode, NotFoundException } from '../errors'
+import { ApiException, CantUpdateDeliveryStatusError, DeliveryNotFoundException, ErrorCode, NotFoundException, OFFER_HAS_ENDED_MESSAGE } from '../errors'
 import { Prisma } from '@prisma/types'
+import { refusalBody } from 'src/localization/coded-sentence'
 
 // Test controller throwing real errors to verify Nest exception filter pipeline end-to-end
 @Controller('test-errors')
@@ -58,6 +59,7 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
       json: jest.fn().mockReturnThis(),
     }
     mockHost = {
+      getType: () => 'http',
       switchToHttp: () => ({
         getResponse: () => mockResponse as unknown as Response,
         getRequest: () => ({}),
@@ -73,10 +75,11 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
     // of the caught class, causing Nest to bypass this filter and answer 500.
     const caughtExceptions = Reflect.getMetadata('__filterCatchExceptions__', HttpExceptionFilter) as any[]
 
-    it('registers ApiException and the generated client PrismaClientKnownRequestError in @Catch metadata', () => {
+    it('registers ApiException, PrismaClientKnownRequestError and HttpException in @Catch metadata', () => {
       expect(Array.isArray(caughtExceptions)).toBe(true)
       expect(caughtExceptions).toContain(ApiException)
       expect(caughtExceptions).toContain(Prisma.PrismaClientKnownRequestError)
+      expect(caughtExceptions).toContain(HttpException)
     })
 
     it('matches a real generated client Prisma.NotFoundError', () => {
@@ -189,6 +192,77 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
         statusCode: 500,
       })
       expect(consoleLogSpy).toHaveBeenCalledWith(error)
+    })
+
+    describe('Spec 0054 AC-6: Refusals by code and params', () => {
+      it('adds specific code for Nest HttpException carrying a known fixed sentence', () => {
+        const error = new ConflictException(OFFER_HAS_ENDED_MESSAGE)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 409,
+          error: 'Conflict',
+          message: OFFER_HAS_ENDED_MESSAGE,
+          code: 'OFFER_HAS_ENDED',
+        })
+      })
+
+      it('preserves code and params when Nest HttpException was thrown with refusalBody', () => {
+        const body = refusalBody(HttpStatus.CONFLICT, {
+          code: 'LEAVE_TOO_SOON',
+          params: { minutes: 7 },
+          message: 'Wait at least 7 min before leaving',
+        })
+        const error = new ConflictException(body)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 409,
+          code: 'LEAVE_TOO_SOON',
+          params: { minutes: 7 },
+          message: 'Wait at least 7 min before leaving',
+        })
+      })
+
+      it('ApiException uses sentenceCode and passes params when provided', () => {
+        const error = new CantUpdateDeliveryStatusError('Dispatch stopped (heat)')
+        error.sentenceCode = 'DISPATCH_STOPPED'
+        error.params = { reason: 'HEAT' }
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          code: 'DISPATCH_STOPPED',
+          message: 'Dispatch stopped (heat)',
+          statusCode: 409,
+          params: { reason: 'HEAT' },
+        })
+      })
+
+      it('ApiException replaces generic code with specific code for known refusal sentence', () => {
+        const error = new ApiException(ErrorCode.BAD_REQUEST, OFFER_HAS_ENDED_MESSAGE, 400)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(400)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          code: 'OFFER_HAS_ENDED',
+          message: OFFER_HAS_ENDED_MESSAGE,
+          statusCode: 400,
+        })
+      })
+
+      it('leaves Nest HttpException body without code when sentence is not in the table', () => {
+        const error = new HttpException({ statusCode: 400, message: 'Custom unknown failure' }, 400)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(400)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 400,
+          message: 'Custom unknown failure',
+        })
+      })
     })
   })
 

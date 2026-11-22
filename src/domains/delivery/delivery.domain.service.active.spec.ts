@@ -291,6 +291,16 @@ describe('DeliveryDomainService', () => {
         droppedCourierId: 'courier-old',
         message: expectedEventMessage,
         adminUserId: null,
+        messageCode: 'REASSIGNED_WITH_NOTE',
+        messageParams: {
+          policy: 'FULL_COMPENSATION',
+          amount: 350,
+          currency: 'EUR',
+          droppedCourierId: 'courier-old',
+          newCourierId: 'courier-new',
+          note: 'Admin note',
+          awardId: 'comp-1',
+        },
       })
 
       // Case 9: Assert award row message and event message: event message ends with its award id
@@ -974,6 +984,8 @@ describe('DeliveryDomainService', () => {
         source: EnumDeliveryEventSource.OPENCOURIER,
         courierId: 'courier-1',
         message: 'Courier courier-1 rejected delivery del-reject',
+        messageCode: 'REJECTED',
+        messageParams: { courierId: 'courier-1', deliveryId: 'del-reject' },
       })
     })
 

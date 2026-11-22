@@ -97,6 +97,13 @@ describe('DeliveryDomainService busy mode on creation (spec 0029, AC-2)', () => 
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
       message: 'Delivery was created delivery del-123 from partner partner-1, ready at 14:35, busy mode +15 min',
+      messageCode: 'CREATED_BUSY',
+      messageParams: {
+        deliveryId: 'del-123',
+        partnerId: 'partner-1',
+        readyAt: '2026-11-09T12:35:00.000Z',
+        busyMinutes: 15,
+      },
     })
   })
 
@@ -159,6 +166,12 @@ describe('DeliveryDomainService busy mode on creation (spec 0029, AC-2)', () => 
       actor: EnumEventActor.PARTNER,
       source: EnumDeliveryEventSource.PARTNER_APP,
       message: 'Delivery was created delivery del-123 from partner partner-1, ready at 14:15',
+      messageCode: 'CREATED',
+      messageParams: {
+        deliveryId: 'del-123',
+        partnerId: 'partner-1',
+        readyAt: '2026-11-09T12:15:00.000Z',
+      },
     })
   })
 

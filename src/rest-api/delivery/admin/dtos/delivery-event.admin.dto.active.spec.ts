@@ -24,6 +24,8 @@ describe('DeliveryEventAdminDto (Spec 0009, AC-10)', () => {
       newStatus: EnumDeliveryStatus.DROPPED_OFF,
       transitionSuccessful: true,
       message: 'Delivered',
+      messageCode: null,
+      messageParams: null,
       occurredAt,
       createdAt,
       updatedAt: createdAt,
@@ -54,6 +56,8 @@ describe('DeliveryEventAdminDto (Spec 0009, AC-10)', () => {
       newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       transitionSuccessful: true,
       message: null,
+      messageCode: null,
+      messageParams: null,
       occurredAt: timestamp,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -63,5 +67,61 @@ describe('DeliveryEventAdminDto (Spec 0009, AC-10)', () => {
 
     expect(dto.occurredAt).toEqual(timestamp)
     expect(dto.createdAt).toEqual(timestamp)
+  })
+
+  describe('Spec 0054 AC-4: messageCode, messageParams, and historical null code rows', () => {
+    test('carries messageCode, messageParams, and message for new event', () => {
+      const now = new Date('2026-11-20T12:00:00.000Z')
+      const entity = new DeliveryEventEntity({
+        id: 'evt-new-1',
+        deliveryId: 'del-10',
+        courierId: 'courier-1',
+        type: EnumDeliveryEventType.FOOD_READY,
+        actor: EnumEventActor.PARTNER,
+        eventSource: EnumDeliveryEventSource.PARTNER_APP,
+        oldStatus: EnumDeliveryStatus.ACCEPTED,
+        newStatus: EnumDeliveryStatus.ACCEPTED,
+        transitionSuccessful: true,
+        message: 'Food ready at 14:00',
+        messageCode: 'FOOD_READY',
+        messageParams: { at: '2026-11-20T12:00:00.000Z' },
+        occurredAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      const dto = new DeliveryEventAdminDto(entity)
+
+      expect(dto.messageCode).toBe('FOOD_READY')
+      expect(dto.messageParams).toEqual({ at: '2026-11-20T12:00:00.000Z' })
+      expect(dto.message).toBe('Food ready at 14:00')
+    })
+
+    test('historical row from before spec 0054 keeps English message with null messageCode and messageParams', () => {
+      const now = new Date('2026-08-01T12:00:00.000Z')
+      const entity = new DeliveryEventEntity({
+        id: 'evt-old-1',
+        deliveryId: 'del-10',
+        courierId: 'courier-1',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        eventSource: EnumDeliveryEventSource.OPENCOURIER,
+        oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        newStatus: EnumDeliveryStatus.ACCEPTED,
+        transitionSuccessful: true,
+        message: 'Courier courier-1 accepted delivery del-10',
+        messageCode: null,
+        messageParams: null,
+        occurredAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      const dto = new DeliveryEventAdminDto(entity)
+
+      expect(dto.message).toBe('Courier courier-1 accepted delivery del-10')
+      expect(dto.messageCode).toBeNull()
+      expect(dto.messageParams).toBeNull()
+    })
   })
 })

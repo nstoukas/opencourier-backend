@@ -10,7 +10,9 @@ import {
   EnumFoodOutcome,
   EnumPartnerChargeReason,
   EnumRemovalRequestStatus,
+  EnumDispatchStopReason,
 } from '@prisma/types'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { DeliveryEventService } from './delivery-event.service'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
@@ -80,6 +82,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     courierId,
     reasonId: 'reason-1',
     label: 'Moped breakdown',
+    labelEl: 'Βλάβη μοτοποδηλάτου',
     paidToRider: true,
     chargedToRestaurant: false,
     note: 'Flat tire',
@@ -94,6 +97,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     afterPickup: false,
     settledAt: null,
     ...overrides,
+    ...(overrides.labelEl !== undefined ? { labelEl: overrides.labelEl } : {}),
   })
 
   beforeEach(() => {
@@ -1304,7 +1308,12 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       })
       mockDeliveryRepository.findById.mockResolvedValueOnce(arrivedDelivery)
 
-      await service.returnToWaitingForDispatchStop(deliveryId, courierId, EnumEventActor.ADMIN, 'Heat wave')
+      await service.returnToWaitingForDispatchStop(
+        deliveryId,
+        courierId,
+        EnumEventActor.ADMIN,
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
+      )
 
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
@@ -1323,7 +1332,12 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       })
       mockDeliveryRepository.findById.mockResolvedValueOnce(dispatchedDelivery)
 
-      await service.returnToWaitingForDispatchStop(deliveryId, courierId, EnumEventActor.ADMIN, 'Heat wave')
+      await service.returnToWaitingForDispatchStop(
+        deliveryId,
+        courierId,
+        EnumEventActor.ADMIN,
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
+      )
 
       const dispatchedCall =
         mockDeliveryRepository.updateIfMatches.mock.calls[mockDeliveryRepository.updateIfMatches.mock.calls.length - 1]

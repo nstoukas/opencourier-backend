@@ -9,7 +9,7 @@ import {
 import { ConfigKey } from 'src/shared-types'
 import { ConfigEntity } from './entities/config.entity'
 import { ConfigRepository } from 'src/persistence/repositories/config.repository'
-import { checkChatQuickReplies, storedChatQuickReplies } from './chat-quick-replies'
+import { checkChatQuickReplies, storedChatQuickReplies, chatPresetText } from './chat-quick-replies'
 import {
   InstanceConfigDomainService,
   NUMERIC_SETTING_RULES,
@@ -19,22 +19,22 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
   describe('checkChatQuickReplies', () => {
     test('refuses by name when value is not a list', () => {
       expect(checkChatQuickReplies('chatQuickRepliesDispatch', 'not-a-list')).toEqual({
-        refusal: 'chatQuickRepliesDispatch must be a list of texts',
+        refusal: 'chatQuickRepliesDispatch must be a list of presets',
       })
       expect(checkChatQuickReplies('chatQuickRepliesCourier', null)).toEqual({
-        refusal: 'chatQuickRepliesCourier must be a list of texts',
+        refusal: 'chatQuickRepliesCourier must be a list of presets',
       })
       expect(checkChatQuickReplies('chatQuickRepliesCourier', { 0: 'a' })).toEqual({
-        refusal: 'chatQuickRepliesCourier must be a list of texts',
+        refusal: 'chatQuickRepliesCourier must be a list of presets',
       })
     })
 
     test('refuses by name when list contains non-text entries', () => {
       expect(checkChatQuickReplies('chatQuickRepliesDispatch', [123])).toEqual({
-        refusal: 'chatQuickRepliesDispatch must be a list of texts',
+        refusal: 'chatQuickRepliesDispatch must be a list of presets, each a text or { el, en }',
       })
       expect(checkChatQuickReplies('chatQuickRepliesCourier', ['ok', false])).toEqual({
-        refusal: 'chatQuickRepliesCourier must be a list of texts',
+        refusal: 'chatQuickRepliesCourier must be a list of presets, each a text or { el, en }',
       })
     })
 
@@ -74,7 +74,18 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
       const input = ['  Περίμενε 5 λεπτά ακόμα  ', ' Άφησέ το στην πόρτα ']
       const result = checkChatQuickReplies('chatQuickRepliesDispatch', input)
       expect(result).toEqual({
-        replies: ['Περίμενε 5 λεπτά ακόμα', 'Άφησέ το στην πόρτα'],
+        replies: [
+          { el: 'Περίμενε 5 λεπτά ακόμα', en: '' },
+          { el: 'Άφησέ το στην πόρτα', en: '' },
+        ],
+      })
+    })
+
+    test('accepts pair entries with el and en', () => {
+      const input = [{ el: '  Περίμενε 5 λεπτά  ', en: '  Wait 5 minutes  ' }]
+      const result = checkChatQuickReplies('chatQuickRepliesDispatch', input)
+      expect(result).toEqual({
+        replies: [{ el: 'Περίμενε 5 λεπτά', en: 'Wait 5 minutes' }],
       })
     })
 
@@ -93,7 +104,15 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
     })
 
     test('returns trimmed strings for valid stored list', () => {
-      expect(storedChatQuickReplies(['  reply 1  '])).toEqual(['reply 1'])
+      expect(storedChatQuickReplies(['  reply 1  '])).toEqual([{ el: 'reply 1', en: '' }])
+      expect(storedChatQuickReplies([{ el: '  γεια  ', en: '  hello  ' }])).toEqual([{ el: 'γεια', en: 'hello' }])
+    })
+
+    test('chatPresetText returns reader language with fallback', () => {
+      expect(chatPresetText({ el: 'γεια', en: 'hello' }, 'el')).toBe('γεια')
+      expect(chatPresetText({ el: 'γεια', en: 'hello' }, 'en')).toBe('hello')
+      expect(chatPresetText({ el: 'γεια', en: '' }, 'en')).toBe('γεια')
+      expect(chatPresetText({ el: '', en: 'hello' }, 'el')).toBe('hello')
     })
   })
 
@@ -148,9 +167,9 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
       const result = await service.getChatQuickRepliesDispatch()
       expect(result).toEqual(DEFAULT_CHAT_QUICK_REPLIES_DISPATCH)
       expect(DEFAULT_CHAT_QUICK_REPLIES_DISPATCH).toEqual([
-        'Περίμενε 5 λεπτά ακόμα',
-        'Άφησέ το στην πόρτα',
-        'Πήγαινέ το πίσω στο κατάστημα',
+        { el: 'Περίμενε 5 λεπτά ακόμα', en: 'Wait 5 more minutes' },
+        { el: 'Άφησέ το στην πόρτα', en: 'Leave it at the door' },
+        { el: 'Πήγαινέ το πίσω στο κατάστημα', en: 'Take it back to the restaurant' },
       ])
       // Quiet fallback: no warning logged
       expect(warnSpy).not.toHaveBeenCalled()
@@ -164,9 +183,9 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
       const result = await service.getChatQuickRepliesCourier()
       expect(result).toEqual(DEFAULT_CHAT_QUICK_REPLIES_COURIER)
       expect(DEFAULT_CHAT_QUICK_REPLIES_COURIER).toEqual([
-        'Είμαι στην πόρτα, δεν απαντούν',
-        'Το φαγητό δεν είναι έτοιμο',
-        'Θα αργήσω λίγο',
+        { el: 'Είμαι στην πόρτα, δεν απαντούν', en: "I'm at the door, no answer" },
+        { el: 'Το φαγητό δεν είναι έτοιμο', en: "The food isn't ready" },
+        { el: 'Θα αργήσω λίγο', en: "I'll be a little late" },
       ])
       expect(warnSpy).not.toHaveBeenCalled()
       warnSpy.mockRestore()
@@ -200,7 +219,10 @@ describe('chat-quick-replies and chat config settings (spec 0034, AC-13, AC-18)'
         })
       )
       const result = await service.getChatQuickRepliesCourier()
-      expect(result).toEqual(['Έφτασα', 'Κατεβαίνω'])
+      expect(result).toEqual([
+        { el: 'Έφτασα', en: '' },
+        { el: 'Κατεβαίνω', en: '' },
+      ])
     })
   })
 })

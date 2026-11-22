@@ -8,6 +8,10 @@ import { IS_API_KEY_AUTH } from 'src/decorators/api-key-auth.decorator'
 import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { ForbiddenException } from 'src/errors'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
+import { LanguageDto } from 'src/rest-api/common/dtos/language.dto'
+import { PATH_METADATA } from '@nestjs/common/constants'
+import { METHOD_METADATA } from '@nestjs/common/constants'
+import { RequestMethod } from '@nestjs/common'
 
 describe('AuthPartnerRestApiController', () => {
   let controller: AuthPartnerRestApiController
@@ -23,6 +27,7 @@ describe('AuthPartnerRestApiController', () => {
     apiKeyHash: 'partner-hash-100',
     apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -36,6 +41,7 @@ describe('AuthPartnerRestApiController', () => {
     apiKeyHash: null,
     apiKeyCreatedAt: null,
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -52,6 +58,7 @@ describe('AuthPartnerRestApiController', () => {
     mockAuthDomainService = {
       loginPartnerWithUsername: jest.fn(),
       getMe: jest.fn(),
+      setLanguage: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AuthDomainService>
 
     // Spec 0023 (AC-9): getMe looks the restaurant up by its user for its usual prep time.
@@ -163,6 +170,23 @@ describe('AuthPartnerRestApiController', () => {
 
       expect(result.usualPrepMinutes).toBeNull()
       expect(result.id).toBe('user-partner-100')
+    })
+  })
+
+  describe('setLanguage (spec 0054, AC-2)', () => {
+    test('calls authDomainService.setLanguage with user id and language, returning LanguageDto', async () => {
+      const result = await controller.setLanguage(mockPartnerUser, { language: 'en' })
+
+      expect(mockAuthDomainService.setLanguage).toHaveBeenCalledWith('user-partner-100', 'en')
+      expect(result).toBeInstanceOf(LanguageDto)
+      expect(result.language).toBe('en')
+    })
+
+    test('is routed at PUT language with @Roles(PARTNER)', () => {
+      const fn = AuthPartnerRestApiController.prototype.setLanguage
+      expect(Reflect.getMetadata(PATH_METADATA, fn)).toBe('language')
+      expect(Reflect.getMetadata(METHOD_METADATA, fn)).toBe(RequestMethod.PUT)
+      expect(Reflect.getMetadata(ROLES_KEY, fn)).toEqual([EnumUserRole.PARTNER])
     })
   })
 })

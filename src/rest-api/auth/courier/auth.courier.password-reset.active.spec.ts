@@ -27,6 +27,7 @@ describe('AuthCourierRestApiController Password Reset Routes (Spec 0039 AC-7, AC
     apiKeyHash: null,
     apiKeyCreatedAt: null,
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   })

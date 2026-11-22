@@ -113,6 +113,11 @@ describe('DeliveryQuotePartner - Availability checks (spec 0029, AC-4, decision 
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING,
         failureMessage: 'The co-op has disabled this restaurant: Unregistered business',
+        failureSentence: {
+          code: 'PARTNER_DISABLED',
+          params: { reason: 'Unregistered business' },
+          message: 'The co-op has disabled this restaurant: Unregistered business',
+        },
       })
       // Location and courier matcher were not queried
       expect(mockLocationDomainService.findOrCreate).not.toHaveBeenCalled()
@@ -134,6 +139,11 @@ describe('DeliveryQuotePartner - Availability checks (spec 0029, AC-4, decision 
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING,
         failureMessage: 'Ordering is paused until 14:30.',
+        failureSentence: {
+          code: 'PARTNER_PAUSED',
+          params: { until: '2026-11-09T12:30:00.000Z' },
+          message: 'Ordering is paused until 14:30.',
+        },
       })
       expect(mockLocationDomainService.findOrCreate).not.toHaveBeenCalled()
       expect(mockCourierMatcherService.findCourierForDelivery).not.toHaveBeenCalled()
@@ -155,6 +165,11 @@ describe('DeliveryQuotePartner - Availability checks (spec 0029, AC-4, decision 
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.PARTNER_NOT_ACCEPTING,
         failureMessage: 'The co-op has disabled this restaurant: Safety investigation',
+        failureSentence: {
+          code: 'PARTNER_DISABLED',
+          params: { reason: 'Safety investigation' },
+          message: 'The co-op has disabled this restaurant: Safety investigation',
+        },
       })
     })
 

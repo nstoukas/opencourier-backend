@@ -376,6 +376,13 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
           courierId,
           message:
             'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
+          messageCode: 'DROPOFF_MOVED_BY_RIDER',
+          messageParams: {
+            from: '39.36400, 22.94800',
+            metres: 141,
+            outcome: 'UPDATED',
+            to: '39.36500, 22.94900',
+          },
         },
         EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION
       )

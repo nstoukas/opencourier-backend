@@ -337,6 +337,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Courier ${courierId} accepted delivery ${deliveryId}`,
+        messageCode: 'ACCEPTED',
+        messageParams: { courierId, deliveryId },
       })
 
       expect(result.id).toBe(deliveryId)
@@ -369,6 +371,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Courier ${courierId} accepted delivery ${deliveryId} (accepted automatically)`,
+        messageCode: 'ACCEPTED_AUTOMATICALLY',
+        messageParams: { courierId, deliveryId },
       })
     })
 
@@ -399,6 +403,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Courier ${courierId} accepted delivery ${deliveryId}`,
+        messageCode: 'ACCEPTED',
+        messageParams: { courierId, deliveryId },
       })
     })
 
@@ -532,6 +538,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
         message: `Courier ${courierId} rejected delivery ${deliveryId}`,
+        messageCode: 'REJECTED',
+        messageParams: { courierId, deliveryId },
       })
     })
 

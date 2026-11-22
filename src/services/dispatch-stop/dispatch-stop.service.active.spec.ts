@@ -8,6 +8,7 @@ import {
   EnumEventActor,
 } from '@prisma/types'
 import { DispatchStopService } from './dispatch-stop.service'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { BadRequestException, NotFoundException } from 'src/errors'
 import { dayjs } from 'src/core/utils/time'
 import { INSTANCE_TIMEZONE } from 'src/constants'
@@ -116,7 +117,9 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       )
       // startWork ran inline!
       expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith('stop-now-1', expect.any(Date))
-      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith('Ended: dispatch stopped (heat)')
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith(
+        eventText('DISPATCH_STOP_OFFER_ENDED', { reason: EnumDispatchStopReason.HEAT })
+      )
       expect(result.id).toBe('stop-now-1')
     })
 
@@ -431,7 +434,7 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
         'del-return-1',
         'courier-dropped',
         EnumEventActor.ADMIN,
-        'Dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
       )
       expect(mockCourierCompensationRepository.create).toHaveBeenCalledWith({
         amount: 800,
@@ -686,12 +689,23 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
         startsAt: currentStop.startsAt,
         endsAt: currentStop.endsAt,
         message: 'Dispatch is stopped until 17:00 (heat).',
+        messageCode: 'DISPATCH_STOPPED_RIDER',
+        messageParams: {
+          reason: 'HEAT',
+          until: currentStop.endsAt!.toISOString(),
+        },
       })
       expect(courierState.next).toEqual({
         reason: EnumDispatchStopReason.STORM,
         startsAt: nextStop.startsAt,
         endsAt: nextStop.endsAt,
         message: 'Dispatch stops today 18:00 to 21:00 (storm).',
+        messageCode: 'DISPATCH_STOPS_RIDER_SAME_DAY',
+        messageParams: {
+          reason: 'STORM',
+          startsAt: nextStop.startsAt.toISOString(),
+          endsAt: nextStop.endsAt!.toISOString(),
+        },
       })
       // Verify createdByUserId was NEVER leaked in either view!
       expect((courierState.current as any)?.createdByUserId).toBeUndefined()
@@ -812,20 +826,20 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
 
       // Sweep must run: ends offers first, then returns held deliveries
       expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith(
-        'Ended: dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_OFFER_ENDED', { reason: EnumDispatchStopReason.HEAT })
       )
       expect(mockDeliveryRepository.findAllHeldBeforePickup).toHaveBeenCalled()
       expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
         'del-1',
         'c-1',
         EnumEventActor.SYSTEM,
-        'Dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
       )
       expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledWith(
         'del-2',
         'c-2',
         EnumEventActor.SYSTEM,
-        'Dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
       )
     })
 
@@ -866,7 +880,7 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
         'del-transient-fail',
         'c-retry',
         EnumEventActor.SYSTEM,
-        'Dispatch stopped (storm)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.STORM })
       )
 
       // Tick 2: delivery is still held before pickup, returnToWaitingForDispatchStop succeeds
@@ -929,7 +943,7 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
       await service.tick(now)
 
       expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledWith(
-        'Ended: dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_OFFER_ENDED', { reason: EnumDispatchStopReason.HEAT })
       )
       expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith(
         'stop-unstarted',

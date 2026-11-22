@@ -24,6 +24,7 @@ import { OfferPushService } from '../pushNotification/offer-push.service'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { CantUpdateDeliveryStatusError } from 'src/errors'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { dayjs } from 'src/core/utils/time'
 import { INSTANCE_TIMEZONE } from 'src/constants'
 
@@ -364,7 +365,9 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         courierId: null,
       }))
 
-      const count = await service.endAllOpenOffersForDispatchStop('Ended: dispatch stopped (heat)')
+      const count = await service.endAllOpenOffersForDispatchStop(
+        eventText('DISPATCH_STOP_OFFER_ENDED', { reason: EnumDispatchStopReason.HEAT })
+      )
 
       expect(count).toBe(2)
       // updateIfMatches was called for both deliveries clearing matchedCourierId, offeredAt, offerExpiresAt (2 calls),
@@ -409,7 +412,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         'del-held-1',
         'courier-dropped',
         EnumEventActor.ADMIN,
-        'Dispatch stopped (heat)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
       )
 
       expect(result).toEqual({
@@ -488,7 +491,7 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         'del-held-race',
         'courier-1',
         EnumEventActor.ADMIN,
-        'Dispatch stopped (storm)'
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.STORM })
       )
 
       expect(result).toEqual({ returned: false })
@@ -524,7 +527,12 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         status: EnumDeliveryStatus.ACCEPTED,
         courierId: 'courier-other',
       })
-      const res1 = await service.returnToWaitingForDispatchStop('del-other-courier', 'courier-1', EnumEventActor.ADMIN, 'why')
+      const res1 = await service.returnToWaitingForDispatchStop(
+        'del-other-courier',
+        'courier-1',
+        EnumEventActor.ADMIN,
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
+      )
       expect(res1).toEqual({ returned: false })
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
 
@@ -534,13 +542,23 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
         status: EnumDeliveryStatus.PICKED_UP,
         courierId: 'courier-1',
       })
-      const res2 = await service.returnToWaitingForDispatchStop('del-picked-up', 'courier-1', EnumEventActor.ADMIN, 'why')
+      const res2 = await service.returnToWaitingForDispatchStop(
+        'del-picked-up',
+        'courier-1',
+        EnumEventActor.ADMIN,
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
+      )
       expect(res2).toEqual({ returned: false })
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
 
       // 3. Delivery not found
       mockDeliveryRepository.findById.mockResolvedValueOnce(null)
-      const res3 = await service.returnToWaitingForDispatchStop('del-not-found', 'courier-1', EnumEventActor.ADMIN, 'why')
+      const res3 = await service.returnToWaitingForDispatchStop(
+        'del-not-found',
+        'courier-1',
+        EnumEventActor.ADMIN,
+        eventText('DISPATCH_STOP_RETURNED', { reason: EnumDispatchStopReason.HEAT })
+      )
       expect(res3).toEqual({ returned: false })
       expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
     })

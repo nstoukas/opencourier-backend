@@ -134,6 +134,8 @@ describe('partner-availability rules (spec 0029)', () => {
         disabledReason: null,
         acceptingOrders: true,
         notAcceptingReason: null,
+        notAcceptingCode: null,
+        notAcceptingParams: null,
       })
     })
 
@@ -151,6 +153,8 @@ describe('partner-availability rules (spec 0029)', () => {
         disabledReason: 'Seasonal closure',
         acceptingOrders: false,
         notAcceptingReason: 'The co-op has disabled this restaurant: Seasonal closure',
+        notAcceptingCode: 'PARTNER_DISABLED',
+        notAcceptingParams: { reason: 'Seasonal closure' },
       })
     })
 
@@ -169,6 +173,8 @@ describe('partner-availability rules (spec 0029)', () => {
         disabledReason: null,
         acceptingOrders: false,
         notAcceptingReason: 'Ordering is paused until 14:30.',
+        notAcceptingCode: 'PARTNER_PAUSED',
+        notAcceptingParams: { until: '2026-11-09T12:30:00.000Z' },
       })
     })
 
@@ -187,6 +193,8 @@ describe('partner-availability rules (spec 0029)', () => {
         disabledReason: null,
         acceptingOrders: true,
         notAcceptingReason: null,
+        notAcceptingCode: null,
+        notAcceptingParams: null,
       })
     })
   })

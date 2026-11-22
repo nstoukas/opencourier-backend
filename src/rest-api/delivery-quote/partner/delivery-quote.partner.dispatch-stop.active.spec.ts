@@ -88,6 +88,11 @@ describe('Delivery Quote Partner - Dispatch Stop (Spec 0014, AC-6)', () => {
         deliveryQuote: null,
         failureReason: DeliveryQuoteCreationFailureReason.DISPATCH_STOPPED,
         failureMessage: 'Delivery is stopped until 17:00 (heat).',
+        failureSentence: {
+          code: 'DISPATCH_STOPPED_RESTAURANT',
+          params: { reason: EnumDispatchStopReason.HEAT, until: today17Athens.toISOString() },
+          message: 'Delivery is stopped until 17:00 (heat).',
+        },
       })
       // Locations and courier matcher were not queried
       expect(mockLocationDomainService.findOrCreate).not.toHaveBeenCalled()

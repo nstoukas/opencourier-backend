@@ -135,6 +135,63 @@ describe('ResponseFormatMiddleware (AC-4, AC-9, Decision 26.2)', () => {
     expect(responseBody.result[0].unexpectedField).toBeUndefined()
   })
 
+  // Spec 0054 (AC-6, decision 47.45): ResponseFormatMiddleware passes params through on an error body
+  it('passes params object through on an error body (AC-6)', () => {
+    const req = {} as Request
+    let responseBody: any
+    const res = {
+      statusCode: 409,
+      json: function (body: any) {
+        responseBody = body
+      },
+    } as unknown as Response
+
+    const next = jest.fn()
+    middleware.use(req, res, next)
+    expect(next).toHaveBeenCalled()
+
+    res.json({
+      code: 'LEAVE_TOO_SOON',
+      message: 'Wait at least 10 minutes before leaving',
+      params: { minutes: 10 },
+      extraSecretData: 'do-not-leak',
+    })
+
+    expect(responseBody).toEqual({
+      error: true,
+      result: [
+        {
+          code: 'LEAVE_TOO_SOON',
+          message: 'Wait at least 10 minutes before leaving',
+          statusCode: 409,
+          params: { minutes: 10 },
+        },
+      ],
+    })
+    expect(responseBody.result[0].extraSecretData).toBeUndefined()
+  })
+
+  it('does not add params when absent or not an object', () => {
+    const req = {} as Request
+    let responseBody: any
+    const res = {
+      statusCode: 409,
+      json: function (body: any) {
+        responseBody = body
+      },
+    } as unknown as Response
+
+    middleware.use(req, res, () => {})
+
+    res.json({
+      code: 'LEAVE_TOO_SOON',
+      message: 'Wait at least 10 minutes before leaving',
+      params: 'not-an-object',
+    })
+
+    expect(responseBody.result[0].params).toBeUndefined()
+  })
+
   it('wraps successful response in { error: false, result: data }', () => {
     const req = {} as Request
     let responseBody: any

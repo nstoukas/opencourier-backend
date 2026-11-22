@@ -183,6 +183,10 @@ describe('DeliveryEventService', () => {
         actor: EnumEventActor.PARTNER,
         eventSource: EnumDeliveryEventSource.OPENCOURIER,
         message: 'Courier ID is required for dispatching', // Message from thrown NotFoundException
+        messageCode: 'TRANSITION_FAILED',
+        messageParams: {
+          note: 'Courier ID is required for dispatching',
+        },
         oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
         newStatus: EnumDeliveryStatus.DISPATCHED,
         transitionSuccessful: false,

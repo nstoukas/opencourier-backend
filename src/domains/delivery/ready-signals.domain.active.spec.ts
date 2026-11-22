@@ -261,6 +261,11 @@ describe('DeliveryDomainService ready signals (spec 0023)', () => {
         actor: EnumEventActor.PARTNER,
         source: EnumDeliveryEventSource.PARTNER_APP,
         message: '+10 min, ready at 14:18',
+        messageCode: 'READY_DELAYED',
+        messageParams: {
+          minutes: 10,
+          readyAt: '2026-11-03T12:18:00.000Z',
+        },
       })
       expect(event).not.toHaveProperty('courierId')
       expect(status).toBe(EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION)
@@ -472,6 +477,10 @@ describe('DeliveryDomainService ready signals (spec 0023)', () => {
         actor: EnumEventActor.PARTNER,
         source: EnumDeliveryEventSource.PARTNER_APP,
         message: 'Food ready at 14:00',
+        messageCode: 'FOOD_READY',
+        messageParams: {
+          at: '2026-11-03T12:00:00.000Z',
+        },
       })
       expect(event).not.toHaveProperty('courierId')
       expect(status).toBe(EnumDeliveryStatus.ACCEPTED)

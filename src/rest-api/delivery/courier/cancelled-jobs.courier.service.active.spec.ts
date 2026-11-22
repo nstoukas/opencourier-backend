@@ -315,6 +315,8 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
           source: EnumDeliveryEventSource.OPENCOURIER,
           courierId,
           message: 'Food returned to the restaurant',
+          messageCode: 'FOOD_RETURNED',
+          messageParams: {},
         },
         EnumDeliveryStatus.CANCELED
       )
@@ -365,6 +367,10 @@ describe('CancelledJobsCourierService (Spec 0015 AC-7, AC-8, AC-11, AC-12)', () 
           source: EnumDeliveryEventSource.OPENCOURIER,
           courierId,
           message: 'Restaurant closed and gate locked',
+          messageCode: 'RIDER_NOTE',
+          messageParams: {
+            note: 'Restaurant closed and gate locked',
+          },
         },
         EnumDeliveryStatus.CANCELED
       )

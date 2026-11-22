@@ -2,9 +2,19 @@
 // a key is in one language and not the other, when a text is empty, when an event code has no template,
 // or when a template names a value its code does not carry.
 import { EVENT_MESSAGE_CODES, EVENT_PART_CODES } from 'src/shared-types/event-messages'
+import {
+  BoxSize,
+  EnumDeliveryIssueReason,
+  EnumDeliveryStatus,
+  EnumDispatchStopReason,
+  EnumProductReportKind,
+  EnumProductReportSource,
+  EnumReviewOutcome,
+  EnumReviewTopic,
+} from '@prisma/types'
 import { el } from './el'
 import { en } from './en'
-import { translate } from './translate'
+import { renderEventMessage, translate } from './translate'
 
 // Every leaf of a translation object as `a.b.c` → text.
 function leaves(node: unknown, prefix = ''): Map<string, unknown> {
@@ -94,5 +104,88 @@ describe('Server translations (spec 0054, AC-8)', () => {
 
   test('a missing key shows the key itself, never a blank', () => {
     expect(translate('el', 'server.event.NOT_A_CODE')).toBe('server.event.NOT_A_CODE')
+  })
+
+  // Review 2026-11-22 Minor: Enum words completeness check across Prisma enums
+  test.each([
+    ['boxSize', Object.values(BoxSize)],
+    ['dispatchStopReason', Object.values(EnumDispatchStopReason)],
+    ['reviewTopic', Object.values(EnumReviewTopic)],
+    ['reviewOutcome', Object.values(EnumReviewOutcome)],
+    ['productReportKind', Object.values(EnumProductReportKind)],
+    ['productReportSource', Object.values(EnumProductReportSource)],
+    ['deliveryIssueReason', Object.values(EnumDeliveryIssueReason)],
+    ['deliveryStatus', Object.values(EnumDeliveryStatus)],
+  ] as const)('every enum value for %s has a non-empty translation in both languages', (group, values) => {
+    for (const val of values) {
+      const enVal = (en.server.enum as Record<string, Record<string, string>>)[group]?.[val]
+      const elVal = (el.server.enum as Record<string, Record<string, string>>)[group]?.[val]
+      expect(typeof enVal).toBe('string')
+      expect(enVal?.trim().length).toBeGreaterThan(0)
+      expect(typeof elVal).toBe('string')
+      expect(elVal?.trim().length).toBeGreaterThan(0)
+    }
+  })
+
+  // Review 2026-11-22 Minor: pay, split and removal events retain their IDs when rendered in English
+  test('audit and retry checks: rendered English event messages retain their specific id phrases', () => {
+    const waitMsg = renderEventMessage('en', 'COURIER_PAID_FOR_WAIT', {
+      courierId: 'c-10',
+      amount: 250,
+      currency: 'EUR',
+      minutes: 15,
+      centsPerMinute: 10,
+      waitOf: 'wait-claim-99',
+    })
+    expect(waitMsg).toContain('wait wait-claim-99')
+
+    const waitNoteMsg = renderEventMessage('en', 'COURIER_PAID_FOR_WAIT_NOTE', {
+      courierId: 'c-10',
+      amount: 250,
+      currency: 'EUR',
+      note: 'special wait',
+      waitOf: 'wait-claim-99',
+    })
+    expect(waitNoteMsg).toContain('wait wait-claim-99')
+
+    const splitWaitMsg = renderEventMessage('en', 'COURIER_PAID_FOR_SPLIT_WAIT', {
+      courierId: 'c-10',
+      amount: 150,
+      currency: 'EUR',
+      minutes: 10,
+      centsPerMinute: 15,
+      splitId: 'split-req-88',
+    })
+    expect(splitWaitMsg).toContain('split split-req-88')
+
+    const removalMsg = renderEventMessage('en', 'COURIER_PAID_FOR_REMOVAL', {
+      courierId: 'c-10',
+      amount: 350,
+      currency: 'EUR',
+      policy: 'FULL_COMPENSATION',
+      label: 'Vehicle issue',
+      labelEl: null,
+      requestId: 'rem-req-77',
+    })
+    expect(removalMsg).toContain('removal rem-req-77')
+
+    const partnerRemovalMsg = renderEventMessage('en', 'PARTNER_CHARGED_FOR_REMOVAL', {
+      amount: 350,
+      currency: 'EUR',
+      label: 'Vehicle issue',
+      labelEl: null,
+      requestId: 'rem-req-77',
+    })
+    expect(partnerRemovalMsg).toContain('removal rem-req-77')
+
+    const reassignedMsg = renderEventMessage('en', 'REASSIGNED', {
+      droppedCourierId: 'c-old',
+      newCourierId: 'c-new',
+      policy: 'FULL_COMPENSATION',
+      amount: 350,
+      currency: 'EUR',
+      awardId: 'award-claim-55',
+    })
+    expect(reassignedMsg).toContain('(award award-claim-55)')
   })
 })

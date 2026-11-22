@@ -204,4 +204,18 @@ describe('UserRepository', () => {
       expect(result).toEqual({ apiKeyReplaced: false })
     })
   })
+
+  describe('Spec 0054: setLanguage (AC-1, AC-2)', () => {
+    test('updates user language column with the provided language', async () => {
+      mockPrisma.user.update.mockResolvedValue({ id: 'user-1', language: 'en' })
+
+      await repository.setLanguage('user-1', 'en')
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { language: 'en' },
+        select: { id: true },
+      })
+    })
+  })
 })

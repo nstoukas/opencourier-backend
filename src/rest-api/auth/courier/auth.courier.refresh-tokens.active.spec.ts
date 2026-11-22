@@ -27,6 +27,7 @@ describe('AuthCourierRestApiController', () => {
     updatedAt: new Date('2026-01-02T10:00:00Z'),
     // Row 16 added this column after the test was written (merge fix).
     credentialsChangedAt: null,
+    language: 'el',
   })
 
   // A non-courier user to test role enforcement on login
@@ -42,6 +43,7 @@ describe('AuthCourierRestApiController', () => {
     updatedAt: new Date('2026-01-02T10:00:00Z'),
     // Row 16 added this column after the test was written (merge fix).
     credentialsChangedAt: null,
+    language: 'el',
   })
 
   const mockSession = new UserSessionEntity('access-token-jwt-mock', 'refresh-token-jwt-mock', 'Bearer', 3600, 86400)
@@ -95,8 +97,8 @@ describe('AuthCourierRestApiController', () => {
       // Must return an instance of UserInfoCourierDto (Data Transfer Object)
       expect(result).toBeInstanceOf(UserInfoCourierDto)
 
-      // Keys must strictly match the DTO shape: id, email, role, session (no user entity leakage)
-      expect(Object.keys(result).sort()).toEqual(['email', 'id', 'role', 'session'])
+      // Keys must strictly match the DTO shape: id, email, language, role, session (no user entity leakage)
+      expect(Object.keys(result).sort()).toEqual(['email', 'id', 'language', 'role', 'session'])
       expect(result.id).toBe(mockCourierUser.id)
       expect(result.email).toBe(mockCourierUser.email)
       expect(result.role).toEqual([EnumUserRole.COURIER])
@@ -176,7 +178,7 @@ describe('AuthCourierRestApiController', () => {
 
       // Both endpoints must return exactly the same set of keys
       expect(Object.keys(refreshResult).sort()).toEqual(Object.keys(loginResult).sort())
-      expect(Object.keys(refreshResult).sort()).toEqual(['email', 'id', 'role', 'session'])
+      expect(Object.keys(refreshResult).sort()).toEqual(['email', 'id', 'language', 'role', 'session'])
 
       // Values must match identically
       expect(refreshResult).toEqual(loginResult)

@@ -71,6 +71,10 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         'services/delivery-event/delivery-event.service.ts',
         'services/pushNotification/offer-push.service.ts',
         'shared-types/notification.ts',
+        // Spec 0054: event templates and param type definitions.
+        'localization/el.ts',
+        'localization/en.ts',
+        'shared-types/event-messages.ts',
         // Spec 0047 (cross check 10): a leg made by a split is created ready (the food is there).
         'services/split-request/split-request.service.ts',
         // Spec 0048 (row 80, AC-2, cross check 5): stack compatibility and stop sequencing read readiness (reads only).

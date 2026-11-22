@@ -478,6 +478,7 @@ describe('PartnerAdminRestApiService', () => {
       apiKeyHash: 'existing-hash',
       apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
       credentialsChangedAt: null,
+      language: 'el',
       createdAt: new Date('2026-07-01T10:00:00Z'),
       updatedAt: new Date('2026-07-01T10:00:00Z'),
     })
@@ -547,6 +548,7 @@ describe('PartnerAdminRestApiService', () => {
         apiKeyHash: 'hash-abc',
         apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date('2026-07-01T10:00:00Z'),
         updatedAt: new Date('2026-07-01T10:00:00Z'),
       })
@@ -592,6 +594,7 @@ describe('PartnerAdminRestApiService', () => {
       apiKeyHash: null,
       apiKeyCreatedAt: null,
       credentialsChangedAt: null,
+      language: 'el',
       createdAt: new Date('2026-07-01T10:00:00Z'),
       updatedAt: new Date('2026-07-01T10:00:00Z'),
     })
@@ -657,6 +660,7 @@ describe('PartnerAdminRestApiService', () => {
         apiKeyHash: null,
         apiKeyCreatedAt: null,
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date('2026-07-01T10:00:00Z'),
         updatedAt: new Date('2026-07-01T10:00:00Z'),
       })
@@ -718,6 +722,7 @@ describe('PartnerAdminRestApiService', () => {
         apiKeyHash: 'hash-abc',
         apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date('2026-07-01T10:00:00Z'),
         updatedAt: new Date('2026-07-01T10:00:00Z'),
       })

@@ -78,6 +78,7 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
     apiKeyHash: null,
     apiKeyCreatedAt: null,
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   })
@@ -505,7 +506,7 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       const email = buildResetEmail('004219', 'Volos Couriers')
 
       const greekSentence =
-        'Πληκτρολόγησε αυτόν τον κωδικό στην εφαρμογή για να ορίσεις νέο κωδικό πρόσβασης. Ισχύει για 15 λεπτά. Αν δεν το ζήτησες εσύ, αγνόησε αυτό το μήνυμα.'
+        'Πληκτρολογήστε αυτόν τον κωδικό στην εφαρμογή για να ορίσετε νέο κωδικό πρόσβασης. Ισχύει για 15 λεπτά. Αν δεν τον ζητήσατε εσείς, αγνοήστε αυτό το μήνυμα.'
       const englishSentence =
         "Type this code in the app to set a new password. It works for 15 minutes. If you didn't ask for it, ignore this email."
 
@@ -519,6 +520,19 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       expect(email.html).toContain(greekSentence)
       expect(email.html).toContain('Type this code in the app')
       expect(email.html).toContain('didn&#39;t')
+    })
+
+    test('buildResetEmail puts rider User.language first (spec 0054, cross check 8)', () => {
+      const emailEl = buildResetEmail('004219', 'Volos Couriers', 'el')
+      const greekSentence =
+        'Πληκτρολογήστε αυτόν τον κωδικό στην εφαρμογή για να ορίσετε νέο κωδικό πρόσβασης. Ισχύει για 15 λεπτά. Αν δεν τον ζητήσατε εσείς, αγνοήστε αυτό το μήνυμα.'
+      const englishSentence =
+        "Type this code in the app to set a new password. It works for 15 minutes. If you didn't ask for it, ignore this email."
+
+      expect(emailEl.text.indexOf(greekSentence)).toBeLessThan(emailEl.text.indexOf(englishSentence))
+
+      const emailEn = buildResetEmail('004219', 'Volos Couriers', 'en')
+      expect(emailEn.text.indexOf(englishSentence)).toBeLessThan(emailEn.text.indexOf(greekSentence))
     })
   })
 

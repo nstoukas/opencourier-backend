@@ -82,7 +82,11 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
   let mailService: { isConfigured: jest.Mock; send: jest.Mock }
   let configDomainService: { instanceConfig: { getDetails: jest.Mock } }
   let tx: { courier: { update: jest.Mock }; user: { update: jest.Mock } }
-  let prisma: { $transaction: jest.Mock; courier: { findUnique: jest.Mock; update: jest.Mock } }
+  let prisma: {
+    $transaction: jest.Mock
+    courier: { findUnique: jest.Mock; update: jest.Mock }
+    user?: { findUnique: jest.Mock }
+  }
   let service: CourierAccountService
   let order: string[]
   let logged: string[]
@@ -146,6 +150,7 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
     prisma = {
       $transaction: jest.fn().mockImplementation((work: (client: typeof tx) => unknown) => work(tx)),
       courier: { findUnique: jest.fn().mockResolvedValue(storedRow()), update: noting('prisma.courier.update') },
+      user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID, language: 'en' }) },
     }
 
     service = new CourierAccountService(
@@ -816,6 +821,19 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
       )
       // Sent only once the change is saved.
       expect(order.indexOf('tx.user.update')).toBeLessThan(order.indexOf('mail.send'))
+    })
+
+    test('a changed email mails the notice in the rider user language (Greek when language is el)', async () => {
+      prisma.user!.findUnique.mockResolvedValue({ id: USER_ID, language: 'el' })
+
+      await service.editByAdmin(COURIER_ID, { email: 'nikos.new@coop.gr' }, ADMIN_ID)
+
+      expect(mailService.send).toHaveBeenCalledTimes(1)
+      const mail = mailService.send.mock.calls[0][0]
+      expect(mail.text).toBe(
+        'Το email σύνδεσής σας για Volos Riders Co-op άλλαξε σε nikos.new@coop.gr. Αν δεν το περιμένατε, επικοινωνήστε με τον συνεταιρισμό.'
+      )
+      expect(mail.subject).toBe('Το email σύνδεσής σας για Volos Riders Co-op άλλαξε')
     })
 
     test('with no co-op name stored, the notice says "the co-op"', async () => {

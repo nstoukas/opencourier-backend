@@ -166,6 +166,12 @@ describe('ProductReportDomainService (Spec 0032, AC-1 to AC-8)', () => {
           source: EnumDeliveryEventSource.OPENCOURIER,
           message: 'Reported WRONG_ITEM: Fries (COURIER)',
           courierId: 'courier-1',
+          messageCode: 'PRODUCT_REPORTED_ITEM',
+          messageParams: {
+            itemName: 'Fries',
+            kind: 'WRONG_ITEM',
+            source: 'COURIER',
+          },
         },
         EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION
       )
@@ -192,6 +198,11 @@ describe('ProductReportDomainService (Spec 0032, AC-1 to AC-8)', () => {
           actor: EnumEventActor.PARTNER,
           source: EnumDeliveryEventSource.PARTNER_APP,
           message: 'Reported MISSING_ITEM (PARTNER)',
+          messageCode: 'PRODUCT_REPORTED',
+          messageParams: {
+            kind: 'MISSING_ITEM',
+            source: 'PARTNER',
+          },
         },
         EnumDeliveryStatus.DROPPED_OFF
       )
@@ -216,6 +227,12 @@ describe('ProductReportDomainService (Spec 0032, AC-1 to AC-8)', () => {
           actor: EnumEventActor.ADMIN,
           source: EnumDeliveryEventSource.OPENCOURIER,
           message: 'Reported WRONG_ITEM: Greek Salad (ADMIN)',
+          messageCode: 'PRODUCT_REPORTED_ITEM',
+          messageParams: {
+            itemName: 'Greek Salad',
+            kind: 'WRONG_ITEM',
+            source: 'ADMIN',
+          },
         },
         EnumDeliveryStatus.ACCEPTED
       )
@@ -342,6 +359,10 @@ describe('ProductReportDomainService (Spec 0032, AC-1 to AC-8)', () => {
           actor: EnumEventActor.ADMIN,
           source: EnumDeliveryEventSource.OPENCOURIER,
           message: 'Report resolved (WRONG_ITEM)',
+          messageCode: 'PRODUCT_REPORT_RESOLVED',
+          messageParams: {
+            kind: 'WRONG_ITEM',
+          },
         },
         EnumDeliveryStatus.DROPPED_OFF
       )

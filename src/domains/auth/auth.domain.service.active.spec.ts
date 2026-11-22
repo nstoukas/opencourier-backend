@@ -24,9 +24,11 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       apiKeyHash: null,
       apiKeyCreatedAt: null,
       credentialsChangedAt: null,
+      language: 'el',
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
       ...overrides,
+      ...(overrides.language ? { language: overrides.language } : {}),
     })
 
   beforeEach(() => {

@@ -1075,8 +1075,14 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       const timing = await (service as any).offerTimingOf(match)
       // 20 min readyAt - 5 min travel - 3 min lead = 12 min due = 720_000 ms (no double hold)
       expect(timing.dueInMs).toBe(12 * 60_000)
-      expect(timing.note).toContain('travel ~5 min')
-      expect(timing.note).toContain('lead 3 min')
+      expect(timing.note).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            part: 'TIMING_TRAVEL',
+            params: { travelMinutes: 5, leadMinutes: 3, readyAt: '2026-11-09T10:20:00.000Z' },
+          }),
+        ])
+      )
 
       jest.useRealTimers()
     })

@@ -59,6 +59,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
     courierId,
     reasonId: 'reason-breakdown',
     label: 'Moped breakdown',
+    labelEl: 'Βλάβη μοτοποδηλάτου',
     paidToRider: true,
     chargedToRestaurant: false,
     note: 'Engine died',
@@ -73,6 +74,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
     afterPickup: false,
     settledAt: null,
     ...overrides,
+    ...(overrides.labelEl !== undefined ? { labelEl: overrides.labelEl } : {}),
   })
 
   beforeEach(() => {
@@ -155,7 +157,8 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       expect(mockDeliveryEventService.removeRiderBeforePickup).toHaveBeenCalledWith(
         delivery,
         courierId,
-        'Moped breakdown'
+        'Moped breakdown',
+        'Βλάβη μοτοποδηλάτου'
       )
       expect(mockDeliveryEventService.settleRemoval).toHaveBeenCalledWith(requestId)
       expect(mockDeliveryEventService.finishRemovalBeforePickup).toHaveBeenCalled()
@@ -759,6 +762,7 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
         courierId,
         reasonId: 'reason-1',
         label: 'Moped breakdown',
+        labelEl: null,
         paidToRider: true,
         chargedToRestaurant: false,
         note: null,
@@ -1204,7 +1208,8 @@ describe('RemovalRequestService - Approve & Sweep (Spec 0035 AC-8, AC-10, AC-13)
       expect(mockDeliveryEventService.removeRiderBeforePickup).toHaveBeenCalledWith(
         expect.anything(),
         courierId,
-        'Unsafe drop off'
+        'Unsafe drop off',
+        expect.anything()
       )
     })
 

@@ -9,6 +9,7 @@ import {
 } from '@prisma/types'
 import { DeliveryCantBeAcceptedException, OfferHasEndedException } from 'src/errors'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { eventText } from 'src/domains/delivery-event/event-text'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import {
   MAX_DELIVERIES_HELD,
@@ -569,7 +570,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         courierId,
         offeredAt,
         reason: 'EXPIRED',
-        message: 'Offer expired after 60 s',
+        text: eventText('OFFER_EXPIRED_AFTER', { seconds: 60 }),
       })
 
       expect(endedCount).toBe(2)
@@ -724,7 +725,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         EnumEventActor.SYSTEM,
         expect.any(Date),
         null,
-        expect.stringContaining('offered together with delivery del-2'),
+        expect.arrayContaining([
+          expect.objectContaining({
+            part: 'STACK_PAIRED',
+            params: expect.objectContaining({ otherDeliveryId: 'del-2' }),
+          }),
+        ]),
         expect.objectContaining({ kind: 'STACK', values: expect.objectContaining({ partnerDeliveryId: 'del-2' }) })
       )
       expect(saveOfferedSpy).toHaveBeenNthCalledWith(
@@ -734,7 +740,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         EnumEventActor.SYSTEM,
         expect.any(Date),
         null,
-        expect.stringContaining('offered together with delivery del-1'),
+        expect.arrayContaining([
+          expect.objectContaining({
+            part: 'STACK_PAIRED',
+            params: expect.objectContaining({ otherDeliveryId: 'del-1' }),
+          }),
+        ]),
         expect.objectContaining({ kind: 'STACK', values: expect.objectContaining({ partnerDeliveryId: 'del-1' }) })
       )
       saveOfferedSpy.mockRestore()

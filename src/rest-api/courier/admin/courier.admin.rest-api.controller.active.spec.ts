@@ -162,6 +162,7 @@ describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () =
         apiKeyHash: null,
         apiKeyCreatedAt: null,
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -189,6 +190,7 @@ describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () =
         apiKeyHash: null,
         apiKeyCreatedAt: null,
         credentialsChangedAt: null,
+        language: 'el',
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -311,6 +313,7 @@ describe('CourierAdminRestApiController (scope row 97 & row 16 Spec 0013)', () =
       apiKeyHash: null,
       apiKeyCreatedAt: null,
       credentialsChangedAt: null,
+      language: 'el',
       createdAt: new Date(),
       updatedAt: new Date(),
     })

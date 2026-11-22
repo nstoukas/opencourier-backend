@@ -29,6 +29,7 @@ describe('AuthApiKeyGuard (Spec 0037, AC-6)', () => {
     apiKeyHash: 'hash-123',
     apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
@@ -42,6 +43,7 @@ describe('AuthApiKeyGuard (Spec 0037, AC-6)', () => {
     apiKeyHash: null,
     apiKeyCreatedAt: null,
     credentialsChangedAt: null,
+    language: 'el',
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })

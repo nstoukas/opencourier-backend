@@ -66,8 +66,8 @@ describe('InstanceConfigSettingsDto', () => {
     splitAnswerMinutes: 10,
     shiftBreakMinutes: 30,
     returnTripPayPercent: 100,
-    chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
-    chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
+    chatQuickRepliesDispatch: [{ el: 'Περίμενε 5 λεπτά ακόμα', en: 'Wait 5 more minutes' }],
+    chatQuickRepliesCourier: [{ el: 'Θα αργήσω λίγο', en: 'I will be a little late' }],
     chatRetentionDays: 90,
     addressNoteRetentionDays: 182,
     reviewAnswerDays: 14,
@@ -212,8 +212,8 @@ describe('InstanceConfigSettingsDto', () => {
   // Spec 0034 (chat, AC-13 & AC-18): InstanceConfigSettingsDto exposes chat settings
   it('exposes chatQuickRepliesDispatch, chatQuickRepliesCourier, and chatRetentionDays (spec 0034)', () => {
     const dto = new InstanceConfigSettingsDto(baseConfigData)
-    expect(dto.chatQuickRepliesDispatch).toEqual(['Περίμενε 5 λεπτά ακόμα'])
-    expect(dto.chatQuickRepliesCourier).toEqual(['Θα αργήσω λίγο'])
+    expect(dto.chatQuickRepliesDispatch).toEqual([{ el: 'Περίμενε 5 λεπτά ακόμα', en: 'Wait 5 more minutes' }])
+    expect(dto.chatQuickRepliesCourier).toEqual([{ el: 'Θα αργήσω λίγο', en: 'I will be a little late' }])
     expect(dto.chatRetentionDays).toBe(90)
   })
 

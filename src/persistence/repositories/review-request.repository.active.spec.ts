@@ -135,6 +135,10 @@ describe('ReviewRequestRepository (spec 0038, AC-1 to AC-7, AC-16)', () => {
           oldStatus: null,
           newStatus: null,
           message: 'Review requested: PAY',
+          messageCode: 'REVIEW_REQUESTED',
+          messageParams: {
+            topic: 'PAY',
+          },
         },
       })
       const eventMsg = mockTx.deliveryEvent.create.mock.calls[0][0].data.message
@@ -229,6 +233,10 @@ describe('ReviewRequestRepository (spec 0038, AC-1 to AC-7, AC-16)', () => {
           oldStatus: null,
           newStatus: null,
           message: 'Review answered: STANDS',
+          messageCode: 'REVIEW_ANSWERED',
+          messageParams: {
+            outcome: 'STANDS',
+          },
         },
       })
       const eventMsg = mockTx.deliveryEvent.create.mock.calls[0][0].data.message
@@ -280,6 +288,24 @@ describe('ReviewRequestRepository (spec 0038, AC-1 to AC-7, AC-16)', () => {
         },
       })
 
+      expect(mockTx.deliveryEvent.create).toHaveBeenCalledWith({
+        data: {
+          deliveryId,
+          courierId,
+          type: EnumDeliveryEventType.REVIEW_ANSWERED,
+          actor: EnumEventActor.ADMIN,
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          transitionSuccessful: true,
+          oldStatus: null,
+          newStatus: null,
+          message: 'Review answered: CHANGED',
+          messageCode: 'REVIEW_ANSWERED',
+          messageParams: {
+            outcome: 'CHANGED',
+          },
+        },
+      })
+
       // AC-4, AC-7: COURIER_PAID_FOR_REVIEW event with null statuses and courierId
       expect(mockTx.deliveryEvent.create).toHaveBeenCalledWith({
         data: {
@@ -292,6 +318,13 @@ describe('ReviewRequestRepository (spec 0038, AC-1 to AC-7, AC-16)', () => {
           oldStatus: null,
           newStatus: null,
           message: `Courier ${courierId} paid 150 EUR (cents) for review req-1`,
+          messageCode: 'COURIER_PAID_FOR_REVIEW',
+          messageParams: {
+            courierId,
+            amount: 150,
+            currency: 'EUR',
+            reviewId: 'req-1',
+          },
         },
       })
 

@@ -358,6 +358,8 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
         riderName: 'Nikos',
         customerLabel: 'Elena',
         detail: 'detail',
+        detailCode: null,
+        detailParams: null,
         held: false,
       }
     }
@@ -1009,6 +1011,8 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
         riderName: 'Dimitris Rider',
         customerLabel: null,
         detail: 'Dimitris Rider: Customer not answering doorbell',
+        detailCode: null,
+        detailParams: null,
         held: false,
       })
 
@@ -1029,6 +1033,8 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
         riderName: null,
         customerLabel: null,
         detail: 'Souvlaki Tou Nikou: Food is ready for pickup',
+        detailCode: null,
+        detailParams: null,
         held: false,
       })
     })

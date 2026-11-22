@@ -582,6 +582,12 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
             actor: EnumEventActor.PARTNER,
             source: EnumDeliveryEventSource.PARTNER_APP,
             message: 'Drop off pin moved 62 m by the restaurant, from 39.36210, 22.94250 to 39.36250, 22.94300',
+            messageCode: 'DROPOFF_MOVED_BY_RESTAURANT',
+            messageParams: {
+              from: '39.36210, 22.94250',
+              metres: 62,
+              to: '39.36250, 22.94300',
+            },
           },
           EnumDeliveryStatus.ACCEPTED
         )

@@ -397,6 +397,9 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         'pairedOrderReference',
         // Spec 0048 (row 81, AC-12, decision 81.12): addOn indicates whether the attention row is for an add-on offer (order pairing flag, not rider timing or position).
         'addOn',
+        // Spec 0054 (AC-6, decision 47.45): detailCode and detailParams for localising the row's detail text.
+        'detailCode',
+        'detailParams',
       ].sort()
 
       expect(Object.keys(row).sort()).toEqual(ALLOWED_ROW_PROPERTIES)
