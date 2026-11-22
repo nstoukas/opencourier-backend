@@ -62,6 +62,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
     chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
     chatRetentionDays: 90,
+    addressNoteRetentionDays: 182,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
     boxUnitsSmall: 30,
@@ -160,5 +161,12 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
       expect((dto as any)[key]).toBeUndefined()
       expect((dto.config as any)[key]).toBeUndefined()
     }
+  })
+
+  // Spec 0053: addressNoteRetentionDays is not public metadata
+  it('does NOT include addressNoteRetentionDays on public metadata (spec 0053)', () => {
+    const dto = new MetadataPublicDto(baseData)
+    expect((dto as any).addressNoteRetentionDays).toBeUndefined()
+    expect((dto.config as any).addressNoteRetentionDays).toBeUndefined()
   })
 })

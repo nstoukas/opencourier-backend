@@ -11,6 +11,7 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
     getArrivalRadiusMetres: jest.Mock
     getShiftsEnabled: jest.Mock
     getShiftDropNoticeHours: jest.Mock
+    getAddressNoteRetentionDays: jest.Mock
   }
   let mockConfigDomainService: ConfigDomainService
 
@@ -21,6 +22,8 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
       // Spec 0027: shifts on or off, and the drop notice; defaults so the older cases still build a DTO.
       getShiftsEnabled: jest.fn().mockResolvedValue(false),
       getShiftDropNoticeHours: jest.fn().mockResolvedValue(12),
+      // Spec 0053: address note retention days.
+      getAddressNoteRetentionDays: jest.fn().mockResolvedValue(182),
     }
 
     mockConfigDomainService = {
@@ -39,9 +42,11 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
 
       expect(mockInstanceConfig.getDispatchPhoneNumber).toHaveBeenCalledTimes(1)
       expect(mockInstanceConfig.getArrivalRadiusMetres).toHaveBeenCalledTimes(1)
+      expect(mockInstanceConfig.getAddressNoteRetentionDays).toHaveBeenCalledTimes(1)
       expect(result).toBeInstanceOf(ContactCourierDto)
       expect(result.dispatchPhoneNumber).toBe('+302421012345')
       expect(result.arrivalRadiusMetres).toBe(50)
+      expect(result.addressNoteRetentionDays).toBe(182)
     })
 
     it('answers ContactCourierDto with null dispatch number and 0 arrival radius when configured', async () => {
@@ -90,22 +95,26 @@ describe('ConfigCourierRestApiController (row 72, spec 0021 AC-2/AC-11)', () => 
         arrivalRadiusMetres: 50,
         shiftsEnabled: true,
         shiftDropNoticeHours: 12,
+        addressNoteRetentionDays: 182,
       })
       expect(dtoWithNumber.dispatchPhoneNumber).toBe('+302421012345')
       expect(dtoWithNumber.arrivalRadiusMetres).toBe(50)
       expect(dtoWithNumber.shiftsEnabled).toBe(true)
       expect(dtoWithNumber.shiftDropNoticeHours).toBe(12)
+      expect(dtoWithNumber.addressNoteRetentionDays).toBe(182)
 
       const dtoWithNull = new ContactCourierDto({
         dispatchPhoneNumber: null,
         arrivalRadiusMetres: 0,
         shiftsEnabled: false,
         shiftDropNoticeHours: 0,
+        addressNoteRetentionDays: 0,
       })
       expect(dtoWithNull.shiftsEnabled).toBe(false)
       expect(dtoWithNull.shiftDropNoticeHours).toBe(0)
       expect(dtoWithNull.dispatchPhoneNumber).toBeNull()
       expect(dtoWithNull.arrivalRadiusMetres).toBe(0)
+      expect(dtoWithNull.addressNoteRetentionDays).toBe(0)
     })
   })
 })

@@ -70,6 +70,7 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     chatQuickRepliesDispatch: ['Preset 1'],
     chatQuickRepliesCourier: ['Preset 2'],
     chatRetentionDays: 90,
+    addressNoteRetentionDays: 182,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
     boxUnitsSmall: 30,

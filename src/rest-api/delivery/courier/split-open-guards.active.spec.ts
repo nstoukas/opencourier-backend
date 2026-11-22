@@ -39,7 +39,6 @@ describe('what an open split request blocks, and what the rider sees (spec 0047)
         {} as any,
         {} as any,
         {} as any,
-        {} as any,
         splitRequestRepository as any
       )
       return { service, deliveryDomainService, splitRequestRepository }
@@ -129,8 +128,7 @@ describe('what an open split request blocks, and what the rider sees (spec 0047)
       const splitRequestRepository = { findNewestByCourierForDeliveries: jest.fn().mockResolvedValue(requests) }
       const service = new DeliveryRestApiCourierService(
         deliveryDomainService as any,
-        { getManyByLocationIds: jest.fn().mockResolvedValue([]) } as any,
-        { getCountsByNoteIds: jest.fn().mockResolvedValue({}), getReactionByCourierOnNoteIds: jest.fn().mockResolvedValue({}) } as any,
+        { notesForJobs: jest.fn().mockResolvedValue(new Map()) } as any,
         {} as any,
         {} as any,
         { findNewestByCourierForDeliveries: jest.fn().mockResolvedValue([]) } as any,

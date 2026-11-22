@@ -77,6 +77,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     chatQuickRepliesDispatch: ['Preset 1'],
     chatQuickRepliesCourier: ['Preset 2'],
     chatRetentionDays: 90,
+    addressNoteRetentionDays: 182,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
     boxUnitsSmall: 30,
@@ -139,6 +140,8 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       // Fixed sections
       expect(result.personDecides).toBeDefined()
       expect(result.appRecords).toBeDefined()
+      expect(result.appRecords.some((line) => line.includes('Address notes describe the place, never the person'))).toBe(true)
+      expect(result.appRecords.some((line) => line.includes('182 days (about 6 months)'))).toBe(true)
       expect(result.reviewAnswerDays).toBe(14)
     })
 
@@ -392,6 +395,14 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(format(5, context)).toBe('5 riders')
       expect(format(1, context)).toBe('1 riders')
       expect(format(0, context)).toBe('0 riders')
+      expect(format(null, context)).toBe('not set')
+    })
+
+    it('formats addressNoteRetentionDays as "<n> days" (spec 0053 AC-6)', () => {
+      const context = { distanceUnit: 'KILOMETERS', currency: 'EUR' }
+      const format = RIDER_FACING_SETTINGS.addressNoteRetentionDays!.format
+      expect(format(182, context)).toBe('182 days')
+      expect(format(30, context)).toBe('30 days')
       expect(format(null, context)).toBe('not set')
     })
 

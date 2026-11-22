@@ -71,7 +71,6 @@ describe('Courier Product Report (Spec 0032, AC-2, AC-8)', () => {
       mockDeliveryDomainService as any,
       {} as any,
       {} as any,
-      {} as any,
       mockProductReportDomainService as any,
       {} as any
     )

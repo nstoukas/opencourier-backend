@@ -256,7 +256,11 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
           dropoffPointCorrectedAt: null,
           status: { in: DROPOFF_POINT_CORRECTABLE_STATUSES },
         },
-        { dropoffPointCorrectedAt: expect.any(Date) }
+        {
+          dropoffPointCorrectedAt: expect.any(Date),
+          dropoffCorrectedLatitude: validNewPointInput.latitude,
+          dropoffCorrectedLongitude: validNewPointInput.longitude,
+        }
       )
     })
 
@@ -309,7 +313,11 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
         deliveryId,
         { courierId },
-        { dropoffPointCorrectedAt: null }
+        {
+          dropoffPointCorrectedAt: null,
+          dropoffCorrectedLatitude: null,
+          dropoffCorrectedLongitude: null,
+        }
       )
     })
 

@@ -63,6 +63,7 @@ describe('InstanceConfigSettingsDto', () => {
     chatQuickRepliesDispatch: ['Περίμενε 5 λεπτά ακόμα'],
     chatQuickRepliesCourier: ['Θα αργήσω λίγο'],
     chatRetentionDays: 90,
+    addressNoteRetentionDays: 182,
     reviewAnswerDays: 14,
     reviewCorrectionMaxCents: 5000,
     boxUnitsSmall: 30,
@@ -227,5 +228,17 @@ describe('InstanceConfigSettingsDto', () => {
       feePercentageCeiling: 40,
     })
     expect(dtoCustom.feePercentageCeiling).toBe(40)
+  })
+
+  // Spec 0053 (AC-6): InstanceConfigSettingsDto exposes addressNoteRetentionDays
+  it('exposes addressNoteRetentionDays (spec 0053 AC-6)', () => {
+    const dto = new InstanceConfigSettingsDto(baseConfigData)
+    expect(dto.addressNoteRetentionDays).toBe(182)
+
+    const dtoCustom = new InstanceConfigSettingsDto({
+      ...baseConfigData,
+      addressNoteRetentionDays: 90,
+    })
+    expect(dtoCustom.addressNoteRetentionDays).toBe(90)
   })
 })

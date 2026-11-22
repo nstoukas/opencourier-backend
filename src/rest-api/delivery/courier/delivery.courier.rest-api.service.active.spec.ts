@@ -4,7 +4,6 @@ import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.servi
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
 import { LocationNoteDomainService } from 'src/domains/location-note/location-note.domain.service'
-import { LocationNoteReactionDomainService } from 'src/domains/location-note-reaction/location-note-reaction.domain.service'
 import { DeliveryNotFoundException } from 'src/errors'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 
@@ -12,9 +11,9 @@ describe('DeliveryRestApiCourierService', () => {
   let service: DeliveryRestApiCourierService
   let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
   let mockLocationNoteDomainService: jest.Mocked<LocationNoteDomainService>
-  let mockLocationNoteReactionDomainService: jest.Mocked<LocationNoteReactionDomainService>
   let mockDeliveryIssueDomainService: jest.Mocked<DeliveryIssueDomainService>
   let mockRemovalRequestRepo: any
+  let mockDeliveryRepository: any
 
   const deliveryId = 'del-assigned-101'
   const courierId = 'courier-assigned-202'
@@ -46,14 +45,21 @@ describe('DeliveryRestApiCourierService', () => {
     } as unknown as jest.Mocked<DeliveryDomainService>
 
     mockLocationNoteDomainService = {
-      create: jest.fn().mockResolvedValue({ id: 'note-1' } as any),
-      getManyByLocationIds: jest.fn().mockResolvedValue([]),
+      notesForJobs: jest.fn().mockResolvedValue(new Map()),
+      createForStop: jest.fn().mockResolvedValue({ id: 'note-1' } as any),
     } as unknown as jest.Mocked<LocationNoteDomainService>
 
-    mockLocationNoteReactionDomainService = {
-      getCountsByNoteIds: jest.fn().mockResolvedValue({}),
-      getReactionByCourierOnNoteIds: jest.fn().mockResolvedValue({}),
-    } as unknown as jest.Mocked<LocationNoteReactionDomainService>
+    mockDeliveryRepository = {
+      findByIdOrThrowWithLocations: jest.fn().mockResolvedValue({
+        id: deliveryId,
+        pickupLocationId: 'loc-pickup-1',
+        dropoffLocationId: 'loc-dropoff-1',
+        pickupLocation: { latitude: 39.36, longitude: 22.94 },
+        dropoffLocation: { latitude: 39.37, longitude: 22.95 },
+        dropoffCorrectedLatitude: null,
+        dropoffCorrectedLongitude: null,
+      }),
+    }
 
     mockDeliveryIssueDomainService = {
       report: jest.fn().mockResolvedValue(mockStoredIssue),
@@ -67,10 +73,11 @@ describe('DeliveryRestApiCourierService', () => {
     service = new DeliveryRestApiCourierService(
       mockDeliveryDomainService,
       mockLocationNoteDomainService,
-      mockLocationNoteReactionDomainService,
       mockDeliveryIssueDomainService,
       {} as any,
-      mockRemovalRequestRepo
+      mockRemovalRequestRepo,
+      undefined,
+      mockDeliveryRepository
     )
   })
 
@@ -276,7 +283,7 @@ describe('DeliveryRestApiCourierService', () => {
     })
   })
 
-  describe('Pickup note and drop off note storage (Spec 0009, AC-12)', () => {
+  describe('Pickup note and drop off note storage (Spec 0009, AC-12, spec 0053)', () => {
     test('stores pickup note only when delivery status was NOT PICKED_UP before and IS PICKED_UP after', async () => {
       // Normal transition: was DISPATCHED before, becomes PICKED_UP after
       mockDeliveryDomainService.getById.mockResolvedValueOnce({
@@ -292,10 +299,10 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsPickedUp(deliveryId, courierId, { note: 'Buzzer 3A' })
 
-      expect(mockLocationNoteDomainService.create).toHaveBeenCalledWith(
+      expect(mockLocationNoteDomainService.createForStop).toHaveBeenCalledWith(
         expect.objectContaining({
           note: 'Buzzer 3A',
-          deliveryId,
+          stop: 'PICKUP',
           courierId,
         })
       )
@@ -316,7 +323,7 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsPickedUp(deliveryId, courierId, { note: 'Buzzer 3A repeat' })
 
-      expect(mockLocationNoteDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationNoteDomainService.createForStop).not.toHaveBeenCalled()
     })
 
     test('does NOT store pickup note if step failed to move delivery to PICKED_UP', async () => {
@@ -333,7 +340,7 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsPickedUp(deliveryId, courierId, { note: 'Buzzer 3A' })
 
-      expect(mockLocationNoteDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationNoteDomainService.createForStop).not.toHaveBeenCalled()
     })
 
     test('stores drop off note only when delivery status was NOT DROPPED_OFF before and IS DROPPED_OFF after', async () => {
@@ -351,10 +358,10 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsDelivered(deliveryId, courierId, { note: 'Left with concierge' })
 
-      expect(mockLocationNoteDomainService.create).toHaveBeenCalledWith(
+      expect(mockLocationNoteDomainService.createForStop).toHaveBeenCalledWith(
         expect.objectContaining({
           note: 'Left with concierge',
-          deliveryId,
+          stop: 'DROPOFF',
           courierId,
         })
       )
@@ -375,7 +382,7 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsDelivered(deliveryId, courierId, { note: 'Left with concierge repeat' })
 
-      expect(mockLocationNoteDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationNoteDomainService.createForStop).not.toHaveBeenCalled()
     })
 
     test('does NOT store drop off note if step failed to move delivery to DROPPED_OFF', async () => {
@@ -392,7 +399,7 @@ describe('DeliveryRestApiCourierService', () => {
 
       await service.markAsDelivered(deliveryId, courierId, { note: 'Left with concierge' })
 
-      expect(mockLocationNoteDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationNoteDomainService.createForStop).not.toHaveBeenCalled()
     })
   })
 
