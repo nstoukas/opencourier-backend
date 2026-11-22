@@ -27,6 +27,8 @@ export class DispatchAttentionRowAdminDto {
   // Only on an OFFER_UNANSWERED row of a stack (spec 0048, AC-12): the other order offered with it, null otherwise.
   @ApiProperty({ type: String, nullable: true }) pairedDeliveryId: string | null
   @ApiProperty({ type: String, nullable: true }) pairedOrderReference: string | null
+  // Row 81 (AC-12): true on the row of an add on offer (the paired fields then name the rider's job), else false.
+  @ApiProperty({ type: Boolean }) addOn: boolean
 
   constructor(row: AttentionRow) {
     this.id = row.id
@@ -48,6 +50,7 @@ export class DispatchAttentionRowAdminDto {
     this.pickedUp = row.pickedUp ?? null
     this.pairedDeliveryId = row.pairedDeliveryId ?? null
     this.pairedOrderReference = row.pairedOrderReference ?? null
+    this.addOn = row.addOn === true
   }
 }
 
