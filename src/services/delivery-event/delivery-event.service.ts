@@ -82,6 +82,7 @@ import {
 import { NEST_DELIVERY_EVENT_NAME } from './delivery-event.type'
 import {
   CantUpdateDeliveryStatusError,
+  DispatchStoppedError,
   DeliveryNotFoundException,
   DeliveryOfferAlreadyMatchedException,
   InconsistentDataError,
@@ -115,7 +116,7 @@ import { addCourierToRejectedList, removeCourierFromRejectedList } from '../cach
 import { OfferPushService } from '../pushNotification/offer-push.service'
 import { occurredAtForTap, TAP_AGE_WORTH_A_LOOK_MS } from 'src/domains/delivery-event/utils/occurred-at.util'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
-import { adminRefusedMessage } from 'src/domains/dispatch-stop/dispatch-stop-time'
+import { adminRefusedSentence } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
 import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
 import { resolveCancellationPayout } from 'src/domains/delivery/utils/cancellation-payout.util'
@@ -1162,7 +1163,7 @@ export class DeliveryEventService {
   async refuseIfDispatchStopped(): Promise<void> {
     const now = new Date()
     const stop = await this.dispatchStopRepository.findOn(now)
-    if (stop) throw new CantUpdateDeliveryStatusError(adminRefusedMessage(stop, now))
+    if (stop) throw new DispatchStoppedError(adminRefusedSentence(stop, now))
   }
 
   // Spec 0022, AC-7: an admin's hand offer or a reassignment to a rider whose SOS is active answers
@@ -2762,20 +2763,25 @@ export class DeliveryEventService {
           deliveryId: delivery.id,
           splitWaitOf: request.id,
         })
+        // Found by the split request's id alone, so rewording the English template (en.ts) cannot hide the
+        // first event and write a second (review of 2026-11-22). The id is a cuid: no other line carries it.
         const paidMessages = await this.deliveryEventRepository.findWaitPaidMessages(delivery.id)
-        if (!paidMessages.some((message) => message.includes(`split ${request.id}`))) {
+        if (!paidMessages.some((message) => message.includes(request.id))) {
           const event: DeliveryCourierPaidForWaitEvent = {
             deliveryId: delivery.id,
             type: EnumDeliveryEventType.COURIER_PAID_FOR_WAIT,
             actor: EnumEventActor.SYSTEM,
             source: EnumDeliveryEventSource.OPENCOURIER,
             courierId: award.courierId,
+            // The figures as the award stores them (review of 2026-11-22): on a retry createSplitWaitPayOnce
+            // returns the first attempt's award, and the rate may have changed since, so the local values
+            // could state a rate the rider was not paid at. The award's own minutes are the source.
             ...eventText('COURIER_PAID_FOR_SPLIT_WAIT', {
               courierId: award.courierId,
               amount: award.amount,
               currency: award.currencyCode,
-              minutes,
-              centsPerMinute,
+              minutes: award.waitMinutes || minutes,
+              centsPerMinute: award.waitMinutes ? Math.round(award.amount / award.waitMinutes) : centsPerMinute,
               splitId: request.id,
             }),
           }
@@ -3009,12 +3015,13 @@ export class DeliveryEventService {
       removalOf: request.id,
     })
 
-    // The event's message carries `removal <request id>` and this check reads it: keep that part as is.
+    // The event's message carries the request's id (`removal <request id>`) and this check reads it: keep the
+    // id in the template. Found by the id alone, so rewording the rest cannot write a second event.
     const paid = await this.deliveryEventRepository.findMessagesOfType(
       delivery.id,
       EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL
     )
-    if (!paid.some((message) => message.includes(`removal ${request.id}`))) {
+    if (!paid.some((message) => message.includes(request.id))) {
       const event: DeliveryCourierPaidForRemovalEvent = {
         deliveryId: delivery.id,
         type: EnumDeliveryEventType.COURIER_PAID_FOR_REMOVAL,
@@ -3052,7 +3059,8 @@ export class DeliveryEventService {
         delivery.id,
         EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL
       )
-      if (!charged.some((message) => message.includes(`removal ${request.id}`))) {
+      // By the request's id alone, as the rider's event above.
+      if (!charged.some((message) => message.includes(request.id))) {
         const event: DeliveryPartnerChargedForRemovalEvent = {
           deliveryId: delivery.id,
           type: EnumDeliveryEventType.PARTNER_CHARGED_FOR_REMOVAL,
