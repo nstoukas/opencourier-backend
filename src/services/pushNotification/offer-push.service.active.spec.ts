@@ -1064,4 +1064,58 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
     })
   })
+
+  describe('complaintNeedsReply & sendComplaintNeedsReply (spec 0052, AC-4)', () => {
+    test('sendComplaintNeedsReply sends data { type: "COMPLAINT_NEEDS_REPLY", complaintId } with 3600 s TTL and no personal or filer text', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue(['device-token-1'])
+      mockPushNotificationService.sendData.mockResolvedValue({ deadTokens: [], failureCodes: [] })
+
+      await service.sendComplaintNeedsReply('courier-1', 'comp-101')
+
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledTimes(1)
+      const [tokens, data, ttl] = mockPushNotificationService.sendData.mock.calls[0]!
+      expect(tokens).toEqual(['device-token-1'])
+      expect(data).toEqual({
+        type: NotificationEventType.COMPLAINT_NEEDS_REPLY,
+        complaintId: 'comp-101',
+      })
+      expect(ttl).toBe(CHAT_PUSH_TTL_SECONDS)
+      expect(ttl).toBe(3600)
+      // Check payload contains only type and complaintId (no filer, no complaint text, no delivery details)
+      expect(Object.keys(data)).toEqual(['type', 'complaintId'])
+    })
+
+    test('sendComplaintNeedsReply sends nothing when pushNotificationService is disabled', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      await service.sendComplaintNeedsReply('courier-1', 'comp-101')
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('sendComplaintNeedsReply sends nothing when courier has no device tokens', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValue([])
+
+      await service.sendComplaintNeedsReply('courier-1', 'comp-101')
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('complaintNeedsReply is fire-and-forget: does not throw even if sendComplaintNeedsReply fails', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(true)
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Firebase network error'))
+
+      expect(() => service.complaintNeedsReply('courier-1', 'comp-101')).not.toThrow()
+    })
+
+    test('complaintNeedsReply does nothing and does not throw when push is disabled', () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      expect(() => service.complaintNeedsReply('courier-1', 'comp-101')).not.toThrow()
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+    })
+  })
 })

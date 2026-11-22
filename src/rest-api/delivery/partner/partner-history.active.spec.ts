@@ -1,10 +1,12 @@
 import { EnumDeliveryStatus } from '@prisma/types'
+import { DeliveryNotFoundException } from 'src/errors'
 import {
   PARTNER_ENDED_STATUSES,
   partnerHistoryCutoff,
   partnerHistoryWhere,
   isInPartnerHistory,
   olderThanHistoryMessage,
+  refuseIfNotVisibleToPartner,
 } from './partner-history'
 
 describe('partner-history (Spec 0017, AC-2 & AC-3, decisions 28.2 & 28.3)', () => {
@@ -167,6 +169,50 @@ describe('partner-history (Spec 0017, AC-2 & AC-3, decisions 28.2 & 28.3)', () =
       expect(olderThanHistoryMessage(1)).toBe(
         'This order is older than 1 day. The co-op can look it up for you.'
       )
+    })
+  })
+
+  describe('refuseIfNotVisibleToPartner (Spec 0017 & Spec 0052)', () => {
+    const days = 30
+
+    it('does not throw when delivery belongs to partner and is within history', () => {
+      expect(() =>
+        refuseIfNotVisibleToPartner(
+          { partnerId, createdAt: now, status: EnumDeliveryStatus.DROPPED_OFF },
+          partnerId,
+          days,
+          now
+        )
+      ).not.toThrow()
+    })
+
+    it('throws DeliveryNotFoundException "Delivery not found" when delivery is null', () => {
+      expect(() =>
+        refuseIfNotVisibleToPartner(null, partnerId, days, now)
+      ).toThrow(new DeliveryNotFoundException('Delivery not found'))
+    })
+
+    it('throws DeliveryNotFoundException "Delivery not found" when partnerId does not match (hides other partner orders)', () => {
+      expect(() =>
+        refuseIfNotVisibleToPartner(
+          { partnerId: 'other-partner', createdAt: now, status: EnumDeliveryStatus.DROPPED_OFF },
+          partnerId,
+          days,
+          now
+        )
+      ).toThrow(new DeliveryNotFoundException('Delivery not found'))
+    })
+
+    it('throws DeliveryNotFoundException with olderThanHistoryMessage when delivery is older than historyDays', () => {
+      const ancientDate = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000)
+      expect(() =>
+        refuseIfNotVisibleToPartner(
+          { partnerId, createdAt: ancientDate, status: EnumDeliveryStatus.DROPPED_OFF },
+          partnerId,
+          days,
+          now
+        )
+      ).toThrow(new DeliveryNotFoundException(olderThanHistoryMessage(days)))
     })
   })
 })
