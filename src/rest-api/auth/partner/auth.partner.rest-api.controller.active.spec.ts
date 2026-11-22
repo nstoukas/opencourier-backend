@@ -110,6 +110,18 @@ describe('AuthPartnerRestApiController', () => {
       expect(Object.keys(result)).not.toContain('apiKey')
       expect(Object.keys(result)).not.toContain('apiKeyHash')
       expect(result.session?.accessToken).toBe('access-token-123')
+      // Spec 0054 (AC-2): carries the user's saved language
+      expect(result.language).toBe('el')
+    })
+
+    test('carries the saved language on the partner login reply (spec 0054, AC-2)', async () => {
+      const enPartnerUser = new UserEntity({ ...mockPartnerUser, language: 'en' })
+      mockAuthDomainService.loginPartnerWithUsername.mockResolvedValue({
+        user: enPartnerUser,
+        session: mockSession,
+      })
+      const result = await controller.login({ email: 'taverna@volos.gr', password: 'securePassword123' })
+      expect(result.language).toBe('en')
     })
 
     test('throws ForbiddenException when user attempting login does not have PARTNER role', async () => {
@@ -140,6 +152,17 @@ describe('AuthPartnerRestApiController', () => {
       expect((result as any).apiKey).toBeUndefined()
       expect(Object.keys(result)).not.toContain('apiKey')
       expect(Object.keys(result)).not.toContain('apiKeyHash')
+      // Spec 0054 (AC-2): carries the user's saved language
+      expect(result.language).toBe('el')
+    })
+
+    test('carries the saved language on the partner me reply (spec 0054, AC-2)', async () => {
+      const enPartnerUser = new UserEntity({ ...mockPartnerUser, language: 'en' })
+      mockAuthDomainService.getMe.mockResolvedValue(enPartnerUser)
+      mockPartnerRepository.findByUserId.mockResolvedValue(null)
+
+      const result = await controller.getMe(enPartnerUser)
+      expect(result.language).toBe('en')
     })
 
     // Spec 0023, AC-9: auth/me carries the restaurant's usual prep time, found by Partner.userId.

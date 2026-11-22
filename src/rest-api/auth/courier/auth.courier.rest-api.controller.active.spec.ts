@@ -8,6 +8,7 @@ import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
 import { UserInfoCourierDto } from './dtos/user-info.courier.dto'
+import { UserWithCourierCourierDto } from './dtos/user-with-courier.courier.dto'
 
 describe('AuthCourierRestApiController (Spec 0013 AC-7: no public courier sign up)', () => {
   test('has no register method or handler decorated with Post("register")', () => {
@@ -107,6 +108,79 @@ describe('AuthCourierRestApiController (Spec 0013 AC-7: no public courier sign u
       await expect(
         controller.changePassword(rider, { currentPassword: 'not-it', newPassword: 'a-new-password' })
       ).rejects.toBe(refusal)
+    })
+  })
+
+  // Spec 0054 (AC-1): GET me returns UserWithCourierCourierDto carrying the rider's user language.
+  describe('getMe handler (spec 0054, AC-1)', () => {
+    const courierEntity = new CourierEntity({
+      id: 'courier-777',
+      node_uri: null,
+      userId: 'user-courier-1',
+      firstName: 'Maria',
+      lastName: 'Papadopoulou',
+      phoneNumber: '+306912345678',
+      status: 'AVAILABLE' as any,
+      deliverySetting: 'MANUAL' as any,
+      rejectedOffers: [],
+      stripeAccountId: null,
+      stripeAccountStatus: 'PENDING' as any,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    })
+
+    test('returns UserWithCourierCourierDto carrying the user language, user data and courier', async () => {
+      const user = new UserEntity({
+        id: 'user-courier-1',
+        email: 'rider@volos.coop',
+        password: 'hash',
+        role: [EnumUserRole.COURIER],
+        username: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
+        credentialsChangedAt: null,
+        language: 'el',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+      })
+      const authDomainService = {
+        getMeWithCourier: jest.fn().mockResolvedValue({ user, courier: courierEntity }),
+      }
+      const controller = new AuthCourierRestApiController(authDomainService as any, {} as any, {} as any)
+
+      const result = await controller.getMe(user)
+
+      expect(authDomainService.getMeWithCourier).toHaveBeenCalledWith('user-courier-1')
+      expect(result).toBeInstanceOf(UserWithCourierCourierDto)
+      expect(result.id).toBe('user-courier-1')
+      expect(result.email).toBe('rider@volos.coop')
+      expect(result.role).toEqual([EnumUserRole.COURIER])
+      expect(result.language).toBe('el')
+      expect(result.courier.id).toBe('courier-777')
+    })
+
+    test('carries language: "en" when rider chose English', async () => {
+      const userEn = new UserEntity({
+        id: 'user-courier-1',
+        email: 'rider@volos.coop',
+        password: 'hash',
+        role: [EnumUserRole.COURIER],
+        username: null,
+        apiKeyHash: null,
+        apiKeyCreatedAt: null,
+        credentialsChangedAt: null,
+        language: 'en',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+      })
+      const authDomainService = {
+        getMeWithCourier: jest.fn().mockResolvedValue({ user: userEn, courier: courierEntity }),
+      }
+      const controller = new AuthCourierRestApiController(authDomainService as any, {} as any, {} as any)
+
+      const result = await controller.getMe(userEn)
+
+      expect(result.language).toBe('en')
     })
   })
 })

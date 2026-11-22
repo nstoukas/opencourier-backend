@@ -483,6 +483,48 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       )
       expect(loggerSpies.error).not.toHaveBeenCalled()
     })
+
+    test('sends mail in the rider user language when English (spec 0054, cross check 8)', async () => {
+      const englishRider = new UserEntity({
+        ...mockCourierUser,
+        language: 'en',
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(englishRider)
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRider('rider@volos.coop')
+
+      expect(mockMailService.send).toHaveBeenCalledTimes(1)
+      const sent = mockMailService.send.mock.calls[0][0]
+      expect(sent.to).toBe('rider@volos.coop')
+      // English subject is first when user.language is 'en'
+      expect(sent.subject).toMatch(/^Password reset code/)
+      // English body is before Greek body in text
+      const englishSentence = 'Type this code in the app to set a new password.'
+      const greekSentence = 'Πληκτρολογήστε αυτόν τον κωδικό στην εφαρμογή'
+      expect(sent.text.indexOf(englishSentence)).toBeLessThan(sent.text.indexOf(greekSentence))
+    })
+
+    test('sends mail in the rider user language when Greek (spec 0054, cross check 8)', async () => {
+      const greekRider = new UserEntity({
+        ...mockCourierUser,
+        language: 'el',
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(greekRider)
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRider('rider@volos.coop')
+
+      expect(mockMailService.send).toHaveBeenCalledTimes(1)
+      const sent = mockMailService.send.mock.calls[0][0]
+      expect(sent.to).toBe('rider@volos.coop')
+      // Greek subject is first when user.language is 'el'
+      expect(sent.subject).toMatch(/^Κωδικός επαναφοράς/)
+      // Greek body is before English body in text
+      const englishSentence = 'Type this code in the app to set a new password.'
+      const greekSentence = 'Πληκτρολογήστε αυτόν τον κωδικό στην εφαρμογή'
+      expect(sent.text.indexOf(greekSentence)).toBeLessThan(sent.text.indexOf(englishSentence))
+    })
   })
 
   describe('Clause 3: buildResetEmail (AC-9)', () => {

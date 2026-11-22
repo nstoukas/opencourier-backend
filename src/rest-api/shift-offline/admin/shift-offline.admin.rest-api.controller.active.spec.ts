@@ -130,6 +130,8 @@ describe('ShiftOfflineAdminRestApiController (spec 0049)', () => {
         offlineAt: new Date('2026-11-20T19:10:00.000Z'),
         offlineTime: '21:10',
         shiftDate: '2026-11-20',
+        shiftStartsAt: new Date('2026-11-20T18:00:00.000Z'),
+        shiftEndsAt: new Date('2026-11-20T21:59:00.000Z'),
         shiftText: 'Fri 20 Nov, 20:00 to 23:59',
         cause: 'RIDER',
         causeText: 'The rider switched to Offline',
@@ -201,9 +203,21 @@ describe('ShiftOfflineAdminRestApiController (spec 0049)', () => {
           'offlineAt',
           'offlineTime',
           'shiftDate',
+          'shiftEndsAt',
+          'shiftStartsAt',
           'shiftText',
         ].sort()
       )
+    })
+
+    // Row 124: carries shiftStartsAt and shiftEndsAt for client localization, keeping English shiftText word for word.
+    it('carries shiftStartsAt and shiftEndsAt from the shift and keeps shiftText unchanged in English (row 124)', () => {
+      const starts = new Date('2026-11-20T18:00:00.000Z')
+      const ends = new Date('2026-11-20T21:59:00.000Z')
+      const dto = new ShiftOfflineEventAdminDto(item({ shiftStartsAt: starts, shiftEndsAt: ends }))
+      expect(dto.shiftStartsAt).toBe(starts)
+      expect(dto.shiftEndsAt).toBe(ends)
+      expect(dto.shiftText).toBe('Fri 20 Nov, 20:00 to 23:59')
     })
 
     it.each([

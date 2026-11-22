@@ -40,6 +40,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       update: jest.fn(),
       updateMe: jest.fn(),
       replaceApiKeyHash: jest.fn(),
+      setLanguage: jest.fn().mockResolvedValue(undefined),
     }
     mockCourierDomainService = {
       getByUserId: jest.fn(),
@@ -733,6 +734,22 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
 
       expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledTimes(5)
       expect(mockCourierDomainService.isUserDeactivated).toHaveBeenCalledWith('user-1')
+    })
+  })
+
+  // Spec 0054 (AC-2): the language a restaurant or an admin chose in the web app's header.
+  describe('setLanguage (spec 0054, AC-2)', () => {
+    test('delegates to userDomainService.setLanguage with userId and language', async () => {
+      await service.setLanguage('user-1', 'en')
+
+      expect(mockUserDomainService.setLanguage).toHaveBeenCalledTimes(1)
+      expect(mockUserDomainService.setLanguage).toHaveBeenCalledWith('user-1', 'en')
+    })
+
+    test('supports saving Greek (el)', async () => {
+      await service.setLanguage('user-admin-42', 'el')
+
+      expect(mockUserDomainService.setLanguage).toHaveBeenCalledWith('user-admin-42', 'el')
     })
   })
 })
