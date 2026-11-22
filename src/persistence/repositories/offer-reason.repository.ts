@@ -31,6 +31,8 @@ export class OfferReasonRepository extends EntityRepository {
         candidateCount: reason.candidateCount ?? 0,
         ridersInRange: reason.ridersInRange ?? 0,
         candidates: (reason.candidates ?? undefined) as Prisma.InputJsonValue | undefined,
+        // Spec 0048: STACK or ADD_ON; a single offer keeps the column's default, SINGLE.
+        kind: reason.kind ?? 'SINGLE',
       },
     })
   }

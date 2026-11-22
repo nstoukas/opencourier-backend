@@ -19,6 +19,7 @@ import type {
 } from 'src/shared-types/delivery-events'
 import { BOX_SIZE_WORDS, boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
 import { OrderLeg, missingLegNumbers } from './legs'
+import { STACK_CHANGED_SENTENCE, STACK_NOT_AUTOMATIC_SENTENCE } from './stack'
 import { adminLabel } from 'src/domains/partner-billing/billing-month'
 import { clock } from 'src/domains/dispatch-stop/dispatch-stop-time'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
@@ -419,6 +420,13 @@ export class DeliveryDomainService {
       throw new OfferHasEndedException()
     }
 
+    // Spec 0048 (AC-5): an offer of two orders together is accepted as a pair, by either delivery.
+    if (delivery.offerGroupId) {
+      // A pair is never accepted by the phone on its own: the rider must check both bags fit (AC-8, Follow-up).
+      if (automatic) throw new ConflictException(STACK_NOT_AUTOMATIC_SENTENCE)
+      return this.acceptStack(delivery, courierId)
+    }
+
     // Take the offer in one conditional update. The expiry job and the offline hook only end an
     // offer nobody has taken (courierId null), so once this succeeds neither can touch it, and if
     // either got there first this matches nothing.
@@ -490,6 +498,82 @@ export class DeliveryDomainService {
     return delivery
   }
 
+  // Spec 0048 (AC-5, cross check 8): accepting a stack. Both deliveries are taken in one conditional write
+  // (still offered to this rider by this offer, nobody has taken them, exactly two rows), else 409 and
+  // nothing changes. Then the same checks as a single accept, and an ACCEPTED event for each, the tapped
+  // one first. If the first ACCEPTED does not take, both offers are given back as they were. If only the
+  // second does not, the first stands and the minute sweep completes the second (completeTakenStackAccepts).
+  // Each delivery keeps its own pay, fixed at the offer from its own quote (AC-9).
+  private async acceptStack(delivery: DeliveryEntity, courierId: string) {
+    const groupId = delivery.offerGroupId as string
+    // Read before the take, for the other delivery's id and deadline should the accept have to be given back.
+    const members = await this.deliveryRepository.findOpenGroupMembers(groupId, courierId, delivery.offeredAt)
+    const taken = await this.deliveryRepository.takeOfferGroup(groupId, courierId, delivery.offeredAt)
+    if (!taken) {
+      this.logger.log(`Courier ${courierId} answered stack ${groupId} after it changed; nothing accepted`)
+      throw new ConflictException(STACK_CHANGED_SENTENCE)
+    }
+    const partner = members.find((member) => member.id !== delivery.id)
+    const both = partner ? [delivery, partner] : [delivery]
+
+    // As for a single accept: a stop or a deactivation that landed between the first checks and the take
+    // ends both offers and refuses.
+    try {
+      await this.deliveryEventService.refuseIfDispatchStopped()
+      if (await this.deliveryEventService.isCourierDeactivatedAfterTake(courierId)) {
+        throw new ConflictException(RIDER_DEACTIVATED_SENTENCE)
+      }
+    } catch (error) {
+      for (const member of both) {
+        await this.deliveryRepository.updateIfMatches(
+          member.id,
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+          { courierId: null, matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+        )
+      }
+      throw error
+    }
+
+    const acceptOne = async (member: DeliveryEntity, other: DeliveryEntity | undefined) => {
+      await this.deliveryEventService.processDeliveryEvent({
+        deliveryId: member.id,
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        message: `Courier ${courierId} accepted delivery ${member.id}${
+          other ? `, offered together with delivery ${other.id}` : ''
+        }`,
+      })
+      const after = await this.deliveryRepository.findByIdOrThrow(member.id)
+      return !(after.status === EnumDeliveryStatus.ASSIGNING_COURIER && after.courierId === courierId)
+    }
+
+    if (!(await acceptOne(delivery, partner))) {
+      // Give both back exactly as they were, deadlines included, with a timer behind each (as a single
+      // accept does), so neither is stuck half taken.
+      for (const member of both) {
+        const givenBack = await this.deliveryRepository.updateIfMatches(
+          member.id,
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+          { courierId: null, offerExpiresAt: member.offerExpiresAt, acceptedAt: null, handBackUntil: null }
+        )
+        if (givenBack && member.offeredAt && member.offerExpiresAt) {
+          await this.deliveryEventService.rearmOfferExpiry(member.id, courierId, member.offeredAt, member.offerExpiresAt)
+        }
+      }
+      this.logger.warn(`Accept by courier ${courierId} on stack ${groupId} did not take; offers given back`)
+      throw new DeliveryCantBeAcceptedException(`Delivery ${delivery.id} could not be accepted, please try again`)
+    }
+
+    if (partner && !(await acceptOne(partner, delivery))) {
+      this.logger.warn(
+        `Second accept of stack ${groupId} (delivery ${partner.id}) did not take; the minute sweep completes it`
+      )
+    }
+    return delivery
+  }
+
   // Spec 0002, AC-5: same rule as accept. A decline after the offer ended gets 409 and changes nothing.
   async rejectDelivery(deliveryId: string, courierId: string) {
     const delivery = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -499,6 +583,12 @@ export class DeliveryDomainService {
         `Courier ${courierId} answered delivery ${deliveryId} too late: status ${delivery.status}, offered to ${delivery.matchedCourierId}`
       )
       throw new OfferHasEndedException()
+    }
+
+    // Spec 0048 (AC-5): declining either delivery of a stack ends both.
+    if (delivery.offerGroupId) {
+      await this.deliveryEventService.declineStack(delivery, courierId)
+      return delivery
     }
 
     // Put the courier on this delivery's skip list BEFORE the offer is cleared, so a matcher running
@@ -780,6 +870,8 @@ export class DeliveryDomainService {
 
     // Spec 0046 (AC-4): never a second leg of one order to the same rider at once, whatever the box says.
     await this.deliveryEventService.refuseIfCourierHoldsSiblingLeg(newCourierId, deliveryId)
+    // Spec 0048 (cross check 10): never a third delivery for one rider, confirm or not.
+    await this.deliveryEventService.refuseIfCourierHoldsTwo(newCourierId, deliveryId)
 
     // Spec 0043 (AC-6, cross check 1): before the award is written, so a refused move leaves nothing.
     const overCapacityHeldUnits = await this.refuseBoxOverCapacityUnlessConfirmed(
@@ -1062,6 +1154,8 @@ export class DeliveryDomainService {
           // the rider (review fix), and its numbers are the ones recorded.
           // Spec 0046 (AC-4): a second leg of one order to the same rider is refused first, confirm or not.
           await this.deliveryEventService.refuseIfCourierHoldsSiblingLeg(event.courierId, event.deliveryId)
+          // Spec 0048 (cross check 10): a third delivery is refused before the box question, since no confirm passes it.
+          await this.deliveryEventService.refuseIfCourierHoldsTwo(event.courierId, event.deliveryId)
           await this.refuseBoxOverCapacityUnlessConfirmed(event.courierId, delivery.boxUnits, event.confirmOverCapacity)
           const atWrite = await this.deliveryEventService.offerDeliveryToCourierAsAdmin(
             event.deliveryId,

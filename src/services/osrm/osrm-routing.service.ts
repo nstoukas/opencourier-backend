@@ -170,4 +170,36 @@ export class OsrmRoutingService {
       throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
   }
+
+  // Spec 0048 (AC-2): road seconds between every pair of `points`, in one OSRM table request:
+  // `result[from][to]`. A stack's sequence needs the rider, both pickups and both drop offs, at most five
+  // points, so no solver is needed (VROOM stays last). Not cached: the rider's position moves. An entry
+  // OSRM could not route is null; a failed request throws ServiceUnavailableException, and the caller then
+  // offers no stack. No coordinate reaches a log line (value 5).
+  async getDurationMatrix(points: { latitude: number; longitude: number }[]): Promise<(number | null)[][]> {
+    if (!this.baseUrl) {
+      throw new EnvVarMissingException(OSRM_URL)
+    }
+    if (points.length === 0) return []
+    // OSRM expects longitude,latitude. With no sources or destinations given, it answers every pair.
+    const coordinates = points.map((p) => `${p.longitude},${p.latitude}`).join(';')
+    const url = `${this.baseUrl}/table/v1/driving/${coordinates}?annotations=duration`
+    try {
+      const response = await this.httpService.axiosRef.get(url, { timeout: this.timeoutMs })
+      const data = response.data
+      if (data?.code !== 'Ok' || !Array.isArray(data?.durations) || data.durations.length !== points.length) {
+        throw new Error(`code: ${data?.code || 'InvalidResponse'}`)
+      }
+      return data.durations.map((row: unknown) =>
+        points.map((_, to) => {
+          const value = Array.isArray(row) ? row[to] : null
+          return typeof value === 'number' && Number.isFinite(value) ? value : null
+        })
+      )
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error)
+      this.logger.error(`OSRM table request failed: ${reason}`)
+      throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
+    }
+  }
 }

@@ -1,7 +1,15 @@
 import { OfferReasonRepository } from 'src/persistence/repositories/offer-reason.repository'
 import { RIDER_DEACTIVATED_SENTENCE } from 'src/domains/courier/account-upkeep'
 import { SIBLING_LEG_HELD_SENTENCE } from 'src/domains/delivery/legs'
-import { OfferReasonInput, adminOfferReason } from 'src/domains/matching/offer-reason'
+import {
+  MAX_DELIVERIES_HELD,
+  THIRD_DELIVERY_REFUSED_SENTENCE,
+  describeStops,
+  stackPairBlockKey,
+} from 'src/domains/delivery/stack'
+import { TwoOrderService, StackPlan } from 'src/services/two-order/two-order.service'
+import { randomUUID } from 'crypto'
+import { OfferReasonInput, adminOfferReason, stackOfferReason } from 'src/domains/matching/offer-reason'
 import { BoxOverCapacityException } from 'src/errors'
 import type {
   DeliveryFoodReadyEvent,
@@ -43,8 +51,10 @@ import {
   Prisma,
 } from '@prisma/types'
 import {
+  DeliveryAcceptedEvent,
   DeliveryConfirmedEvent,
   DeliveryEvent,
+  DeliveryRejectedEvent,
   DeliveryNoCourierAvailableEvent,
   DeliveryOfferedEvent,
   DeliveryOfferExpiredEvent,
@@ -73,8 +83,14 @@ import {
   DeliveryNotFoundException,
   DeliveryOfferAlreadyMatchedException,
   InconsistentDataError,
+  OfferHasEndedException,
 } from '../../errors'
-import { DEFAULT_HAND_BACK_SECONDS, OFFER_EXPIRY_GRACE_SECONDS, PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES } from '../../constants'
+import {
+  DEFAULT_HAND_BACK_SECONDS,
+  OFFER_EXPIRY_GRACE_SECONDS,
+  PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES,
+  STACK_PAIR_BLOCK_SECONDS,
+} from '../../constants'
 import { isRecordNotFoundError } from '../../prisma.util'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
 import { TaskBusScheduler } from '../taskBus/models/TaskBusScheduler'
@@ -85,7 +101,7 @@ import { DeliveryRepository } from 'src/persistence/repositories/delivery.reposi
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.service'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
-import { DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
+import { CourierMatch, DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
 import { DeliveryCalculationService } from '../delivery-calculation/delivery-calculation.service'
 import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.courier.dto'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
@@ -222,7 +238,10 @@ export class DeliveryEventService {
     // with the older argument list still compile; Nest always injects it (the persistence module is global).
     private readonly offerReasonRepository?: OfferReasonRepository,
     // Spec 0047: optional for the same reason; closes an open split request whatever ends the rider's job.
-    private readonly splitRequestRepository?: SplitRequestRepository
+    private readonly splitRequestRepository?: SplitRequestRepository,
+    // Spec 0048: optional for the same reason; pairs a second waiting delivery into a stacked offer. Without
+    // it every offer is a single one, as before stacks existed.
+    private readonly twoOrderService?: TwoOrderService
   ) {
     // When a delayed job comes due, BullMQProcessor hands it to the task bus by name, which calls
     // the handler registered here. Arrow functions keep `this` pointing at this service.
@@ -368,6 +387,8 @@ export class DeliveryEventService {
             matchedCourierId: newCourierId,
             offeredAt: new Date(),
             offerExpiresAt: null,
+            // Spec 0048: the new rider's offer is a single one; the stack this job came from stays on its events.
+            offerGroupId: null,
             // No rider holds it now (spec 0020): no accept time, no hand back.
             acceptedAt: null,
             handBackUntil: null,
@@ -667,6 +688,8 @@ export class DeliveryEventService {
         matchedCourierId: courierId,
         offeredAt,
         offerExpiresAt: null,
+        // Spec 0048: an admin's offer is a single one, even when it moves one order of an open stack.
+        offerGroupId: null,
         totalCost,
         totalCompensation,
         fee,
@@ -676,6 +699,10 @@ export class DeliveryEventService {
     )
     if (claim.outcome === 'BOX_FULL') {
       throw new BoxOverCapacityException(claim.heldUnits, claim.deliveryUnits)
+    }
+    // Spec 0048 (cross check 10): never a third delivery, and no confirm passes it.
+    if (claim.outcome === 'TWO_HELD') {
+      throw new ConflictException(THIRD_DELIVERY_REFUSED_SENTENCE)
     }
     // Spec 0051 (cross check 7): an admin cannot give work to a deactivated rider.
     if (claim.outcome === 'DEACTIVATED') {
@@ -689,6 +716,11 @@ export class DeliveryEventService {
       throw new CantUpdateDeliveryStatusError(
         `Delivery ${deliveryId} changed while you were offering it (a rider answered or it moved on); reload and try again`
       )
+    }
+
+    // Spec 0048 (AC-5): this order left an open stack, so the other order stays offered to its rider alone.
+    if (delivery.offerGroupId) {
+      await this.releaseStackPartners(delivery.offerGroupId, deliveryId)
     }
 
     try {
@@ -900,14 +932,17 @@ export class DeliveryEventService {
 
   // Ends one open offer with OFFER_EXPIRED (the deadline passed, or the rider went offline). The
   // conditional update is the race rule: it clears the offer only if the delivery is still offered
-  // to this rider, by this very offer, and nobody has taken it. Returns whether it ended the offer.
+  // to this rider, by this very offer, and nobody has taken it. Returns how many offers it ended: 0 or
+  // 1, or 2 for a stack. Spec 0048 (AC-5): a delivery of an open stack ends with its partner, the first
+  // call ending both and any later one finding nothing to do (cross check 9: idempotent); each rider is
+  // skip listed for each delivery on its own list, as for a single offer.
   private async endOffer(args: {
     deliveryId: string
     courierId: string
     offeredAt: Date | null
     reason: OfferEndedReason
     message: string
-  }): Promise<boolean> {
+  }): Promise<number> {
     const { deliveryId, courierId, reason, message } = args
 
     const stillThisOffer: Prisma.DeliveryWhereInput = {
@@ -922,6 +957,53 @@ export class DeliveryEventService {
       stillThisOffer.offerExpiresAt = { lte: new Date() }
     }
 
+    // Spec 0048: the deliveries this offer covers. A single offer is itself; an open stack is both of its
+    // deliveries still offered to this rider by this offer, the earlier created first (cross check 9: it
+    // is matched again first). A failed read ends this delivery alone, as before stacks existed.
+    const ids = await this.idsCoveredByOffer(deliveryId, courierId, args.offeredAt)
+    const isStack = ids.length > 1
+
+    // Every write first, then the follow ups, so neither delivery of a stack is matched again while the
+    // other still holds the rider.
+    const ended: string[] = []
+    for (const id of ids) {
+      if (await this.endOneOffer(id, courierId, reason, stillThisOffer)) ended.push(id)
+    }
+    if (ended.length === 0) return 0
+
+    // Cross check 9: a stack declined or missed is not offered as the same pair again for 20 minutes. Not
+    // after Offline or a dispatch stop: the rider never judged the pair. Keyed on the pair, not on what this
+    // call ended, so two expiry jobs that each ended one half still block it.
+    if (isStack && reason === 'EXPIRED') await this.blockStackPair(ids)
+
+    for (const id of ended) {
+      await this.followUpEndedOffer(id, courierId, reason, isStack ? `${message} (one of two orders offered together)` : message)
+    }
+    return ended.length
+  }
+
+  // Spec 0048: which deliveries one offer to this rider covers (see endOffer). Never throws.
+  private async idsCoveredByOffer(deliveryId: string, courierId: string, offeredAt: Date | null): Promise<string[]> {
+    try {
+      const delivery = await this.deliveryRepository.findById(deliveryId)
+      if (!delivery?.offerGroupId) return [deliveryId]
+      const members = await this.deliveryRepository.findOpenGroupMembers(delivery.offerGroupId, courierId, offeredAt)
+      const ids = members.map((member) => member.id)
+      return ids.includes(deliveryId) ? ids : [deliveryId]
+    } catch (error) {
+      this.logger.error(`Could not read the stack of delivery ${deliveryId}; ending its offer alone: ${error}`)
+      return [deliveryId]
+    }
+  }
+
+  // The write half of ending one delivery's offer: the skip list, then the conditional clear. Returns
+  // whether this call ended it. Throws only when the write itself fails (the skip entry taken back first).
+  private async endOneOffer(
+    deliveryId: string,
+    courierId: string,
+    reason: OfferEndedReason,
+    stillThisOffer: Prisma.DeliveryWhereInput
+  ): Promise<boolean> {
     // Skipped for this delivery like a decline (the same 20 min list). Added BEFORE the offer is
     // cleared, so a matcher running in between (a rider coming Online, a retry) cannot offer the
     // delivery straight back to this rider. Nothing else about the rider changes: no count, no
@@ -943,6 +1025,8 @@ export class DeliveryEventService {
         matchedCourierId: null,
         offeredAt: null,
         offerExpiresAt: null,
+        // Spec 0048: an ended offer is no longer part of a stack.
+        offerGroupId: null,
       })
     } catch (error) {
       if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
@@ -953,13 +1037,19 @@ export class DeliveryEventService {
       // entry this call added; one left over from an earlier decline is not ours to remove.
       if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
       this.logger.log(`Offer of delivery ${deliveryId} to courier ${courierId} had already changed; nothing ended`)
-      return false
     }
+    return ended
+  }
 
-    // From here the offer is gone. Every step below is guarded on its own, so a failure in one (the
-    // rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
-    // row and nobody looking for a rider. The processor never retries a job, so nothing else would.
-
+  // The follow up half, once the offer is gone. Every step is guarded on its own, so a failure in one
+  // (the rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
+  // row and nobody looking for a rider. The processor never retries a job, so nothing else would.
+  private async followUpEndedOffer(
+    deliveryId: string,
+    courierId: string,
+    reason: OfferEndedReason,
+    message: string
+  ): Promise<void> {
     // Tell the rider first, so their screen drops the offer before matching takes its time.
     try {
       const courier = await this.courierRepository.findById(courierId)
@@ -988,7 +1078,18 @@ export class DeliveryEventService {
     // If that left the delivery waiting with nobody offered (matching failed, or nobody is free),
     // make sure a backstop retry is pending, so it is matched again later.
     await this.ensureBackstopIfStillWaiting(deliveryId)
-    return true
+  }
+
+  // Spec 0048 (cross check 9): the two deliveries of a stack the rider declined or missed are not stacked
+  // together again for 20 minutes. Never throws: without the block they may simply be paired again.
+  private async blockStackPair(ids: string[]): Promise<void> {
+    const [one, other] = ids
+    if (!one || !other) return
+    try {
+      await this.cacheService.save<boolean>(stackPairBlockKey(one, other), true, STACK_PAIR_BLOCK_SECONDS)
+    } catch (error) {
+      this.logger.error(`Could not keep deliveries ${one} and ${other} from being stacked again: ${error}`)
+    }
   }
 
   // Never throws. A failed read still sets the retry: the retry job checks the delivery itself and
@@ -1083,6 +1184,116 @@ export class DeliveryEventService {
     }
   }
 
+  // Spec 0048 (cross check 10): an admin's hand offer or reassign answers 409 when the rider already holds
+  // two deliveries besides this one. A read before the write, like refuseIfCourierInSos; the hand offer's
+  // claim counts again under the rider's lock.
+  async refuseIfCourierHoldsTwo(courierId: string, deliveryId: string): Promise<void> {
+    if ((await this.courierRepository.heldDeliveryCount(courierId, deliveryId)) >= MAX_DELIVERIES_HELD) {
+      throw new ConflictException(THIRD_DELIVERY_REFUSED_SENTENCE)
+    }
+  }
+
+  // Spec 0048 (AC-5): the rider declines a stack, by either of its deliveries, and both end: each delivery
+  // puts the rider on its own skip list (never the other's), each is cleared in its own conditional write,
+  // the two are not stacked together again for 20 minutes, and each gets its REJECTED event, which matches
+  // it again, the earlier created first (cross check 9). Idempotent: a decline arriving after the stack
+  // ended (expired, taken, moved) answers 409 "This offer has ended" and changes nothing.
+  async declineStack(delivery: DeliveryEntity, courierId: string): Promise<void> {
+    if (!delivery.offerGroupId) throw new OfferHasEndedException()
+    const members = await this.deliveryRepository.findOpenGroupMembers(delivery.offerGroupId, courierId, delivery.offeredAt)
+    if (!members.some((member) => member.id === delivery.id)) throw new OfferHasEndedException()
+
+    const ended: DeliveryEntity[] = []
+    for (const member of members) {
+      // Before the offer is cleared, as for a single decline, so a matcher running in between cannot offer
+      // it straight back to this rider. A failed write is logged: the decline must still go through.
+      let addedToSkipList = false
+      try {
+        addedToSkipList = await addCourierToRejectedList(this.cacheService, member.id, courierId)
+      } catch (error) {
+        this.logger.error(`Could not add courier ${courierId} to the skip list of ${member.id}: ${error}`)
+      }
+      let declined = false
+      try {
+        declined = await this.deliveryRepository.updateIfMatches(
+          member.id,
+          {
+            status: EnumDeliveryStatus.ASSIGNING_COURIER,
+            matchedCourierId: courierId,
+            offeredAt: delivery.offeredAt,
+            courierId: null,
+          },
+          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+        )
+      } finally {
+        if (!declined && addedToSkipList) await this.undoSkipListEntry(member.id, courierId)
+      }
+      if (declined) ended.push(member)
+    }
+    if (ended.length > 1) await this.blockStackPair(ended.map((member) => member.id))
+
+    for (const member of ended) {
+      const partnerId = members.find((other) => other.id !== member.id)?.id
+      const rejected: DeliveryRejectedEvent = {
+        deliveryId: member.id,
+        type: EnumDeliveryEventType.REJECTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        message: `Courier ${courierId} rejected delivery ${member.id}${
+          partnerId ? `, offered together with delivery ${partnerId}` : ''
+        }`,
+      }
+      await this.processDeliveryEvent(rejected)
+    }
+    if (!ended.some((member) => member.id === delivery.id)) throw new OfferHasEndedException()
+  }
+
+  // Spec 0048 (cross check 8): the minute sweep's step. A stack the rider accepted whose second ACCEPTED did
+  // not land (the process stopped, or the write lost a race and the first one stood) is completed here, a
+  // minute later, so the rider who tapped accept is never left with half a pair (value 4: trust the rider).
+  // Returns how many it completed. Never throws.
+  async completeTakenStackAccepts(before: Date): Promise<number> {
+    let taken: DeliveryEntity[]
+    try {
+      taken = await this.deliveryRepository.findTakenGroupMembersNotAccepted(before)
+    } catch (error) {
+      this.logger.error(`Could not look up stack accepts to complete: ${error}`)
+      return 0
+    }
+    let completed = 0
+    for (const delivery of taken) {
+      const courierId = delivery.courierId
+      if (!courierId) continue
+      try {
+        const accepted: DeliveryAcceptedEvent = {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.ACCEPTED,
+          actor: EnumEventActor.SYSTEM,
+          courierId,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          message: `Courier ${courierId} accepted delivery ${delivery.id} as part of two orders offered together; completed by the minute sweep`,
+        }
+        await this.processDeliveryEvent(accepted)
+        const after = await this.deliveryRepository.findById(delivery.id)
+        if (after && after.status !== EnumDeliveryStatus.ASSIGNING_COURIER) completed += 1
+      } catch (error) {
+        this.logger.error(`Could not complete the stack accept of delivery ${delivery.id}: ${error}`)
+      }
+    }
+    return completed
+  }
+
+  // Spec 0048 (AC-5): the other delivery of an open stack keeps its offer as a single one. Never throws.
+  private async releaseStackPartners(groupId: string, exceptDeliveryId: string): Promise<void> {
+    try {
+      const released = await this.deliveryRepository.releaseOpenGroupPartners(groupId, exceptDeliveryId)
+      if (released > 0) this.logger.log(`Delivery ${exceptDeliveryId} left its stack; the other order stays offered alone`)
+    } catch (error) {
+      this.logger.error(`Could not release the stack partner of delivery ${exceptDeliveryId}: ${error}`)
+    }
+  }
+
   // Start of a dispatch stop (spec 0014, AC-5, step 1): every open offer ends, its rider told, with
   // no skip list entry. Never throws; returns how many ended.
   async endAllOpenOffersForDispatchStop(message: string): Promise<number> {
@@ -1104,7 +1315,7 @@ export class DeliveryEventService {
           reason: 'STOPPED',
           message,
         })
-        if (done) ended += 1
+        ended += done
       } catch (error) {
         this.logger.error(`Could not end the offer of delivery ${delivery.id} for a dispatch stop: ${error}`)
       }
@@ -1601,6 +1812,27 @@ export class DeliveryEventService {
       return 'NOT_DUE'
     }
 
+    // Spec 0048 (AC-4): with Stacking on, a second waiting delivery from the same restaurant may go to the
+    // same rider in this offer. Asked only after the rider is chosen (scored on this pickup) and this
+    // delivery is due; the other delivery must be due too (cross check 11). Anything that keeps the stack
+    // from being written means this delivery is offered alone, below.
+    if (this.twoOrderService) {
+      const plan = await this.twoOrderService.findStackPartner(match.delivery, courier.id, async (candidate) => {
+        if (options.ignoreTiming === true) return true
+        const candidateTiming = await this.offerTimingOf({
+          courier,
+          delivery: candidate,
+          pickupLocation: match.pickupLocation,
+          travelSeconds: match.travelSeconds,
+        })
+        return candidateTiming.dueInMs <= 0
+      })
+      if (plan) {
+        const stacked = await this.offerStack(match, plan, timing.note)
+        if (stacked !== 'ALONE') return stacked
+      }
+    }
+
     const { totalCost, totalCompensation, fee, feePercentage } =
       await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
         deliveryId,
@@ -1621,8 +1853,23 @@ export class DeliveryEventService {
       deliveryId,
       courier.id,
       { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
-      { matchedCourierId: courier.id, offeredAt, offerExpiresAt, totalCost, totalCompensation, fee, feePercentage }
+      {
+        matchedCourierId: courier.id,
+        offeredAt,
+        offerExpiresAt,
+        totalCost,
+        totalCompensation,
+        fee,
+        feePercentage,
+        // Spec 0048: a single offer belongs to no stack, whatever link an earlier accepted stack left.
+        offerGroupId: null,
+      }
     )
+    if (claim === 'TWO_HELD') {
+      // Spec 0048 (cross check 10): only the Static matcher can name a rider who holds two already.
+      this.logger.log(`Courier ${courier.id} already holds two deliveries; delivery ${deliveryId} is not offered to them`)
+      return 'NO_COURIER'
+    }
     if (claim === 'DEACTIVATED') {
       // Spec 0051: only the Static matcher can name a deactivated rider; the delivery waits as if none were free.
       this.logger.log(`Courier ${courier.id} is deactivated; delivery ${deliveryId} is not offered to them`)
@@ -1686,6 +1933,110 @@ export class DeliveryEventService {
     } catch (error) {
       // The phone still finds the offer on its next fetch of new deliveries.
       this.logger.error(`Could not send the offer of ${deliveryId} to courier ${courier.id}: ${error}`)
+    }
+    return 'OFFERED'
+  }
+
+  // Spec 0048 (AC-4): offers `match.delivery` and `plan.partner` together to the chosen rider: one claim for
+  // both under the rider's lock, the same offerGroupId, rider, offer time and deadline on each, each its own
+  // amounts from its own quote (AC-9: stacking never changes what an order pays), and an OFFERED event per
+  // delivery whose reason is kind STACK with the other delivery and the order of stops. 'ALONE' when the
+  // claim did not land (the partner was taken meanwhile, say): the caller then offers the first delivery
+  // on its own, exactly as without stacking.
+  private async offerStack(
+    match: CourierMatch,
+    plan: StackPlan,
+    timingNote: string
+  ): Promise<OfferStepResult | 'ALONE'> {
+    const { courier } = match
+    const first = match.delivery
+    const second = plan.partner
+
+    // Amounts first, then the offer, as for a single one (flow 1): each from its own quote, the rider's pay
+    // its full base plus its own distance (value 3: full fee per order).
+    const firstAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+      deliveryId: first.id,
+      courierId: courier.id,
+    })
+    const secondAmounts = await this.deliveryCalculationService.calculateDeliveryAmountsForMatchedCourier({
+      deliveryId: second.id,
+      courierId: courier.id,
+    })
+    const expiryEnabled = await this.configDomainService.instanceConfig.getOfferExpiryEnabled()
+    const expirySeconds = expiryEnabled ? await this.configDomainService.instanceConfig.getOfferExpirySeconds() : null
+    const offeredAt = new Date()
+    const offerExpiresAt = expirySeconds !== null ? new Date(offeredAt.getTime() + expirySeconds * 1000) : null
+    const offerGroupId = randomUUID()
+    const offerOf = (amounts: typeof firstAmounts) => ({
+      matchedCourierId: courier.id,
+      offeredAt,
+      offerExpiresAt,
+      offerGroupId,
+      totalCost: amounts.totalCost,
+      totalCompensation: amounts.totalCompensation,
+      fee: amounts.fee,
+      feePercentage: amounts.feePercentage,
+    })
+
+    const claim = await this.deliveryRepository.claimStackWithinBox(
+      courier.id,
+      { deliveryId: first.id, data: offerOf(firstAmounts) },
+      { deliveryId: second.id, data: offerOf(secondAmounts) }
+    )
+    if (claim !== 'CLAIMED') {
+      this.logger.log(`Stack of deliveries ${first.id} and ${second.id} not written (${claim}); offering ${first.id} alone`)
+      return 'ALONE'
+    }
+
+    // A stop that began while this matching ran: take both back (row 29 review), as for a single offer.
+    if (await this.dispatchStopRepository.findOn(new Date())) {
+      for (const id of [first.id, second.id]) {
+        await this.deliveryRepository.updateIfMatches(
+          id,
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: courier.id, offeredAt, courierId: null },
+          { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, offerGroupId: null }
+        )
+      }
+      this.logger.log(`Dispatch stopped while deliveries ${first.id} and ${second.id} were being offered; offer taken back`)
+      return 'STOPPED'
+    }
+
+    this.logger.log(`Deliveries ${first.id} and ${second.id} are being offered together to courier: ${courier.id}`)
+    const stops = describeStops(plan.sequence.stops)
+    for (const [delivery, partner, note] of [
+      [first, second, timingNote],
+      [second, first, ''],
+    ] as const) {
+      // The event says which order it was paired with and the stops, so members can audit each pairing
+      // (value 1; scope row 80, Done when). Ids only, never an address.
+      try {
+        await this.saveOfferedEvent(
+          delivery.id,
+          courier.id,
+          EnumEventActor.SYSTEM,
+          offerExpiresAt,
+          null,
+          `${note}; offered together with delivery ${partner.id}, stops: ${stops}`,
+          stackOfferReason(match.reason, partner.id, plan.sequence)
+        )
+      } catch (error) {
+        this.logger.error(`Could not record OFFERED for delivery ${delivery.id}: ${error}`, (error as Error).stack)
+      }
+      // Each delivery keeps its own timer for the shared deadline; the first to run ends both (endOffer).
+      if (expirySeconds !== null) {
+        await this.scheduleOfferExpiry(delivery.id, courier.id, offeredAt, expirySeconds * 1000)
+      }
+      await this.removeNoCourierRetry(delivery.id)
+    }
+
+    // Both offers reach the phone, each carrying offerGroupId, so the app can show them as one pair.
+    for (const id of [first.id, second.id]) {
+      try {
+        const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(id)
+        await this.sendOfferToRider(courier, updatedDelivery)
+      } catch (error) {
+        this.logger.error(`Could not send the offer of ${id} to courier ${courier.id}: ${error}`)
+      }
     }
     return 'OFFERED'
   }
@@ -2841,6 +3192,24 @@ export class DeliveryEventService {
         await this.voidOpenSplitRequest(deliveryEvent.deliveryId, outcome.newStatus)
       } catch (error) {
         this.logger.error(`Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+      }
+    }
+
+    // Spec 0048 (AC-5): a delivery of an open stack that left the offer some other way than the rider's answer
+    // (a cancellation, an admin's accept on the rider's behalf) leaves the other order offered to the same
+    // rider alone, so it can still be taken. A group accept is untouched: both are taken by then. One rule,
+    // here, so a future path cannot forget it. Guarded.
+    if (
+      outcome.transitionSuccessful &&
+      outcome.oldStatus === EnumDeliveryStatus.ASSIGNING_COURIER &&
+      outcome.newStatus &&
+      outcome.newStatus !== EnumDeliveryStatus.ASSIGNING_COURIER
+    ) {
+      try {
+        const moved = await this.deliveryRepository.findById(deliveryEvent.deliveryId)
+        if (moved?.offerGroupId) await this.releaseStackPartners(moved.offerGroupId, moved.id)
+      } catch (error) {
+        this.logger.error(`Could not release the stack partner of delivery ${deliveryEvent.deliveryId}: ${error}`)
       }
     }
 

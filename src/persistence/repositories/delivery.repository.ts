@@ -21,7 +21,8 @@ import { DeliveryWhereUniqueArgs } from 'src/domains/delivery/types/delivery-whe
 import { IDeliveryUpdate } from 'src/domains/delivery/interfaces/IDeliveryUpdate'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { IDeliveryCreateRow } from 'src/domains/delivery/interfaces/IDeliveryCreate'
-import { heldBoxUnitsSql, siblingLegHeldSql } from './courier.repository'
+import { heldBoxCountSql, heldBoxUnitsSql, siblingLegHeldSql } from './courier.repository'
+import { MAX_DELIVERIES_HELD } from 'src/domains/delivery/stack'
 import { OrderLeg } from 'src/domains/delivery/legs'
 import { wouldOverfillBox } from 'src/domains/delivery/box'
 import { DeliveryWithLocationsEntity } from 'src/domains/delivery/entities/delivery-with-locations.entity'
@@ -32,6 +33,19 @@ export type PrismaDeliveryWithLocations = Delivery & {
   pickupLocation: Location | null
   dropoffLocation: Location | null
 }
+
+// What a locked claim came to. TWO_HELD (spec 0048): the rider already holds two deliveries.
+export type ClaimOutcome = 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG' | 'TWO_HELD'
+
+// Spec 0048: one half of a stacked offer's claim, the delivery and what its offer writes.
+export interface StackClaimPart {
+  deliveryId: string
+  data: IDeliveryUpdate
+}
+
+// Thrown inside a transaction only to roll it back (a stack claim or a group take that found only one
+// of its two deliveries still waiting); never leaves this file.
+class RollBack extends Error {}
 
 @Injectable()
 export class DeliveryRepository extends EntityRepository implements IDeliveryRepository {
@@ -85,7 +99,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     courierId: string,
     where: Prisma.DeliveryWhereInput,
     data: IDeliveryUpdate
-  ): Promise<'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG'> {
+  ): Promise<ClaimOutcome> {
     const claim = await this.claimForRiderWithinBox(deliveryId, courierId, where, data, false)
     return claim.outcome
   }
@@ -104,7 +118,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     data: IDeliveryUpdate,
     allowOverCapacity: boolean
   ): Promise<{
-    outcome: 'CLAIMED' | 'NOT_WAITING' | 'BOX_FULL' | 'DEACTIVATED' | 'SIBLING_LEG'
+    outcome: ClaimOutcome
     heldUnits: number
     deliveryUnits: number
   }> {
@@ -122,6 +136,13 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         siblingLegHeldSql(Prisma.sql`${courierId}`, deliveryId)
       )
       if (sibling[0]?.exists) return { outcome: 'SIBLING_LEG', heldUnits: 0, deliveryUnits: 0 }
+      // Spec 0048 (cross check 10): never a third delivery for one rider, under the same lock, and no confirm
+      // passes it (a stack is the only way to two, and two is the most). This delivery itself is left out, so
+      // re-offering it to a rider who already has its offer is not counted twice.
+      const count = await tx.$queryRaw<Array<{ held: number }>>(
+        Prisma.sql`SELECT (${heldBoxCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
+      )
+      if ((count[0]?.held ?? 0) >= MAX_DELIVERIES_HELD) return { outcome: 'TWO_HELD', heldUnits: 0, deliveryUnits: 0 }
       const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { boxUnits: true } })
       if (!delivery) return { outcome: 'NOT_WAITING', heldUnits: 0, deliveryUnits: 0 }
       const rows = await tx.$queryRaw<Array<{ held: number }>>(
@@ -138,6 +159,171 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       })
       return { outcome: result.count === 1 ? 'CLAIMED' : 'NOT_WAITING', heldUnits, deliveryUnits }
     })
+  }
+
+  // Spec 0048 (AC-4, AC-2): a stacked offer's claim, both deliveries or neither, in one transaction under the
+  // rider's row lock (the same lock every claim takes). Checked under the lock: the rider is not
+  // deactivated, holds no other delivery (a stack goes to a free rider, so the pair makes two at most), holds
+  // no other leg of either order, and has room in the box for both. Then each delivery is written only if it
+  // is still waiting with nobody offered and its size is the one read; if either write misses, both are
+  // rolled back and the answer is NOT_WAITING.
+  async claimStackWithinBox(courierId: string, first: StackClaimPart, second: StackClaimPart): Promise<ClaimOutcome> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ deactivated: boolean }>>`
+          SELECT ("deactivatedAt" IS NOT NULL) AS "deactivated" FROM "Courier" WHERE "id" = ${courierId} FOR UPDATE
+        `
+        if (locked[0]?.deactivated) return 'DEACTIVATED'
+        for (const part of [first, second]) {
+          const sibling = await tx.$queryRaw<Array<{ exists: boolean }>>(
+            siblingLegHeldSql(Prisma.sql`${courierId}`, part.deliveryId)
+          )
+          if (sibling[0]?.exists) return 'SIBLING_LEG'
+        }
+        const count = await tx.$queryRaw<Array<{ held: number }>>(
+          Prisma.sql`SELECT (${heldBoxCountSql(Prisma.sql`${courierId}`)}) AS "held"`
+        )
+        if ((count[0]?.held ?? 0) + 2 > MAX_DELIVERIES_HELD) return 'TWO_HELD'
+        const sizes = await tx.delivery.findMany({
+          where: { id: { in: [first.deliveryId, second.deliveryId] } },
+          select: { id: true, boxUnits: true },
+        })
+        const unitsOf = new Map(sizes.map((row) => [row.id, row.boxUnits]))
+        const firstUnits = unitsOf.get(first.deliveryId)
+        const secondUnits = unitsOf.get(second.deliveryId)
+        if (firstUnits === undefined || secondUnits === undefined) return 'NOT_WAITING'
+        const held = await tx.$queryRaw<Array<{ held: number }>>(
+          Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
+        )
+        if (wouldOverfillBox(held[0]?.held ?? 0, firstUnits + secondUnits)) return 'BOX_FULL'
+        for (const [part, units] of [
+          [first, firstUnits],
+          [second, secondUnits],
+        ] as const) {
+          const written = await tx.delivery.updateMany({
+            where: {
+              id: part.deliveryId,
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              matchedCourierId: null,
+              courierId: null,
+              boxUnits: units,
+            },
+            data: part.data,
+          })
+          if (written.count !== 1) throw new RollBack()
+        }
+        return 'CLAIMED'
+      })
+    } catch (error) {
+      if (error instanceof RollBack) return 'NOT_WAITING'
+      throw error
+    }
+  }
+
+  // Spec 0048 (AC-5, cross check 8): a rider's accept of a stack takes both deliveries in one conditional
+  // write: still waiting for a rider, offered to this rider by this very offer, nobody has taken them. Only
+  // if exactly two rows match is it kept; otherwise it is rolled back and false says nothing changed. Like
+  // the single accept's take, it writes the rider and ends the deadline; the ACCEPTED events come after.
+  async takeOfferGroup(groupId: string, courierId: string, offeredAt: Date | null): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const taken = await tx.delivery.updateMany({
+          where: {
+            offerGroupId: groupId,
+            matchedCourierId: courierId,
+            offeredAt,
+            courierId: null,
+            status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          },
+          data: { courierId, offerExpiresAt: null },
+        })
+        if (taken.count !== MAX_DELIVERIES_HELD) throw new RollBack()
+        return true
+      })
+    } catch (error) {
+      if (error instanceof RollBack) return false
+      throw error
+    }
+  }
+
+  // Spec 0048: the deliveries of a stack still open for this rider by this offer (nobody has taken them),
+  // the earlier created first, which is the order they are matched again in after a decline (cross check 9).
+  async findOpenGroupMembers(groupId: string, courierId: string, offeredAt: Date | null): Promise<DeliveryEntity[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        offerGroupId: groupId,
+        matchedCourierId: courierId,
+        offeredAt,
+        courierId: null,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    return this.toDomainMany(rows)
+  }
+
+  // Spec 0048 (AC-5): one delivery of an open stack left it some other way than the rider's answer (it was
+  // cancelled, an admin moved or accepted it): the other keeps its offer as a single one, so the rider can
+  // still take it alone. Only open, untaken offers are touched, so a group accept in progress (both taken)
+  // is never split. Returns how many were released.
+  async releaseOpenGroupPartners(groupId: string, exceptDeliveryId: string): Promise<number> {
+    const released = await this.prisma.delivery.updateMany({
+      where: {
+        offerGroupId: groupId,
+        id: { not: exceptDeliveryId },
+        courierId: null,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      },
+      data: { offerGroupId: null },
+    })
+    return released.count
+  }
+
+  // Spec 0048 (AC-4, cross check 4): deliveries that could be stacked with `delivery`: waiting for a rider
+  // with nobody offered, from the same restaurant and pickup point, with room for both in one box, not
+  // another leg of the same order. The one waiting longest first (its latest NO_COURIER_AVAILABLE, else its
+  // creation, as findIdsWaitingForCourierOldestFirst counts). At most `limit`: each one costs a road table.
+  async findStackPartnerCandidates(delivery: DeliveryEntity, maxUnits: number, limit: number): Promise<DeliveryEntity[]> {
+    if (!delivery.partnerId) return []
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        id: { not: delivery.id },
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: null,
+        courierId: null,
+        partnerId: delivery.partnerId,
+        pickupLocationId: delivery.pickupLocationId,
+        boxUnits: { lte: maxUnits },
+        // Never two legs of one order (spec 0046); a single delivery or another order is fine.
+        ...(delivery.legCount !== null && delivery.orderReference
+          ? { NOT: { orderReference: delivery.orderReference, legCount: { not: null } } }
+          : {}),
+      },
+    })
+    if (rows.length === 0) return []
+    const since = await this.findLatestNoCourierAvailableAt(rows.map((row) => row.id))
+    return this.toDomainMany(rows)
+      .map((row) => ({ row, since: since.get(row.id) ?? row.createdAt }))
+      .sort((a, b) => a.since.getTime() - b.since.getTime())
+      .slice(0, limit)
+      .map(({ row }) => row)
+  }
+
+  // Spec 0048 (cross check 8): stack deliveries the rider took (courierId written by the group take) whose
+  // ACCEPTED never landed, older than `before`, for the minute sweep to complete. Only offers still
+  // standing (matchedCourierId is the taker), so an offer given back is never accepted by the sweep.
+  async findTakenGroupMembersNotAccepted(before: Date): Promise<DeliveryEntity[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        offerGroupId: { not: null },
+        courierId: { not: null },
+        updatedAt: { lt: before },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 50,
+    })
+    return this.toDomainMany(rows).filter((row) => row.matchedCourierId === row.courierId)
   }
 
   // Spec 0015, AC-10: cancellations from an ongoing status, cancelled between `from` and `to`, still

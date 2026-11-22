@@ -120,6 +120,15 @@ export function heldBoxUnitsSql(riderId: Prisma.Sql): Prisma.Sql {
   )}`
 }
 
+// Spec 0048 (key invariants, cross check 10): how many deliveries the rider holds in the box sense of
+// heldBoxDeliveriesWhere (open offers, jobs up to the drop off, food being taken back), leaving out
+// `exceptDeliveryId` (the delivery being given, which may already be offered to them). A whole number.
+export function heldBoxCountSql(riderId: Prisma.Sql, exceptDeliveryId?: string): Prisma.Sql {
+  return Prisma.sql`SELECT COUNT(*)::int FROM "Delivery" WHERE (${heldBoxDeliveriesWhere(riderId)})${
+    exceptDeliveryId ? Prisma.sql` AND "Delivery"."id" <> ${exceptDeliveryId}` : Prisma.empty
+  }`
+}
+
 // Spec 0043 (AC-5): inside a matcher query, keeps only riders with room for `deliveryUnits` more.
 // Correlated with the outer "Courier" row. Empty when the matcher was not told the delivery's units.
 export function boxRoomCondition(deliveryUnits: number | undefined): Prisma.Sql {
@@ -591,6 +600,15 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
   async heldBoxUnits(courierId: string): Promise<number> {
     const rows = await this.prisma.$queryRaw<Array<{ held: number }>>(
       Prisma.sql`SELECT (${heldBoxUnitsSql(Prisma.sql`${courierId}`)}) AS "held"`
+    )
+    return rows[0]?.held ?? 0
+  }
+
+  // Spec 0048 (cross check 10): how many deliveries this rider holds, besides `exceptDeliveryId`. A plain
+  // read for an admin path's early 409; the claims count again under the rider's row lock.
+  async heldDeliveryCount(courierId: string, exceptDeliveryId?: string): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ held: number }>>(
+      Prisma.sql`SELECT (${heldBoxCountSql(Prisma.sql`${courierId}`, exceptDeliveryId)}) AS "held"`
     )
     return rows[0]?.held ?? 0
   }
