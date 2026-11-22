@@ -13,8 +13,8 @@ export const COMPLAINT_PHOTO_MAX_SIDE = 1600
 // Every stored photo is a JPEG, whatever was sent.
 export const COMPLAINT_PHOTO_CONTENT_TYPE = 'image/jpeg'
 // A decoded picture larger than this is refused before it is drawn: a small file can unpack into a
-// huge image (a "decompression bomb"). 40 million pixels is far above any phone photo.
-const MAX_INPUT_PIXELS = 40_000_000
+// huge image (a "decompression bomb"). 25 million pixels is far above the 1600 px photos the app sends.
+const MAX_INPUT_PIXELS = 25_000_000
 
 export const COMPLAINT_PHOTO_TYPE_MESSAGE = 'The photo must be a JPEG or PNG image.'
 export const COMPLAINT_PHOTO_UNREADABLE_MESSAGE = 'The photo could not be read. Try another one.'
