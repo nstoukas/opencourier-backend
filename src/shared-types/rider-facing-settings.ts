@@ -178,6 +178,8 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   shiftDropNoticeHours: { label: 'Notice needed to drop a shift', format: withUnit('hours') },
   reviewAnswerDays: { label: 'Days a person has to answer a review request', format: withUnit('days') },
   reviewCorrectionMaxCents: { label: 'Largest pay correction a review can add', format: money },
+  // Spec 0053 (AC-6): the rider facing label of the address note retention period.
+  addressNoteRetentionDays: { label: 'Days an address note is kept when no rider upvotes it', format: withUnit('days') },
   [REMOVAL_REASON_KEY]: { label: 'Reason to be taken off an order', format: formatRemovalReason },
   [SHIFT_SLOT_KEY]: { label: 'Shift', format: formatShiftSlot },
 }

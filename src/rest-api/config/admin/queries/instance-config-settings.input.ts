@@ -68,6 +68,7 @@ export class InstanceConfigSettingsInput {
   chatQuickRepliesDispatch?: string[]
   chatQuickRepliesCourier?: string[]
   chatRetentionDays?: number
+  addressNoteRetentionDays?: number
   reviewAnswerDays?: number
   reviewCorrectionMaxCents?: number
 }

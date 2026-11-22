@@ -46,6 +46,7 @@ import {
   DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
   DEFAULT_CHAT_QUICK_REPLIES_COURIER,
   DEFAULT_CHAT_RETENTION_DAYS,
+  DEFAULT_ADDRESS_NOTE_RETENTION_DAYS,
   DEFAULT_REVIEW_ANSWER_DAYS,
   DEFAULT_REVIEW_CORRECTION_MAX_CENTS,
 } from 'src/constants'
@@ -133,6 +134,8 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     chatQuickRepliesDispatch: DEFAULT_CHAT_QUICK_REPLIES_DISPATCH,
     chatQuickRepliesCourier: DEFAULT_CHAT_QUICK_REPLIES_COURIER,
     chatRetentionDays: DEFAULT_CHAT_RETENTION_DAYS,
+    // Address notes (spec 0053): days a courier note is kept without an upvote.
+    addressNoteRetentionDays: DEFAULT_ADDRESS_NOTE_RETENTION_DAYS,
     // Review requests (spec 0038): the days to answer, and the largest pay correction in cents.
     reviewAnswerDays: DEFAULT_REVIEW_ANSWER_DAYS,
     reviewCorrectionMaxCents: DEFAULT_REVIEW_CORRECTION_MAX_CENTS,

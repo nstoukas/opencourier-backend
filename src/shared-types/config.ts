@@ -90,6 +90,8 @@ export type InstanceConfigSettings = {
   chatQuickRepliesDispatch: string[]
   chatQuickRepliesCourier: string[]
   chatRetentionDays: number
+  // Address notes (spec 0053): days a courier note is kept without an upvote.
+  addressNoteRetentionDays: number
   // Review requests (spec 0038): whole days a person has to answer, and the largest pay correction in cents.
   reviewAnswerDays: number
   reviewCorrectionMaxCents: number
@@ -189,6 +191,7 @@ export enum ConfigKey {
   CHAT_QUICK_REPLIES_DISPATCH = 'chatQuickRepliesDispatch',
   CHAT_QUICK_REPLIES_COURIER = 'chatQuickRepliesCourier',
   CHAT_RETENTION_DAYS = 'chatRetentionDays',
+  ADDRESS_NOTE_RETENTION_DAYS = 'addressNoteRetentionDays',
   REVIEW_ANSWER_DAYS = 'reviewAnswerDays',
   REVIEW_CORRECTION_MAX_CENTS = 'reviewCorrectionMaxCents',
 }

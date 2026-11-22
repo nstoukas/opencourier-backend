@@ -35,6 +35,14 @@ export class ConfigCourierRestApiController {
     // Spec 0027: the app shows shifts only while the co-op runs them.
     const shiftsEnabled = await this.configDomainService.instanceConfig.getShiftsEnabled()
     const shiftDropNoticeHours = await this.configDomainService.instanceConfig.getShiftDropNoticeHours()
-    return new ContactCourierDto({ dispatchPhoneNumber, arrivalRadiusMetres, shiftsEnabled, shiftDropNoticeHours })
+    // Spec 0053 (AC-8): the address notes notice says how long a note lives without an upvote.
+    const addressNoteRetentionDays = await this.configDomainService.instanceConfig.getAddressNoteRetentionDays()
+    return new ContactCourierDto({
+      dispatchPhoneNumber,
+      arrivalRadiusMetres,
+      shiftsEnabled,
+      shiftDropNoticeHours,
+      addressNoteRetentionDays,
+    })
   }
 }

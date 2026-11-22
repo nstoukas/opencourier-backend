@@ -201,6 +201,12 @@ export const SAVED_CUSTOMER_RETENTION_MONTHS_MAX = 36
 export const DEFAULT_CHAT_RETENTION_DAYS = 90
 export const CHAT_RETENTION_DAYS_MIN = 7
 export const CHAT_RETENTION_DAYS_MAX = 365
+// Address notes (spec 0053, AC-6): a courier note nobody upvotes for this many days is deleted by the
+// nightly job. The operative value is the co-op setting addressNoteRetentionDays; row 46's lawyer
+// confirms the number. 30 to 730 whole days, default 182 (about 6 months).
+export const DEFAULT_ADDRESS_NOTE_RETENTION_DAYS = 182
+export const ADDRESS_NOTE_RETENTION_DAYS_MIN = 30
+export const ADDRESS_NOTE_RETENTION_DAYS_MAX = 730
 
 // Review requests (spec 0038). A person must answer a rider's request within this many whole days
 // (AC-3), and may add a pay correction of at most this many cents (AC-7). The operative values are

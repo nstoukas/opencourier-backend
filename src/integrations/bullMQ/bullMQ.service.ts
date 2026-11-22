@@ -30,6 +30,19 @@ export class BullMQService {
     await this.queue.add(name, data, { jobId: name, repeat: { pattern, jobId: name, tz } })
   }
 
+  // Spec 0053 (cross check 10): the same fixed id schedule, after removing any older schedule with this
+  // name but another time or zone (a changed pattern would otherwise add a second schedule beside the
+  // first, the stray schedule AGENTS.md warns about). The same pattern again changes nothing.
+  async replaceRepeatableJob<T>(name: string, data: T, pattern: string, tz?: string) {
+    const schedules = await this.queue.getRepeatableJobs()
+    for (const schedule of schedules) {
+      if (schedule.name === name && (schedule.pattern !== pattern || (schedule.tz ?? undefined) !== tz)) {
+        await this.queue.removeRepeatableByKey(schedule.key)
+      }
+    }
+    await this.addRepeatableJob(name, data, pattern, tz)
+  }
+
   async getAllJobs() {
     return this.queue.getJobs()
   }

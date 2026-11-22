@@ -103,6 +103,19 @@ export const APP_RECORDS = [
   'Every step that affects an offer or your pay is written on that delivery’s record, which a representative can show you.',
 ]
 
+// Spec 0053 (AC-6, cross check 10): the address note rules, with the co-op's retention period.
+export function addressNotesSentence(retentionDays: number): string {
+  return `Address notes describe the place, never the person, and show without their author. A note no rider upvotes for ${retentionDays} days (${aboutMonths(
+    retentionDays
+  )}) is deleted on its own; any rider can flag a note and an admin can delete it.`
+}
+
+// "about 6 months" for 182 days; whole months, at least one.
+export function aboutMonths(days: number): string {
+  const months = Math.max(1, Math.round(days / 30.44))
+  return `about ${months} ${months === 1 ? 'month' : 'months'}`
+}
+
 // Spec 0040 (AC-13): who sees a rider's time worked, and why. Fixed text, tied to AC-15 and AC-16.
 export const TIME_WORKED_ADMIN_VIEW =
   'Admins can see your time worked on your own page, to answer your questions and review requests. No one ranks riders by it. When the co-op uses the fairness offer rules, today’s pay per hour is compared for each offer, so that work goes first to whoever has earned least; the co-op totals never name a rider.'
@@ -209,7 +222,7 @@ export class WorkRulesService {
       offers,
       pay,
       personDecides: PERSON_DECIDES,
-      appRecords: APP_RECORDS,
+      appRecords: [...APP_RECORDS, addressNotesSentence(settings.addressNoteRetentionDays)],
       timeWorked: timeWorkedSentences(settings.shiftBreakMinutes),
       earningsFigures: earningsFigureSentences(),
       reviewAnswerDays: settings.reviewAnswerDays,

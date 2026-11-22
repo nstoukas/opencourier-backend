@@ -18,6 +18,8 @@ export type TaskName =
   | 'sos-location-retention'
   // Spec 0034 (chat): every day, deletes chat messages older than chatRetentionDays.
   | 'chat-retention'
+  // Spec 0053: every night, deletes address notes no rider upvoted within addressNoteRetentionDays.
+  | 'address-note-retention'
   // Spec 0049: every minute, records Offline changes during a booked shift whose break limit has passed.
   | 'shift-offline-sweep'
 

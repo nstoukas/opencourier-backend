@@ -18,15 +18,21 @@ export class ContactCourierDto {
   @ApiProperty({ type: Number })
   shiftDropNoticeHours: number
 
+  // Spec 0053 (AC-8): the period the address notes notice states ("182 days (about 6 months)").
+  @ApiProperty({ type: Number })
+  addressNoteRetentionDays: number
+
   constructor(data: {
     dispatchPhoneNumber: string | null
     arrivalRadiusMetres: number
     shiftsEnabled: boolean
     shiftDropNoticeHours: number
+    addressNoteRetentionDays: number
   }) {
     this.dispatchPhoneNumber = data.dispatchPhoneNumber
     this.arrivalRadiusMetres = data.arrivalRadiusMetres
     this.shiftsEnabled = data.shiftsEnabled
     this.shiftDropNoticeHours = data.shiftDropNoticeHours
+    this.addressNoteRetentionDays = data.addressNoteRetentionDays
   }
 }

@@ -189,6 +189,10 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: Number })
   chatRetentionDays: number
 
+  // Spec 0053 (AC-6).
+  @ApiProperty({ type: Number })
+  addressNoteRetentionDays: number
+
   @ApiProperty({ type: Number })
   reviewAnswerDays: number
 
@@ -257,6 +261,7 @@ export class InstanceConfigSettingsDto {
     this.chatQuickRepliesDispatch = data.chatQuickRepliesDispatch
     this.chatQuickRepliesCourier = data.chatQuickRepliesCourier
     this.chatRetentionDays = data.chatRetentionDays
+    this.addressNoteRetentionDays = data.addressNoteRetentionDays
     this.reviewAnswerDays = data.reviewAnswerDays
     this.reviewCorrectionMaxCents = data.reviewCorrectionMaxCents
   }

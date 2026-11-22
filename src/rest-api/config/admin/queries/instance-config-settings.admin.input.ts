@@ -338,6 +338,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   chatRetentionDays?: number
 
+  // Address notes (spec 0053, AC-6). Whole days; the 30 to 730 range lives in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  addressNoteRetentionDays?: number
+
   // Review requests (spec 0038, AC-3): whole days, 1 to 14 (NUMERIC_SETTING_RULES).
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

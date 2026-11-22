@@ -76,6 +76,9 @@ import {
   DEFAULT_CHAT_RETENTION_DAYS,
   CHAT_RETENTION_DAYS_MIN,
   CHAT_RETENTION_DAYS_MAX,
+  DEFAULT_ADDRESS_NOTE_RETENTION_DAYS,
+  ADDRESS_NOTE_RETENTION_DAYS_MIN,
+  ADDRESS_NOTE_RETENTION_DAYS_MAX,
   DEFAULT_REVIEW_ANSWER_DAYS,
   REVIEW_ANSWER_DAYS_MIN,
   REVIEW_ANSWER_DAYS_MAX,
@@ -336,6 +339,14 @@ export const NUMERIC_SETTING_RULES: {
     min: CHAT_RETENTION_DAYS_MIN,
     max: CHAT_RETENTION_DAYS_MAX,
   },
+  // Address notes (spec 0053, AC-6): days a courier note is kept without an upvote.
+  {
+    key: 'addressNoteRetentionDays',
+    whyZeroIsRefused: 'every address note would be deleted the night it was written',
+    mustBeInteger: true,
+    min: ADDRESS_NOTE_RETENTION_DAYS_MIN,
+    max: ADDRESS_NOTE_RETENTION_DAYS_MAX,
+  },
   // Review requests (spec 0038): days to answer (AC-3) and the largest correction (AC-7).
   {
     key: 'reviewAnswerDays',
@@ -508,6 +519,7 @@ export class InstanceConfigDomainService {
     const chatQuickRepliesDispatch = await this.getChatQuickRepliesDispatch()
     const chatQuickRepliesCourier = await this.getChatQuickRepliesCourier()
     const chatRetentionDays = await this.getChatRetentionDays()
+    const addressNoteRetentionDays = await this.getAddressNoteRetentionDays()
     const reviewAnswerDays = await this.getReviewAnswerDays()
     const reviewCorrectionMaxCents = await this.getReviewCorrectionMaxCents()
 
@@ -574,6 +586,7 @@ export class InstanceConfigDomainService {
       chatQuickRepliesDispatch,
       chatQuickRepliesCourier,
       chatRetentionDays,
+      addressNoteRetentionDays,
       reviewAnswerDays,
       reviewCorrectionMaxCents,
     }
@@ -979,6 +992,9 @@ export class InstanceConfigDomainService {
     }
     if (data.chatRetentionDays !== undefined) {
       save(ConfigKey.CHAT_RETENTION_DAYS, data.chatRetentionDays)
+    }
+    if (data.addressNoteRetentionDays !== undefined) {
+      save(ConfigKey.ADDRESS_NOTE_RETENTION_DAYS, data.addressNoteRetentionDays)
     }
 
     if (data.reviewAnswerDays !== undefined) {
@@ -1680,6 +1696,16 @@ export class InstanceConfigDomainService {
       DEFAULT_CHAT_RETENTION_DAYS,
       CHAT_RETENTION_DAYS_MIN,
       CHAT_RETENTION_DAYS_MAX
+    )
+  }
+
+  // Address notes (spec 0053, AC-6): days a courier note is kept without an upvote.
+  async getAddressNoteRetentionDays(): Promise<number> {
+    return this.getWholeNumberInRange(
+      ConfigKey.ADDRESS_NOTE_RETENTION_DAYS,
+      DEFAULT_ADDRESS_NOTE_RETENTION_DAYS,
+      ADDRESS_NOTE_RETENTION_DAYS_MIN,
+      ADDRESS_NOTE_RETENTION_DAYS_MAX
     )
   }
 
