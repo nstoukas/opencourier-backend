@@ -111,11 +111,23 @@ export class ApiException extends common.HttpException {
   })
   statusCode!: number
 
-  constructor(code: ErrorCode, message: string, statusCode: number, options?: HttpExceptionOptions) {
+  // Spec 0054 (AC-6): the numbers a refusal's sentence carries, so an app can say it in its reader's
+  // language (`server.error.<code>` with these values). Left out when the sentence has none.
+  @ApiProperty({ required: false, type: Object })
+  params?: Record<string, string | number | null>
+
+  constructor(
+    code: ErrorCode,
+    message: string,
+    statusCode: number,
+    options?: HttpExceptionOptions,
+    params?: Record<string, string | number | null>
+  ) {
     super(message, statusCode, options)
     this.code = code
     this.message = message
     this.statusCode = statusCode
+    if (params) this.params = params
   }
 }
 
@@ -373,6 +385,8 @@ export class BoxOverCapacityException extends common.ConflictException {
       statusCode: 409,
       heldUnits,
       deliveryUnits,
+      // Spec 0054 (AC-6): the same numbers where every coded refusal puts them.
+      params: { heldUnits, deliveryUnits },
     })
   }
 }
