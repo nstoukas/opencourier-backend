@@ -345,7 +345,7 @@ export const NUMERIC_SETTING_RULES: {
     min: CHAT_RETENTION_DAYS_MIN,
     max: CHAT_RETENTION_DAYS_MAX,
   },
-  // Stacked orders (spec 0048, AC-1): minutes the first customer's food may arrive later than alone.
+  // Stacked orders (spec 0048, AC-1): minutes either customer's food may arrive later than alone.
   // 0 is a real choice (only stacks that delay nobody).
   {
     key: 'twoOrderDelayLimitMinutes',

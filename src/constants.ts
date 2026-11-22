@@ -178,7 +178,7 @@ export const DEFAULT_OFFER_TIMING_CANDIDATES = 5
 export const OFFER_TIMING_CANDIDATES_MIN = 1
 export const OFFER_TIMING_CANDIDATES_MAX = 20
 // Stacked orders (spec 0048, AC-1): two orders offered together to one rider. Off until the assembly
-// decides; fallbacks only. The delay limit is how much later the first customer's food may arrive than
+// decides; fallbacks only. The delay limit is how much later either customer's food may arrive than
 // it would alone, in whole minutes (0 to 30).
 export const DEFAULT_STACKING_ENABLED = false
 export const DEFAULT_TWO_ORDER_POLICY = 'SHORTAGE_ONLY'

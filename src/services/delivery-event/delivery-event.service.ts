@@ -1829,7 +1829,7 @@ export class DeliveryEventService {
       return 'NOT_DUE'
     }
 
-    // Spec 0048 (AC-4): with Stacking on, a second waiting delivery from the same restaurant may go to the
+    // Spec 0048 (AC-4): with Stacking on, a second waiting delivery (same restaurant, or another with both ready) may go to the
     // same rider in this offer. Asked only after the rider is chosen (scored on this pickup) and this
     // delivery is due; the other delivery must be due too (cross check 11). Anything that keeps the stack
     // from being written means this delivery is offered alone, below.

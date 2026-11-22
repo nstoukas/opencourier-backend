@@ -112,7 +112,7 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   // A count of riders (a whole number), not a list.
   offerTimingCandidates: { label: 'Riders considered for a timed offer', format: withUnit('riders') },
   // Spec 0048 (AC-1): stacked orders, as riders read them.
-  stackingEnabled: { label: 'Two orders from one restaurant offered together', format: onOff },
+  stackingEnabled: { label: 'Two orders offered together', format: onOff },
   twoOrderPolicy: {
     label: 'When two orders may go together',
     format: (value) =>
@@ -125,7 +125,7 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
             : String(value),
   },
   twoOrderDelayLimitMinutes: {
-    label: 'Most the first customer\'s food may be delayed by a second order',
+    label: 'Most minutes a pair may delay a customer',
     format: withUnit('minutes'),
   },
   quoteBaseFee: { label: 'Base pay per delivery', format: money },
