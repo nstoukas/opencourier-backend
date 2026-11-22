@@ -81,6 +81,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `DROPOFF_POINT_CORRECTED` outside `STATE_MACHINE`, and moves only the restaurant's saved customer (by partner and normalised
   phone, and only if still at the delivery's point). It never touches the delivery's `Location`, which `findOrCreate` shares
   between deliveries. Floor and doorbell are the delivery's own columns and follow the phone's visibility rule.
+- Since row 82 (spec 0053) the moved pin is also `Delivery.dropoffCorrectedLatitude`/`Longitude`, which the pin move's claim
+  writes and a restaurant's later move nulls (`dropoffPointCorrectedAt` stays as the once-only mark). Address notes match on
+  those columns; a deployment that applies `20261122230000_address_notes` must also run
+  `scripts/backfillDropoffCorrectedPoint.ts` once (`--dry-run` first) to fill them for earlier moves, which only the event's
+  English message holds. Notes past `addressNoteRetentionDays` are filtered out on read as well as deleted by the nightly
+  `address-note-retention` job, so a missed night shows nothing stale.
 - Never log a whole delivery or message: the partner webhook and `SocketIOService.publishMessage` log ids and statuses only
   (decision 31.18), because a delivery carries the customer's name, phone, floor and doorbell.
 - A restaurant sees its deliveries from the last `restaurantHistoryDays` (spec 0017) plus any still open
