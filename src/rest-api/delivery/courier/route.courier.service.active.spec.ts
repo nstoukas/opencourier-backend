@@ -468,4 +468,102 @@ describe('DeliveryRouteCourierService (Spec 0018 AC-1, AC-2, AC-3)', () => {
       expect(loggedMessage).not.toContain('22.955')
     })
   })
+
+  describe('getRouteWithStops (spec 0048, AC-10)', () => {
+    test('single delivery: returns route legs and empty stops array', async () => {
+      const courier = makeCourier(riderPoint)
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockResolvedValueOnce(
+        makeDelivery({
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId,
+          offerGroupId: null,
+          stopSequence: null,
+        })
+      )
+
+      const result = await service.getRouteWithStops(deliveryId, courier)
+
+      expect(result.legs.length).toBeGreaterThan(0)
+      expect(result.stops).toEqual([])
+    })
+
+    test('stacked delivery: returns 4 numbered stops and legs with toStopNumber', async () => {
+      const courier = makeCourier(riderPoint)
+      const partnerDeliveryId = 'del-partner-2'
+
+      const stopSequence = [
+        { deliveryId, stop: 'PICKUP' },
+        { deliveryId: partnerDeliveryId, stop: 'PICKUP' },
+        { deliveryId, stop: 'DROPOFF' },
+        { deliveryId: partnerDeliveryId, stop: 'DROPOFF' },
+      ]
+
+      const mainDelivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offerGroupId: 'grp-1',
+        stopSequence,
+      })
+
+      const partnerDelivery = {
+        id: partnerDeliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offerGroupId: 'grp-1',
+        pickupLocation: { latitude: 39.366, longitude: 22.946 },
+        dropoffLocation: { latitude: 39.374, longitude: 22.957 },
+      }
+
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockImplementation(async (id: string) => {
+        if (id === deliveryId) return mainDelivery
+        if (id === partnerDeliveryId) return partnerDelivery
+        throw new Error('Not found')
+      })
+
+      const result = await service.getRouteWithStops(deliveryId, courier)
+
+      expect(result.stops).toHaveLength(4)
+      expect(result.stops[0]).toMatchObject({ number: 1, deliveryId, stop: 'PICKUP', done: false })
+      expect(result.stops[1]).toMatchObject({ number: 2, deliveryId: partnerDeliveryId, stop: 'PICKUP', done: false })
+      expect(result.stops[2]).toMatchObject({ number: 3, deliveryId, stop: 'DROPOFF', done: false })
+      expect(result.stops[3]).toMatchObject({ number: 4, deliveryId: partnerDeliveryId, stop: 'DROPOFF', done: false })
+
+      // Legs end at each stop in sequence
+      expect(result.legs.length).toBeGreaterThan(0)
+      for (const leg of result.legs) {
+        expect(leg.toStopNumber).toBeDefined()
+      }
+    })
+
+    test('stacked delivery draws single route if partner delivery is missing or not visible', async () => {
+      const courier = makeCourier(riderPoint)
+      const partnerDeliveryId = 'del-partner-gone'
+
+      const stopSequence = [
+        { deliveryId, stop: 'PICKUP' },
+        { deliveryId: partnerDeliveryId, stop: 'PICKUP' },
+        { deliveryId, stop: 'DROPOFF' },
+        { deliveryId: partnerDeliveryId, stop: 'DROPOFF' },
+      ]
+
+      const mainDelivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offerGroupId: 'grp-1',
+        stopSequence,
+      })
+
+      mockDeliveryDomainService.getByIdOrThrowWithLocation.mockImplementation(async (id: string) => {
+        if (id === deliveryId) return mainDelivery
+        // Partner throws 404 (not visible or moved)
+        throw new DeliveryNotFoundException('Not found')
+      })
+
+      const result = await service.getRouteWithStops(deliveryId, courier)
+
+      // Falls back to single delivery route with stops: []
+      expect(result.stops).toEqual([])
+      expect(result.legs.length).toBeGreaterThan(0)
+    })
+  })
 })

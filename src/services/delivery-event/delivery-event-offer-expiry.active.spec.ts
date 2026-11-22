@@ -6,6 +6,7 @@ import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
   EnumEventActor,
+  Prisma,
 } from '@prisma/types'
 import { DeliveryEventService } from './delivery-event.service'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
@@ -573,6 +574,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
         }
       )
 
@@ -872,6 +875,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
           matchedCourierId: null,
           offeredAt: null,
           offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
         }
       )
 

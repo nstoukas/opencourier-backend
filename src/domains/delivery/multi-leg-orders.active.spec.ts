@@ -607,6 +607,8 @@ describe('Multi leg orders (spec 0046)', () => {
         refuseIfCourierInSos: jest.fn().mockResolvedValue(undefined),
         refuseIfCourierDeactivated: jest.fn().mockResolvedValue(undefined),
         refuseIfCourierHoldsSiblingLeg: jest.fn().mockResolvedValue(undefined),
+        // Spec 0048 (cross check 10): a third delivery is refused before the box question.
+        refuseIfCourierHoldsTwo: jest.fn().mockResolvedValue(undefined),
         offerDeliveryToCourierAsAdmin: jest.fn().mockResolvedValue({ heldUnits: 0, deliveryUnits: 50 }),
         hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
       }
@@ -1015,6 +1017,7 @@ describe('Multi leg orders (spec 0046)', () => {
           .mockResolvedValueOnce([{ deactivated: false }])
           .mockResolvedValueOnce([{ exists: false }])
           .mockResolvedValueOnce([{ held: 0 }])
+          .mockResolvedValueOnce([{ held: 0 }])
 
         const claim = await repository.claimForRiderWithinBox('del-leg-2', 'courier-1', where, data, false)
 
@@ -1031,6 +1034,7 @@ describe('Multi leg orders (spec 0046)', () => {
         tx.$queryRaw
           .mockResolvedValueOnce([{ deactivated: false }])
           .mockResolvedValueOnce([{ exists: false }])
+          .mockResolvedValueOnce([{ held: 0 }])
           .mockResolvedValueOnce([{ held: 20 }])
 
         const claim = await repository.claimForRiderWithinBox('del-leg-2', 'courier-1', where, data, false)

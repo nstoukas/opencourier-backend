@@ -73,6 +73,9 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
         'shared-types/notification.ts',
         // Spec 0047 (cross check 10): a leg made by a split is created ready (the food is there).
         'services/split-request/split-request.service.ts',
+        // Spec 0048 (row 80, AC-2, cross check 5): stack compatibility and stop sequencing read readiness (reads only).
+        'domains/delivery/stack.ts',
+        'services/two-order/two-order.service.ts',
       ].sort()
     )
   })
@@ -101,8 +104,10 @@ describe('ready time ownership guard (spec 0023, AC-10, AC-11)', () => {
     }
   })
 
-  test('in DeliveryRepository only findForWaitRecord mentions them (reads only, spec 0030)', () => {
-    expect([...methodsMentioning('persistence/repositories/delivery.repository.ts')]).toEqual(['findForWaitRecord'])
+  test('in DeliveryRepository only findForWaitRecord and findStackPartnerCandidates mention them (reads only, spec 0030, spec 0048)', () => {
+    expect([...methodsMentioning('persistence/repositories/delivery.repository.ts')].sort()).toEqual(
+      ['findForWaitRecord', 'findStackPartnerCandidates'].sort()
+    )
   })
 
   test('no matching, pay, price or quote code reads them (AC-10)', () => {

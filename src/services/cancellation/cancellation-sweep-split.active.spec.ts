@@ -17,6 +17,8 @@ describe('CancellationSweepService - the split leg step (spec 0047)', () => {
       settleWaitPay: jest.fn().mockResolvedValue(undefined),
       settleReturnTrip: jest.fn().mockResolvedValue(undefined),
       settleOwedSplitWaits,
+      // Spec 0048 (cross check 8): the minute sweep completes second accepts of taken stacks.
+      completeTakenStackAccepts: jest.fn().mockResolvedValue(0),
     }
     const service = new CancellationSweepService(
       deliveryRepository as any,

@@ -27,6 +27,8 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       settleCancellation: jest.fn().mockResolvedValue(undefined),
       settleWaitPay: jest.fn().mockResolvedValue(undefined),
       settleReturnTrip: jest.fn().mockResolvedValue(undefined),
+      // Spec 0048 (cross check 8): the minute sweep completes second accepts of taken stacks.
+      completeTakenStackAccepts: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockBullMQService = {

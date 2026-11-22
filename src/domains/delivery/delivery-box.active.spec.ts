@@ -66,6 +66,8 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       refuseIfCourierDeactivated: jest.fn().mockResolvedValue(undefined),
       // Spec 0046 (AC-4): the admin paths ask this before writing; no sibling leg held by default.
       refuseIfCourierHoldsSiblingLeg: jest.fn().mockResolvedValue(undefined),
+      // Spec 0048 (cross check 10): a third delivery is refused before the box question.
+      refuseIfCourierHoldsTwo: jest.fn().mockResolvedValue(undefined),
       offerDeliveryToCourierAsAdmin: jest.fn().mockResolvedValue(undefined),
       hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
     }

@@ -234,7 +234,9 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
 
     test('locks courier row FOR UPDATE before summing held units', async () => {
       mockTx.$queryRaw
-        .mockResolvedValueOnce([{ id: 'courier-1' }]).mockResolvedValueOnce([{ exists: false }]) // FOR UPDATE lock
+        .mockResolvedValueOnce([{ id: 'courier-1' }])
+        .mockResolvedValueOnce([{ exists: false }]) // sibling leg check
+        .mockResolvedValueOnce([{ held: 0 }]) // held count check (spec 0048)
         .mockResolvedValueOnce([{ held: 20 }]) // held units sum
       mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 30 })
       mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
@@ -258,7 +260,10 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
     })
 
     test('returns NOT_WAITING if delivery is not found', async () => {
-      mockTx.$queryRaw.mockResolvedValueOnce([{ id: 'courier-1' }]).mockResolvedValueOnce([{ exists: false }])
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ id: 'courier-1' }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 0 }])
       mockTx.delivery.findUnique.mockResolvedValue(null)
 
       const res = await deliveryRepo.claimOfferWithinBox(
@@ -273,7 +278,11 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
     })
 
     test('returns BOX_FULL without updating when held + units > 100', async () => {
-      mockTx.$queryRaw.mockResolvedValueOnce([{ id: 'courier-1' }]).mockResolvedValueOnce([{ exists: false }]).mockResolvedValueOnce([{ held: 60 }]) // Courier already holds 60 units
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ id: 'courier-1' }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 0 }])
+        .mockResolvedValueOnce([{ held: 60 }]) // Courier already holds 60 units
       mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 50 }) // 60 + 50 = 110 > 100
 
       const res = await deliveryRepo.claimOfferWithinBox(
@@ -289,7 +298,11 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
     })
 
     test('allows exactly 100 units (held 60 + delivery 40 = 100) and returns CLAIMED when update hits', async () => {
-      mockTx.$queryRaw.mockResolvedValueOnce([{ id: 'courier-1' }]).mockResolvedValueOnce([{ exists: false }]).mockResolvedValueOnce([{ held: 60 }])
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ id: 'courier-1' }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 0 }])
+        .mockResolvedValueOnce([{ held: 60 }])
       mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 40 }) // 60 + 40 = 100 <= 100
       mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
 
@@ -305,7 +318,11 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
     })
 
     test('returns NOT_WAITING when conditional update misses (count === 0)', async () => {
-      mockTx.$queryRaw.mockResolvedValueOnce([{ id: 'courier-1' }]).mockResolvedValueOnce([{ exists: false }]).mockResolvedValueOnce([{ held: 20 }])
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ id: 'courier-1' }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 0 }])
+        .mockResolvedValueOnce([{ held: 20 }])
       mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 30 })
       mockTx.delivery.updateMany.mockResolvedValue({ count: 0 }) // Missed race
 
@@ -356,7 +373,11 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
     })
 
     test('an active rider (deactivated false) is claimed as before', async () => {
-      mockTx.$queryRaw.mockResolvedValueOnce([{ deactivated: false }]).mockResolvedValueOnce([{ exists: false }]).mockResolvedValueOnce([{ held: 0 }])
+      mockTx.$queryRaw
+        .mockResolvedValueOnce([{ deactivated: false }])
+        .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ held: 0 }])
+        .mockResolvedValueOnce([{ held: 0 }])
       mockTx.delivery.findUnique.mockResolvedValue({ boxUnits: 30 })
       mockTx.delivery.updateMany.mockResolvedValue({ count: 1 })
 

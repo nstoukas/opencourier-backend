@@ -11,7 +11,7 @@ import { DeliveryCourierRestApiController } from './delivery.courier.rest-api.co
 
 describe('DeliveryRouteCourierRestApiController (Spec 0018 AC-1, AC-2)', () => {
   let controller: DeliveryRouteCourierRestApiController
-  let mockService: { getRoute: jest.Mock }
+  let mockService: { getRoute: jest.Mock; getRouteWithStops: jest.Mock }
 
   const courier = new CourierEntity({ id: 'courier-r69' } as any)
   const deliveryId = 'del-route-1'
@@ -19,13 +19,14 @@ describe('DeliveryRouteCourierRestApiController (Spec 0018 AC-1, AC-2)', () => {
   beforeEach(() => {
     mockService = {
       getRoute: jest.fn(),
+      getRouteWithStops: jest.fn(),
     }
     controller = new DeliveryRouteCourierRestApiController(
       mockService as unknown as DeliveryRouteCourierService
     )
   })
 
-  test('delegates to deliveryRouteCourierService.getRoute with deliveryId and courier, wrapping legs in DeliveryRouteCourierDto', async () => {
+  test('delegates to deliveryRouteCourierService.getRouteWithStops with deliveryId and courier, wrapping legs in DeliveryRouteCourierDto', async () => {
     const mockLegs: DeliveryRouteLeg[] = [
       {
         kind: DeliveryRouteLegKind.RIDER_TO_PICKUP,
@@ -47,13 +48,14 @@ describe('DeliveryRouteCourierRestApiController (Spec 0018 AC-1, AC-2)', () => {
       },
     ]
 
-    mockService.getRoute.mockResolvedValueOnce(mockLegs)
+    mockService.getRouteWithStops.mockResolvedValueOnce({ legs: mockLegs, stops: [] })
 
     const result = await controller.getRoute(deliveryId, courier)
 
-    expect(mockService.getRoute).toHaveBeenCalledWith(deliveryId, courier)
+    expect(mockService.getRouteWithStops).toHaveBeenCalledWith(deliveryId, courier)
     expect(result).toBeInstanceOf(DeliveryRouteCourierDto)
     expect(result.legs).toEqual(mockLegs)
+    expect(result.stops).toEqual([])
   })
 
   test('endpoint is decorated with @Roles(COURIER)', () => {

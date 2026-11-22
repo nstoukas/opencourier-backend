@@ -357,7 +357,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         .spyOn(service, 'processDeliveryEvent')
         .mockRejectedValueOnce(new Error('db down'))
 
-      // endOffer must resolve true (does not throw) even when processDeliveryEvent rejects
+      // endOffer must resolve 1 (count of ended offers, does not throw) even when processDeliveryEvent rejects
       await expect(
         (service as any).endOffer({
           deliveryId,
@@ -366,7 +366,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
           reason: 'EXPIRED' as OfferEndedReason,
           message: 'Offer expired after 20 s',
         })
-      ).resolves.toBe(true)
+      ).resolves.toBe(1)
 
       expect(processDeliveryEventSpy).toHaveBeenCalledWith(
         expect.objectContaining({

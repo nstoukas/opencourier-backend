@@ -392,6 +392,9 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
         'held',
         'removalRequestId',
         'pickedUp',
+        // Spec 0048 (AC-12, decision 80.15): paired delivery id and order reference link the other half of a stack (delivery identifiers, no per-rider timing or position).
+        'pairedDeliveryId',
+        'pairedOrderReference',
       ].sort()
 
       expect(Object.keys(row).sort()).toEqual(ALLOWED_ROW_PROPERTIES)
