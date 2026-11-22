@@ -188,6 +188,10 @@ export const TWO_ORDER_DELAY_LIMIT_MINUTES_MAX = 30
 // Spec 0048 (cross check 9): after a stack is declined or missed, the same two orders are not stacked
 // together again for this long (the skip list's 20 minutes). A network rule, not a co-op number.
 export const STACK_PAIR_BLOCK_SECONDS = 60 * 20
+// Review of row 80: a stack accept whose second ACCEPTED keeps failing is given back to waiting after this
+// long (ten tries of the minute sweep), so the sweep never retries one row for ever. A technical limit, not a
+// co-op number.
+export const STACK_ACCEPT_GIVE_UP_MS = 10 * 60 * 1000
 export const DEFAULT_OFFER_EXPIRY_SECONDS = 60
 export const DEFAULT_NO_COURIER_RETRY_SECONDS = 30
 // Allowed ranges, enforced on save (NUMERIC_SETTING_RULES) and on read. The 20 s floor gives a

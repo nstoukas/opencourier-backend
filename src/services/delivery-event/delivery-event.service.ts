@@ -89,6 +89,7 @@ import {
   DEFAULT_HAND_BACK_SECONDS,
   OFFER_EXPIRY_GRACE_SECONDS,
   PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES,
+  STACK_ACCEPT_GIVE_UP_MS,
   STACK_PAIR_BLOCK_SECONDS,
 } from '../../constants'
 import { isRecordNotFoundError } from '../../prisma.util'
@@ -1273,6 +1274,35 @@ export class DeliveryEventService {
       const courierId = delivery.courierId
       if (!courierId) continue
       try {
+        // Review of row 80: the checks an accept makes after its take. A dispatch stop that began, or a
+        // deactivation, since the rider's tap gives this order back to waiting instead of a job (value 3: no
+        // rider takes work during a stop); so does an accept that has kept failing for STACK_ACCEPT_GIVE_UP_MS,
+        // so the sweep does not try one row for ever. The backstop then matches it again.
+        const stopped = await this.dispatchStopRepository.findOn(new Date())
+        const givingUp = Date.now() - delivery.updatedAt.getTime() > STACK_ACCEPT_GIVE_UP_MS
+        if (stopped || givingUp || (await this.isCourierDeactivatedAfterTake(courierId))) {
+          const givenBack = await this.deliveryRepository.updateIfMatches(
+            delivery.id,
+            { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+            {
+              courierId: null,
+              matchedCourierId: null,
+              offeredAt: null,
+              offerExpiresAt: null,
+              offerGroupId: null,
+              stopSequence: Prisma.DbNull,
+            }
+          )
+          if (givenBack) {
+            this.logger.warn(
+              `Stack accept of delivery ${delivery.id} by courier ${courierId} not completed (${
+                stopped ? 'dispatch stopped' : givingUp ? 'it kept failing' : 'rider deactivated'
+              }); the order waits for a rider again`
+            )
+            await this.ensureBackstopIfStillWaiting(delivery.id)
+          }
+          continue
+        }
         const accepted: DeliveryAcceptedEvent = {
           deliveryId: delivery.id,
           type: EnumDeliveryEventType.ACCEPTED,
