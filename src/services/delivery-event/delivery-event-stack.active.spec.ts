@@ -354,6 +354,8 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // agy review of row 80 (c04c08f): clears partner's 4-stop sequence so it does not stay with a stale pair route
+      expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
     })
 
     it('completeTakenStackAccepts: gives offer back to waiting when rider is deactivated (review of row 80, ruling 6)', async () => {
@@ -383,6 +385,8 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // agy review of row 80 (c04c08f): clears partner's 4-stop sequence
+      expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
     })
 
     it('completeTakenStackAccepts: gives offer back to waiting when accept has kept failing for > 10 min (review of row 80, ruling 6)', async () => {
@@ -412,6 +416,91 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // agy review of row 80 (c04c08f): clears partner's 4-stop sequence
+      expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
+    })
+
+    it('completeTakenStackAccepts: settles partner stop sequence when uncompleted taken stack accept is given back (review of row 80, c04c08f)', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delTaken = makeDelivery('del-give-back-settle', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: 'grp-stack-settle-1',
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      mockDeliveryRepo.settleStopSequence.mockResolvedValueOnce(1)
+      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
+
+      const completed = await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(completed).toBe(0)
+      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
+        'del-give-back-settle',
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
+        expect.objectContaining({
+          courierId: null,
+          matchedCourierId: null,
+          offeredAt: null,
+          offerExpiresAt: null,
+          offerGroupId: null,
+          stopSequence: Prisma.DbNull,
+        })
+      )
+      expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-settle-1')
+      expect(rearmSpy).toHaveBeenCalledWith('del-give-back-settle')
+      rearmSpy.mockRestore()
+    })
+
+    it('completeTakenStackAccepts: skips settleStopSequence when delivery has null offerGroupId', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delTaken = makeDelivery('del-no-group', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: null,
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+
+      await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
+    })
+
+    it('completeTakenStackAccepts: does not settleStopSequence when updateIfMatches returns false', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delTaken = makeDelivery('del-race-lost', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: 'grp-race-lost',
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      // Missed race: updateIfMatches returned false
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(false)
+
+      await deliveryEventService.completeTakenStackAccepts(new Date())
+
+      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
+    })
+
+    it('completeTakenStackAccepts: catches settleStopSequence error and continues without failing the sweep', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delTaken = makeDelivery('del-error-settle', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: 'grp-error',
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenGroupMembersNotAccepted.mockResolvedValueOnce([delTaken])
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      mockDeliveryRepo.settleStopSequence.mockRejectedValueOnce(new Error('DB failure during stop sequence settle'))
+
+      // Must not throw
+      const completed = await deliveryEventService.completeTakenStackAccepts(new Date())
+      expect(completed).toBe(0)
     })
   })
 
@@ -713,6 +802,29 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         message: THIRD_DELIVERY_REFUSED_SENTENCE,
       })
       expect(mockCompensationRepo.create).not.toHaveBeenCalled()
+    })
+
+    it('third hand offer to a rider with 1 ongoing job and 1 taken order in mid-accept is refused with 409 (review of row 80, critical)', async () => {
+      // liveDeliveryCount counts ongoing deliveries + taken deliveries in ASSIGNING_COURIER = 2
+      mockCourierRepo.liveDeliveryCount.mockResolvedValueOnce(2)
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(
+        new DeliveryEntity({ id: 'del-third', status: EnumDeliveryStatus.CREATED, boxUnits: 25 } as any)
+      )
+
+      const call = deliveryDomainService.submitDeliveryEvent(
+        {
+          deliveryId: 'del-third',
+          eventType: EnumDeliveryEventType.ACCEPTED,
+          courierId,
+        } as any,
+        'by hand',
+        { id: 'admin-1', username: 'coordinator' } as any
+      )
+
+      await expect(call).rejects.toBeInstanceOf(ConflictException)
+      await expect(call).rejects.toMatchObject({
+        message: THIRD_DELIVERY_REFUSED_SENTENCE,
+      })
     })
   })
 

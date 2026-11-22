@@ -121,9 +121,9 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       // SQL text must correlate Delivery with Courier and check status IN (...)
       expect(subQuery.sql).toContain('"Delivery"."courierId" = "Courier"."id"')
       expect(subQuery.sql).toContain('"Delivery"."status"::text IN')
-      // Open offer check: rider is busy if holding an open unanswered offer (scope row 61 review)
+      // Open offer check: rider is busy if holding an open unanswered offer or taken offer mid-accept (review of row 80)
       expect(subQuery.sql).toContain('"Delivery"."matchedCourierId" = "Courier"."id"')
-      expect(subQuery.sql).toContain('"Delivery"."courierId" IS NULL')
+      expect(subQuery.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" = "Courier"."id")')
       expect(subQuery.sql).toContain('"Delivery"."status"::text =')
 
       // Values must contain every active status
@@ -140,6 +140,13 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       // Values must match DELIVERY_ONGOING_STATUSES + ASSIGNING_COURIER
       expect(subQuery.values).toEqual([...DELIVERY_ONGOING_STATUSES, EnumDeliveryStatus.ASSIGNING_COURIER])
       expect(subQuery.values).toHaveLength(7)
+    })
+
+    test('treats rider as busy when an offer is taken (courierId set) while still in ASSIGNING_COURIER (review of row 80, critical)', () => {
+      // In the accept window before ACCEPTED event commits, courierId is written while status is ASSIGNING_COURIER
+      const subQuery = busyCourierDeliverySubQuery()
+      expect(subQuery.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" = "Courier"."id")')
+      expect(subQuery.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
     })
   })
 
@@ -924,6 +931,38 @@ describe('CourierRepository - busy riders matching (scope row 62)', () => {
       expect(sqlText).toContain('"status"::text =')
       expect(sqlText).toContain('NOT EXISTS')
       expect(sqlText).not.toContain('"id" =')
+    })
+  })
+
+  // Spec 0048 (AC-11, cross check 10, review of row 80): counting active deliveries for the limit of two
+  describe('liveDeliveryCount', () => {
+    test('queries live delivery count with liveDeliveryCountSql including taken offers', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ held: 2 }])
+      const count = await repository.liveDeliveryCount('courier-volos-1')
+
+      expect(count).toBe(2)
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1)
+      const query: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(query.sql).toContain('SELECT (SELECT COUNT(*)::int FROM "Delivery" WHERE')
+      expect(query.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" =')
+      expect(query.values.filter((v) => v === 'courier-volos-1')).toHaveLength(3)
+    })
+
+    test('excludes exceptDeliveryId when provided', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ held: 1 }])
+      const count = await repository.liveDeliveryCount('courier-volos-1', 'del-except-1')
+
+      expect(count).toBe(1)
+      const query: Prisma.Sql = mockPrisma.$queryRaw.mock.calls[0][0]
+      expect(query.sql).toContain('"Delivery"."id" <>')
+      expect(query.values).toContain('del-except-1')
+    })
+
+    test('returns 0 when queryRaw returns empty array', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+      const count = await repository.liveDeliveryCount('courier-volos-1')
+
+      expect(count).toBe(0)
     })
   })
 })

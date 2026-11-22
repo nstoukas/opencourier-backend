@@ -98,7 +98,8 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       expect(liveSql.sql).toContain('"Delivery"."courierId" =')
       expect(liveSql.sql).toContain('"Delivery"."status"::text IN')
       expect(liveSql.sql).toContain('"Delivery"."matchedCourierId" =')
-      expect(liveSql.sql).toContain('"Delivery"."courierId" IS NULL')
+      // agy review of row 80: must match taken offers in accept window as well as open unassigned offers
+      expect(liveSql.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" =')
       expect(liveSql.sql).toContain('"Delivery"."status"::text =')
 
       // Food being taken back (cancelled with null foodOutcome) is NOT in liveDeliveriesWhere
@@ -106,11 +107,33 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       expect(liveSql.sql).not.toContain('foodOutcome')
     })
 
+    test('liveDeliveriesWhere counts a taken offer in ASSIGNING_COURIER when courierId matches rider (the accept window, agy review of row 80, critical)', () => {
+      // During an accept, courierId is written while status is still ASSIGNING_COURIER.
+      // The second clause must match this row so the rider is not seen as free and cannot be given a third delivery.
+      const boundRider = Prisma.sql`${'courier-volos-1'}`
+      const liveSql = liveDeliveriesWhere(boundRider)
+
+      expect(liveSql.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" =')
+      // Bound rider appears in 3 places: ongoing courierId, matchedCourierId, and taken courierId
+      const riderOccurrences = liveSql.values.filter((v) => v === 'courier-volos-1')
+      expect(riderOccurrences).toHaveLength(3)
+      expect(liveSql.values).toContain(EnumDeliveryStatus.ASSIGNING_COURIER)
+    })
+
     test('liveDeliveryCountSql counts live deliveries and excludes exceptDeliveryId', () => {
       const countSql = liveDeliveryCountSql(riderSql, 'del-exclude-1')
       expect(countSql.sql).toContain('SELECT COUNT(*)::int FROM "Delivery" WHERE')
       expect(countSql.sql).toContain('"Delivery"."id" <>')
       expect(countSql.values).toContain('del-exclude-1')
+    })
+
+    test('liveDeliveryCountSql embeds the taken offer clause and bound rider (review of row 80)', () => {
+      const boundRider = Prisma.sql`${'courier-volos-1'}`
+      const countSql = liveDeliveryCountSql(boundRider)
+
+      expect(countSql.sql).toContain('SELECT COUNT(*)::int FROM "Delivery" WHERE')
+      expect(countSql.sql).toContain('("Delivery"."courierId" IS NULL OR "Delivery"."courierId" =')
+      expect(countSql.values.filter((v) => v === 'courier-volos-1')).toHaveLength(3)
     })
   })
 
@@ -902,6 +925,69 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       expect(spy).toHaveBeenLastCalledWith('del-1', 'courier-1', { status: EnumDeliveryStatus.CREATED }, {}, false)
 
       spy.mockRestore()
+    })
+  })
+
+  // Spec 0048 (cross check 6, review of row 80, c04c08f): settling stop sequence when pair breaks
+  describe('DeliveryRepository.settleStopSequence', () => {
+    let mockPrisma: any
+    let deliveryRepo: DeliveryRepository
+
+    beforeEach(() => {
+      mockPrisma = {
+        delivery: {
+          findMany: jest.fn(),
+          updateMany: jest.fn(),
+        },
+      }
+      deliveryRepo = new DeliveryRepository(mockPrisma as unknown as PrismaService)
+    })
+
+    test('clears stopSequence to DbNull when stack pair is no longer together (partner alone)', async () => {
+      // One delivery is back to ASSIGNING_COURIER without rider; the partner is ACCEPTED with courier-1
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([
+        { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null },
+        { status: EnumDeliveryStatus.ACCEPTED, matchedCourierId: null, courierId: 'courier-1' },
+      ])
+      mockPrisma.delivery.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      const cleared = await deliveryRepo.settleStopSequence('grp-stack-1')
+
+      expect(cleared).toBe(1)
+      expect(mockPrisma.delivery.findMany).toHaveBeenCalledWith({
+        where: { offerGroupId: 'grp-stack-1' },
+        select: { status: true, matchedCourierId: true, courierId: true },
+      })
+      expect(mockPrisma.delivery.updateMany).toHaveBeenCalledWith({
+        where: { offerGroupId: 'grp-stack-1', NOT: { stopSequence: { equals: Prisma.DbNull } } },
+        data: { stopSequence: Prisma.DbNull },
+      })
+    })
+
+    test('does not clear stopSequence when deliveries are still together with the same rider', async () => {
+      // Both deliveries are with the same rider (one accepted, one dispatched)
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([
+        { status: EnumDeliveryStatus.ACCEPTED, matchedCourierId: null, courierId: 'courier-1' },
+        { status: EnumDeliveryStatus.DISPATCHED, matchedCourierId: null, courierId: 'courier-1' },
+      ])
+
+      const cleared = await deliveryRepo.settleStopSequence('grp-stack-together')
+
+      expect(cleared).toBe(0)
+      expect(mockPrisma.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('clears stopSequence when no members found (empty group)', async () => {
+      mockPrisma.delivery.findMany.mockResolvedValueOnce([])
+      mockPrisma.delivery.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      const cleared = await deliveryRepo.settleStopSequence('grp-empty')
+
+      expect(cleared).toBe(0)
+      expect(mockPrisma.delivery.updateMany).toHaveBeenCalledWith({
+        where: { offerGroupId: 'grp-empty', NOT: { stopSequence: { equals: Prisma.DbNull } } },
+        data: { stopSequence: Prisma.DbNull },
+      })
     })
   })
 })
