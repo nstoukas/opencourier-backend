@@ -41,6 +41,7 @@ import {
   ComplaintRecord,
   ComplaintRepository,
   CourierComplaintPage,
+  CreateComplaintInput,
 } from 'src/persistence/repositories/complaint.repository'
 import { refuseIfNotVisibleToPartner } from 'src/rest-api/delivery/partner/partner-history'
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
@@ -358,9 +359,8 @@ export class ComplaintService {
     return riders
   }
 
-  private async create(
-    input: Omit<Parameters<ComplaintRepository['create']>[0], 'status'>
-  ): Promise<ComplaintRecord> {
+  // `Omit<X, 'status'>` = the same shape as X without its status field: the status follows from `about`.
+  private async create(input: Omit<CreateComplaintInput, 'status'>): Promise<ComplaintRecord> {
     const created = await this.complaintRepository.create({ ...input, status: startingStatus(input.about) })
     // The unique openFor refused it: this filer has an open complaint about this order already.
     if (!created) throw new ConflictException(COMPLAINT_ALREADY_OPEN)
