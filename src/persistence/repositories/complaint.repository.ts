@@ -55,6 +55,9 @@ export type CreateComplaintInput = {
   photoKey?: string | null
 }
 
+// A rider's page of complaints: the rows, and whether an older page exists. Never a total (AC-8).
+export type CourierComplaintPage = { data: ComplaintRecord[]; page: number; perPage: number; hasMore: boolean }
+
 // What a delivery tells a filing check: its owner, status, age and rider.
 export type ComplaintDeliveryFacts = {
   id: string
@@ -169,8 +172,19 @@ export class ComplaintRepository extends EntityRepository {
   }
 
   // AC-7: a rider's own page: the complaints they filed and the complaints about them, newest first.
-  async findPageForCourier(courierId: string, options: PageOptions): Promise<PaginatedResult<ComplaintRecord>> {
-    return this.findPage({ OR: [{ filerCourierId: courierId }, { aboutCourierId: courierId }] }, options)
+  // AC-8: no count of any kind. It reads one row more than the page holds, only to know whether an
+  // older page exists, and drops it; the rider's answer carries no total (review ruling, 2026-11-22).
+  async findPageForCourier(courierId: string, options: PageOptions): Promise<CourierComplaintPage> {
+    const page = options.page ?? 1
+    const perPage = options.perPage ?? 20
+    const rows = await this.prisma.complaint.findMany({
+      where: { OR: [{ filerCourierId: courierId }, { aboutCourierId: courierId }] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: COMPLAINT_INCLUDE,
+      take: perPage + 1,
+      skip: (page - 1) * perPage,
+    })
+    return { data: rows.slice(0, perPage), page, perPage, hasMore: rows.length > perPage }
   }
 
   // AC-7: a restaurant reads only the complaints it filed (cross check 5: never one about it).

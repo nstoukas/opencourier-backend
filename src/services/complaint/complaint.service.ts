@@ -40,6 +40,7 @@ import {
   ComplaintDeliveryFacts,
   ComplaintRecord,
   ComplaintRepository,
+  CourierComplaintPage,
 } from 'src/persistence/repositories/complaint.repository'
 import { refuseIfNotVisibleToPartner } from 'src/rest-api/delivery/partner/partner-history'
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
@@ -198,7 +199,7 @@ export class ComplaintService {
 
   // --- Reading ------------------------------------------------------------------------------
 
-  async listForCourier(courierId: string, options: PageOptions): Promise<PaginatedResult<ComplaintRecord>> {
+  async listForCourier(courierId: string, options: PageOptions): Promise<CourierComplaintPage> {
     return this.complaintRepository.findPageForCourier(courierId, options)
   }
 

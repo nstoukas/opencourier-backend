@@ -81,7 +81,12 @@ export class ComplaintCourierRestApiController {
     const page = await this.complaintService.listForCourier(courier.id, args)
     return {
       data: page.data.map((complaint) => new ComplaintCourierDto(complaint, courier.id)),
-      pagination: page.pagination,
+      pagination: {
+        currentPage: page.page,
+        perPage: page.perPage,
+        prevPage: page.page > 1 ? page.page - 1 : null,
+        nextPage: page.hasMore ? page.page + 1 : null,
+      },
     }
   }
 

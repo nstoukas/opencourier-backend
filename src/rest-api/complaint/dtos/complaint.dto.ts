@@ -192,9 +192,18 @@ export class ComplaintDeliveryRiderDto {
   @ApiProperty({ type: String }) name: string
 }
 
+// AC-8: the rider's page says where it is and whether there is more, never how many complaints there
+// are (no totalItems, totalPages or currentItems, unlike the shared PaginationDto).
+export class ComplaintCourierPagingDto {
+  @ApiProperty() currentPage: number
+  @ApiProperty() perPage: number
+  @ApiProperty({ type: Number, nullable: true }) prevPage: number | null
+  @ApiProperty({ type: Number, nullable: true }) nextPage: number | null
+}
+
 export class ComplaintCourierPageDto {
   @ApiProperty({ type: () => [ComplaintCourierDto] }) data: ComplaintCourierDto[]
-  @ApiProperty({ type: () => PaginationDto, required: false }) pagination?: PaginationDto
+  @ApiProperty({ type: () => ComplaintCourierPagingDto }) pagination: ComplaintCourierPagingDto
 }
 
 export class ComplaintPartnerPageDto {
