@@ -384,15 +384,16 @@ export class OfferPushService {
   }
 
   // Spec 0048 (cross check 11): for one order of an open stack, the pair's id and the other order, so the one
-  // push names both. null for a single offer, or when the other order can no longer be read as part of it.
+  // push names both. null for a single offer, or when the other order is no longer part of it (it ended or was
+  // released, so this one is a single offer now). A failed read throws (review of row 80): the push is then not
+  // sent at all, rather than sent as a single order whose lock screen Accept would take two; the open app still
+  // has the offer from the socket, and a phone finds it on its next fetch.
   private async stackOf(
     courierId: string,
     delivery: { id: string; offerGroupId: string | null; offeredAt: Date | null }
   ): Promise<{ offerGroupId: string; partnerDeliveryId: string } | null> {
     if (!delivery.offerGroupId) return null
-    const members = await this.deliveryRepository
-      .findOpenGroupMembers(delivery.offerGroupId, courierId, delivery.offeredAt)
-      .catch(() => [])
+    const members = await this.deliveryRepository.findOpenGroupMembers(delivery.offerGroupId, courierId, delivery.offeredAt)
     const partner = members.find((member) => member.id !== delivery.id)
     return partner ? { offerGroupId: delivery.offerGroupId, partnerDeliveryId: partner.id } : null
   }
