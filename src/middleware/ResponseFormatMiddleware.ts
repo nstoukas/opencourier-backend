@@ -30,6 +30,9 @@ export class ResponseFormatMiddleware implements NestMiddleware {
               // so the confirm dialog can show them (spec 0043, AC-6). Two numbers, nothing personal.
               ...(typeof data.heldUnits === 'number' && { heldUnits: data.heldUnits }),
               ...(typeof data.deliveryUnits === 'number' && { deliveryUnits: data.deliveryUnits }),
+              // Spec 0054 (AC-6): the values of a coded refusal (a minute count, a time, a leg number), so the
+              // app can say it in its reader's language. Without this line every `params` stopped here.
+              ...(typeof data.params === 'object' && data.params !== null && { params: data.params }),
             },
           ],
         }
