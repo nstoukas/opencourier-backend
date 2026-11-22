@@ -3,8 +3,9 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import * as errors from 'src/errors'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ShiftBookingRepository } from 'src/persistence/repositories/shift-booking.repository'
+import { CacheService } from 'src/services/cache/cache.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
-import { OFFLINE_EVENT_SENTENCES, ShiftOfflineService } from './shift-offline.service'
+import { OFFLINE_EVENT_SENTENCES, SHIFT_OFFLINE_WATERMARK_KEY, ShiftOfflineService } from './shift-offline.service'
 
 // Spec 0049 (row 79; AC-4, AC-6, cross check 1 to 3; decision 79.3): the minute sweep that records an
 // Offline during a booked shift, the admin list and the follow up. Written from the spec, with the
@@ -46,6 +47,8 @@ describe('ShiftOfflineService (spec 0049)', () => {
   let instanceConfig: { getShiftsEnabled: jest.Mock; getShiftBreakMinutes: jest.Mock }
   let bullMQ: { addRepeatableJob: jest.Mock }
   let taskBus: { registerTaskHandler: jest.Mock }
+  let cacheStore: Map<string, string>
+  let cacheService: { get: jest.Mock; save: jest.Mock }
   let service: ShiftOfflineService
 
   beforeEach(() => {
@@ -65,11 +68,19 @@ describe('ShiftOfflineService (spec 0049)', () => {
     }
     bullMQ = { addRepeatableJob: jest.fn().mockResolvedValue(undefined) }
     taskBus = { registerTaskHandler: jest.fn() }
+    cacheStore = new Map()
+    cacheService = {
+      get: jest.fn().mockImplementation(async (key: string) => cacheStore.get(key) ?? null),
+      save: jest.fn().mockImplementation(async (key: string, value: string) => {
+        cacheStore.set(key, value)
+      }),
+    }
     service = new ShiftOfflineService(
       bookings as unknown as ShiftBookingRepository,
       { instanceConfig } as unknown as ConfigDomainService,
       bullMQ as unknown as BullMQService,
-      taskBus as unknown as TaskBusService
+      taskBus as unknown as TaskBusService,
+      cacheService as unknown as CacheService
     )
   })
 
@@ -95,10 +106,12 @@ describe('ShiftOfflineService (spec 0049)', () => {
       instanceConfig.getShiftBreakMinutes.mockResolvedValue(0)
       await service.sweep(now)
       expect((bookings.offlineChangesWithoutEvent.mock.calls[0] as [Date, Date])[1]).toEqual(now)
+      // An hour later, with a 45 minute limit: upTo is 20:15 (21:00 minus 45 min), advancing past the watermark.
       instanceConfig.getShiftBreakMinutes.mockResolvedValue(45)
-      await service.sweep(now)
+      const later = new Date(now.getTime() + 60 * 60_000)
+      await service.sweep(later)
       expect((bookings.offlineChangesWithoutEvent.mock.calls[1] as [Date, Date])[1]).toEqual(
-        new Date('2026-11-20T19:15:00.000Z')
+        new Date('2026-11-20T20:15:00.000Z')
       )
     })
 
@@ -156,19 +169,19 @@ describe('ShiftOfflineService (spec 0049)', () => {
       test('switched on after the window ends (within the last break limit): nothing from before it is asked for', async () => {
         const switchedOnAt = new Date('2026-11-20T19:45:00.000Z')
         bookings.shiftsLastSwitchedOnAt.mockResolvedValue(switchedOnAt)
-        await service.sweep(now)
-        const [from, upTo] = windowAsked()
-        expect(from).toEqual(switchedOnAt)
-        // An empty window: it starts after it ends.
-        expect(from.getTime()).toBeGreaterThan(upTo.getTime())
+        // With from (19:45) > upTo (19:30), the sweep returns 0 and does not query the repository.
+        expect(await service.sweep(now)).toBe(0)
+        expect(bookings.offlineChangesWithoutEvent).not.toHaveBeenCalled()
       })
 
       test('the switch on time is read afresh on every sweep', async () => {
         bookings.shiftsLastSwitchedOnAt.mockResolvedValueOnce(null)
         await service.sweep(now)
-        const switchedOnAt = new Date('2026-11-20T19:00:00.000Z')
+        // Shifts switched on after the first sweep's watermark (19:30); second sweep runs at 20:15 (upTo = 19:45).
+        const switchedOnAt = new Date('2026-11-20T19:40:00.000Z')
         bookings.shiftsLastSwitchedOnAt.mockResolvedValueOnce(switchedOnAt)
-        await service.sweep(now)
+        const later = new Date(now.getTime() + 15 * 60_000)
+        await service.sweep(later)
         expect(bookings.shiftsLastSwitchedOnAt).toHaveBeenCalledTimes(2)
         expect(windowAsked(0)[0]).toEqual(sixHourStart)
         expect(windowAsked(1)[0]).toEqual(switchedOnAt)
@@ -330,6 +343,159 @@ describe('ShiftOfflineService (spec 0049)', () => {
       expect(await service.sweep(now)).toBe(0)
       expect(bookings.bookedCovering).not.toHaveBeenCalled()
       expect(bookings.createOfflineEvent).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('judging each change once via Redis watermark (row 79 review fix, decision OR.2)', () => {
+    test('a change whose rider came back after 20 minutes is skipped under a 30 minute limit; the limit is then set to 10 and the sweep runs again; assert no event is written', async () => {
+      const offlineAt = new Date('2026-11-20T19:10:00.000Z')
+      instanceConfig.getShiftBreakMinutes.mockResolvedValue(30)
+      // Rider came back after 20 minutes (at 19:30): leftOfflineBetween returns true if break window reaches 19:30.
+      bookings.leftOfflineBetween.mockImplementation((_courierId: string, _from: Date, to: Date) =>
+        Promise.resolve(to.getTime() >= new Date('2026-11-20T19:30:00.000Z').getTime())
+      )
+      // Repository returns the change only when its timestamp falls in the queried window [from, upTo].
+      bookings.offlineChangesWithoutEvent.mockImplementation((from: Date, upTo: Date) => {
+        if (offlineAt.getTime() >= from.getTime() && offlineAt.getTime() <= upTo.getTime()) {
+          return Promise.resolve([change({ createdAt: offlineAt })])
+        }
+        return Promise.resolve([])
+      })
+
+      // Sweep 1 at 19:40: upTo is 19:10 (19:40 - 30 min). The change at 19:10 is evaluated.
+      // Under the 30-min break limit (breakEnds = 19:40), rider returned at 19:30, so it counts as a valid break.
+      const sweep1Time = new Date('2026-11-20T19:40:00.000Z')
+      expect(await service.sweep(sweep1Time)).toBe(0)
+      expect(bookings.createOfflineEvent).not.toHaveBeenCalled()
+      expect(cacheStore.get(SHIFT_OFFLINE_WATERMARK_KEY)).toBe(new Date('2026-11-20T19:10:00.000Z').toISOString())
+
+      // Break limit is lowered to 10 minutes.
+      instanceConfig.getShiftBreakMinutes.mockResolvedValue(10)
+
+      // Sweep 2 at 19:41: upTo is 19:31 (19:41 - 10 min).
+      // Because the watermark is 19:10, from is 19:10:00.001Z. The change at 19:10:00.000Z is skipped.
+      const sweep2Time = new Date('2026-11-20T19:41:00.000Z')
+      expect(await service.sweep(sweep2Time)).toBe(0)
+      // Assert no event was written across either sweep!
+      expect(bookings.createOfflineEvent).not.toHaveBeenCalled()
+    })
+
+    test('persists the judged watermark in Redis with key, ISO string and 24-hour TTL', async () => {
+      await service.sweep(now)
+      const expectedUpTo = new Date('2026-11-20T19:30:00.000Z').toISOString()
+      expect(cacheService.save).toHaveBeenCalledWith(SHIFT_OFFLINE_WATERMARK_KEY, expectedUpTo, 24 * 3600)
+      expect(cacheStore.get(SHIFT_OFFLINE_WATERMARK_KEY)).toBe(expectedUpTo)
+    })
+
+    test('a raised limit leaves the window empty until upTo passes the watermark', async () => {
+      // Sweep 1: 10 minute limit at 20:00 => upTo = 19:50. Watermark saved as 19:50.
+      instanceConfig.getShiftBreakMinutes.mockResolvedValue(10)
+      await service.sweep(now)
+      expect(cacheStore.get(SHIFT_OFFLINE_WATERMARK_KEY)).toBe(new Date('2026-11-20T19:50:00.000Z').toISOString())
+
+      // Limit is raised to 60 minutes.
+      instanceConfig.getShiftBreakMinutes.mockResolvedValue(60)
+      bookings.offlineChangesWithoutEvent.mockClear()
+
+      // At 20:05: upTo = 20:05 - 60 min = 19:05. Watermark is 19:50, so from (19:50:00.001Z) > upTo (19:05).
+      // Sweep returns 0 immediately without querying changes.
+      expect(await service.sweep(new Date('2026-11-20T20:05:00.000Z'))).toBe(0)
+      expect(bookings.offlineChangesWithoutEvent).not.toHaveBeenCalled()
+
+      // At 20:55: upTo = 20:55 - 60 min = 19:55. Watermark is 19:50, so from is 19:50:00.001Z <= upTo (19:55).
+      expect(await service.sweep(new Date('2026-11-20T20:55:00.000Z'))).toBe(1)
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledWith(
+        new Date('2026-11-20T19:50:00.001Z'),
+        new Date('2026-11-20T19:55:00.000Z')
+      )
+    })
+
+    test('a change whose check throws holds the watermark 1 ms before it so the next tick retries it', async () => {
+      const change1 = change({ id: 'change-fail', createdAt: new Date('2026-11-20T19:05:00.000Z') })
+      const change2 = change({ id: 'change-ok', createdAt: new Date('2026-11-20T19:15:00.000Z') })
+      bookings.offlineChangesWithoutEvent.mockResolvedValue([change1, change2])
+
+      // Change 1 throws an error during processing.
+      bookings.bookedCovering.mockImplementation((courierId: string, at: Date) => {
+        if (at.getTime() === change1.createdAt.getTime()) return Promise.reject(new Error('db error'))
+        return Promise.resolve(booking)
+      })
+      jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined)
+
+      // Sweep processes change2 (change1 threw), so 1 event is written.
+      expect(await service.sweep(now)).toBe(1)
+
+      // Watermark is held 1 ms before the earliest failed change (19:05 - 1 ms = 19:04:59.999Z), NOT upTo (19:30).
+      expect(cacheStore.get(SHIFT_OFFLINE_WATERMARK_KEY)).toBe(new Date('2026-11-20T19:04:59.999Z').toISOString())
+
+      // Next tick (now + 1 min): from starts at watermark + 1 ms = 19:05:00.000Z, retrying change 1.
+      bookings.offlineChangesWithoutEvent.mockClear()
+      bookings.bookedCovering.mockResolvedValue(booking)
+      await service.sweep(new Date(now.getTime() + 60_000))
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledWith(
+        new Date('2026-11-20T19:05:00.000Z'),
+        new Date('2026-11-20T19:31:00.000Z')
+      )
+    })
+
+    test('if earlier changes succeed and a later change fails, watermark advances up to 1 ms before the failed change', async () => {
+      const change1 = change({ id: 'change-ok', createdAt: new Date('2026-11-20T19:10:00.000Z') })
+      const change2 = change({ id: 'change-fail', createdAt: new Date('2026-11-20T19:20:00.000Z') })
+      bookings.offlineChangesWithoutEvent.mockResolvedValue([change1, change2])
+
+      // Change 2 throws an error.
+      bookings.bookedCovering.mockImplementation((courierId: string, at: Date) => {
+        if (at.getTime() === change2.createdAt.getTime()) return Promise.reject(new Error('db error'))
+        return Promise.resolve(booking)
+      })
+      jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined)
+
+      expect(await service.sweep(now)).toBe(1)
+
+      // Watermark is held 1 ms before change 2 (19:20 - 1 ms = 19:19:59.999Z).
+      expect(cacheStore.get(SHIFT_OFFLINE_WATERMARK_KEY)).toBe(new Date('2026-11-20T19:19:59.999Z').toISOString())
+
+      // Next tick: from starts at 19:20:00.000Z, so change 1 is not repeated and change 2 is retried.
+      bookings.offlineChangesWithoutEvent.mockClear()
+      await service.sweep(new Date(now.getTime() + 60_000))
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledWith(
+        new Date('2026-11-20T19:20:00.000Z'),
+        new Date('2026-11-20T19:31:00.000Z')
+      )
+    })
+
+    test('without a watermark (first run or expired), the lookback window starts at 6 hours ago or switch-on time', async () => {
+      cacheStore.clear()
+      await service.sweep(now)
+      const [from, upTo] = bookings.offlineChangesWithoutEvent.mock.calls[0] as [Date, Date]
+      expect(from).toEqual(new Date('2026-11-20T13:30:00.000Z'))
+      expect(upTo).toEqual(new Date('2026-11-20T19:30:00.000Z'))
+    })
+
+    test('if Shifts was switched on after the watermark, the switch-on time wins', async () => {
+      cacheStore.set(SHIFT_OFFLINE_WATERMARK_KEY, new Date('2026-11-20T19:30:00.000Z').toISOString())
+      const switchedOnAt = new Date('2026-11-20T19:40:00.000Z')
+      bookings.shiftsLastSwitchedOnAt.mockResolvedValue(switchedOnAt)
+
+      const later = new Date('2026-11-20T20:15:00.000Z')
+      await service.sweep(later)
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledWith(
+        switchedOnAt,
+        new Date('2026-11-20T19:45:00.000Z')
+      )
+    })
+
+    test('if Shifts was switched on before the watermark, the watermark wins', async () => {
+      cacheStore.set(SHIFT_OFFLINE_WATERMARK_KEY, new Date('2026-11-20T19:30:00.000Z').toISOString())
+      const switchedOnAt = new Date('2026-11-20T19:00:00.000Z')
+      bookings.shiftsLastSwitchedOnAt.mockResolvedValue(switchedOnAt)
+
+      const later = new Date('2026-11-20T20:05:00.000Z')
+      await service.sweep(later)
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledWith(
+        new Date('2026-11-20T19:30:00.001Z'),
+        new Date('2026-11-20T19:35:00.000Z')
+      )
     })
   })
 
