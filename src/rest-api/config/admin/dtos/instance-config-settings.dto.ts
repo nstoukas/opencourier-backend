@@ -1,4 +1,5 @@
 import { BoxSize } from '@prisma/types'
+import { ChatPreset } from 'src/shared-types/config'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -199,11 +200,12 @@ export class InstanceConfigSettingsDto {
   @ApiProperty({ type: String })
   cancellationPayoutPolicy: string
 
-  @ApiProperty({ type: String, isArray: true })
-  chatQuickRepliesDispatch: string[]
+  // Spec 0054 (AC-7): each preset as { el, en }.
+  @ApiProperty({ type: Object, isArray: true })
+  chatQuickRepliesDispatch: ChatPreset[]
 
-  @ApiProperty({ type: String, isArray: true })
-  chatQuickRepliesCourier: string[]
+  @ApiProperty({ type: Object, isArray: true })
+  chatQuickRepliesCourier: ChatPreset[]
 
   @ApiProperty({ type: Number })
   chatRetentionDays: number

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
+import { ChatPreset } from 'src/shared-types/config'
 import { BoxSize } from '@prisma/types'
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsObject, IsString } from 'class-validator'
 import {
@@ -355,15 +356,16 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
 
   // Chat (spec 0034, AC-13): the one tap presets, one list for dispatch and one for riders. The
   // limits (at most 8, each 1 to 100 characters) are checked by name in the domain service.
-  @ApiProperty({ type: String, required: false, isArray: true })
+  // Spec 0054 (AC-7): each entry { el, en }; a plain text (an older admin page) is taken as the Greek.
+  @ApiProperty({ type: Object, required: false, isArray: true })
   @IsOptional()
   @IsArray()
-  chatQuickRepliesDispatch?: string[]
+  chatQuickRepliesDispatch?: (ChatPreset | string)[]
 
-  @ApiProperty({ type: String, required: false, isArray: true })
+  @ApiProperty({ type: Object, required: false, isArray: true })
   @IsOptional()
   @IsArray()
-  chatQuickRepliesCourier?: string[]
+  chatQuickRepliesCourier?: (ChatPreset | string)[]
 
   // Chat (spec 0034, AC-18). Whole days; the 7 to 365 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })

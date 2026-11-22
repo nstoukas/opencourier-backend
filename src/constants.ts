@@ -240,17 +240,18 @@ export const REVIEW_CORRECTION_MAX_CENTS_MAX = 100000
 // The one tap presets (AC-13): at most this many, each this many characters at most.
 export const CHAT_QUICK_REPLIES_MAX_ENTRIES = 8
 export const CHAT_QUICK_REPLY_MAX_LENGTH = 100
-// Fallbacks when the Config row is missing, in Greek like the riders' and dispatchers' own words.
+// Fallbacks when the Config row is missing, in Greek like the riders' and dispatchers' own words, with their
+// English since spec 0054 (AC-7; the migration gives a stored list the same English).
 // No photo wording: the courier app takes no photos (row 18).
 export const DEFAULT_CHAT_QUICK_REPLIES_DISPATCH = [
-  'Περίμενε 5 λεπτά ακόμα',
-  'Άφησέ το στην πόρτα',
-  'Πήγαινέ το πίσω στο κατάστημα',
+  { el: 'Περίμενε 5 λεπτά ακόμα', en: 'Wait 5 more minutes' },
+  { el: 'Άφησέ το στην πόρτα', en: 'Leave it at the door' },
+  { el: 'Πήγαινέ το πίσω στο κατάστημα', en: 'Take it back to the restaurant' },
 ]
 export const DEFAULT_CHAT_QUICK_REPLIES_COURIER = [
-  'Είμαι στην πόρτα, δεν απαντούν',
-  'Το φαγητό δεν είναι έτοιμο',
-  'Θα αργήσω λίγο',
+  { el: 'Είμαι στην πόρτα, δεν απαντούν', en: "I'm at the door, no answer" },
+  { el: 'Το φαγητό δεν είναι έτοιμο', en: "The food isn't ready" },
+  { el: 'Θα αργήσω λίγο', en: "I'll be a little late" },
 ]
 // A chat message is text only, 1 to this many characters after trimming (AC-4).
 export const CHAT_MESSAGE_MAX_LENGTH = 1000

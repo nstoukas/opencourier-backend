@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { ChatPreset } from 'src/shared-types/config'
 import { EntityRepository } from '../EntityRepository'
 import { IConfigRepository } from '../../domains/config/interfaces/IConfigRepository'
 import { ConfigEntity } from '../../domains/config/entities/config.entity'
@@ -26,7 +27,8 @@ export class ConfigRepository extends EntityRepository implements IConfigReposit
   // Left out, the write stands on its own, as before.
   async saveByKey(
     key: ConfigKey,
-    value: string | number | boolean | string[],
+    // A list of chat presets (spec 0054) is stored as JSON text, like a list of texts.
+    value: string | number | boolean | string[] | ChatPreset[],
     tx: Prisma.TransactionClient = this.prisma
   ) {
     const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value)

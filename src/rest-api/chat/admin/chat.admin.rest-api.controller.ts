@@ -55,7 +55,11 @@ export class ChatAdminRestApiController {
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @swagger.ApiOperation({ summary: "Open a rider's or restaurant's thread, making it if missing" })
   @Roles(EnumUserRole.ADMIN)
-  async openThread(@common.Body() input: ChatOpenThreadAdminInput): Promise<ChatThreadAdminDto> {
+  async openThread(
+    @common.Body() input: ChatOpenThreadAdminInput,
+    // Optional only so tests that call the method by hand keep compiling; Nest always passes it.
+    @CurrentUser() user?: UserEntity
+  ): Promise<ChatThreadAdminDto> {
     const hasCourier = typeof input.courierId === 'string' && input.courierId !== ''
     const hasPartner = typeof input.partnerId === 'string' && input.partnerId !== ''
     if (hasCourier === hasPartner) {
@@ -64,7 +68,8 @@ export class ChatAdminRestApiController {
     const thread = await this.chatDomainService.openThread(
       hasCourier ? { courierId: input.courierId as string } : { partnerId: input.partnerId as string }
     )
-    return new ChatThreadAdminDto(await this.chatDomainService.getThreadDetail(thread.id))
+    // Spec 0054: the presets in this admin's language.
+    return new ChatThreadAdminDto(await this.chatDomainService.getThreadDetail(thread.id), user?.language)
   }
 
   @common.Get('threads/:threadId')
@@ -74,8 +79,12 @@ export class ChatAdminRestApiController {
   @swagger.ApiForbiddenResponse({ type: errors.ForbiddenException })
   @swagger.ApiOperation({ summary: "One thread's header: who, their active deliveries, and the presets" })
   @Roles(EnumUserRole.ADMIN)
-  async getThread(@common.Param('threadId') threadId: string): Promise<ChatThreadAdminDto> {
-    return new ChatThreadAdminDto(await this.chatDomainService.getThreadDetail(threadId))
+  async getThread(
+    @common.Param('threadId') threadId: string,
+    // Optional only so tests that call the method by hand keep compiling; Nest always passes it.
+    @CurrentUser() user?: UserEntity
+  ): Promise<ChatThreadAdminDto> {
+    return new ChatThreadAdminDto(await this.chatDomainService.getThreadDetail(threadId), user?.language)
   }
 
   @common.Get('threads/:threadId/messages')

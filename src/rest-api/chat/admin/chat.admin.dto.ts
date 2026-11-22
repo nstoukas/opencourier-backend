@@ -1,4 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
+import { ChatPreset } from 'src/shared-types/config'
+import { DEFAULT_LANGUAGE, Language } from 'src/localization/translate'
+import { chatPresetText } from 'src/domains/config/chat-quick-replies'
 import { EnumCourierStatus, EnumDeliveryStatus } from '@prisma/types'
 import { PaginationDto } from 'src/core/dtos/PaginationDto'
 import { ChatThreadDetail, ChatThreadListRow } from 'src/domains/chat/chat.domain.service'
@@ -57,11 +60,16 @@ export class ChatThreadAdminDto {
   @ApiProperty({ enum: EnumCourierStatus, nullable: true }) courierStatus: EnumCourierStatus | null
   @ApiProperty({ type: ChatActiveDeliveryAdminDto, isArray: true }) activeDeliveries: ChatActiveDeliveryAdminDto[]
   @ApiProperty() moreActiveDeliveries: number
+  // Dispatch's presets in the reading admin's language (spec 0054, AC-7; the other language when one is
+  // empty), and both languages for a page that wants to choose itself.
   @ApiProperty({ type: String, isArray: true }) quickReplies: string[]
+  @ApiProperty({ type: Object, isArray: true }) quickReplyPresets: ChatPreset[]
   @ApiProperty({ type: Date, nullable: true }) dispatchLastReadAt: Date | null
 
-  constructor(detail: ChatThreadDetail) {
+  constructor(detail: ChatThreadDetail, language: Language = DEFAULT_LANGUAGE) {
     Object.assign(this, detail)
+    this.quickReplyPresets = detail.quickReplies
+    this.quickReplies = detail.quickReplies.map((preset) => chatPresetText(preset, language))
   }
 }
 

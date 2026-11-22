@@ -95,8 +95,9 @@ export type InstanceConfigSettings = {
   // job is cancelled after they accepted it. The stored key, or the fallback when none is stored.
   cancellationPayoutPolicy: string
   // Chat (spec 0034): the one tap presets for dispatch and for riders, and how many days messages are kept.
-  chatQuickRepliesDispatch: string[]
-  chatQuickRepliesCourier: string[]
+  // Each preset in both languages since spec 0054 (AC-7).
+  chatQuickRepliesDispatch: ChatPreset[]
+  chatQuickRepliesCourier: ChatPreset[]
   chatRetentionDays: number
   // Address notes (spec 0053): days a note about a place (rider, admin or restaurant) is kept when no rider
   // other than its author upvotes it.
@@ -227,3 +228,7 @@ export const FALLBACK_CANCELLATION_PAYOUT_POLICY = 'FULL_COMPENSATION'
 export type ConfigMap = {
   [key in ConfigKey]?: string | number | boolean | null | InstanceDetails | string[]
 }
+
+// Spec 0054 (AC-7): one chat preset in Greek and English. One may be empty (not written yet); the reader
+// then sees the other (chatPresetText).
+export type ChatPreset = { el: string; en: string }

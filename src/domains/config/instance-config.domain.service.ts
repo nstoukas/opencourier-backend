@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common'
+import { ChatPreset } from 'src/shared-types/config'
 import { ConfigRepository } from '../../persistence/repositories/config.repository'
 import { isRecordNotFoundError } from 'src/prisma.util'
 import {
@@ -444,7 +445,8 @@ export function assertFeeWithinCeiling(fee: number | null, ceiling: number, ceil
 }
 
 // One settings write waiting for the save's transaction (spec 0038, AC-12).
-type StoredSettingValue = string | number | boolean | string[]
+// ChatPreset[]: spec 0054's chat presets, stored as JSON like any list.
+type StoredSettingValue = string | number | boolean | string[] | ChatPreset[]
 type PendingSettingWrite = { key: ConfigKey; stored: StoredSettingValue; value: unknown }
 
 // Writes the value with object keys in a fixed order, so two equal objects give the same text.
@@ -814,7 +816,7 @@ export class InstanceConfigDomainService {
     }
 
     // Chat presets (spec 0034, AC-13), trimmed here so the save below writes what was checked.
-    let chatQuickRepliesDispatch: string[] | undefined
+    let chatQuickRepliesDispatch: ChatPreset[] | undefined
     if (data.chatQuickRepliesDispatch !== undefined) {
       const checked = checkChatQuickReplies('chatQuickRepliesDispatch', data.chatQuickRepliesDispatch)
       if ('refusal' in checked) {
@@ -822,7 +824,7 @@ export class InstanceConfigDomainService {
       }
       chatQuickRepliesDispatch = checked.replies
     }
-    let chatQuickRepliesCourier: string[] | undefined
+    let chatQuickRepliesCourier: ChatPreset[] | undefined
     if (data.chatQuickRepliesCourier !== undefined) {
       const checked = checkChatQuickReplies('chatQuickRepliesCourier', data.chatQuickRepliesCourier)
       if ('refusal' in checked) {
@@ -1835,32 +1837,32 @@ export class InstanceConfigDomainService {
   }
 
   // Chat (spec 0034, AC-13): the presets dispatch sees above its message box.
-  async getChatQuickRepliesDispatch(): Promise<string[]> {
+  async getChatQuickRepliesDispatch(): Promise<ChatPreset[]> {
     return this.getChatQuickReplies(ConfigKey.CHAT_QUICK_REPLIES_DISPATCH, DEFAULT_CHAT_QUICK_REPLIES_DISPATCH)
   }
 
   // Chat (spec 0034, AC-13): the presets a rider sees above their message box.
-  async getChatQuickRepliesCourier(): Promise<string[]> {
+  async getChatQuickRepliesCourier(): Promise<ChatPreset[]> {
     return this.getChatQuickReplies(ConfigKey.CHAT_QUICK_REPLIES_COURIER, DEFAULT_CHAT_QUICK_REPLIES_COURIER)
   }
 
   // A missing row (an instance set up before row 111) reads quietly as the defaults, like the dispatch
   // line: riders read the presets every time they open the chat. A stored list that breaks the rule
   // can only come from a hand edit of the table, so it also falls back, with a warning.
-  private async getChatQuickReplies(key: ConfigKey, fallback: string[]): Promise<string[]> {
+  private async getChatQuickReplies(key: ConfigKey, fallback: ChatPreset[]): Promise<ChatPreset[]> {
     let value: unknown
     try {
       value = (await this.configRepository.getByKey(key)).normalizedValue
     } catch (error) {
       if (error instanceof Error && isRecordNotFoundError(error)) {
-        return [...fallback]
+        return fallback.map((preset) => ({ ...preset }))
       }
       throw error
     }
     const replies = storedChatQuickReplies(value)
     if (replies === null) {
       this.logger.warn(`Invalid ${key} in config, using the default presets`)
-      return [...fallback]
+      return fallback.map((preset) => ({ ...preset }))
     }
     return replies
   }

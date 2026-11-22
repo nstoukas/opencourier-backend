@@ -1,4 +1,5 @@
 import { BoxSize } from '@prisma/types'
+import { ChatPreset } from 'src/shared-types/config'
 import {
   EnumCourierCompensationCalculationType,
   EnumCourierDietaryRestrictions,
@@ -72,8 +73,8 @@ export class InstanceConfigSettingsInput {
   shiftDropNoticeHours?: number
   dispatchPhoneNumber?: string
   cancellationPayoutPolicy?: string
-  chatQuickRepliesDispatch?: string[]
-  chatQuickRepliesCourier?: string[]
+  chatQuickRepliesDispatch?: (ChatPreset | string)[]
+  chatQuickRepliesCourier?: (ChatPreset | string)[]
   chatRetentionDays?: number
   addressNoteRetentionDays?: number
   reviewAnswerDays?: number

@@ -1,4 +1,9 @@
 import * as common from '@nestjs/common'
+import { ChatPreset } from 'src/shared-types/config'
+import { DEFAULT_LANGUAGE, Language } from 'src/localization/translate'
+import { chatPresetText } from 'src/domains/config/chat-quick-replies'
+import { CurrentUser } from 'src/decorators/currentUser.decorator'
+import { UserEntity } from 'src/domains/user/entities/user.entity'
 import * as swagger from '@nestjs/swagger'
 import { SkipThrottle } from '@nestjs/throttler'
 import { EnumUserRole } from '@prisma/types'
@@ -11,11 +16,15 @@ import * as errors from 'src/errors'
 import { ChatMessagePartyDto, ChatMessagesPartyDto } from '../dtos/chat-message.dto'
 import { ChatMessagesArgs, ChatSendInputDto } from '../dtos/chat.inputs'
 
+// Spec 0054 (AC-7): the presets in the rider's language (the other one when a preset has none), and both
+// languages, so the app can follow a language switched on the phone before the server knows it.
 export class ChatQuickRepliesCourierDto {
   @swagger.ApiProperty({ type: String, isArray: true }) replies: string[]
+  @swagger.ApiProperty({ type: Object, isArray: true }) presets: ChatPreset[]
 
-  constructor(replies: string[]) {
-    this.replies = replies
+  constructor(presets: ChatPreset[], language: Language = DEFAULT_LANGUAGE) {
+    this.presets = presets
+    this.replies = presets.map((preset) => chatPresetText(preset, language))
   }
 }
 
@@ -65,7 +74,7 @@ export class ChatCourierRestApiController {
   @swagger.ApiUnauthorizedResponse({ type: errors.UnauthorizedException })
   @swagger.ApiOperation({ summary: "The co-op's one tap presets for riders" })
   @Roles(EnumUserRole.COURIER)
-  async quickReplies(): Promise<ChatQuickRepliesCourierDto> {
-    return new ChatQuickRepliesCourierDto(await this.chatDomainService.courierQuickReplies())
+  async quickReplies(@CurrentUser() user?: UserEntity): Promise<ChatQuickRepliesCourierDto> {
+    return new ChatQuickRepliesCourierDto(await this.chatDomainService.courierQuickReplies(), user?.language)
   }
 }

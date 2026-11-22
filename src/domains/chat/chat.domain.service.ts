@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { ChatPreset } from 'src/shared-types/config'
 import { EnumChatSenderKind, EnumCourierStatus, EnumDeliveryStatus } from '@prisma/types'
 import { CHAT_MESSAGE_MAX_LENGTH } from 'src/constants'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
@@ -52,7 +53,8 @@ export type ChatThreadDetail = {
   courierStatus: EnumCourierStatus | null
   activeDeliveries: { id: string; orderReference: string | null; status: EnumDeliveryStatus }[]
   moreActiveDeliveries: number
-  quickReplies: string[]
+  // Spec 0054 (AC-7): both languages; the controller picks the reader's.
+  quickReplies: ChatPreset[]
   dispatchLastReadAt: Date | null
 }
 
@@ -297,7 +299,7 @@ export class ChatDomainService {
   }
 
   // AC-13: a rider's presets.
-  async courierQuickReplies(): Promise<string[]> {
+  async courierQuickReplies(): Promise<ChatPreset[]> {
     return this.configDomainService.instanceConfig.getChatQuickRepliesCourier()
   }
 
