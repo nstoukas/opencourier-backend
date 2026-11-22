@@ -27,6 +27,10 @@ export const TASK_RUNNER_SECRET = 'TASK_RUNNER_SECRET'
 // Minio specific
 export const MINIO_USER = 'MINIO_USER'
 export const MINIO_PASSWORD = 'MINIO_PASSWORD'
+// Spec 0052 (slice 2): where complaint photos are kept. MINIO_ENDPOINT unset turns photos off; the bucket
+// defaults to `complaints` and is made private at startup when missing.
+export const MINIO_ENDPOINT = 'MINIO_ENDPOINT'
+export const MINIO_BUCKET_COMPLAINTS = 'MINIO_BUCKET_COMPLAINTS'
 
 //Used by providers/secrets/secretsManager.module
 export const JWT_SECRET_KEY = 'JWT_SECRET_KEY'

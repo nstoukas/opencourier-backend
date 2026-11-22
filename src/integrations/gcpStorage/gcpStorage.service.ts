@@ -1,10 +1,13 @@
 import { Global, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Bucket, Storage } from '@google-cloud/storage'
+import { Readable } from 'stream'
 import { GCP_BUCKET_NAME, GCP_PROJECT_NAME } from '../../constants'
-import { InvalidDataException } from '../../errors'
-import { StorageProvider } from '../../services/storage/models/StorageProvider'
+import { StorageProvider, StoredFileNotFoundError } from '../../services/storage/models/StorageProvider'
 
+// Upstream's Google Cloud storage, not wired into any module (app.module.ts keeps it commented out).
+// Spec 0052 moved it to the put / getStream / delete contract the MinIO storage implements, and
+// dropped its public URL methods, which nothing called: stored files are never handed out by URL.
 @Global()
 @Injectable()
 export class GcpStorageService extends StorageProvider {
@@ -26,25 +29,18 @@ export class GcpStorageService extends StorageProvider {
     this.bucket = storage.bucket(bucketName)
   }
 
-  async deleteFile(filePath: string) {
-    await this.bucket.file(filePath).delete({ ignoreNotFound: true })
+  async put(key: string, data: Buffer, contentType: string) {
+    await this.bucket.file(key).save(data, { contentType })
   }
 
-  async deleteFileByUrl(fileUrl: string) {
-    const filePath = fileUrl.split(`/${this.bucket.name}/`)[1]
-    if (!filePath) {
-      throw new InvalidDataException('Filepath cannot be found from the file URL')
-    }
-    await this.deleteFile(filePath)
+  async getStream(key: string): Promise<Readable> {
+    const file = this.bucket.file(key)
+    const [exists] = await file.exists()
+    if (!exists) throw new StoredFileNotFoundError(key)
+    return file.createReadStream()
   }
 
-  async uploadFile(file: Express.Multer.File, filePath: string) {
-    return this.uploadBuffer(file.buffer, filePath)
-  }
-
-  async uploadBuffer(data: Buffer, filePath: string) {
-    const bucketFile = this.bucket.file(filePath)
-    await bucketFile.save(data)
-    return { publicUrl: bucketFile.publicUrl() }
+  async delete(key: string) {
+    await this.bucket.file(key).delete({ ignoreNotFound: true })
   }
 }
