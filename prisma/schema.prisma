@@ -1659,6 +1659,10 @@ model Complaint {
   // AWAITING_REPLY), null once closed: one open complaint per filer per delivery (cross check 6).
   // Null for an admin's filing, which is made on behalf of whoever called in.
   openFor   String?               @unique
+  // Slice 2: the key of the one photo a rider may attach, in the private MinIO `complaints` bucket
+  // (random, never a URL). Read only through the rider's and the admin's photo routes. A hand written
+  // CHECK keeps it on a rider's filing only.
+  photoKey  String?               @postgres.VarChar(100)
 
   deliveryId     String
   delivery       Delivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict)

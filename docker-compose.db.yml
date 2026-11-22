@@ -34,5 +34,22 @@ services:
     ports:
       - '1025:1025'
       - '8025:8025'
+  # Spec 0052 (row 83, slice 2): private file storage for complaint photos. The backend makes the
+  # `complaints` bucket at startup (private: no anonymous read); its console is http://localhost:9001.
+  # Same service as docker-compose.minio.yml, with the same name, so the two files share one container.
+  minio:
+    container_name: opencourier-minio
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - 'minio:/data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+      MINIO_DEFAULT_BUCKETS: nosh
 volumes:
   postgres: ~
+  minio: ~

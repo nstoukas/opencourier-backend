@@ -1,6 +1,8 @@
 version: '3'
 services:
   minio:
+    # The same name as in docker-compose.db.yml (spec 0052), so both files share one container.
+    container_name: opencourier-minio
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     ports:
