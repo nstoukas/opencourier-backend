@@ -39,7 +39,8 @@ services:
   # Same service as docker-compose.minio.yml, with the same name, so the two files share one container.
   minio:
     container_name: opencourier-minio
-    image: minio/minio:latest
+    # Pinned by digest to the image the dev stack runs (RELEASE.2025-09-07T16-13-09Z): `latest` moves.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data --console-address ":9001"
     ports:
       - '9000:9000'
@@ -49,7 +50,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
-      MINIO_DEFAULT_BUCKETS: nosh
 volumes:
   postgres: ~
   minio: ~
