@@ -20,7 +20,7 @@ import type {
 } from 'src/shared-types/delivery-events'
 import { boxUnitsFor, wouldOverfillBox, RIDER_BOX_UNITS } from './box'
 import { OrderLeg, missingLegNumbers } from './legs'
-import { STACK_CHANGED_SENTENCE, STACK_NOT_AUTOMATIC_SENTENCE } from './stack'
+import { STACK_CHANGED_SENTENCE } from './stack'
 import { ADD_ON_NOT_AUTOMATIC_SENTENCE, isAddOnOffer } from './add-on'
 import { adminLabel } from 'src/domains/partner-billing/billing-month'
 import { ConflictException, BadRequestException, Injectable, Logger } from '@nestjs/common'
@@ -441,10 +441,10 @@ export class DeliveryDomainService {
     }
 
     // Spec 0048 (AC-5): an offer of two orders together is accepted as a pair, by either delivery.
+    // Decision 128.0 (AC-8 as amended): the phone's auto accept takes a pair like a single order. The box
+    // limit (spec 0043) and the cap of two were already checked when the pair was offered, so it always fits.
     if (delivery.offerGroupId && !alone) {
-      // A pair is never accepted by the phone on its own: the rider must check both bags fit (AC-8, Follow-up).
-      if (automatic) throw new ConflictException(STACK_NOT_AUTOMATIC_SENTENCE)
-      return this.acceptStack(delivery, courierId)
+      return this.acceptStack(delivery, courierId, automatic)
     }
     // Row 81 (AC-8): one more order on the way is never accepted by the phone on its own either: the rider
     // must see what it adds to the job they are on. The rider's own accept goes through as a single one.
@@ -528,7 +528,9 @@ export class DeliveryDomainService {
   // one first. If the first ACCEPTED does not take, both offers are given back as they were. If only the
   // second does not, the first stands and the minute sweep completes the second (completeTakenStackAccepts).
   // Each delivery keeps its own pay, fixed at the offer from its own quote (AC-9).
-  private async acceptStack(delivery: DeliveryEntity, courierId: string) {
+  // `automatic` (decision 128.0): the phone's auto accept took the pair; both ACCEPTED messages say so,
+  // the only place it is recorded (value 5), exactly as for a single order.
+  private async acceptStack(delivery: DeliveryEntity, courierId: string, automatic = false) {
     const groupId = delivery.offerGroupId as string
     // Read before the take, for the other delivery's id and deadline should the accept have to be given back.
     const members = await this.deliveryRepository.findOpenGroupMembers(groupId, courierId, delivery.offeredAt)
@@ -566,8 +568,12 @@ export class DeliveryDomainService {
         courierId,
         source: EnumDeliveryEventSource.OPENCOURIER,
         ...(other
-          ? eventText('ACCEPTED_TOGETHER', { courierId, deliveryId: member.id, otherDeliveryId: other.id })
-          : eventText('ACCEPTED', { courierId, deliveryId: member.id })),
+          ? eventText(automatic ? 'ACCEPTED_TOGETHER_AUTOMATICALLY' : 'ACCEPTED_TOGETHER', {
+              courierId,
+              deliveryId: member.id,
+              otherDeliveryId: other.id,
+            })
+          : eventText(automatic ? 'ACCEPTED_AUTOMATICALLY' : 'ACCEPTED', { courierId, deliveryId: member.id })),
       })
       const after = await this.deliveryRepository.findByIdOrThrow(member.id)
       return !(after.status === EnumDeliveryStatus.ASSIGNING_COURIER && after.courierId === courierId)

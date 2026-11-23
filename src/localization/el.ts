@@ -44,6 +44,8 @@ export const el: Translations = {
       ACCEPTED_AUTOMATICALLY: 'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}} (αυτόματη αποδοχή)',
       ACCEPTED_TOGETHER:
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}}, που προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}}',
+      ACCEPTED_TOGETHER_AUTOMATICALLY:
+        'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}}, που προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}} (αυτόματη αποδοχή)',
       ACCEPTED_BY_SWEEP:
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}} ως μία από δύο παραγγελίες που προτάθηκαν μαζί· ολοκληρώθηκε από τον έλεγχο του λεπτού',
       REJECTED: 'Ο διανομέας {{courierId}} απέρριψε την παραγγελία {{deliveryId}}',
@@ -242,7 +244,6 @@ export const el: Translations = {
       USUAL_PREP_MINUTES: 'Ο συνηθισμένος χρόνος προετοιμασίας είναι ακέραιος αριθμός λεπτών από 0 έως 90.',
       STACK_CHANGED:
         'Μία από τις δύο παραγγελίες άλλαξε πριν φτάσει η απάντησή σας, οπότε δεν έγινε αποδοχή. Ελέγξτε ξανά τις προτάσεις σας.',
-      STACK_NOT_AUTOMATIC: 'Ένα ζεύγος παραγγελιών δεν γίνεται ποτέ αποδεκτό αυτόματα. Ανοίξτε το και επιλέξτε.',
       THIRD_DELIVERY_REFUSED:
         'Ο διανομέας έχει ήδη δύο παραγγελίες. Τρίτη δεν επιτρέπεται ποτέ· μεταφέρετε πρώτα μία από αυτές.',
       PERSONAL_DATA_WARNING:

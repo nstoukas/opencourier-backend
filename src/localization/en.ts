@@ -42,6 +42,8 @@ export const en = {
       ACCEPTED_AUTOMATICALLY: 'Courier {{courierId}} accepted delivery {{deliveryId}} (accepted automatically)',
       ACCEPTED_TOGETHER:
         'Courier {{courierId}} accepted delivery {{deliveryId}}, offered together with delivery {{otherDeliveryId}}',
+      ACCEPTED_TOGETHER_AUTOMATICALLY:
+        'Courier {{courierId}} accepted delivery {{deliveryId}}, offered together with delivery {{otherDeliveryId}} (accepted automatically)',
       ACCEPTED_BY_SWEEP:
         'Courier {{courierId}} accepted delivery {{deliveryId}} as part of two orders offered together; completed by the minute sweep',
       REJECTED: 'Courier {{courierId}} rejected delivery {{deliveryId}}',
@@ -228,7 +230,6 @@ export const en = {
       USUAL_PREP_MINUTES: 'The usual prep time is a whole number of minutes from 0 to 90.',
       STACK_CHANGED:
         'One order of this pair changed before your answer arrived, so nothing was accepted. Check your offers again.',
-      STACK_NOT_AUTOMATIC: 'A pair of orders is never accepted automatically. Open it and choose.',
       THIRD_DELIVERY_REFUSED:
         'This rider already holds two orders. A third is never allowed; move one of theirs first.',
       PERSONAL_DATA_WARNING:

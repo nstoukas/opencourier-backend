@@ -190,14 +190,14 @@ export class WorkRulesService {
         `Offers go out about ${settings.offerLeadMinutes} minutes before the restaurant says the food is ready.`
       )
     }
-    // Spec 0048 (AC-1): stacked orders, said only while the co-op has them on.
+    // Spec 0048 (AC-1): stacked orders, said only while the co-op has them on. Decision 128.0: auto accept takes a pair.
     if (settings.stackingEnabled) {
       offers.push(
         `Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens ${
           settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
             ? 'whenever the two fit'
             : 'only when one of them found no free rider'
-        }. You take or decline both at once, and a pair is never accepted automatically. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
+        }. You take or decline both at once, and with auto accept on your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
           settings.twoOrderDelayLimitMinutes
         } minutes later than it would alone, and both orders always fit in your box.`
       )

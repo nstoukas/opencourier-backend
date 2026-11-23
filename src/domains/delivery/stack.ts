@@ -18,10 +18,6 @@ export const MAX_DELIVERIES_HELD = 2
 export const THIRD_DELIVERY_REFUSED_SENTENCE =
   'This rider already holds two orders. A third is never allowed; move one of theirs first.'
 
-// What a phone reads when its automatic accept reaches a stack: a pair is never accepted on its own,
-// because the rider must check that both bags fit (spec 0048, AC-8 and Follow-up).
-export const STACK_NOT_AUTOMATIC_SENTENCE = 'A pair of orders is never accepted automatically. Open it and choose.'
-
 // What a rider reads when one order of their pair was taken or ended before their accept arrived (AC-5).
 // Nothing was accepted; their offers screen shows what is still open.
 export const STACK_CHANGED_SENTENCE =

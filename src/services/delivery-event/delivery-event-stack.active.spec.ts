@@ -14,7 +14,6 @@ import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import {
   MAX_DELIVERIES_HELD,
   STACK_CHANGED_SENTENCE,
-  STACK_NOT_AUTOMATIC_SENTENCE,
   THIRD_DELIVERY_REFUSED_SENTENCE,
 } from 'src/domains/delivery/stack'
 import { DeliveryEventService } from './delivery-event.service'
@@ -23,7 +22,7 @@ import { DeliveryEventService } from './delivery-event.service'
 // Covers:
 // - AC-4: stack offer formation, shared offerGroupId, OFFERED events with kind STACK and sequence
 // - AC-5: group accept (both taken), race refusal (409 STACK_CHANGED_SENTENCE), group decline and expiry
-// - AC-8: automatic accept refusal (409 STACK_NOT_AUTOMATIC_SENTENCE)
+// - AC-8 (amended by decision 128.0): an automatic accept takes a pair, both ACCEPTED messages marked automatic
 // - AC-9: safety rule (each delivery paid its own full fee from stored quote, never reduced)
 // - AC-11 / Cross check 10: third delivery refusal (409 THIRD_DELIVERY_REFUSED_SENTENCE on hand offer/reassign)
 describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
@@ -207,20 +206,43 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
   })
 
   // =========================================================================
-  // AC-8: Automatic accept refusal
+  // AC-8: Automatic accept takes a pair (decision 128.0; add ons stay refused, see add-on.active.spec.ts)
   // =========================================================================
-  describe('AC-8: automatic accept refusal', () => {
-    it('refuses an accept carrying automatic: true on a grouped offer with 409 STACK_NOT_AUTOMATIC_SENTENCE', async () => {
-      const delivery = makeDelivery('del-grouped', { offerGroupId: 'grp-stack-1' })
-      mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(delivery)
+  describe('AC-8: automatic accept of a pair', () => {
+    it('accepts both orders of a grouped offer on automatic: true, each ACCEPTED message marked automatic', async () => {
+      const del1 = makeDelivery('del-1')
+      const del2 = makeDelivery('del-2')
+      mockDeliveryRepo.findByIdOrThrow
+        .mockResolvedValueOnce(del1) // Initial read
+        .mockResolvedValueOnce(new DeliveryEntity({ ...del1, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-1
+        .mockResolvedValueOnce(new DeliveryEntity({ ...del2, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-2
+      mockDeliveryRepo.findOpenGroupMembers.mockResolvedValueOnce([del1, del2])
+      mockDeliveryRepo.takeOfferGroup.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
 
-      const call = deliveryDomainService.acceptDelivery('del-grouped', courierId, true)
+      const result = await deliveryDomainService.acceptDelivery('del-1', courierId, true)
 
-      await expect(call).rejects.toBeInstanceOf(ConflictException)
-      await expect(call).rejects.toMatchObject({
-        message: STACK_NOT_AUTOMATIC_SENTENCE,
-      })
-      expect(mockDeliveryRepo.takeOfferGroup).not.toHaveBeenCalled()
+      expect(result.id).toBe('del-1')
+      expect(mockDeliveryRepo.takeOfferGroup).toHaveBeenCalledWith(offerGroupId, courierId, offeredAt)
+      expect(processSpy).toHaveBeenCalledTimes(2)
+      expect(processSpy).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          deliveryId: 'del-1',
+          type: EnumDeliveryEventType.ACCEPTED,
+          courierId,
+          messageCode: 'ACCEPTED_TOGETHER_AUTOMATICALLY',
+        })
+      )
+      expect(processSpy).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          deliveryId: 'del-2',
+          type: EnumDeliveryEventType.ACCEPTED,
+          courierId,
+          messageCode: 'ACCEPTED_TOGETHER_AUTOMATICALLY',
+        })
+      )
     })
   })
 
