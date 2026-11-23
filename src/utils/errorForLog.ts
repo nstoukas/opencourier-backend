@@ -99,3 +99,14 @@ export function describeError(error: unknown): string {
     .filter((part) => typeof part === 'string' || typeof part === 'number')
     .join(' ')
 }
+
+// What a failed step's event note may keep (scope row 143). The note sits in the audit record that riders and
+// admins read, so it keeps this codebase's own sentence unchanged, as it always has, for any error but a Prisma
+// one, whose message can repeat the call's data (a name, a phone); that one is noted by its name and code.
+// A thrown value that is not an Error is noted by its type, as in the logs.
+export function errorNoteForRecord(error: unknown): string {
+  if (error instanceof Error && !isPrismaError(error)) {
+    return error.message
+  }
+  return describeErrorForLog(error).summary
+}

@@ -126,7 +126,7 @@ import { RemovalRequestRepository } from 'src/persistence/repositories/removal-r
 import { roundMoney } from 'src/core/utils/money'
 import { EventText, eventPart, eventText, storedEventText } from 'src/domains/delivery-event/event-text'
 import { EventPart } from 'src/shared-types/event-messages'
-import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
+import { describeErrorForLog, errorNoteForRecord, errorSummaryForLog } from 'src/utils/errorForLog'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -627,8 +627,10 @@ export class DeliveryEventService {
         transitionSuccessful: false,
         oldStatus: currentStatus, // the status the Delivery was in when the attempt failed
         newStatus, // the status the state machine said the attempt was heading for
-        // The error's own sentence, as before: a developer's English, kept untranslated as a note.
-        text: eventText('TRANSITION_FAILED', { note: (error as Error).message }),
+        // The error's own sentence, a developer's English kept untranslated as a note. Row 143: never a Prisma
+        // error's message, which can repeat the call's data (a name, a phone) into the audit record riders and
+        // admins read; that one is noted by its name and code only (errorNoteForRecord).
+        text: eventText('TRANSITION_FAILED', { note: errorNoteForRecord(error) }),
       })
     }
   }
