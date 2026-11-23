@@ -26,11 +26,11 @@ const MATCHER_NAMES: Record<string, string> = {
   FAIRNESS: 'a fair share: road time, earnings today and waiting, weighed as the co-op set',
 }
 
-function isMissing(value: unknown): boolean {
+export function isMissing(value: unknown): boolean {
   return value === null || value === undefined || value === ''
 }
 
-function asNumber(value: unknown): number | null {
+export function asNumber(value: unknown): number | null {
   if (isMissing(value)) return null
   const number = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(number) ? number : null

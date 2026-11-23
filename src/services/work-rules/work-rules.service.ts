@@ -17,6 +17,7 @@ import {
 } from 'src/shared-types/rider-facing-settings'
 import { RIDER_REACH_MONTHS } from 'src/services/time-worked/time-worked.service'
 import { EL_WORDS } from './work-rules.el'
+import { riderFacingSettingEl } from 'src/shared-types/rider-facing-settings.el'
 
 // The "How offers and pay work" page (spec 0038, AC-11): plain sentences built from the settings in
 // effect at the moment it is asked for, so it can never go stale. The sentences are fixed text tied
@@ -351,11 +352,15 @@ export class WorkRulesService {
   // AC-13: the rider facing changes, newest first. Credited to "a representative" by the app, never
   // to a person. A removal reason edit that changed only what the restaurant pays reads the same to a
   // rider on both sides, so it is left out of the page.
-  async riderChanges(options: { page?: number; perPage?: number }): Promise<PaginatedResult<RiderSettingChange>> {
+  // Row 137: worded in the rider's language, like the page above it; English when not asked.
+  async riderChanges(
+    options: { page?: number; perPage?: number },
+    lang: WorkRulesLang = 'en'
+  ): Promise<PaginatedResult<RiderSettingChange>> {
     const context = formatContext(await this.configDomainService.instanceConfig.getInstanceConfigSettings())
     const page = await this.settingChangeRepository.findPage({ ...options, keys: RIDER_FACING_SETTING_KEYS })
     const lines = page.data
-      .map((change) => toRiderLine(change, context))
+      .map((change) => toRiderLine(change, context, lang))
       .filter((line) => line.oldText !== line.newText)
     return { data: lines, pagination: page.pagination }
   }
@@ -390,9 +395,16 @@ function formatContext(settings: InstanceConfigSettings): SettingFormatContext {
   return { distanceUnit: String(settings.distanceUnit), currency: String(settings.currency) }
 }
 
-function toRiderLine(change: SettingChangeWithAdmin, context: SettingFormatContext): RiderSettingChange {
+function toRiderLine(
+  change: SettingChangeWithAdmin,
+  context: SettingFormatContext,
+  lang: WorkRulesLang
+): RiderSettingChange {
   // The list is read by RIDER_FACING_SETTING_KEYS, so every row has an entry; the fallback is a guard.
-  const setting = RIDER_FACING_SETTINGS[change.key] ?? { label: change.key, format: (value: unknown) => String(value) }
+  const setting = (lang === 'el' ? riderFacingSettingEl(change.key) : RIDER_FACING_SETTINGS[change.key]) ?? {
+    label: change.key,
+    format: (value: unknown) => String(value),
+  }
   return {
     at: change.createdAt,
     label: setting.label,

@@ -28,8 +28,13 @@ export class SettingChangeCourierRestApiController {
   @common.Get('setting-changes')
   @swagger.ApiOkResponse({ type: SettingChangeCourierPageDto })
   @swagger.ApiOperation({ summary: 'Changes to the settings that affect my work, newest first' })
+  // Row 137: the same language choice as how-it-works.
+  @swagger.ApiQuery({ name: 'lang', required: false, enum: ['el', 'en'] })
   @Roles(EnumUserRole.COURIER)
-  async changes(@common.Query() args: ReviewPageArgs): Promise<SettingChangeCourierPageDto> {
-    return this.workRulesService.riderChanges(args)
+  async changes(
+    @common.Query() args: ReviewPageArgs,
+    @common.Query('lang') lang?: string
+  ): Promise<SettingChangeCourierPageDto> {
+    return this.workRulesService.riderChanges({ page: args.page, perPage: args.perPage }, lang === 'el' ? 'el' : 'en')
   }
 }
