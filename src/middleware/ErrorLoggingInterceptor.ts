@@ -45,7 +45,10 @@ export class ErrorLoggingInterceptor implements NestInterceptor {
           return throwError(() => err)
         }
         if (err instanceof Error && isRecordNotFoundError(err)) {
-          this.logger.warn(`Endpoint answered 404 for a missing row: ${routeOf(context)} ${err.message}`)
+          // Row 132 review: Prisma's own text, many lines with source and cause, never goes in the line.
+          this.logger.warn(
+            `Endpoint answered 404 for a missing row: ${routeOf(context)} ${describeErrorForLog(err).summary}`
+          )
           return throwError(() => err)
         }
         // Row 132: never the whole error, whose fields (a Prisma call's data) can name a customer.

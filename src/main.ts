@@ -4,6 +4,7 @@ import { HttpAdapterHost, NestFactory, Reflector } from '@nestjs/core'
 import { WinstonModule } from 'nest-winston'
 import * as Sentry from '@sentry/node'
 import { HttpExceptionFilter } from './filters/HttpExceptions.filter'
+import { UnknownErrorsFilter } from './filters/UnknownErrors.filter'
 import { AppModule } from './app.module'
 import { setupLegacyDocs, setupCourierDocs, setupAdminDocs, setupPartnerDocs } from './swagger'
 import { getLogger } from './services/logger'
@@ -75,7 +76,9 @@ async function main() {
   }
 
   const { httpAdapter } = app.get(HttpAdapterHost)
-  app.useGlobalFilters(new HttpExceptionFilter(httpAdapter))
+  // Row 132: UnknownErrorsFilter first, so HttpExceptionFilter (tried first, as Nest goes from the last
+  // registered) keeps its errors and the catch all gets only the rest, logged without their data.
+  app.useGlobalFilters(new UnknownErrorsFilter(), new HttpExceptionFilter(httpAdapter))
 
   await app.listen(PORT)
   logger.info(`Started server on port ${PORT}`)

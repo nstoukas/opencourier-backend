@@ -12,8 +12,10 @@ export type ErrorForLog = {
 }
 
 // A Prisma error, from any copy of the client (they are told apart by name, as prisma.util.ts does).
+// `name` is checked to be text first: a thrown object can carry anything there, and this helper runs inside
+// the error handlers, where a second error would hide the first.
 function isPrismaError(error: Error): boolean {
-  return error.name.startsWith('Prisma') || error.name === 'NotFoundError'
+  return typeof error.name === 'string' && (error.name.startsWith('Prisma') || error.name === 'NotFoundError')
 }
 
 // The "    at ..." lines of a stack, without the header lines that repeat the message.
@@ -26,9 +28,32 @@ function stackFrames(stack: string | undefined): string | undefined {
 }
 
 // The error's code: Prisma's (P2002 and the like) or this codebase's ApiException code, as text.
+// A Prisma initialization error keeps its code in `errorCode` (P1001: the database cannot be reached).
 function codeOf(error: Error): string | undefined {
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' || typeof code === 'number' ? String(code) : undefined
+  const { code, errorCode } = error as { code?: unknown; errorCode?: unknown }
+  const found = code ?? errorCode
+  return typeof found === 'string' || typeof found === 'number' ? String(found) : undefined
+}
+
+// The only parts of a Prisma error's `meta` that are logged: the model and the target (field or constraint
+// names, as in a P2002), and only when they are text. Values never appear there; anything else in `meta`
+// might hold them, so it is left out (review of row 132).
+function prismaMetaOf(error: Error): string {
+  const meta = (error as { meta?: unknown }).meta
+  if (typeof meta !== 'object' || meta === null) {
+    return ''
+  }
+  const { modelName, target } = meta as { modelName?: unknown; target?: unknown }
+  const parts: string[] = []
+  if (typeof modelName === 'string') {
+    parts.push(`model ${modelName}`)
+  }
+  if (typeof target === 'string') {
+    parts.push(`target ${target}`)
+  } else if (Array.isArray(target) && target.every((item) => typeof item === 'string')) {
+    parts.push(`target ${target.join(', ')}`)
+  }
+  return parts.length > 0 ? ` [${parts.join('; ')}]` : ''
 }
 
 export function describeErrorForLog(error: unknown): ErrorForLog {
@@ -37,11 +62,18 @@ export function describeErrorForLog(error: unknown): ErrorForLog {
     return { summary: `A value that is not an Error was thrown (${error === null ? 'null' : typeof error})` }
   }
   const code = codeOf(error)
-  const head = code ? `${error.name} ${code}` : error.name
+  const name = typeof error.name === 'string' ? error.name : 'Error'
+  const head = code ? `${name} ${code}` : name
   if (isPrismaError(error)) {
-    return { summary: `${head} (message withheld: it can repeat the call's data)`, stack: stackFrames(error.stack) }
+    return {
+      summary: `${head}${prismaMetaOf(error)} (message withheld: it can repeat the call's data)`,
+      stack: stackFrames(error.stack),
+    }
   }
-  return { summary: `${head}: ${error.message}`, stack: stackFrames(error.stack) }
+  return {
+    summary: `${head}: ${error.message}`,
+    stack: stackFrames(typeof error.stack === 'string' ? error.stack : undefined),
+  }
 }
 
 // The same, as one block of text for console output: the summary, then the frames.
