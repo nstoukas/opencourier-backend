@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { describeErrorForLog, errorForConsole, errorSummaryForLog } from './errorForLog'
+import { describeErrorForLog, errorForConsole, errorNoteForRecord, errorSummaryForLog } from './errorForLog'
 import { Prisma } from '@prisma/types'
 import { ApiException, ErrorCode } from '../errors'
 
@@ -566,6 +566,148 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
         Object.defineProperty(err, 'name', { value: 123 })
         const logged = describeErrorForLog(err)
         expect(logged.summary).toBe('Error FAIL_CODE: Failure with code')
+      })
+    })
+  })
+
+  describe('Row 143: errorNoteForRecord helper', () => {
+    it('exports errorNoteForRecord function', () => {
+      expect(typeof errorNoteForRecord).toBe('function')
+    })
+
+    describe('Clause 1 & 3: Prisma errors withhold message, keeping name and code only', () => {
+      it('withholds message and data for Prisma.PrismaClientValidationError carrying customer name and phone', () => {
+        const validationMessage = `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`
+        const prismaValidationError = new Prisma.PrismaClientValidationError(validationMessage, {
+          clientVersion: '5.3.1',
+        })
+
+        const note = errorNoteForRecord(prismaValidationError)
+
+        expect(note).toBe("PrismaClientValidationError (message withheld: it can repeat the call's data)")
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(note).not.toContain('prisma.delivery.create')
+        expect(note).toContain('PrismaClientValidationError')
+      })
+
+      it('withholds message and data for Prisma.PrismaClientKnownRequestError with code and meta', () => {
+        const rawMessage = `Unique constraint failed on (phone) for ${recipientName} (${recipientPhone})`
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError(rawMessage, {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'Delivery', target: ['phone'] },
+        })
+
+        const note = errorNoteForRecord(prismaKnownError)
+
+        expect(note).toBe(
+          "PrismaClientKnownRequestError P2002 [model Delivery; target phone] (message withheld: it can repeat the call's data)"
+        )
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(note).not.toContain('Unique constraint')
+        expect(note).toContain('PrismaClientKnownRequestError')
+        expect(note).toContain('P2002')
+      })
+
+      it('withholds message for Prisma.PrismaClientKnownRequestError without meta', () => {
+        const rawMessage = `Transaction failed for ${recipientName} (${recipientPhone})`
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError(rawMessage, {
+          code: 'P2034',
+          clientVersion: '5.3.1',
+        })
+
+        const note = errorNoteForRecord(prismaKnownError)
+
+        expect(note).toBe(
+          "PrismaClientKnownRequestError P2034 (message withheld: it can repeat the call's data)"
+        )
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(note).toContain('PrismaClientKnownRequestError')
+        expect(note).toContain('P2034')
+      })
+
+      it('withholds message for Prisma.NotFoundError', () => {
+        const notFoundError = new Prisma.NotFoundError(
+          `No Delivery found for ${recipientName} ${recipientPhone}`,
+          '5.3.1'
+        )
+
+        const note = errorNoteForRecord(notFoundError)
+
+        expect(note).toBe("NotFoundError P2025 (message withheld: it can repeat the call's data)")
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(note).toContain('NotFoundError')
+        expect(note).toContain('P2025')
+      })
+    })
+
+    describe("Clause 2: Non-Prisma errors keep this codebase's error sentence word for word", () => {
+      it('keeps the sentence exactly unchanged for standard Error with no class name in front', () => {
+        const sentence = 'Delivery status cannot be changed while order is being prepared'
+        const stdError = new Error(sentence)
+
+        const note = errorNoteForRecord(stdError)
+
+        expect(note).toBe(sentence)
+        expect(note).not.toMatch(/^Error:/)
+      })
+
+      it('keeps the sentence exactly unchanged for ApiException with no class name or code in front', () => {
+        const sentence = 'WAIT_UNDISPATCHED is recorded by a rider leaving only'
+        const apiEx = new ApiException(ErrorCode.BAD_REQUEST, sentence, 400)
+
+        const note = errorNoteForRecord(apiEx)
+
+        expect(note).toBe(sentence)
+        expect(note).not.toContain('ApiException')
+        expect(note).not.toContain('BAD_REQUEST')
+      })
+
+      it('keeps the sentence exactly unchanged for custom Error with code', () => {
+        const sentence = 'Custom delivery transition refusal'
+        const customError = Object.assign(new Error(sentence), {
+          code: 'TRANSITION_REFUSED',
+        })
+
+        const note = errorNoteForRecord(customError)
+
+        expect(note).toBe(sentence)
+        expect(note).not.toContain('TRANSITION_REFUSED')
+      })
+    })
+
+    describe('Clause 1: Thrown non-Error values are noted by type without content', () => {
+      it('notes thrown string by type only, never containing phone', () => {
+        const thrownPhone = '+306912345678'
+        const note = errorNoteForRecord(thrownPhone)
+
+        expect(note).toBe('A value that is not an Error was thrown (string)')
+        expect(note).not.toContain(thrownPhone)
+      })
+
+      it('notes thrown object by type only, never containing customer data', () => {
+        const thrownObj = { phone: recipientPhone, name: recipientName }
+        const note = errorNoteForRecord(thrownObj)
+
+        expect(note).toBe('A value that is not an Error was thrown (object)')
+        expect(note).not.toContain(recipientPhone)
+        expect(note).not.toContain(recipientName)
+      })
+
+      it('notes thrown null as "null"', () => {
+        expect(errorNoteForRecord(null)).toBe('A value that is not an Error was thrown (null)')
+      })
+
+      it('notes thrown undefined as "undefined"', () => {
+        expect(errorNoteForRecord(undefined)).toBe('A value that is not an Error was thrown (undefined)')
+      })
+
+      it('notes thrown number as "number"', () => {
+        expect(errorNoteForRecord(500)).toBe('A value that is not an Error was thrown (number)')
       })
     })
   })

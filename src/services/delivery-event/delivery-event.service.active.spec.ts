@@ -5,6 +5,7 @@ import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
   EnumEventActor,
+  Prisma,
 } from '@prisma/types'
 import { DeliveryEventService } from './delivery-event.service'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
@@ -282,6 +283,161 @@ describe('DeliveryEventService', () => {
       // No event created and no delivery update attempted
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalled()
       expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+    })
+
+    // Scope Row 143: A failed transition's event note holds the error's summary, never a Prisma error's message
+    describe('failed transition event note privacy (Row 143)', () => {
+      const recipientName = 'Dimitra Anagnostopoulou'
+      const recipientPhone = '+306939998877'
+
+      it('stores PrismaClientKnownRequestError summary and withholding note, never raw message carrying name or phone, on failed transition', async () => {
+        // Setup delivery in ASSIGNING_COURIER with an assigned courierId
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+          id: 'del-prisma-fail',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-456',
+        } as any)
+
+        // Make updateIfMatches reject with a real Prisma error containing recipient name and phone
+        const prismaError = new Prisma.PrismaClientKnownRequestError(
+          `Unique constraint failed on (dropoffPhoneNumber) for ${recipientName} (${recipientPhone})`,
+          {
+            code: 'P2002',
+            clientVersion: '5.3.1',
+            meta: { modelName: 'Delivery', target: ['dropoffPhoneNumber'] },
+          }
+        )
+        mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(prismaError)
+
+        const dispatchedEvent: DeliveryDispatchedEvent = {
+          deliveryId: 'del-prisma-fail',
+          type: EnumDeliveryEventType.DISPATCHED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          message: 'Dispatching order',
+        }
+
+        await service.processDeliveryEvent(dispatchedEvent)
+
+        expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
+        const createPayload = mockDeliveryEventRepository.create.mock.calls[0]![0]
+
+        // Assert TRANSITION_FAILED event was saved with correct statuses and failure flag
+        expect(createPayload.transitionSuccessful).toBe(false)
+        expect(createPayload.oldStatus).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+        expect(createPayload.newStatus).toBe(EnumDeliveryStatus.DISPATCHED)
+        expect(createPayload.messageCode).toBe('TRANSITION_FAILED')
+
+        // Assert message and messageParams.note hold the Prisma summary and NEVER the name or phone
+        expect(createPayload.messageParams).toBeDefined()
+        const note = (createPayload.messageParams as { note: string }).note
+        expect(note).toBe(
+          "PrismaClientKnownRequestError P2002 [model Delivery; target dropoffPhoneNumber] (message withheld: it can repeat the call's data)"
+        )
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(note).not.toContain('Unique constraint')
+
+        // Also assert createPayload.message (the English rendering of TRANSITION_FAILED)
+        expect(createPayload.message).toBe(note)
+        expect(createPayload.message).not.toContain(recipientName)
+        expect(createPayload.message).not.toContain(recipientPhone)
+      })
+
+      it('stores PrismaClientValidationError summary without customer name or phone on failed transition', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+          id: 'del-validation-fail',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-456',
+        } as any)
+
+        const validationError = new Prisma.PrismaClientValidationError(
+          `Invalid \`prisma.delivery.update()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`,
+          { clientVersion: '5.3.1' }
+        )
+        mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(validationError)
+
+        const dispatchedEvent: DeliveryDispatchedEvent = {
+          deliveryId: 'del-validation-fail',
+          type: EnumDeliveryEventType.DISPATCHED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        }
+
+        await service.processDeliveryEvent(dispatchedEvent)
+
+        expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
+        const createPayload = mockDeliveryEventRepository.create.mock.calls[0]![0]
+
+        expect(createPayload.transitionSuccessful).toBe(false)
+        expect(createPayload.messageCode).toBe('TRANSITION_FAILED')
+        const note = (createPayload.messageParams as { note: string }).note
+        expect(note).toBe("PrismaClientValidationError (message withheld: it can repeat the call's data)")
+        expect(note).not.toContain(recipientName)
+        expect(note).not.toContain(recipientPhone)
+        expect(createPayload.message).toBe(note)
+        expect(createPayload.message).not.toContain(recipientName)
+        expect(createPayload.message).not.toContain(recipientPhone)
+      })
+
+      it('stores non-Prisma plain Error sentence exactly unchanged on failed transition', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+          id: 'del-plain-fail',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-456',
+        } as any)
+
+        const plainSentence = 'Network socket closed unexpectedly by remote peer'
+        mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(new Error(plainSentence))
+
+        const dispatchedEvent: DeliveryDispatchedEvent = {
+          deliveryId: 'del-plain-fail',
+          type: EnumDeliveryEventType.DISPATCHED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        }
+
+        await service.processDeliveryEvent(dispatchedEvent)
+
+        expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
+        const createPayload = mockDeliveryEventRepository.create.mock.calls[0]![0]
+
+        expect(createPayload.transitionSuccessful).toBe(false)
+        expect(createPayload.messageCode).toBe('TRANSITION_FAILED')
+        const note = (createPayload.messageParams as { note: string }).note
+        // Sentence is kept word-for-word with no class name or code in front
+        expect(note).toBe(plainSentence)
+        expect(note).not.toMatch(/^Error:/)
+        expect(createPayload.message).toBe(plainSentence)
+      })
+
+      it('stores non-Error thrown string as type only without leaking content on failed transition', async () => {
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce({
+          id: 'del-non-error-fail',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-456',
+        } as any)
+
+        mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(`raw error string with phone ${recipientPhone}`)
+
+        const dispatchedEvent: DeliveryDispatchedEvent = {
+          deliveryId: 'del-non-error-fail',
+          type: EnumDeliveryEventType.DISPATCHED,
+          actor: EnumEventActor.ADMIN,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        }
+
+        await service.processDeliveryEvent(dispatchedEvent)
+
+        expect(mockDeliveryEventRepository.create).toHaveBeenCalledTimes(1)
+        const createPayload = mockDeliveryEventRepository.create.mock.calls[0]![0]
+
+        expect(createPayload.transitionSuccessful).toBe(false)
+        expect(createPayload.messageCode).toBe('TRANSITION_FAILED')
+        const note = (createPayload.messageParams as { note: string }).note
+        expect(note).toBe('A value that is not an Error was thrown (string)')
+        expect(note).not.toContain(recipientPhone)
+      })
     })
   })
 
