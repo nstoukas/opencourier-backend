@@ -117,5 +117,25 @@ describe('translate and formatting helpers (Spec 0054, AC-3)', () => {
       const elMsg = renderEventMessage('el', 'FOOD_READY', { at: '2026-11-20T10:00:00.000Z' })
       expect(elMsg).toBe('Το φαγητό ήταν έτοιμο στις 12:00')
     })
+
+    test('renders ACCEPTED_TOGETHER_AUTOMATICALLY in English and Greek (decision 128.2)', () => {
+      const enMsg = renderEventMessage('en', 'ACCEPTED_TOGETHER_AUTOMATICALLY', {
+        courierId: 'c-1',
+        deliveryId: 'del-1',
+        otherDeliveryId: 'del-2',
+      })
+      expect(enMsg).toBe(
+        'Courier c-1 accepted delivery del-1, offered together with delivery del-2 (accepted automatically)'
+      )
+
+      const elMsg = renderEventMessage('el', 'ACCEPTED_TOGETHER_AUTOMATICALLY', {
+        courierId: 'c-1',
+        deliveryId: 'del-1',
+        otherDeliveryId: 'del-2',
+      })
+      expect(elMsg).toBe(
+        'Ο διανομέας c-1 αποδέχτηκε την παραγγελία del-1, που προτάθηκε μαζί με την παραγγελία del-2 (αυτόματη αποδοχή)'
+      )
+    })
   })
 })

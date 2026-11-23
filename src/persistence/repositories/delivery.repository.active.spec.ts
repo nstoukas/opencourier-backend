@@ -291,4 +291,47 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       expect(mockPrisma.delivery.updateMany).not.toHaveBeenCalled()
     })
   })
+
+  describe('findTakenGroupMembers (decision 128.6)', () => {
+    test('queries deliveries for offerGroupId, matchedCourierId, offeredAt, courierId, and ASSIGNING_COURIER status', async () => {
+      const offeredAt = new Date('2026-11-23T08:00:00Z')
+      const mockRows = [
+        {
+          id: 'del-1',
+          offerGroupId: 'grp-stack-1',
+          matchedCourierId: 'courier-r80',
+          courierId: 'courier-r80',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          offeredAt,
+          createdAt: new Date('2026-11-23T07:55:00Z'),
+        },
+        {
+          id: 'del-2',
+          offerGroupId: 'grp-stack-1',
+          matchedCourierId: 'courier-r80',
+          courierId: 'courier-r80',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          offeredAt,
+          createdAt: new Date('2026-11-23T07:56:00Z'),
+        },
+      ]
+      mockPrisma.delivery.findMany = jest.fn().mockResolvedValueOnce(mockRows)
+
+      const result = await repository.findTakenGroupMembers('grp-stack-1', 'courier-r80', offeredAt)
+
+      expect(mockPrisma.delivery.findMany).toHaveBeenCalledWith({
+        where: {
+          offerGroupId: 'grp-stack-1',
+          matchedCourierId: 'courier-r80',
+          offeredAt,
+          courierId: 'courier-r80',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+      expect(result).toHaveLength(2)
+      expect(result[0]?.id).toBe('del-1')
+      expect(result[1]?.id).toBe('del-2')
+    })
+  })
 })
