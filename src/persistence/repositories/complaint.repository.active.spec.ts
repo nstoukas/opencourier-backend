@@ -189,6 +189,25 @@ describe('ComplaintRepository (Spec 0052, AC-1, AC-3, AC-5, AC-6, AC-7)', () => 
       })
     })
 
+    // Row 126: an admin entering a reply for a deactivated rider stores replyEnteredForRider true
+    it('stores replyEnteredForRider true and the admin user ID when called with an admin ID (row 126)', async () => {
+      mockPrisma.complaint.updateMany.mockResolvedValue({ count: 1 })
+
+      const success = await repository.reply(complaintId, 'Rider phoned in explanation', 'admin-user-1')
+
+      expect(success).toBe(true)
+      expect(mockPrisma.complaint.updateMany).toHaveBeenCalledWith({
+        where: { id: complaintId, status: EnumComplaintStatus.AWAITING_REPLY, riderReply: null },
+        data: {
+          riderReply: 'Rider phoned in explanation',
+          repliedAt: expect.any(Date),
+          replyEnteredByUserId: 'admin-user-1',
+          replyEnteredForRider: true,
+          status: EnumComplaintStatus.OPEN,
+        },
+      })
+    })
+
     it('returns false when conditional update matches 0 rows', async () => {
       mockPrisma.complaint.updateMany.mockResolvedValue({ count: 0 })
 

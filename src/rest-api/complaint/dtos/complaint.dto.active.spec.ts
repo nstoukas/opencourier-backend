@@ -114,6 +114,29 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
       expect(dto.replyEnteredForRider).toBe(true)
     })
 
+    // Row 126: replyEnteredForRider is true even when replyEnteredByUserId is null (admin account deleted)
+    it('indicates replyEnteredForRider true when replyEnteredByUserId is null but flag is true (admin account deleted, row 126)', () => {
+      const removedAdminRecord: ComplaintRecord = {
+        ...baseRecord,
+        riderReply: 'Reply via phone recorded by deleted admin',
+        replyEnteredByUserId: null,
+        replyEnteredForRider: true,
+      }
+      const dto = new ComplaintCourierDto(removedAdminRecord, 'courier-1')
+      expect(dto.replyEnteredForRider).toBe(true)
+    })
+
+    it('indicates replyEnteredForRider false when a rider replied directly in the app', () => {
+      const riderDirectReplyRecord: ComplaintRecord = {
+        ...baseRecord,
+        riderReply: 'Rider direct reply in app',
+        replyEnteredByUserId: null,
+        replyEnteredForRider: false,
+      }
+      const dto = new ComplaintCourierDto(riderDirectReplyRecord, 'courier-1')
+      expect(dto.replyEnteredForRider).toBe(false)
+    })
+
     it('never exposes admin IDs or admin labels to courier', () => {
       const recordWithAdminData: ComplaintRecord = {
         ...baseRecord,
@@ -180,6 +203,8 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
       expect((dto as any).repliedAt).toBeUndefined()
       expect((dto as any).decidedBy).toBeUndefined()
       expect((dto as any).decidedByUserId).toBeUndefined()
+      expect((dto as any).replyEnteredBy).toBeUndefined()
+      expect((dto as any).replyEnteredForRider).toBeUndefined()
     })
   })
 
@@ -224,6 +249,49 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
         decidedBy: { id: 'admin-id-only', email: null, username: null },
       }
       expect(new ComplaintAdminDto(recordWithIdOnly).decidedBy).toBe('admin-id-only')
+    })
+
+    // Row 126: deleted admin sets replyEnteredForRider true and replyEnteredBy null (read in admin as "a removed admin")
+    it('sets replyEnteredForRider true and replyEnteredBy null when reply was entered for rider by a deleted admin (row 126)', () => {
+      const removedAdminRecord: ComplaintRecord = {
+        ...baseRecord,
+        riderReply: 'Phone statement recorded by admin',
+        replyEnteredByUserId: null,
+        replyEnteredBy: null,
+        replyEnteredForRider: true,
+      }
+      const dto = new ComplaintAdminDto(removedAdminRecord)
+
+      expect(dto.replyEnteredForRider).toBe(true)
+      expect(dto.replyEnteredBy).toBeNull()
+    })
+
+    it('sets replyEnteredForRider false and replyEnteredBy null when reply was entered by the rider in the app', () => {
+      const riderReplyRecord: ComplaintRecord = {
+        ...baseRecord,
+        riderReply: 'Rider direct reply in app',
+        replyEnteredByUserId: null,
+        replyEnteredBy: null,
+        replyEnteredForRider: false,
+      }
+      const dto = new ComplaintAdminDto(riderReplyRecord)
+
+      expect(dto.replyEnteredForRider).toBe(false)
+      expect(dto.replyEnteredBy).toBeNull()
+    })
+
+    it('sets replyEnteredForRider true and formats replyEnteredBy when reply was entered by an active admin', () => {
+      const activeAdminRecord: ComplaintRecord = {
+        ...baseRecord,
+        riderReply: 'Phone statement recorded by admin',
+        replyEnteredByUserId: 'admin-1',
+        replyEnteredBy: { id: 'admin-1', email: 'phone-admin@coop.gr', username: 'phoneadmin' },
+        replyEnteredForRider: true,
+      }
+      const dto = new ComplaintAdminDto(activeAdminRecord)
+
+      expect(dto.replyEnteredForRider).toBe(true)
+      expect(dto.replyEnteredBy).toBe('phone-admin@coop.gr')
     })
   })
 
