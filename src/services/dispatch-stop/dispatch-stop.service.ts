@@ -24,6 +24,7 @@ import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-st
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 import { eventText } from 'src/domains/delivery-event/event-text'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Every minute: start the stops whose start passed, finish the ones whose end passed (spec 0014,
 // AC-11). A repeatable job, because a one off job whose handler fails is never retried here.
@@ -74,7 +75,7 @@ export class DispatchStopService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(DISPATCH_STOP_TICK_JOB, {}, EVERY_MINUTE)
     } catch (error) {
-      this.logger.error(`Could not schedule the dispatch stop tick: ${error}`)
+      this.logger.error(`Could not schedule the dispatch stop tick: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -172,7 +173,7 @@ export class DispatchStopService implements OnModuleInit {
         await this.endWork(stop)
       }
     } catch (error) {
-      this.logger.error(`The dispatch stop tick failed: ${error}`, (error as Error).stack)
+      this.logger.error(`The dispatch stop tick failed: ${errorSummaryForLog(error)}`, describeErrorForLog(error).stack)
     }
   }
 
@@ -235,7 +236,7 @@ export class DispatchStopService implements OnModuleInit {
         eventText('DISPATCH_STOP_RETURNED', { reason })
       )
     } catch (error) {
-      this.logger.error(`Returning delivery ${deliveryId} to waiting failed: ${error}`)
+      this.logger.error(`Returning delivery ${deliveryId} to waiting failed: ${errorSummaryForLog(error)}`)
       return false
     }
     // Paid only when THIS call's write returned it: a second run, or a pickup that won, pays nothing.
@@ -258,8 +259,8 @@ export class DispatchStopService implements OnModuleInit {
     } catch (error) {
       // Logged with what is needed to pay the rider by hand; the return itself stands.
       this.logger.error(
-        `DISPATCH_STOP_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${error}`,
-        (error as Error).stack
+        `DISPATCH_STOP_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
       )
     }
     return true

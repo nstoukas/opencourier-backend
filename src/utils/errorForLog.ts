@@ -81,3 +81,10 @@ export function errorForConsole(error: unknown): string {
   const { summary, stack } = describeErrorForLog(error)
   return stack ? `${summary}\n${stack}` : summary
 }
+
+// The summary line alone (scope row 139), for the many log lines that put the error at the end of a sentence:
+// `Could not do X: ${errorSummaryForLog(error)}`. Use this, never `${error}`, `error.message` or `error.stack`,
+// whenever a caught error goes into a log line.
+export function errorSummaryForLog(error: unknown): string {
+  return describeErrorForLog(error).summary
+}

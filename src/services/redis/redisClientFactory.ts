@@ -3,6 +3,7 @@ import { REDIS_URL } from '../../constants'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { RedisClient } from './models/RedisClient'
 import { Redis } from 'ioredis'
+import { errorSummaryForLog } from '../../utils/errorForLog'
 
 export const redisClientFactory = {
   imports: [ConfigModule],
@@ -29,7 +30,7 @@ export const redisClientFactory = {
       if (error.message.indexOf('SocketClosedUnexpectedlyError') !== -1) {
         console.warn('Redis timed out with SocketClosedUnexpectedlyError')
       } else {
-        console.error('Redis connection error', error.message)
+        console.error('Redis connection error', errorSummaryForLog(error))
       }
     })
     return client

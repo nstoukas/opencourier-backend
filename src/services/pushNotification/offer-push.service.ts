@@ -18,6 +18,7 @@ import { CourierRepository } from 'src/persistence/repositories/courier.reposito
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { TaskBusService } from '../taskBus/taskBus.service'
 import { PushNotificationService, PushSendResult } from './pushNotification.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // The payload of an offer-insist job names the exact offer it was set for, like an offer-expiry job,
 // so a job left over from an offer that was answered, moved or ended finds nothing to re-send.
@@ -72,7 +73,7 @@ export class OfferPushService {
     // `void` marks the promise as deliberately not awaited; sendNewOffer never throws, and the
     // catch is only a last net so a surprise can never become an unhandled rejection.
     void this.sendNewOffer(courierId, deliveryId, false).catch((error) =>
-      this.logger.error(`Offer push for delivery ${deliveryId} failed: ${error}`)
+      this.logger.error(`Offer push for delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -81,7 +82,7 @@ export class OfferPushService {
   offerEnded(courierId: string, message: OfferEndedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendOfferEnded(courierId, message).catch((error) =>
-      this.logger.error(`Offer ended push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Offer ended push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -90,7 +91,7 @@ export class OfferPushService {
   jobCancelled(courierId: string, deliveryId: string): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendJobCancelled(courierId, deliveryId).catch((error) =>
-      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${error}`)
+      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -100,7 +101,7 @@ export class OfferPushService {
   jobReadyUpdated(courierId: string, message: JobReadyUpdatedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendJobReadyUpdated(courierId, message).catch((error) =>
-      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -120,7 +121,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_READY_UPDATED, result)
     } catch (error) {
-      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -128,7 +129,7 @@ export class OfferPushService {
   splitRequestDecided(courierId: string, message: SplitRequestDecidedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendSplitRequestDecided(courierId, message).catch((error) =>
-      this.logger.error(`Split decided push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Split decided push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -153,7 +154,7 @@ export class OfferPushService {
   removalRequestDecided(courierId: string, message: RemovalRequestDecidedMessage): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendRemovalRequestDecided(courierId, message).catch((error) =>
-      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -174,7 +175,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(message.deliveryId, NotificationEventType.REMOVAL_REQUEST_DECIDED, result)
     } catch (error) {
-      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Removal decided push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -185,7 +186,7 @@ export class OfferPushService {
   chatMessage(courierId: string, threadId: string): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendChatMessage(courierId, threadId).catch((error) =>
-      this.logger.error(`Chat push for thread ${threadId} failed: ${error}`)
+      this.logger.error(`Chat push for thread ${threadId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -198,7 +199,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
       await this.handleSendResult(`chat thread ${threadId}`, NotificationEventType.CHAT_MESSAGE, result)
     } catch (error) {
-      this.logger.error(`Chat push for thread ${threadId} failed: ${error}`)
+      this.logger.error(`Chat push for thread ${threadId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -208,7 +209,7 @@ export class OfferPushService {
   reviewAnswered(courierId: string, requestId: string): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendReviewAnswered(courierId, requestId).catch((error) =>
-      this.logger.error(`Review answered push for request ${requestId} failed: ${error}`)
+      this.logger.error(`Review answered push for request ${requestId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -221,7 +222,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
       await this.handleSendResult(`review request ${requestId}`, NotificationEventType.REVIEW_ANSWERED, result)
     } catch (error) {
-      this.logger.error(`Review answered push for request ${requestId} failed: ${error}`)
+      this.logger.error(`Review answered push for request ${requestId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -231,7 +232,7 @@ export class OfferPushService {
   complaintNeedsReply(courierId: string, complaintId: string): void {
     if (!this.pushNotificationService.isEnabled()) return
     void this.sendComplaintNeedsReply(courierId, complaintId).catch((error) =>
-      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${error}`)
+      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${errorSummaryForLog(error)}`)
     )
   }
 
@@ -244,7 +245,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, CHAT_PUSH_TTL_SECONDS)
       await this.handleSendResult(`complaint ${complaintId}`, NotificationEventType.COMPLAINT_NEEDS_REPLY, result)
     } catch (error) {
-      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${error}`)
+      this.logger.error(`Complaint push for complaint ${complaintId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -257,7 +258,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(deliveryId, NotificationEventType.JOB_CANCELLED, result)
     } catch (error) {
-      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${error}`)
+      this.logger.error(`Job cancelled push for delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -309,7 +310,7 @@ export class OfferPushService {
         await this.scheduleInsist(deliveryId, courierId, offeredAt)
       }
     } catch (error) {
-      this.logger.error(`Offer push for delivery ${deliveryId} failed: ${error}`)
+      this.logger.error(`Offer push for delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -329,7 +330,7 @@ export class OfferPushService {
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(message.deliveryId, NotificationEventType.OFFER_ENDED, result)
     } catch (error) {
-      this.logger.error(`Offer ended push for delivery ${message.deliveryId} failed: ${error}`)
+      this.logger.error(`Offer ended push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -417,7 +418,9 @@ export class OfferPushService {
       if (!job || job.courierId !== courierId) return { calm: true }
       return { calm: isCarryingFood(job.status) }
     } catch (error) {
-      this.logger.error(`Could not read the job of add on ${delivery.id}; sending it calmly: ${error}`)
+      this.logger.error(
+        `Could not read the job of add on ${delivery.id}; sending it calmly: ${errorSummaryForLog(error)}`
+      )
       return { calm: true }
     }
   }
@@ -448,7 +451,7 @@ export class OfferPushService {
       )
     } catch (error) {
       // Without the timer the alert just keeps ringing on its first channel.
-      this.logger.error(`Could not set the insist timer of delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not set the insist timer of delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 }

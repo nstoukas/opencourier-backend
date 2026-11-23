@@ -43,6 +43,7 @@ import type {
   DeliverySplitRefusedEvent,
   DeliverySplitRequestedEvent,
 } from 'src/shared-types/delivery-events'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 type Admin = { id: string; email?: string | null }
 
@@ -478,7 +479,7 @@ export class SplitRequestService {
     try {
       await step()
     } catch (error) {
-      this.logger.error(`SPLIT_AFTER_CLOSE_FAILED could not ${what}: ${error}`)
+      this.logger.error(`SPLIT_AFTER_CLOSE_FAILED could not ${what}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -513,7 +514,7 @@ export class SplitRequestService {
       })
       return true
     } catch (error) {
-      this.logger.error(`SPLIT_LEG_START_FAILED leg ${leg.id} of split ${requestId}: ${error}`)
+      this.logger.error(`SPLIT_LEG_START_FAILED leg ${leg.id} of split ${requestId}: ${errorSummaryForLog(error)}`)
       return false
     }
   }

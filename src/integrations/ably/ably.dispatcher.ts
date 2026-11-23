@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorForConsole, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { WebsocketDispatcher } from '../../services/websocket/models/WebsocketDispatcher'
@@ -98,10 +99,13 @@ export class AblyDispatcher extends WebsocketDispatcher {
         .getChannel(channelName)
         .publish(messageName, message)
         .catch((error) => {
-          console.log('error sending message:', error)
+          console.log(`error sending message: ${errorForConsole(error)}`)
         })
     } catch (error) {
-      this.logger.error(`There was a problem trying to publish a message to ably channel ${channelName}.`, error)
+      this.logger.error(
+        `There was a problem trying to publish a message to ably channel ${channelName}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 }

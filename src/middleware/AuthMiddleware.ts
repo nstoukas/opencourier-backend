@@ -1,3 +1,4 @@
+import { errorForConsole } from 'src/utils/errorForLog'
 import { Injectable, NestMiddleware } from '@nestjs/common'
 import { Response, NextFunction } from 'express'
 import { AuthDomainService } from '../domains/auth/auth.domain.service'
@@ -80,7 +81,7 @@ export class AuthMiddleware implements NestMiddleware {
         req.currentPartner = partner
       }
     } catch (error) {
-      console.log(error)
+      console.log(errorForConsole(error))
       if (error instanceof TokenExpiredError) {
         next(new JwtExpiredException('Unauthorized'))
         return

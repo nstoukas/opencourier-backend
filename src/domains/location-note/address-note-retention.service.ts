@@ -4,6 +4,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 import { LocationNoteDomainService } from './location-note.domain.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const ADDRESS_NOTE_RETENTION_JOB_NAME = 'address-note-retention'
 // Every night at 03:30 Volos time (AC-6), before the other retention jobs, when nobody is working.
@@ -43,7 +44,7 @@ export class AddressNoteRetentionService implements OnModuleInit {
         INSTANCE_TIMEZONE
       )
     } catch (error) {
-      this.logger.error(`Could not schedule the address note retention job: ${error}`)
+      this.logger.error(`Could not schedule the address note retention job: ${errorSummaryForLog(error)}`)
     }
   }
 

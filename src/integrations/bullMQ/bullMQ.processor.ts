@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { MESSAGE_BUS_QUEUE } from '../../constants'
 import { Job } from 'bullmq'
@@ -13,6 +14,11 @@ export class BullMQProcessor extends WorkerHost {
   }
 
   async process(job: Job) {
-    await this.eventBusService.emit(job.name, job.data).catch(this.logger.error)
+    // Row 139: the job's name and the error's summary only, never the job's data or the whole error.
+    await this.eventBusService
+      .emit(job.name, job.data)
+      .catch((error) =>
+        this.logger.error(`Job ${job.name} failed: ${errorSummaryForLog(error)}`, describeErrorForLog(error).stack)
+      )
   }
 }

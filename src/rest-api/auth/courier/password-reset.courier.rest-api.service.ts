@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
@@ -64,7 +65,10 @@ export class PasswordResetCourierRestApiService {
         },
       ])
     } catch (error) {
-      this.logger.error(`Could not record the password change of courier ${courier.id}`, error as Error)
+      this.logger.error(
+        `Could not record the password change of courier ${courier.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
 
     // Issued after credentialsChangedAt, so this session survives the cut off it just caused.

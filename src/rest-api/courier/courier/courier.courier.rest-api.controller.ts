@@ -19,6 +19,7 @@ import {
   EmergencyContactCourierDto,
   EmergencyContactCourierInput,
 } from 'src/rest-api/courier-account/courier-account.dto'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('courier')
@@ -135,7 +136,7 @@ export class CourierCourierRestApiController {
     // left running; the method never throws, and the catch is only a last net for the log.
     void this.deliveryEventService
       .handleCourierStatusChanged(courier.id, data.status)
-      .catch((error) => this.logger.error(`After status change of courier ${courier.id}: ${error}`))
+      .catch((error) => this.logger.error(`After status change of courier ${courier.id}: ${errorSummaryForLog(error)}`))
   }
 
   @common.Patch('delivery-setting')

@@ -140,6 +140,7 @@ import { checkChatQuickReplies, storedChatQuickReplies } from './chat-quick-repl
 import { writeSettingChange } from 'src/persistence/repositories/setting-change.repository'
 import { BoxSize } from '@prisma/types'
 import { boxUnitsOrderRefusal } from 'src/domains/delivery/box'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Every numeric setting admin can save. `whyZeroIsRefused: null` means 0 is a valid value.
 // Adding a numeric setting to InstanceConfigSettingsInput? Add it here too, and save it
@@ -494,7 +495,7 @@ export class InstanceConfigDomainService {
     // So here it reads as null, which the admin page shows as an empty box, and a warning is logged.
     // .catch() on a promise turns the error into a fallback value instead of failing the await.
     const quoteBaseFee = await this.getQuoteBaseFee().catch((error: Error) => {
-      this.logger.warn(error.message)
+      this.logger.warn(errorSummaryForLog(error))
       return null
     })
     const distanceUnit = await this.getDistanceUnit()

@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorForConsole } from './utils/errorForLog'
 import { NestFactory } from '@nestjs/core'
 import { WinstonModule } from 'nest-winston'
 import { getLogger } from './services/logger'
@@ -25,14 +26,18 @@ async function main() {
 
 const panicLogger = getLogger('Panic')
 process
-  .on('unhandledRejection', (reason, p) => {
-    console.error(reason, 'Unhandled Rejection at Promise', p)
-    panicLogger.error('Unhandled Rejection at Promise', reason)
+  // Row 139, as main.ts does since row 132: a crash is logged by its name, code and frames, never the whole
+  // error or the rejected promise.
+  .on('unhandledRejection', (reason) => {
+    console.error(`Unhandled Rejection at Promise: ${errorForConsole(reason)}`)
+    const { summary, stack } = describeErrorForLog(reason)
+    panicLogger.error(`Unhandled Rejection at Promise: ${summary}`, { stack })
   })
   .on('uncaughtException', (err) => {
-    console.error(err, 'Uncaught Exception thrown')
-    panicLogger.error('Uncaught Exception thrown', err)
+    console.error(`Uncaught Exception thrown: ${errorForConsole(err)}`)
+    const { summary, stack } = describeErrorForLog(err)
+    panicLogger.error(`Uncaught Exception thrown: ${summary}`, { stack })
     process.exit(1)
   })
 
-module.exports = main().catch(console.error)
+module.exports = main().catch((error) => console.error(`The chain watcher did not start: ${errorForConsole(error)}`))

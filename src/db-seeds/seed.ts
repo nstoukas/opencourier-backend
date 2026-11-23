@@ -1,3 +1,4 @@
+import { errorForConsole } from '../utils/errorForLog'
 import { PrismaClient } from '@prisma/types'
 import { seedCouriers } from './couriers'
 import { seedAdminUser } from './admin'
@@ -18,7 +19,7 @@ seed()
     await prisma.$disconnect()
   })
   .catch(async (e) => {
-    console.error(e)
+    console.error(errorForConsole(e))
     await prisma.$disconnect()
     process.exit(1)
   })

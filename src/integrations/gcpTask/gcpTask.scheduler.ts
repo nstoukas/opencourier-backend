@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 import { CloudTasksClient, protos } from '@google-cloud/tasks'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -50,7 +51,10 @@ export class GcpTaskScheduler extends TaskBusScheduler {
     try {
       await this.cloudTasksClient.createTask(request)
     } catch (error) {
-      this.logger.error(`Failed to schedule task ${taskName} for ${scheduleAt.toISOString()}`, error)
+      this.logger.error(
+        `Failed to schedule task ${taskName} for ${scheduleAt.toISOString()}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       throw error
     }
   }

@@ -11,6 +11,7 @@ import {
   SosIncidentWithPeople,
 } from 'src/persistence/repositories/sos-incident.repository'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const RETENTION_JOB_NAME = 'sos-location-retention'
 // Every day at 04:00 Volos time, like the saved customer retention job (spec 0022, AC-11).
@@ -63,7 +64,7 @@ export class SosService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(RETENTION_JOB_NAME, {}, RETENTION_JOB_PATTERN, INSTANCE_TIMEZONE)
     } catch (error) {
-      this.logger.error(`Could not schedule the SOS location retention job: ${error}`)
+      this.logger.error(`Could not schedule the SOS location retention job: ${errorSummaryForLog(error)}`)
     }
   }
 

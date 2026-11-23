@@ -13,6 +13,7 @@ import { DELIVERY_ONGOING_STATUSES, DELIVERY_PICKED_UP_STATUSES } from 'src/shar
 import { DeliveryNotFoundException } from 'src/errors'
 import { CancelledJobCourierDto } from './dtos/cancelled-job.courier.dto'
 import { FoodOutcomeCourierInput } from './queries/food-outcome.courier.input'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
@@ -100,7 +101,11 @@ export class CancelledJobsCourierService {
     } catch (error) {
       // The outcome is saved on the delivery; only its event is missing. Ids only: the note is the
       // rider's own words.
-      this.logger.error(`FOOD_OUTCOME_EVENT_FAILED {"deliveryId":"${deliveryId}","courierId":"${courierId}"}: ${error}`)
+      this.logger.error(
+        `FOOD_OUTCOME_EVENT_FAILED {"deliveryId":"${deliveryId}","courierId":"${courierId}"}: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
 
     // Spec 0035 (AC-16): food brought back pays the trip. Never throws; the sweep completes a miss.

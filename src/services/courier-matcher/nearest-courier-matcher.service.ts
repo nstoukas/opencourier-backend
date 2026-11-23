@@ -7,6 +7,7 @@ import { ICourierMatcherService } from './interfaces/ICourierMatcherService'
 import { GeoPosition } from 'src/shared-types/index'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 @Injectable()
 export class NearestCourierMatcherService implements ICourierMatcherService {
@@ -98,7 +99,7 @@ export class NearestCourierMatcherService implements ICourierMatcherService {
       const route = await this.osrmRoutingService.getRoute({ fromLocation: from, toLocation: to })
       return route.durationSeconds
     } catch (error) {
-      this.logger.warn(`No route for a matching candidate: ${error}`)
+      this.logger.warn(`No route for a matching candidate: ${errorSummaryForLog(error)}`)
       return null
     }
   }

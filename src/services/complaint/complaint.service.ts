@@ -47,6 +47,7 @@ import { refuseIfNotVisibleToPartner } from 'src/rest-api/delivery/partner/partn
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
 import { reachFromOf, todayIn } from 'src/services/time-worked/time-worked.service'
 import { StorageProvider, StoredFileNotFoundError } from 'src/services/storage/models/StorageProvider'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 export type RiderComplaintInput = {
   deliveryId: string
@@ -316,7 +317,7 @@ export class ComplaintService {
     try {
       return await reencodeComplaintPhoto(photo)
     } catch (error) {
-      this.logger.warn(`A complaint photo could not be decoded: ${error instanceof Error ? error.message : error}`)
+      this.logger.warn(`A complaint photo could not be decoded: ${errorSummaryForLog(error)}`)
       throw new BadRequestException(COMPLAINT_PHOTO_UNREADABLE_MESSAGE)
     }
   }
@@ -327,7 +328,7 @@ export class ComplaintService {
     try {
       await this.storageProvider.put(key, photo, COMPLAINT_PHOTO_CONTENT_TYPE)
     } catch (error) {
-      this.logger.error(`Could not store a complaint photo: ${error instanceof Error ? error.message : error}`)
+      this.logger.error(`Could not store a complaint photo: ${errorSummaryForLog(error)}`)
       throw new ServiceUnavailableException(COMPLAINT_PHOTO_STORAGE_DOWN)
     }
     return key
@@ -338,7 +339,9 @@ export class ComplaintService {
     try {
       await this.storageProvider.delete(key)
     } catch (error) {
-      this.logger.error(`Could not remove the photo ${key} of a complaint that was not saved: ${error}`)
+      this.logger.error(
+        `Could not remove the photo ${key} of a complaint that was not saved: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -347,7 +350,7 @@ export class ComplaintService {
       return { stream: await this.storageProvider.getStream(key), contentType: COMPLAINT_PHOTO_CONTENT_TYPE }
     } catch (error) {
       if (error instanceof StoredFileNotFoundError) throw new NotFoundException(COMPLAINT_NO_PHOTO)
-      this.logger.error(`Could not read the complaint photo ${key}: ${error instanceof Error ? error.message : error}`)
+      this.logger.error(`Could not read the complaint photo ${key}: ${errorSummaryForLog(error)}`)
       throw new ServiceUnavailableException(COMPLAINT_PHOTO_READ_DOWN)
     }
   }
@@ -373,7 +376,7 @@ export class ComplaintService {
     try {
       this.offerPushService.complaintNeedsReply(courierId, complaintId)
     } catch (error) {
-      this.logger.error(`Could not push complaint ${complaintId}: ${error}`)
+      this.logger.error(`Could not push complaint ${complaintId}: ${errorSummaryForLog(error)}`)
     }
   }
 

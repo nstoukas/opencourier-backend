@@ -12,6 +12,7 @@ import { DeliveryEventService } from 'src/services/delivery-event/delivery-event
 import { isPositionInRegion } from 'src/utils/geoJsonUtils'
 import { normalisePhone } from 'src/utils/phone'
 import { DropoffPointCourierInput } from './queries/dropoff-point.courier.input'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Spec 0016 (AC-9): the pin can be moved from pickup until the rider is at the door. Before pickup the
 // rider has not seen the place; after drop off the job is over.
@@ -132,7 +133,10 @@ export class DropoffPointCourierService {
       )
       return { savedCustomerUpdated: outcome === 'updated', distanceMetres: metres }
     } catch (error) {
-      this.logger.error(`DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       // Nothing was recorded, so the move is given back and the rider can try again. A failure here is
       // logged on its own; the error the rider gets is still the first one.
       try {
@@ -142,7 +146,9 @@ export class DropoffPointCourierService {
           { dropoffPointCorrectedAt: null, dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null }
         )
       } catch (releaseError) {
-        this.logger.error(`DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${releaseError}`)
+        this.logger.error(
+          `DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${errorSummaryForLog(releaseError)}`
+        )
       }
       throw error
     }

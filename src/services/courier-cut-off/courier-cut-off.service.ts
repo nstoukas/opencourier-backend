@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger } from '@nestjs/common'
 import { EnumCourierStatus, EnumCourierStatusChangeCause } from '@prisma/types'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
@@ -33,13 +34,19 @@ export class CourierCutOffService {
     try {
       await this.websocketDispatcher.disconnectUser(courier.userId)
     } catch (error) {
-      this.logger.error(`Could not close the connections of courier ${courier.id}`, error as Error)
+      this.logger.error(
+        `Could not close the connections of courier ${courier.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
 
     try {
       await this.courierDeviceRepository.deleteAllForCourier(courier.id)
     } catch (error) {
-      this.logger.error(`Could not remove the devices of courier ${courier.id}`, error as Error)
+      this.logger.error(
+        `Could not remove the devices of courier ${courier.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
 
     try {
@@ -49,7 +56,10 @@ export class CourierCutOffService {
       await this.courierDomainService.changeStatus(courier.id, EnumCourierStatus.OFFLINE, cause, adminUserId)
       await this.deliveryEventService.handleCourierStatusChanged(courier.id, EnumCourierStatus.OFFLINE)
     } catch (error) {
-      this.logger.error(`Could not set courier ${courier.id} Offline`, error as Error)
+      this.logger.error(
+        `Could not set courier ${courier.id} Offline: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 }

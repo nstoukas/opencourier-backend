@@ -7,6 +7,7 @@ import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/index'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { RemovalRequestService } from 'src/services/removal-request/removal-request.service'
 import { SplitRequestService } from 'src/services/split-request/split-request.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Spec 0015, AC-10. Every minute, completes the settlement of any cancellation still missing a piece
 // (the rider's award, its event, a restaurant's charge): a write that failed when the job was
@@ -48,7 +49,7 @@ export class CancellationSweepService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(CANCELLATION_SWEEP_JOB, {}, EVERY_MINUTE)
     } catch (error) {
-      this.logger.error(`Could not schedule the cancellation sweep: ${error}`)
+      this.logger.error(`Could not schedule the cancellation sweep: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -79,7 +80,7 @@ export class CancellationSweepService implements OnModuleInit {
       const started = await this.splitRequestService.startUnstartedLegs(now)
       if (started > 0) this.logger.warn(`Started ${started} split leg(s) that were left in CREATED`)
     } catch (error) {
-      this.logger.error(`The split leg sweep failed: ${error}`)
+      this.logger.error(`The split leg sweep failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -92,14 +93,14 @@ export class CancellationSweepService implements OnModuleInit {
         new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
       )
     } catch (error) {
-      this.logger.error(`The removal sweep could not read: ${error}`)
+      this.logger.error(`The removal sweep could not read: ${errorSummaryForLog(error)}`)
       return
     }
     for (const request of requests) {
       try {
         await this.removalRequestService.sweepApprovedUnsettled(request, now)
       } catch (error) {
-        this.logger.error(`The removal sweep failed on request ${request.id}: ${error}`)
+        this.logger.error(`The removal sweep failed on request ${request.id}: ${errorSummaryForLog(error)}`)
       }
     }
   }
@@ -114,7 +115,7 @@ export class CancellationSweepService implements OnModuleInit {
         new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
       )
     } catch (error) {
-      this.logger.error(`The return trip sweep could not read: ${error}`)
+      this.logger.error(`The return trip sweep could not read: ${errorSummaryForLog(error)}`)
       return
     }
     for (const id of ids) {
@@ -131,7 +132,7 @@ export class CancellationSweepService implements OnModuleInit {
         new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
       )
     } catch (error) {
-      this.logger.error(`The wait pay sweep could not read: ${error}`)
+      this.logger.error(`The wait pay sweep could not read: ${errorSummaryForLog(error)}`)
       return
     }
     // settleWaitPay never throws, so one bad delivery cannot stop the others.
@@ -148,7 +149,7 @@ export class CancellationSweepService implements OnModuleInit {
         new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
       )
     } catch (error) {
-      this.logger.error(`The split wait sweep failed: ${error}`)
+      this.logger.error(`The split wait sweep failed: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -161,7 +162,7 @@ export class CancellationSweepService implements OnModuleInit {
         DELIVERY_ONGOING_STATUSES
       )
     } catch (error) {
-      this.logger.error(`The cancellation sweep could not read: ${error}`)
+      this.logger.error(`The cancellation sweep could not read: ${errorSummaryForLog(error)}`)
       return
     }
     // One at a time, each on its own: settleCancellation never throws, and one bad delivery must not
@@ -170,7 +171,7 @@ export class CancellationSweepService implements OnModuleInit {
       try {
         await this.deliveryEventService.settleCancellation(id)
       } catch (error) {
-        this.logger.error(`The cancellation sweep failed on delivery ${id}: ${error}`)
+        this.logger.error(`The cancellation sweep failed on delivery ${id}: ${errorSummaryForLog(error)}`)
       }
     }
   }

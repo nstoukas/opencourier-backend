@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { WebsocketDispatcher } from '../../services/websocket/models/WebsocketDispatcher'
@@ -111,7 +112,12 @@ export class SocketIODispatcher extends WebsocketDispatcher {
     try {
       await this.socketIOService.publishMessage(channelName, messageName, message)
     } catch (error) {
-      this.logger.error(`There was a problem trying to publish a message to socketio channel ${channelName}.`, error)
+      this.logger.error(
+        `There was a problem trying to publish a message to socketio channel ${channelName}: ${errorSummaryForLog(
+          error
+        )}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 }

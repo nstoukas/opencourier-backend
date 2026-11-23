@@ -4,6 +4,7 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ChatRepository } from 'src/persistence/repositories/chat.repository'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const CHAT_RETENTION_JOB_NAME = 'chat-retention'
 // Every day at 04:20 Volos time, after the saved customer job, when nobody is working.
@@ -40,7 +41,7 @@ export class ChatRetentionService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(CHAT_RETENTION_JOB_NAME, {}, CHAT_RETENTION_JOB_PATTERN, INSTANCE_TIMEZONE)
     } catch (error) {
-      this.logger.error(`Could not schedule the chat retention job: ${error}`)
+      this.logger.error(`Could not schedule the chat retention job: ${errorSummaryForLog(error)}`)
     }
   }
 

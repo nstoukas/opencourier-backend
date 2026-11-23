@@ -1,3 +1,4 @@
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Client, ClientOptions } from 'minio'
@@ -69,7 +70,9 @@ export class MinioStorageService extends StorageProvider implements OnModuleInit
       this.logger.log(`Complaint photos are kept in the private bucket "${this.bucket}"`)
     } catch (error) {
       // Startup goes on: complaints without a photo still work, and the next upload tries again.
-      this.logger.warn(`MinIO is not ready, complaint photos will retry on the next upload: ${errorText(error)}`)
+      this.logger.warn(
+        `MinIO is not ready, complaint photos will retry on the next upload: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -135,8 +138,4 @@ function errorCode(error: unknown): string {
     if (typeof code === 'string') return code
   }
   return ''
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

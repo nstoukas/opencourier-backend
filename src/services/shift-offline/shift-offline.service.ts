@@ -11,6 +11,7 @@ import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CacheService } from 'src/services/cache/cache.service'
 import { OfflineEventForAdmin, ShiftBookingRepository } from 'src/persistence/repositories/shift-booking.repository'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Every minute: record the Offline changes whose break limit has just passed (spec 0049, cross check 1).
 // A repeatable job, like the dispatch stop tick: a one off job whose handler fails is never retried here,
@@ -59,7 +60,7 @@ export class ShiftOfflineService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(SHIFT_OFFLINE_SWEEP_JOB, {}, EVERY_MINUTE)
     } catch (error) {
-      this.logger.error(`Could not schedule the shift offline sweep: ${error}`)
+      this.logger.error(`Could not schedule the shift offline sweep: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -110,7 +111,9 @@ export class ShiftOfflineService implements OnModuleInit {
         if (created) written += 1
       } catch (error) {
         // One change failing must not stop the others; the next tick tries it again.
-        this.logger.error(`Could not check status change ${change.id} for a shift offline record: ${error}`)
+        this.logger.error(
+          `Could not check status change ${change.id} for a shift offline record: ${errorSummaryForLog(error)}`
+        )
         if (!firstFailedAt) firstFailedAt = change.createdAt
       }
     }

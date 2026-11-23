@@ -73,6 +73,7 @@ import {
   ReassignmentFailureStage,
 } from './utils/reassignment-payout.util'
 import { ICourierTap } from './interfaces/ICourierTap'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Spec 0021 (AC-4): how a rider's arrival was made, as the end of its event message. Row 23's waiting
 // pay starts from the arrival, so members must be able to read which kind each one was (value 1).
@@ -262,7 +263,7 @@ export class DeliveryDomainService {
       try {
         await this.deliveryEventService.recordBoxEvent(assumedEvent, delivery.status)
       } catch (error) {
-        this.logger.error(`Could not record BOX_SIZE_ASSUMED for delivery ${delivery.id}: ${error}`)
+        this.logger.error(`Could not record BOX_SIZE_ASSUMED for delivery ${delivery.id}: ${errorSummaryForLog(error)}`)
       }
     }
 
@@ -396,7 +397,7 @@ export class DeliveryDomainService {
       try {
         await this.deliveryEventService.offerOrWait(deliveryId)
       } catch (error) {
-        this.logger.error(`Offering delivery ${deliveryId} after food ready failed: ${error}`)
+        this.logger.error(`Offering delivery ${deliveryId} after food ready failed: ${errorSummaryForLog(error)}`)
       }
     }
     return updated
@@ -633,7 +634,9 @@ export class DeliveryDomainService {
     try {
       addedToSkipList = await this.addCourierToRejectedList(deliveryId, courierId)
     } catch (error) {
-      this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not add courier ${courierId} to the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
 
     // End the offer in one conditional update (all three offer fields are cleared together), so a
@@ -954,7 +957,7 @@ export class DeliveryDomainService {
     } catch (error) {
       this.logger.error(
         formatReassignmentAwardFailure({ ...logContext, compensationId: null, stage: 'AWARD_WRITE_FAILED' }),
-        (error as Error).stack
+        describeErrorForLog(error).stack
       )
       throw error
     }
@@ -1012,7 +1015,7 @@ export class DeliveryDomainService {
       // REASSIGNMENT_OUTCOME_UNKNOWN log line tells a human which delivery to check.
       this.logger.error(
         formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' }),
-        (error as Error).stack
+        describeErrorForLog(error).stack
       )
       throw error
     }
@@ -1027,7 +1030,7 @@ export class DeliveryDomainService {
       // Could not tell: keep the award (binding value 4), and log it the way the failure above does.
       this.logger.error(
         formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'REASSIGNMENT_OUTCOME_UNKNOWN' }),
-        (error as Error).stack
+        describeErrorForLog(error).stack
       )
       throw error
     }
@@ -1137,7 +1140,7 @@ export class DeliveryDomainService {
     } catch (deleteError) {
       this.logger.error(
         formatReassignmentAwardFailure({ ...logContext, compensationId, stage: 'AWARD_ROLLBACK_FAILED' }),
-        (deleteError as Error).stack
+        describeErrorForLog(deleteError).stack
       )
     }
 
@@ -1152,7 +1155,7 @@ export class DeliveryDomainService {
           compensationId,
           stage: 'REJECTED_LIST_ROLLBACK_FAILED',
         }),
-        (cacheError as Error).stack
+        describeErrorForLog(cacheError).stack
       )
     }
   }

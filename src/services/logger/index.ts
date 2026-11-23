@@ -1,3 +1,4 @@
+import { errorForConsole } from '../../utils/errorForLog'
 import { stringify } from 'flatted'
 import * as winston from 'winston'
 import { LoggingWinston as GoogleWinstonLogger } from '@google-cloud/logging-winston'
@@ -23,16 +24,16 @@ if (process.env.NODE_ENV === 'production' && process.env.GCP_PROJECT_NAME) {
       maxEntrySize: MAX_LOG_SIZE,
       defaultCallback: (err) => {
         if (err) {
-          console.error(err)
+          console.error(errorForConsole(err))
         }
       },
     })
 
     googleLogger.on('error', (err) => {
-      console.log('Logging transport error', err)
+      console.log(`Logging transport error: ${errorForConsole(err)}`)
     })
   } catch (err) {
-    console.error('Failed to initialize Google Cloud Logger:', err)
+    console.error(`Failed to initialize Google Cloud Logger: ${errorForConsole(err)}`)
     googleLogger = null
   }
 }

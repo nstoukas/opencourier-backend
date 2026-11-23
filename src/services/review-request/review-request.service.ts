@@ -9,6 +9,7 @@ import {
   ReviewRequestRepository,
 } from 'src/persistence/repositories/review-request.repository'
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // The sentences a rider or an admin reads. Fixed, never built from what anyone wrote (AC-4).
 export const REVIEW_NOT_FOUND_MESSAGE = 'Review request not found'
@@ -164,7 +165,7 @@ export class ReviewRequestService {
       if (!courier || courier.status === EnumCourierStatus.OFFLINE) return
       this.offerPushService.reviewAnswered(courierId, requestId)
     } catch (error) {
-      this.logger.error(`Could not push the answer to review request ${requestId}: ${error}`)
+      this.logger.error(`Could not push the answer to review request ${requestId}: ${errorSummaryForLog(error)}`)
     }
   }
 }

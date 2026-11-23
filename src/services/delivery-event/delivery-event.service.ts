@@ -126,6 +126,7 @@ import { RemovalRequestRepository } from 'src/persistence/repositories/removal-r
 import { roundMoney } from 'src/core/utils/money'
 import { EventText, eventPart, eventText, storedEventText } from 'src/domains/delivery-event/event-text'
 import { EventPart } from 'src/shared-types/event-messages'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 interface ForcePickupFulfillmentPayload {
   deliveryId: string
@@ -498,7 +499,9 @@ export class DeliveryEventService {
           try {
             handBackSeconds = await this.configDomainService.instanceConfig.getHandBackSeconds()
           } catch (error) {
-            this.logger.warn(`Could not read handBackSeconds while accepting ${deliveryEvent.deliveryId}: ${error}`)
+            this.logger.warn(
+              `Could not read handBackSeconds while accepting ${deliveryEvent.deliveryId}: ${errorSummaryForLog(error)}`
+            )
           }
           // Taken after the read, so a slow read does not shorten the window (row 71 review).
           const acceptedAt = new Date()
@@ -523,7 +526,9 @@ export class DeliveryEventService {
                 EnumCourierStatusChangeCause.LAST_CALL_ACCEPTED
               )
             } catch (error) {
-              this.logger.error(`Could not set courier ${courierId} Offline after their Last Call accept: ${error}`)
+              this.logger.error(
+                `Could not set courier ${courierId} Offline after their Last Call accept: ${errorSummaryForLog(error)}`
+              )
             }
             // An Offline rider holds no offers (spec 0002, AC-6): any other open one moves on.
             await this.endOpenOffersForCourier(courierId)
@@ -615,8 +620,8 @@ export class DeliveryEventService {
       }
     } catch (error) {
       this.logger.error(
-        `Delivery status transition failed for event ${eventLogLine(deliveryEvent)}: ${error}`,
-        (error as Error).stack
+        `Delivery status transition failed for event ${eventLogLine(deliveryEvent)}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
       )
       await this.saveDeliveryEvent(deliveryEvent, {
         transitionSuccessful: false,
@@ -799,7 +804,11 @@ export class DeliveryEventService {
           await this.sendOfferEndedToRider(replacedCourier, { deliveryId, reason: 'MOVED' })
         }
       } catch (error) {
-        this.logger.error(`Could not tell courier ${replacedCourierId} that the offer of ${deliveryId} moved: ${error}`)
+        this.logger.error(
+          `Could not tell courier ${replacedCourierId} that the offer of ${deliveryId} moved: ${errorSummaryForLog(
+            error
+          )}`
+        )
       }
     }
     return { heldUnits: claim.heldUnits, deliveryUnits: claim.deliveryUnits }
@@ -820,7 +829,7 @@ export class DeliveryEventService {
       try {
         await this.courierRepository.clearLocationIfOfflineAndFree(courierId)
       } catch (error) {
-        this.logger.error(`Could not erase the position of Offline courier ${courierId}: ${error}`)
+        this.logger.error(`Could not erase the position of Offline courier ${courierId}: ${errorSummaryForLog(error)}`)
       }
     } else {
       await this.matchWaitingDeliveries()
@@ -837,7 +846,10 @@ export class DeliveryEventService {
     try {
       openOffers = await this.deliveryRepository.findOpenOffersForCourier(courierId)
     } catch (error) {
-      this.logger.error(`Could not look up open offers of courier ${courierId}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Could not look up open offers of courier ${courierId}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       return
     }
 
@@ -851,7 +863,10 @@ export class DeliveryEventService {
           text: eventText('RIDER_WENT_OFFLINE', {}),
         })
       } catch (error) {
-        this.logger.error(`Could not end offer of delivery ${delivery.id}: ${error}`, (error as Error).stack)
+        this.logger.error(
+          `Could not end offer of delivery ${delivery.id}: ${errorSummaryForLog(error)}`,
+          describeErrorForLog(error).stack
+        )
       }
     }
   }
@@ -865,7 +880,10 @@ export class DeliveryEventService {
     try {
       waitingIds = await this.deliveryRepository.findIdsWaitingForCourierOldestFirst()
     } catch (error) {
-      this.logger.error(`Could not look up deliveries waiting for a rider: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Could not look up deliveries waiting for a rider: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       return
     }
 
@@ -874,7 +892,10 @@ export class DeliveryEventService {
       try {
         result = await this.offerToNextCourier(deliveryId)
       } catch (error) {
-        this.logger.error(`Offering waiting delivery ${deliveryId} failed: ${error}`, (error as Error).stack)
+        this.logger.error(
+          `Offering waiting delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`,
+          describeErrorForLog(error).stack
+        )
         continue
       }
       // One offer per rider coming free (scope row 61 review): without this stop the same rider was
@@ -935,7 +956,10 @@ export class DeliveryEventService {
     try {
       result = await this.offerToNextCourier(payload.deliveryId)
     } catch (error) {
-      this.logger.error(`Retrying delivery ${payload.deliveryId} failed: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Retrying delivery ${payload.deliveryId} failed: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       result = 'NO_COURIER'
     }
 
@@ -1006,7 +1030,9 @@ export class DeliveryEventService {
       const ids = members.map((member) => member.id)
       return ids.includes(deliveryId) ? ids : [deliveryId]
     } catch (error) {
-      this.logger.error(`Could not read the stack of delivery ${deliveryId}; ending its offer alone: ${error}`)
+      this.logger.error(
+        `Could not read the stack of delivery ${deliveryId}; ending its offer alone: ${errorSummaryForLog(error)}`
+      )
       return [deliveryId]
     }
   }
@@ -1030,7 +1056,9 @@ export class DeliveryEventService {
       try {
         addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
       } catch (error) {
-        this.logger.error(`Could not add courier ${courierId} to the skip list of ${deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not add courier ${courierId} to the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
     }
 
@@ -1073,7 +1101,9 @@ export class DeliveryEventService {
         await this.sendOfferEndedToRider(courier, { deliveryId, reason })
       }
     } catch (error) {
-      this.logger.error(`Could not tell courier ${courierId} that the offer of ${deliveryId} ended: ${error}`)
+      this.logger.error(
+        `Could not tell courier ${courierId} that the offer of ${deliveryId} ended: ${errorSummaryForLog(error)}`
+      )
     }
 
     const expiredEvent: DeliveryOfferExpiredEvent = {
@@ -1088,7 +1118,10 @@ export class DeliveryEventService {
     try {
       await this.processDeliveryEvent(expiredEvent)
     } catch (error) {
-      this.logger.error(`Recording OFFER_EXPIRED for delivery ${deliveryId} failed: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Recording OFFER_EXPIRED for delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
 
     // If that left the delivery waiting with nobody offered (matching failed, or nobody is free),
@@ -1104,7 +1137,9 @@ export class DeliveryEventService {
     try {
       await this.cacheService.save<boolean>(stackPairBlockKey(one, other), true, STACK_PAIR_BLOCK_SECONDS)
     } catch (error) {
-      this.logger.error(`Could not keep deliveries ${one} and ${other} from being stacked again: ${error}`)
+      this.logger.error(
+        `Could not keep deliveries ${one} and ${other} from being stacked again: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -1117,7 +1152,7 @@ export class DeliveryEventService {
         delivery?.status === EnumDeliveryStatus.ASSIGNING_COURIER && !delivery.matchedCourierId && !delivery.courierId
       if (!stillWaiting) return
     } catch (error) {
-      this.logger.error(`Could not check whether delivery ${deliveryId} still waits: ${error}`)
+      this.logger.error(`Could not check whether delivery ${deliveryId} still waits: ${errorSummaryForLog(error)}`)
     }
     await this.scheduleNoCourierRetry(deliveryId)
   }
@@ -1128,7 +1163,9 @@ export class DeliveryEventService {
     try {
       await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
-      this.logger.error(`Could not take courier ${courierId} off the skip list of ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not take courier ${courierId} off the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -1227,7 +1264,9 @@ export class DeliveryEventService {
       try {
         addedToSkipList = await addCourierToRejectedList(this.cacheService, member.id, courierId)
       } catch (error) {
-        this.logger.error(`Could not add courier ${courierId} to the skip list of ${member.id}: ${error}`)
+        this.logger.error(
+          `Could not add courier ${courierId} to the skip list of ${member.id}: ${errorSummaryForLog(error)}`
+        )
       }
       let declined = false
       try {
@@ -1274,7 +1313,7 @@ export class DeliveryEventService {
     try {
       taken = await this.deliveryRepository.findTakenGroupMembersNotAccepted(before)
     } catch (error) {
-      this.logger.error(`Could not look up stack accepts to complete: ${error}`)
+      this.logger.error(`Could not look up stack accepts to complete: ${errorSummaryForLog(error)}`)
       return 0
     }
     let completed = 0
@@ -1327,7 +1366,9 @@ export class DeliveryEventService {
         const after = await this.deliveryRepository.findById(delivery.id)
         if (after && after.status !== EnumDeliveryStatus.ASSIGNING_COURIER) completed += 1
       } catch (error) {
-        this.logger.error(`Could not complete the stack accept of delivery ${delivery.id}: ${error}`)
+        this.logger.error(
+          `Could not complete the stack accept of delivery ${delivery.id}: ${errorSummaryForLog(error)}`
+        )
       }
     }
     return completed
@@ -1340,7 +1381,9 @@ export class DeliveryEventService {
       const cleared = await this.deliveryRepository.settleStopSequence(groupId)
       if (cleared > 0) this.logger.log(`Delivery ${changedDeliveryId} left its stack; the stop sequence was cleared`)
     } catch (error) {
-      this.logger.error(`Could not settle the stop sequence of delivery ${changedDeliveryId}: ${error}`)
+      this.logger.error(
+        `Could not settle the stop sequence of delivery ${changedDeliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -1350,7 +1393,9 @@ export class DeliveryEventService {
       const released = await this.deliveryRepository.releaseOpenGroupPartners(groupId, exceptDeliveryId)
       if (released > 0) this.logger.log(`Delivery ${exceptDeliveryId} left its stack; the other order stays offered alone`)
     } catch (error) {
-      this.logger.error(`Could not release the stack partner of delivery ${exceptDeliveryId}: ${error}`)
+      this.logger.error(
+        `Could not release the stack partner of delivery ${exceptDeliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -1361,7 +1406,7 @@ export class DeliveryEventService {
     try {
       open = await this.deliveryRepository.findAllOpenOffers()
     } catch (error) {
-      this.logger.error(`Could not look up open offers to end for a dispatch stop: ${error}`)
+      this.logger.error(`Could not look up open offers to end for a dispatch stop: ${errorSummaryForLog(error)}`)
       return 0
     }
     let ended = 0
@@ -1377,7 +1422,9 @@ export class DeliveryEventService {
         })
         ended += done
       } catch (error) {
-        this.logger.error(`Could not end the offer of delivery ${delivery.id} for a dispatch stop: ${error}`)
+        this.logger.error(
+          `Could not end the offer of delivery ${delivery.id} for a dispatch stop: ${errorSummaryForLog(error)}`
+        )
       }
     }
     return ended
@@ -1442,7 +1489,7 @@ export class DeliveryEventService {
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
     } catch (error) {
-      this.logger.error(`Could not record RETURNED_TO_WAITING for delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not record RETURNED_TO_WAITING for delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
     if (waitPayOwed) await this.settleWaitPay(deliveryId)
     try {
@@ -1454,7 +1501,11 @@ export class DeliveryEventService {
       // rider did nothing wrong.
       await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
     } catch (error) {
-      this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} went back to waiting: ${error}`)
+      this.logger.error(
+        `Could not tell the restaurant or rider that delivery ${deliveryId} went back to waiting: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
     return { returned: true, totalCompensation: delivery.totalCompensation, currencyCode: delivery.currencyCode }
   }
@@ -1471,7 +1522,9 @@ export class DeliveryEventService {
     try {
       addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
-      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
 
     const written = await this.deliveryRepository.updateIfMatches(
@@ -1504,13 +1557,19 @@ export class DeliveryEventService {
         try {
           await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
         } catch (error) {
-          this.logger.error(`Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${error}`)
+          this.logger.error(
+            `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
+              error
+            )}`
+          )
         }
       }
       try {
         await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
       } catch (error) {
-        this.logger.error(`Could not record the refused HANDED_BACK for delivery ${deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not record the refused HANDED_BACK for delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
       return false
     }
@@ -1522,7 +1581,7 @@ export class DeliveryEventService {
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
     } catch (error) {
-      this.logger.error(`Could not record HANDED_BACK for delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not record HANDED_BACK for delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
     try {
       const updated = await this.deliveryRepository.findByIdOrThrow(deliveryId)
@@ -1532,7 +1591,11 @@ export class DeliveryEventService {
       // The delivery no longer carries the rider's id, so tell them explicitly.
       await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
     } catch (error) {
-      this.logger.error(`Could not tell the restaurant or rider that delivery ${deliveryId} was handed back: ${error}`)
+      this.logger.error(
+        `Could not tell the restaurant or rider that delivery ${deliveryId} was handed back: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
     // Straight back to matching; nobody free means the usual no courier spell and retry. The hand
     // back is done whatever happens here: a failure is logged and the backstop sweep still finds
@@ -1541,7 +1604,9 @@ export class DeliveryEventService {
     try {
       await this.offerOrWait(deliveryId)
     } catch (error) {
-      this.logger.error(`Could not start matching after delivery ${deliveryId} was handed back: ${error}`)
+      this.logger.error(
+        `Could not start matching after delivery ${deliveryId} was handed back: ${errorSummaryForLog(error)}`
+      )
     }
     return true
   }
@@ -1559,7 +1624,9 @@ export class DeliveryEventService {
     try {
       addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
-      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
 
     const written = await this.deliveryRepository.updateIfMatches(
@@ -1594,13 +1661,19 @@ export class DeliveryEventService {
         try {
           await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
         } catch (error) {
-          this.logger.error(`Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${error}`)
+          this.logger.error(
+            `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
+              error
+            )}`
+          )
         }
       }
       try {
         await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
       } catch (error) {
-        this.logger.error(`Could not record the refused WAIT_UNDISPATCHED for delivery ${deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not record the refused WAIT_UNDISPATCHED for delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
       return false
     }
@@ -1612,7 +1685,7 @@ export class DeliveryEventService {
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
     } catch (error) {
-      this.logger.error(`Could not record WAIT_UNDISPATCHED for delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not record WAIT_UNDISPATCHED for delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
     if (waitPayOwed) await this.settleWaitPay(deliveryId)
     try {
@@ -1623,14 +1696,20 @@ export class DeliveryEventService {
       // The delivery no longer carries the rider's id, so tell them explicitly.
       await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
     } catch (error) {
-      this.logger.error(`Could not tell the restaurant or rider that the rider left delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not tell the restaurant or rider that the rider left delivery ${deliveryId}: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
     // Held by the timing check until the food is due. The rider has left whatever happens here: the
     // backstop sweep still finds the waiting delivery.
     try {
       await this.offerOrWait(deliveryId)
     } catch (error) {
-      this.logger.error(`Could not start matching after the rider left delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not start matching after the rider left delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
     return true
   }
@@ -1651,7 +1730,7 @@ export class DeliveryEventService {
       try {
         events = await this.deliveryEventRepository.findWaitEvents(delivery.id)
       } catch (error) {
-        this.logger.error(`Could not read the split windows of delivery ${delivery.id}: ${error}`)
+        this.logger.error(`Could not read the split windows of delivery ${delivery.id}: ${errorSummaryForLog(error)}`)
       }
       return (
         paidWaitMinutes({
@@ -1664,7 +1743,9 @@ export class DeliveryEventService {
         }) > 0
       )
     } catch (error) {
-      this.logger.error(`Could not read the delay pay settings for delivery ${delivery.id}: ${error}`)
+      this.logger.error(
+        `Could not read the delay pay settings for delivery ${delivery.id}: ${errorSummaryForLog(error)}`
+      )
       return false
     }
   }
@@ -1734,7 +1815,10 @@ export class DeliveryEventService {
         { waitPayOwedAt: null }
       )
     } catch (error) {
-      this.logger.error(`WAIT_PAY_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `WAIT_PAY_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 
@@ -1783,7 +1867,7 @@ export class DeliveryEventService {
     try {
       waitingIds = await this.deliveryRepository.findIdsWaitingForCourierOldestFirst()
     } catch (error) {
-      this.logger.error(`Could not look up waiting deliveries after a dispatch stop: ${error}`)
+      this.logger.error(`Could not look up waiting deliveries after a dispatch stop: ${errorSummaryForLog(error)}`)
       return
     }
     for (const deliveryId of waitingIds) {
@@ -1815,7 +1899,10 @@ export class DeliveryEventService {
     } catch (error) {
       // The triggering event is already saved, so this is not a failed transition. Try again
       // later rather than leave the delivery with nobody looking at it.
-      this.logger.error(`Offering delivery ${deliveryId} failed: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Offering delivery ${deliveryId} failed: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       await this.scheduleNoCourierRetry(deliveryId)
       return
     }
@@ -2008,7 +2095,10 @@ export class DeliveryEventService {
         match.reason ?? null
       )
     } catch (error) {
-      this.logger.error(`Could not record OFFERED for delivery ${deliveryId}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Could not record OFFERED for delivery ${deliveryId}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
 
     if (expirySeconds !== null) {
@@ -2022,7 +2112,9 @@ export class DeliveryEventService {
       await this.sendOfferToRider(courier, updatedDelivery)
     } catch (error) {
       // The phone still finds the offer on its next fetch of new deliveries.
-      this.logger.error(`Could not send the offer of ${deliveryId} to courier ${courier.id}: ${error}`)
+      this.logger.error(
+        `Could not send the offer of ${deliveryId} to courier ${courier.id}: ${errorSummaryForLog(error)}`
+      )
     }
     return 'OFFERED'
   }
@@ -2058,7 +2150,11 @@ export class DeliveryEventService {
         courierId: courier.id,
       })
     } catch (error) {
-      this.logger.error(`Could not work out the pay of a stack of ${first.id} and ${second.id}; offering ${first.id} alone: ${error}`)
+      this.logger.error(
+        `Could not work out the pay of a stack of ${first.id} and ${second.id}; offering ${
+          first.id
+        } alone: ${errorSummaryForLog(error)}`
+      )
       return 'ALONE'
     }
     const expiryEnabled = await this.configDomainService.instanceConfig.getOfferExpiryEnabled()
@@ -2125,7 +2221,10 @@ export class DeliveryEventService {
           stackOfferReason(match.reason, partner.id, plan.sequence)
         )
       } catch (error) {
-        this.logger.error(`Could not record OFFERED for delivery ${delivery.id}: ${error}`, (error as Error).stack)
+        this.logger.error(
+          `Could not record OFFERED for delivery ${delivery.id}: ${errorSummaryForLog(error)}`,
+          describeErrorForLog(error).stack
+        )
       }
       // Each delivery keeps its own timer for the shared deadline; the first to run ends both (endOffer).
       if (expirySeconds !== null) {
@@ -2142,7 +2241,7 @@ export class DeliveryEventService {
         const updatedDelivery = await this.deliveryRepository.findByIdOrThrow(id)
         await this.sendOfferToRider(courier, updatedDelivery, id === first.id)
       } catch (error) {
-        this.logger.error(`Could not send the offer of ${id} to courier ${courier.id}: ${error}`)
+        this.logger.error(`Could not send the offer of ${id} to courier ${courier.id}: ${errorSummaryForLog(error)}`)
       }
     }
     return 'OFFERED'
@@ -2165,7 +2264,9 @@ export class DeliveryEventService {
         courierId,
       })
     } catch (error) {
-      this.logger.error(`Could not work out the pay of delivery ${delivery.id} as an add on; no add on: ${error}`)
+      this.logger.error(
+        `Could not work out the pay of delivery ${delivery.id} as an add on; no add on: ${errorSummaryForLog(error)}`
+      )
       return 'NOT_ADDED'
     }
     // Review fix (decision 81.14): an add on always has a deadline, the co-op's offerExpirySeconds, even while
@@ -2239,7 +2340,10 @@ export class DeliveryEventService {
         })
       )
     } catch (error) {
-      this.logger.error(`Could not record OFFERED for delivery ${delivery.id}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `Could not record OFFERED for delivery ${delivery.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
     await this.scheduleOfferExpiry(delivery.id, courierId, offeredAt, expirySeconds * 1000)
     await this.removeNoCourierRetry(delivery.id)
@@ -2250,7 +2354,9 @@ export class DeliveryEventService {
       if (courier) await this.sendOfferToRider(courier, updatedDelivery)
     } catch (error) {
       // The phone still finds the offer on its next fetch of new deliveries.
-      this.logger.error(`Could not send the add on offer of ${delivery.id} to courier ${courierId}: ${error}`)
+      this.logger.error(
+        `Could not send the add on offer of ${delivery.id} to courier ${courierId}: ${errorSummaryForLog(error)}`
+      )
     }
     return 'OFFERED'
   }
@@ -2275,7 +2381,7 @@ export class DeliveryEventService {
       }
       await this.deliveryRepository.updateIfMatches(delivery.id, { offerGroupId: null }, { stopSequence: Prisma.DbNull })
     } catch (error) {
-      this.logger.error(`Could not settle the stop list of add on ${delivery.id}: ${error}`)
+      this.logger.error(`Could not settle the stop list of add on ${delivery.id}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -2346,7 +2452,7 @@ export class DeliveryEventService {
       if (!this.offerReasonRepository) throw new Error('OfferReasonRepository is not provided')
       await this.offerReasonRepository.create(saved.id, deliveryId, courierId, reason)
     } catch (error) {
-      this.logger.error(`Could not record the offer reason for delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not record the offer reason for delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -2409,7 +2515,7 @@ export class DeliveryEventService {
       const route = await this.osrmRoutingService.getRoute({ fromLocation, toLocation: pickupLocation })
       return route.durationSeconds
     } catch (error) {
-      this.logger.warn(`No route for courier ${courierId} to the pickup: ${(error as Error).message}`)
+      this.logger.warn(`No route for courier ${courierId} to the pickup: ${errorSummaryForLog(error)}`)
       return null
     }
   }
@@ -2437,7 +2543,9 @@ export class DeliveryEventService {
     try {
       cancellationPayoutPolicy = await this.configDomainService.instanceConfig.getCancellationPayoutPolicy()
     } catch (error) {
-      this.logger.warn(`Could not read cancellationPayoutPolicy while cancelling ${dbDelivery.id}: ${error}`)
+      this.logger.warn(
+        `Could not read cancellationPayoutPolicy while cancelling ${dbDelivery.id}: ${errorSummaryForLog(error)}`
+      )
     }
 
     const written = await this.deliveryRepository.updateIfMatches(
@@ -2481,7 +2589,11 @@ export class DeliveryEventService {
         await this.notifyCourier(updated.courierId, updated, EnumDeliveryStatus.CANCELED, oldStatus, deliveryEvent)
       }
     } catch (error) {
-      this.logger.error(`Could not tell the restaurant or rider that delivery ${dbDelivery.id} was cancelled: ${error}`)
+      this.logger.error(
+        `Could not tell the restaurant or rider that delivery ${dbDelivery.id} was cancelled: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
     if (dbDelivery.courierId && DELIVERY_ONGOING_STATUSES.includes(oldStatus)) {
       // The rider's phone: an alert of its own even when the app is closed (AC-7). Fire and forget.
@@ -2496,7 +2608,9 @@ export class DeliveryEventService {
           await this.sendOfferEndedToRider(offeredCourier, { deliveryId: dbDelivery.id, reason: 'MOVED' })
         }
       } catch (error) {
-        this.logger.error(`Could not end the open offer of cancelled delivery ${dbDelivery.id}: ${error}`)
+        this.logger.error(
+          `Could not end the open offer of cancelled delivery ${dbDelivery.id}: ${errorSummaryForLog(error)}`
+        )
       }
     }
 
@@ -2514,7 +2628,7 @@ export class DeliveryEventService {
     try {
       delivery = await this.deliveryRepository.findById(deliveryId)
     } catch (error) {
-      this.logger.error(`CANCELLATION_SETTLE_FAILED {"deliveryId":"${deliveryId}"}: ${error}`)
+      this.logger.error(`CANCELLATION_SETTLE_FAILED {"deliveryId":"${deliveryId}"}: ${errorSummaryForLog(error)}`)
       return
     }
     if (
@@ -2533,7 +2647,7 @@ export class DeliveryEventService {
       try {
         approved = await this.removalRequestRepository.findApprovedAfterPickup(delivery.id, delivery.courierId)
       } catch (error) {
-        this.logger.error(`REMOVAL_LOOKUP_FAILED {"deliveryId":"${delivery.id}"}: ${error}`)
+        this.logger.error(`REMOVAL_LOOKUP_FAILED {"deliveryId":"${delivery.id}"}: ${errorSummaryForLog(error)}`)
         return
       }
       const skipAward = approved !== null && !approved.paidToRider
@@ -2544,7 +2658,7 @@ export class DeliveryEventService {
         try {
           await this.finishRemovalSettlement(delivery, approved)
         } catch (error) {
-          this.logger.error(`REMOVAL_SETTLE_FAILED {"deliveryId":"${delivery.id}"}: ${error}`)
+          this.logger.error(`REMOVAL_SETTLE_FAILED {"deliveryId":"${delivery.id}"}: ${errorSummaryForLog(error)}`)
         }
       }
     } else {
@@ -2625,7 +2739,10 @@ export class DeliveryEventService {
       }
       return true
     } catch (error) {
-      this.logger.error(`CANCELLATION_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `CANCELLATION_PAYOUT_FAILED ${JSON.stringify(logContext)}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
       return false
     }
   }
@@ -2667,8 +2784,12 @@ export class DeliveryEventService {
       })
     } catch (error) {
       this.logger.error(
-        `CANCELLATION_CHARGE_FAILED ${JSON.stringify({ deliveryId: delivery.id, partnerId: delivery.partnerId, amount })}: ${error}`,
-        (error as Error).stack
+        `CANCELLATION_CHARGE_FAILED ${JSON.stringify({
+          deliveryId: delivery.id,
+          partnerId: delivery.partnerId,
+          amount,
+        })}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
       )
     }
   }
@@ -2727,7 +2848,7 @@ export class DeliveryEventService {
       if ((await config.getWaitPayCentsPerMinute()) <= 0) return null
       return splitWaitMinutes(flaggedAt, endedAt) > 0 ? endedAt : null
     } catch (error) {
-      this.logger.error(`Could not read the wait pay settings for a split wait: ${error}`)
+      this.logger.error(`Could not read the wait pay settings for a split wait: ${errorSummaryForLog(error)}`)
       return endedAt
     }
   }
@@ -2804,7 +2925,7 @@ export class DeliveryEventService {
       await this.splitRequestRepository.clearWaitOwed(request.id, stamp)
     } catch (error) {
       // The stamp stays, so the minute sweep tries again for a day.
-      this.logger.error(`SPLIT_WAIT_PAY_FAILED split ${requestId}: ${error}`)
+      this.logger.error(`SPLIT_WAIT_PAY_FAILED split ${requestId}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -2842,7 +2963,7 @@ export class DeliveryEventService {
     try {
       await this.recordSplitEvent(event, status)
     } catch (error) {
-      this.logger.error(`Could not record the void of split ${open.id}: ${error}`)
+      this.logger.error(`Could not record the void of split ${open.id}: ${errorSummaryForLog(error)}`)
     }
     await this.settleSplitWait(open.id)
   }
@@ -2908,7 +3029,9 @@ export class DeliveryEventService {
     try {
       addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
-      this.logger.error(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
 
     const written = await this.deliveryRepository.updateIfMatches(
@@ -2949,7 +3072,7 @@ export class DeliveryEventService {
         newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
       })
     } catch (error) {
-      this.logger.error(`Could not record REMOVAL_APPROVED for delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not record REMOVAL_APPROVED for delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
     if (waitPayOwed) await this.settleWaitPay(deliveryId)
     return event
@@ -2971,12 +3094,18 @@ export class DeliveryEventService {
       // The delivery no longer carries the rider's id, so tell them explicitly.
       await this.notifyCourier(courierId, updated, EnumDeliveryStatus.ASSIGNING_COURIER, oldStatus, event)
     } catch (error) {
-      this.logger.error(`Could not tell the restaurant or rider that a rider came off delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not tell the restaurant or rider that a rider came off delivery ${deliveryId}: ${errorSummaryForLog(
+          error
+        )}`
+      )
     }
     try {
       await this.offerOrWait(deliveryId)
     } catch (error) {
-      this.logger.error(`Could not start matching after a rider came off delivery ${deliveryId}: ${error}`)
+      this.logger.error(
+        `Could not start matching after a rider came off delivery ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -2997,7 +3126,10 @@ export class DeliveryEventService {
       if (request.paidToRider) await this.payRiderForRemoval(delivery, request)
       await this.finishRemovalSettlement(delivery, request)
     } catch (error) {
-      this.logger.error(`REMOVAL_SETTLE_FAILED ${JSON.stringify({ requestId })}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `REMOVAL_SETTLE_FAILED ${JSON.stringify({ requestId })}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 
@@ -3123,7 +3255,10 @@ export class DeliveryEventService {
         await this.recordRemovalEvent(event, delivery.status)
       }
     } catch (error) {
-      this.logger.error(`RETURN_TRIP_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${error}`, (error as Error).stack)
+      this.logger.error(
+        `RETURN_TRIP_SETTLE_FAILED ${JSON.stringify({ deliveryId })}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 
@@ -3136,7 +3271,9 @@ export class DeliveryEventService {
         await this.websocketDispatcher.sendSplitRequestDecided(courier.userId, message)
       }
     } catch (error) {
-      this.logger.error(`Could not tell the rider of delivery ${message.deliveryId} the split outcome: ${error}`)
+      this.logger.error(
+        `Could not tell the rider of delivery ${message.deliveryId} the split outcome: ${errorSummaryForLog(error)}`
+      )
     }
     this.offerPushService.splitRequestDecided(courierId, message)
   }
@@ -3150,7 +3287,9 @@ export class DeliveryEventService {
         await this.websocketDispatcher.sendRemovalRequestDecided(courier.userId, message)
       }
     } catch (error) {
-      this.logger.error(`Could not tell the rider of delivery ${message.deliveryId} the removal outcome: ${error}`)
+      this.logger.error(
+        `Could not tell the rider of delivery ${message.deliveryId} the removal outcome: ${errorSummaryForLog(error)}`
+      )
     }
     this.offerPushService.removalRequestDecided(courierId, message)
   }
@@ -3172,7 +3311,9 @@ export class DeliveryEventService {
         await this.websocketDispatcher.sendJobReadyUpdated(courier.userId, message)
       }
     } catch (error) {
-      this.logger.error(`Could not tell the rider of delivery ${delivery.id} its ready time changed: ${error}`)
+      this.logger.error(
+        `Could not tell the rider of delivery ${delivery.id} its ready time changed: ${errorSummaryForLog(error)}`
+      )
     }
     this.offerPushService.jobReadyUpdated(delivery.courierId, message)
   }
@@ -3241,7 +3382,7 @@ export class DeliveryEventService {
         }
       )
     } catch (error) {
-      this.logger.error(`Could not set the expiry timer of delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not set the expiry timer of delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -3261,7 +3402,7 @@ export class DeliveryEventService {
         { delay, jobId: `${noCourierRetryJobIdPrefix(deliveryId)}${Date.now()}` }
       )
     } catch (error) {
-      this.logger.error(`Could not set the retry timer of delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not set the retry timer of delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -3269,7 +3410,7 @@ export class DeliveryEventService {
     try {
       await this.bullMQService.removeDelayedJobsWithIdPrefix(noCourierRetryJobIdPrefix(deliveryId))
     } catch (error) {
-      this.logger.error(`Could not remove the retry timer of delivery ${deliveryId}: ${error}`)
+      this.logger.error(`Could not remove the retry timer of delivery ${deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -3334,7 +3475,9 @@ export class DeliveryEventService {
       })
     } catch (error) {
       this.logger.error(
-        `Error sending event notification for delivery ${event.deliveryId} to partner ${userId}: ${error}`
+        `Error sending event notification for delivery ${event.deliveryId} to partner ${userId}: ${errorSummaryForLog(
+          error
+        )}`
       )
     }
   }
@@ -3357,7 +3500,9 @@ export class DeliveryEventService {
       )
     } catch (error) {
       this.logger.error(
-        `Error sending event notification for delivery ${delivery.id} to courier ${courierId}: ${error}`
+        `Error sending event notification for delivery ${delivery.id} to courier ${courierId}: ${errorSummaryForLog(
+          error
+        )}`
       )
     }
   }
@@ -3450,7 +3595,11 @@ export class DeliveryEventService {
       try {
         await this.removalRequestRepository.closeOpenForDelivery(deliveryEvent.deliveryId)
       } catch (error) {
-        this.logger.error(`Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not close an open removal request of delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(
+            error
+          )}`
+        )
       }
       // Spec 0047 (cross check 5): a split leg that ended without a rider ever taking it.
       if (
@@ -3460,7 +3609,9 @@ export class DeliveryEventService {
         try {
           await this.voidSplitLegChargeIfNeverAccepted(deliveryEvent.deliveryId, outcome.newStatus)
         } catch (error) {
-          this.logger.error(`Could not take back the split charge of delivery ${deliveryEvent.deliveryId}: ${error}`)
+          this.logger.error(
+            `Could not take back the split charge of delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(error)}`
+          )
         }
       }
     }
@@ -3478,7 +3629,9 @@ export class DeliveryEventService {
       try {
         await this.voidOpenSplitRequest(deliveryEvent.deliveryId, outcome.newStatus)
       } catch (error) {
-        this.logger.error(`Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not close an open split request of delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
     }
 
@@ -3499,7 +3652,9 @@ export class DeliveryEventService {
         // accepted it, and loses the list on any other way out. One rule, here, like the stack's above.
         else if (moved && moved.stopSequence !== null) await this.settleAddOnLeavingOffer(moved)
       } catch (error) {
-        this.logger.error(`Could not release the stack partner of delivery ${deliveryEvent.deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not release the stack partner of delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
     }
 
@@ -3514,7 +3669,9 @@ export class DeliveryEventService {
           await this.settleStackStops(changed.offerGroupId, changed.id)
         }
       } catch (error) {
-        this.logger.error(`Could not settle the stop sequence of delivery ${deliveryEvent.deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not settle the stop sequence of delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(error)}`
+        )
       }
     }
 
@@ -3527,7 +3684,11 @@ export class DeliveryEventService {
       try {
         await this.courierRepository.clearLocationIfOfflineAndFree()
       } catch (error) {
-        this.logger.error(`Could not erase positions after an event on delivery ${deliveryEvent.deliveryId}: ${error}`)
+        this.logger.error(
+          `Could not erase positions after an event on delivery ${deliveryEvent.deliveryId}: ${errorSummaryForLog(
+            error
+          )}`
+        )
       }
     }
     return saved

@@ -15,6 +15,7 @@ import {
   estimatedRoadSeconds,
   scoreCandidates,
 } from 'src/domains/matching/fairness-score'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // How many riders passing the filters are read, to know how many the shortlist left out (ridersInRange).
 const RIDERS_IN_RANGE_READ_LIMIT = 200
@@ -74,7 +75,9 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     try {
       today = await this.timeWorkedService.todayForFairness(now)
     } catch (error) {
-      this.logger.error(`Today's figures could not be read for the fairness matcher; road time decides: ${error}`)
+      this.logger.error(
+        `Today's figures could not be read for the fairness matcher; road time decides: ${errorSummaryForLog(error)}`
+      )
       today = new Map()
       figuresKnown = false
     }
@@ -163,7 +166,11 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
     try {
       return await this.shiftBookingRepository.onShiftNow(courierIds, now)
     } catch (error) {
-      this.logger.error(`Booked shifts could not be read for the fairness matcher; this offer leaves shifts out: ${error}`)
+      this.logger.error(
+        `Booked shifts could not be read for the fairness matcher; this offer leaves shifts out: ${errorSummaryForLog(
+          error
+        )}`
+      )
       return null
     }
   }
@@ -182,7 +189,7 @@ export class FairnessCourierMatcherService implements ICourierMatcherService {
       }
       this.logger.warn('OSRM gave no road time for a candidate; every candidate is estimated')
     } catch (error) {
-      this.logger.warn(`No road times for the fairness candidates, estimating: ${error}`)
+      this.logger.warn(`No road times for the fairness candidates, estimating: ${errorSummaryForLog(error)}`)
     }
     return { seconds: straightMetres.map((metres) => estimatedRoadSeconds(metres)), estimated: true }
   }

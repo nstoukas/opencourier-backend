@@ -1,3 +1,4 @@
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
 import { languageOf, translate } from 'src/localization/translate'
 import {
@@ -28,6 +29,8 @@ import { CacheService } from 'src/services/cache/cache.service'
 import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { MailService } from 'src/services/mail/mail.service'
+// A mail error is logged without its message, which can name the recipient (spec 0039).
+import { describeError } from 'src/domains/auth/password-reset.service'
 import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
 
 // The fields an admin may edit (AC-4, cross check 11): node_uri and the Stripe fields are not here.
@@ -112,7 +115,10 @@ export class CourierAccountService {
       )
       await this.deliveryEventService.handleCourierStatusChanged(courierId, EnumCourierStatus.OFFLINE)
     } catch (error) {
-      this.logger.error(`Could not set reactivated courier ${courierId} Offline`, error as Error)
+      this.logger.error(
+        `Could not set reactivated courier ${courierId} Offline: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
     this.logger.log(`Admin ${adminUserId} reactivated courier ${courierId}`)
     return this.courierDomainService.getByIdOrThrow(courierId)
@@ -237,7 +243,10 @@ export class CourierAccountService {
         },
       ])
     } catch (error) {
-      this.logger.error(`Could not record the password change of courier ${courierId}`, error as Error)
+      this.logger.error(
+        `Could not record the password change of courier ${courierId}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
   }
 
@@ -279,12 +288,18 @@ export class CourierAccountService {
       const tokens = await this.courierDeviceRepository.findTokensForCourier(courier.id)
       await this.courierDeviceRepository.deleteByTokens(tokens.filter((token) => token !== input.pushToken))
     } catch (error) {
-      this.logger.error(`Could not remove the other devices of courier ${courier.id}`, error as Error)
+      this.logger.error(
+        `Could not remove the other devices of courier ${courier.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
     try {
       await this.websocketDispatcher.disconnectUser(user.id)
     } catch (error) {
-      this.logger.error(`Could not close the connections of courier ${courier.id}`, error as Error)
+      this.logger.error(
+        `Could not close the connections of courier ${courier.id}: ${errorSummaryForLog(error)}`,
+        describeErrorForLog(error).stack
+      )
     }
     this.logger.log(`Courier ${courier.id} changed their password`)
     // A session issued now is newer than credentialsChangedAt to the second (iat is in whole seconds and
@@ -339,9 +354,7 @@ export class CourierAccountService {
         html: `<p>${escapeHtml(text)}</p>`,
       })
     } catch (error) {
-      this.logger.error(
-        `Could not send the email change notice of user ${userId}: ${error instanceof Error ? error.name : 'error'}`
-      )
+      this.logger.error(`Could not send the email change notice of user ${userId}: ${describeError(error)}`)
     }
   }
 }

@@ -15,6 +15,7 @@ import { searchWords } from 'src/rest-api/common/search-fold'
 import { ChatMessageAdminDto, ChatMessagePartyDto } from 'src/rest-api/chat/dtos/chat-message.dto'
 import { OfferPushService } from 'src/services/pushNotification/offer-push.service'
 import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Who is writing. The rider's and restaurant's ids come from their login (the auth guards), never
 // from the request body (spec 0034, value sourcing).
@@ -379,10 +380,10 @@ export class ChatDomainService {
     try {
       const result = send()
       if (result instanceof Promise) {
-        result.catch((error) => this.logger.error(`Chat live message failed: ${error}`))
+        result.catch((error) => this.logger.error(`Chat live message failed: ${errorSummaryForLog(error)}`))
       }
     } catch (error) {
-      this.logger.error(`Chat live message failed: ${error}`)
+      this.logger.error(`Chat live message failed: ${errorSummaryForLog(error)}`)
     }
   }
 }

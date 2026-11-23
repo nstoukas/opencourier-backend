@@ -7,6 +7,7 @@ import {
 } from 'src/persistence/repositories/delivery-issue.repository'
 import { ChatDomainService } from 'src/domains/chat/chat.domain.service'
 import { DELIVERY_ISSUE_REASON_TO_HUMAN } from 'src/shared-types/delivery-issue'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Riders' reports about a delivery (decision 66.11). Not a DeliveryEvent: a report changes no
 // status, pay or assignment; it is a note for the admin, kept with its rider and time.
@@ -40,7 +41,7 @@ export class DeliveryIssueDomainService {
     try {
       await this.chatDomainService.addSystemLine(issue.courierId, issue.deliveryId, issue.note ? `${words}\n${issue.note}` : words)
     } catch (error) {
-      this.logger.error(`Could not add report ${issue.id} to the rider's chat: ${error}`)
+      this.logger.error(`Could not add report ${issue.id} to the rider's chat: ${errorSummaryForLog(error)}`)
     }
   }
 

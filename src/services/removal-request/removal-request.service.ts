@@ -31,6 +31,7 @@ import {
   FALLBACK_CANCELLATION_PAYOUT_POLICY,
 } from 'src/shared-types'
 import { isUniqueConstraintError } from 'src/prisma.util'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // The refusal when an order moved on, worded for the dispatcher looking at the board.
 export const ADMIN_ORDER_CHANGED_MESSAGE = 'This order changed while you were deciding. Look at the row again.'
@@ -295,7 +296,7 @@ export class RemovalRequestService {
       await this.deliveryEventService.processDeliveryEvent(cancel)
     } catch (error) {
       // What matters is the delivery's status below, not how the attempt ended.
-      this.logger.error(`Cancelling delivery ${delivery.id} for a removal failed: ${error}`)
+      this.logger.error(`Cancelling delivery ${delivery.id} for a removal failed: ${errorSummaryForLog(error)}`)
     }
 
     const latest = await this.deliveryRepository.findById(delivery.id)
@@ -337,7 +338,9 @@ export class RemovalRequestService {
         ? await this.configDomainService.instanceConfig.getCancellationPayoutPolicy()
         : await this.configDomainService.instanceConfig.getReassignmentPayoutDefaultPolicy()
     } catch (error) {
-      this.logger.warn(`Could not read the removal pay settings for delivery ${delivery.id}: ${error}`)
+      this.logger.warn(
+        `Could not read the removal pay settings for delivery ${delivery.id}: ${errorSummaryForLog(error)}`
+      )
     }
     const { policy, amount, warnings } = resolveCancellationPayout(menu, key, delivery.totalCompensation, settingName)
     for (const warning of warnings) {
@@ -368,7 +371,7 @@ export class RemovalRequestService {
     try {
       await this.deliveryEventService.recordRemovalEvent(event, status, successful)
     } catch (error) {
-      this.logger.error(`Could not record ${event.type} for delivery ${event.deliveryId}: ${error}`)
+      this.logger.error(`Could not record ${event.type} for delivery ${event.deliveryId}: ${errorSummaryForLog(error)}`)
     }
   }
 

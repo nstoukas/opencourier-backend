@@ -1,6 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common'
 import { Request, Response, NextFunction } from 'express'
 import axios from 'axios'
+import { errorSummaryForLog } from '../utils/errorForLog'
 
 @Injectable()
 export class NgrokMiddleware implements NestMiddleware {
@@ -39,7 +40,7 @@ export class NgrokMiddleware implements NestMiddleware {
         })
       } catch (error) {
         // The message only (row 95 review): an Axios error carries the forwarded headers and body.
-        this.logger.log(`Error forwarding ngrok ${(error as any).message || error}`)
+        this.logger.log(`Error forwarding ngrok ${errorSummaryForLog(error)}`)
       }
       next()
     } else {

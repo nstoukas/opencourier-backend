@@ -22,6 +22,7 @@ import { CacheService } from 'src/services/cache/cache.service'
 import { CacheHelpers } from 'src/services/cache/cache.helpers'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // How many waiting orders are tried as the second order of a stack, the longest waiting first. Each one
 // costs one road table, so the offer is never held up by a long list.
@@ -151,7 +152,9 @@ export class TwoOrderService {
       }
       return null
     } catch (error) {
-      this.logger.error(`Looking for a stack with delivery ${first.id} failed; offering it alone: ${error}`)
+      this.logger.error(
+        `Looking for a stack with delivery ${first.id} failed; offering it alone: ${errorSummaryForLog(error)}`
+      )
       return null
     }
   }
@@ -274,7 +277,9 @@ export class TwoOrderService {
       )
       return plans[0] ?? null
     } catch (error) {
-      this.logger.error(`Looking for an add on of delivery ${delivery.id} failed; no add on: ${error}`)
+      this.logger.error(
+        `Looking for an add on of delivery ${delivery.id} failed; no add on: ${errorSummaryForLog(error)}`
+      )
       return null
     }
   }

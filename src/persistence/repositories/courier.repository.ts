@@ -30,6 +30,7 @@ import { DELIVERY_ONGOING_STATUSES, GeoPosition } from 'src/shared-types'
 import { DELIVERY_PICKED_UP_STATUSES } from 'src/shared-types/stateMachine'
 import { BOX_HELD_STATUSES, RIDER_BOX_UNITS } from 'src/domains/delivery/box'
 import { ACTIVE_SOS_WHERE } from 'src/domains/sos/sos-incident-state'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // A rider is busy, and gets no new offer, while any delivery of theirs is in one of
 // DELIVERY_ONGOING_STATUSES (accepted, dispatched, arrived at pickup, picked up, on the way,
@@ -301,7 +302,7 @@ export class CourierRepository extends EntityRepository implements ICourierRepos
         longitude: coordinates[0],
       }
     } catch (e) {
-      this.logger.error(`Error parsing courier location: ${e}`)
+      this.logger.error(`Error parsing courier location: ${errorSummaryForLog(e)}`)
       return null
     }
   }

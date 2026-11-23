@@ -3,6 +3,7 @@ import { INSTANCE_TIMEZONE } from 'src/constants'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { TaskBusService } from 'src/services/taskBus/taskBus.service'
 import { SavedCustomerDomainService } from './saved-customer.domain.service'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const RETENTION_JOB_NAME = 'saved-customer-retention'
 // Every day at 04:00 Volos time, when no restaurant is ordering.
@@ -37,7 +38,7 @@ export class SavedCustomerRetentionService implements OnModuleInit {
     try {
       await this.bullMQService.addRepeatableJob(RETENTION_JOB_NAME, {}, RETENTION_JOB_PATTERN, RETENTION_JOB_TIME_ZONE)
     } catch (error) {
-      this.logger.error(`Could not schedule the saved customer retention job: ${error}`)
+      this.logger.error(`Could not schedule the saved customer retention job: ${errorSummaryForLog(error)}`)
     }
   }
 }
