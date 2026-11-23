@@ -4,6 +4,7 @@ import { catchError } from 'rxjs/operators'
 import { getLogger } from '../services/logger'
 import { ApiException, PersonalDataWarningException } from '../errors'
 import { isRecordNotFoundError } from '../prisma.util'
+import { describeErrorForLog } from '../utils/errorForLog'
 import winston from 'winston'
 
 // The method and the route pattern (`/deliveries/:deliveryId`, never the URL with its ids), so a 404
@@ -47,7 +48,9 @@ export class ErrorLoggingInterceptor implements NestInterceptor {
           this.logger.warn(`Endpoint answered 404 for a missing row: ${routeOf(context)} ${err.message}`)
           return throwError(() => err)
         }
-        this.logger.error('Endpoint returned error', err)
+        // Row 132: never the whole error, whose fields (a Prisma call's data) can name a customer.
+        const { summary, stack } = describeErrorForLog(err)
+        this.logger.error(`Endpoint returned error: ${routeOf(context)} ${summary}`, { stack })
         return throwError(() => err)
       })
     )

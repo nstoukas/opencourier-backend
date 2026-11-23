@@ -13,6 +13,7 @@ import rawBodyMiddleware from './middleware/RawBodyMiddleware'
 import { ErrorLoggingInterceptor } from './middleware/ErrorLoggingInterceptor'
 import { SocketIOAdapter } from './services/socketio/socketio.adapter'
 import { ConfigService } from '@nestjs/config'
+import { describeErrorForLog, errorForConsole } from './utils/errorForLog'
 
 const { PORT = 4000 } = process.env
 
@@ -83,15 +84,19 @@ async function main() {
 }
 
 const panicLogger = getLogger('Panic')
+// Row 132: a crash is logged by its name, code and frames (describeErrorForLog), never the whole error or
+// the rejected promise, which prints the error whole, data from a Prisma call included.
 process
-  .on('unhandledRejection', (reason, p) => {
-    console.error(reason, 'Unhandled Rejection at Promise', p)
-    panicLogger.error('Unhandled Rejection at Promise', reason)
+  .on('unhandledRejection', (reason) => {
+    console.error(`Unhandled Rejection at Promise: ${errorForConsole(reason)}`)
+    const { summary, stack } = describeErrorForLog(reason)
+    panicLogger.error(`Unhandled Rejection at Promise: ${summary}`, { stack })
   })
   .on('uncaughtException', (err) => {
-    console.error(err, 'Uncaught Exception thrown')
-    panicLogger.error('Uncaught Exception thrown', err)
+    console.error(`Uncaught Exception thrown: ${errorForConsole(err)}`)
+    const { summary, stack } = describeErrorForLog(err)
+    panicLogger.error(`Uncaught Exception thrown: ${summary}`, { stack })
     process.exit(1)
   })
 
-module.exports = main().catch(console.error)
+module.exports = main().catch((error) => console.error(`The server did not start: ${errorForConsole(error)}`))

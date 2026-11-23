@@ -4,6 +4,7 @@ import { Response } from 'express'
 import { ApiException, ErrorCode } from '../errors'
 import { isRecordNotFoundError, isUniqueConstraintError } from '../prisma.util'
 import { codeForSentence } from '../localization/error-sentences'
+import { errorForConsole } from '../utils/errorForLog'
 // The generated client's own error class (prisma/client), not the one in `@prisma/client/runtime/library`:
 // the client ships its own copy of the runtime, so a class imported from the package never matches a real
 // error and `@Catch` let every Prisma error through to Nest's default 500 (row 121). Prisma 5's
@@ -66,7 +67,8 @@ export class HttpExceptionFilter extends BaseExceptionFilter {
     } else {
       // Only an unexpected database error is printed here; ErrorLoggingInterceptor logs errors from the
       // handlers, so printing every exception (404s included) only doubled the noise (row 121).
-      console.log(exception)
+      // Row 132: its name, code and frames, never the whole error (its message can repeat the call's data).
+      console.log(`Unexpected database error: ${errorForConsole(exception)}`)
       response.status(500).json({
         code: ErrorCode.UNKNOWN,
         message: 'Internal server error',
