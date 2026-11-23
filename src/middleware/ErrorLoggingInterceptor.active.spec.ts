@@ -231,9 +231,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(combinedLog).not.toContain(recipientPhone)
 
       // Assert error summary was logged properly
-      expect(loggedMessage).toContain(
-        "PrismaClientValidationError (message withheld: it can repeat the call's data)"
-      )
+      expect(loggedMessage).toContain("PrismaClientValidationError (message withheld: it can repeat the call's data)")
       // Assert stack frames are present, but stack header containing the parameters is excluded
       expect(loggedMeta.stack).toBeDefined()
       expect(loggedMeta.stack).toMatch(/^\s+at\s/)

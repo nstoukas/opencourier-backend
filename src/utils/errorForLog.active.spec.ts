@@ -50,9 +50,7 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const logged = describeErrorForLog(prismaValidationError)
 
       // Summary carries name, never message or customer details
-      expect(logged.summary).toBe(
-        'PrismaClientValidationError (message withheld: it can repeat the call\'s data)'
-      )
+      expect(logged.summary).toBe("PrismaClientValidationError (message withheld: it can repeat the call's data)")
       expect(logged.summary).not.toContain(recipientName)
       expect(logged.summary).not.toContain(recipientPhone)
       expect(logged.summary).not.toContain('prisma.delivery.create')
@@ -72,7 +70,7 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const consoleOutput = errorForConsole(prismaValidationError)
       expect(consoleOutput).not.toContain(recipientName)
       expect(consoleOutput).not.toContain(recipientPhone)
-      expect(consoleOutput).toContain('PrismaClientValidationError (message withheld: it can repeat the call\'s data)')
+      expect(consoleOutput).toContain("PrismaClientValidationError (message withheld: it can repeat the call's data)")
     })
 
     it('withholds message and carries code for real Prisma.PrismaClientKnownRequestError with P2002', () => {
@@ -85,7 +83,7 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const logged = describeErrorForLog(prismaKnownError)
 
       expect(logged.summary).toBe(
-        'PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call\'s data)'
+        "PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call's data)"
       )
       expect(logged.summary).not.toContain(recipientName)
       expect(logged.summary).not.toContain(recipientPhone)
@@ -99,7 +97,9 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const consoleOutput = errorForConsole(prismaKnownError)
       expect(consoleOutput).not.toContain(recipientName)
       expect(consoleOutput).not.toContain(recipientPhone)
-      expect(consoleOutput).toContain('PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call\'s data)')
+      expect(consoleOutput).toContain(
+        "PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call's data)"
+      )
     })
 
     it('withholds message and carries code for real Prisma.PrismaClientKnownRequestError with P2010 (raw query error)', () => {
@@ -112,7 +112,7 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const logged = describeErrorForLog(prismaKnownError)
 
       expect(logged.summary).toBe(
-        'PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call\'s data)'
+        "PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call's data)"
       )
       expect(logged.summary).not.toContain(recipientName)
       expect(logged.summary).not.toContain(recipientPhone)
@@ -124,7 +124,9 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       const consoleOutput = errorForConsole(prismaKnownError)
       expect(consoleOutput).not.toContain(recipientName)
       expect(consoleOutput).not.toContain(recipientPhone)
-      expect(consoleOutput).toContain('PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call\'s data)')
+      expect(consoleOutput).toContain(
+        "PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call's data)"
+      )
     })
 
     it('withholds message for Prisma.NotFoundError', () => {
@@ -135,9 +137,7 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
 
       const logged = describeErrorForLog(notFoundError)
 
-      expect(logged.summary).toBe(
-        'NotFoundError P2025 (message withheld: it can repeat the call\'s data)'
-      )
+      expect(logged.summary).toBe("NotFoundError P2025 (message withheld: it can repeat the call's data)")
       expect(logged.summary).not.toContain(recipientName)
       expect(logged.summary).not.toContain(recipientPhone)
       expect(logged.stack).not.toContain(recipientName)
@@ -300,7 +300,9 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
     })
 
     it('main().catch logs startup failure through errorForConsole', () => {
-      expect(mainContent).toMatch(/main\(\)\.catch\(\(error\)\s*=>\s*console\.error\(`The server did not start: \$\{errorForConsole\(error\)\}`\)\)/)
+      expect(mainContent).toMatch(
+        /main\(\)\.catch\(\(error\)\s*=>\s*console\.error\(`The server did not start: \$\{errorForConsole\(error\)\}`\)\)/
+      )
     })
   })
 })
