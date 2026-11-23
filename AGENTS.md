@@ -223,6 +223,11 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `MINIO_ENDPOINT` unset or a policy on the `complaints` bucket (rechecked every 5 minutes), a filing with a photo answers 503
   and nothing is saved; text only filings still work. sharp re-encodes each photo; a watcher started before `sharp` was
   installed crashes loading it, so restart only the backend's own process tree.
+- The server's texts by code (spec 0054) live in `src/localization/en.ts` and `el.ts`, and each app keeps its own copy to
+  word refusals and event messages in its reader's language: mobile (`src/localization`), adminweb (`src/i18n/resources`)
+  and request-web (`src/i18n/resources/serverEn.ts`, `serverEl.ts`). Nothing checks the copies against these files, so a new
+  code or a renamed param must be copied to all three; an app missing a code falls back to the English `message`, which the
+  backend therefore always keeps word for word (binding value 1).
 
 ## Agent skills
 
