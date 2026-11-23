@@ -197,7 +197,7 @@ export class WorkRulesService {
           settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
             ? 'whenever the two fit'
             : 'only when one of them found no free rider'
-        }. You take or decline both at once, and with auto accept on your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
+        }. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
           settings.twoOrderDelayLimitMinutes
         } minutes later than it would alone, and both orders always fit in your box.`
       )

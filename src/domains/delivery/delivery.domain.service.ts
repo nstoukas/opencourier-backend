@@ -532,13 +532,15 @@ export class DeliveryDomainService {
   // the only place it is recorded (value 5), exactly as for a single order.
   private async acceptStack(delivery: DeliveryEntity, courierId: string, automatic = false) {
     const groupId = delivery.offerGroupId as string
-    // Read before the take, for the other delivery's id and deadline should the accept have to be given back.
-    const members = await this.deliveryRepository.findOpenGroupMembers(groupId, courierId, delivery.offeredAt)
     const taken = await this.deliveryRepository.takeOfferGroup(groupId, courierId, delivery.offeredAt)
     if (!taken) {
       this.logger.log(`Courier ${courierId} answered stack ${groupId} after it changed; nothing accepted`)
       throw new ConflictException(STACK_CHANGED_SENTENCE)
     }
+    // Decision 128.6: the other delivery is read after the take, from the rows the take wrote, so an order
+    // that joined or left the group between an earlier read and the take can never be left taken but
+    // without its ACCEPTED event.
+    const members = await this.deliveryRepository.findTakenGroupMembers(groupId, courierId, delivery.offeredAt)
     const partner = members.find((member) => member.id !== delivery.id)
     const both = partner ? [delivery, partner] : [delivery]
 
@@ -581,15 +583,17 @@ export class DeliveryDomainService {
 
     if (!(await acceptOne(delivery, partner))) {
       // Give both back exactly as they were, deadlines included, with a timer behind each (as a single
-      // accept does), so neither is stuck half taken.
+      // accept does), so neither is stuck half taken. Both were offered together with one deadline, so the
+      // tapped delivery's (read before the take, which clears it) is the partner's too.
+      const { offeredAt, offerExpiresAt } = delivery
       for (const member of both) {
         const givenBack = await this.deliveryRepository.updateIfMatches(
           member.id,
           { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-          { courierId: null, offerExpiresAt: member.offerExpiresAt, acceptedAt: null, handBackUntil: null }
+          { courierId: null, offerExpiresAt, acceptedAt: null, handBackUntil: null }
         )
-        if (givenBack && member.offeredAt && member.offerExpiresAt) {
-          await this.deliveryEventService.rearmOfferExpiry(member.id, courierId, member.offeredAt, member.offerExpiresAt)
+        if (givenBack && offeredAt && offerExpiresAt) {
+          await this.deliveryEventService.rearmOfferExpiry(member.id, courierId, offeredAt, offerExpiresAt)
         }
       }
       this.logger.warn(`Accept by courier ${courierId} on stack ${groupId} did not take; offers given back`)

@@ -71,6 +71,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       findById: jest.fn(),
       findByIdOrThrow: jest.fn(),
       findOpenGroupMembers: jest.fn(),
+      findTakenGroupMembers: jest.fn(),
       takeOfferGroup: jest.fn(),
       updateIfMatches: jest.fn(),
       claimOfferWithinBox: jest.fn(),
@@ -216,7 +217,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         .mockResolvedValueOnce(del1) // Initial read
         .mockResolvedValueOnce(new DeliveryEntity({ ...del1, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-1
         .mockResolvedValueOnce(new DeliveryEntity({ ...del2, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-2
-      mockDeliveryRepo.findOpenGroupMembers.mockResolvedValueOnce([del1, del2])
+      mockDeliveryRepo.findTakenGroupMembers.mockResolvedValueOnce([del1, del2])
       mockDeliveryRepo.takeOfferGroup.mockResolvedValueOnce(true)
       const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
 
@@ -258,7 +259,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         .mockResolvedValueOnce(new DeliveryEntity({ ...del1, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-1
         .mockResolvedValueOnce(new DeliveryEntity({ ...del2, status: EnumDeliveryStatus.ACCEPTED, courierId })) // verification del-2
 
-      mockDeliveryRepo.findOpenGroupMembers.mockResolvedValueOnce([del1, del2])
+      mockDeliveryRepo.findTakenGroupMembers.mockResolvedValueOnce([del1, del2])
       mockDeliveryRepo.takeOfferGroup.mockResolvedValueOnce(true)
 
       const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
@@ -307,7 +308,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
     it('gives both offers back with deadlines and re-arms timers if first ACCEPTED event does not take', async () => {
       const del1 = makeDelivery('del-1')
       const del2 = makeDelivery('del-2')
-      mockDeliveryRepo.findOpenGroupMembers.mockResolvedValueOnce([del1, del2])
+      mockDeliveryRepo.findTakenGroupMembers.mockResolvedValueOnce([del1, del2])
       mockDeliveryRepo.takeOfferGroup.mockResolvedValueOnce(true)
 
       // First accept does not transition

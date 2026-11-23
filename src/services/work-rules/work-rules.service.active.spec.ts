@@ -210,7 +210,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
 
       const shortageResult = await service.howItWorks()
       expect(shortageResult.offers).toContain(
-        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens only when one of them found no free rider. You take or decline both at once, and with auto accept on your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 10 minutes later than it would alone, and both orders always fit in your box.'
+        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens only when one of them found no free rider. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 10 minutes later than it would alone, and both orders always fit in your box.'
       )
 
       // 2. WHENEVER_FITS with 15 minutes delay limit
@@ -223,7 +223,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
 
       const wheneverResult = await service.howItWorks()
       expect(wheneverResult.offers).toContain(
-        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens whenever the two fit. You take or decline both at once, and with auto accept on your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 15 minutes later than it would alone, and both orders always fit in your box.'
+        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens whenever the two fit. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 15 minutes later than it would alone, and both orders always fit in your box.'
       )
 
       // 3. stackingEnabled: false omits the rule

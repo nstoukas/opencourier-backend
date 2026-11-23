@@ -334,6 +334,23 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
     return this.toDomainMany(rows)
   }
 
+  // Row 128 (decision 128.6): the deliveries of a stack this rider has just taken by this offer
+  // (takeOfferGroup wrote the rider on them) and that still wait for their ACCEPTED event. Read after the
+  // take, so they are exactly the rows the take wrote, not the ones some earlier read happened to see.
+  async findTakenGroupMembers(groupId: string, courierId: string, offeredAt: Date | null): Promise<DeliveryEntity[]> {
+    const rows = await this.prisma.delivery.findMany({
+      where: {
+        offerGroupId: groupId,
+        matchedCourierId: courierId,
+        offeredAt,
+        courierId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    return this.toDomainMany(rows)
+  }
+
   // Spec 0048 (AC-5): one delivery of an open stack left it some other way than the rider's answer (it was
   // cancelled, an admin moved or accepted it): the other keeps its offer as a single one, so the rider can
   // still take it alone. Only open, untaken offers are touched, so a group accept in progress (both taken)
