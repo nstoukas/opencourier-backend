@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Logger } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import {
   EnumDeliveryEventSource,
   EnumDeliveryEventType,
@@ -337,13 +338,15 @@ describe('DropoffPointCourierService (Spec 0016 AC-9, AC-10, AC-12)', () => {
 
       // The release failure must be logged with the release error
       expect(errorSpy).toHaveBeenCalledWith(
-        `DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${releaseError}`
+        `DROPOFF_POINT_CLAIM_RELEASE_FAILED delivery ${deliveryId}: ${errorSummaryForLog(releaseError)}`
       )
       // The correction failure is also logged with the original event error
       expect(errorSpy).toHaveBeenCalledWith(
-        `DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${eventError}`,
-        eventError.stack
+        `DROPOFF_POINT_CORRECTION_FAILED delivery ${deliveryId}: ${errorSummaryForLog(eventError)}`,
+        describeErrorForLog(eventError).stack
       )
+      const [, stack] = errorSpy.mock.calls[0]!
+      expect(stack).not.toBeInstanceOf(Error)
 
       errorSpy.mockRestore()
     })

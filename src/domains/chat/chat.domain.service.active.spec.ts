@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
-import { EnumChatSenderKind, EnumCourierStatus } from '@prisma/types'
+import { EnumChatSenderKind, EnumCourierStatus, Prisma } from '@prisma/types'
 import { CHAT_MESSAGE_MAX_LENGTH } from 'src/constants'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import {
@@ -1243,6 +1243,58 @@ describe('ChatDomainService (spec 0034, AC-4, AC-7, AC-10, AC-11, AC-15, AC-19, 
       // SYSTEM message -> readByDispatch is absent (not false)
       expect(result[3]!.readByDispatch).toBeUndefined()
       expect('readByDispatch' in result[3]!).toBe(false)
+    })
+  })
+
+  describe('Row 139 (Clause 2): Logging privacy on live message failure', () => {
+    const recipientName = 'Nikolaos Gyzis'
+    const recipientPhone = '+306941234567'
+
+    it('withholds recipient name and phone on synchronous throw from live message send', () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const validationMessage = `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`
+      const prismaError = new Prisma.PrismaClientValidationError(validationMessage, {
+        clientVersion: '5.3.1',
+      })
+
+      // Synchronous throw in send()
+      ;(service as any).safely(() => {
+        throw prismaError
+      })
+
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const callArgs = loggerErrorSpy.mock.calls[0]!
+      const loggedText = callArgs.map(String).join(' ')
+      expect(loggedText).not.toContain(recipientName)
+      expect(loggedText).not.toContain(recipientPhone)
+      expect(loggedText).toContain('PrismaClientValidationError')
+      expect(loggedText).toContain('Chat live message failed')
+
+      loggerErrorSpy.mockRestore()
+    })
+
+    it('withholds recipient name and phone on rejected promise from live message send', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const validationMessage = `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`
+      const prismaError = new Prisma.PrismaClientValidationError(validationMessage, {
+        clientVersion: '5.3.1',
+      })
+
+      const rejectedPromise = Promise.reject(prismaError)
+      ;(service as any).safely(() => rejectedPromise)
+
+      // Await promise rejection tick
+      await rejectedPromise.catch(() => {})
+
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const callArgs = loggerErrorSpy.mock.calls[0]!
+      const loggedText = callArgs.map(String).join(' ')
+      expect(loggedText).not.toContain(recipientName)
+      expect(loggedText).not.toContain(recipientPhone)
+      expect(loggedText).toContain('PrismaClientValidationError')
+      expect(loggedText).toContain('Chat live message failed')
+
+      loggerErrorSpy.mockRestore()
     })
   })
 })

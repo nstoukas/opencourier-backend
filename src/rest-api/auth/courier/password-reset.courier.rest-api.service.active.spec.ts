@@ -1,4 +1,5 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { EnumCourierDeliverySetting, EnumCourierStatus, EnumStripeAccountStatus, EnumUserRole } from '@prisma/types'
 import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
@@ -254,12 +255,22 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
     })
 
     test('a record that cannot be written does not fail the reset: the rider still gets the session', async () => {
-      mockCourierAccountRepository.record.mockRejectedValue(new Error('db down'))
+      const dbError = new Error('db down')
+      mockCourierAccountRepository.record.mockRejectedValue(dbError)
 
       const result = await service.resetPassword('rider@volos.coop', '123456', 'new-strong-password')
 
       expect(result.session?.accessToken).toBe('new-jwt-token')
       expect(mockUserDomainService.update).toHaveBeenCalledTimes(1)
+
+      expect(loggerSpies.error).toHaveBeenCalledWith(
+        `Could not record the password change of courier courier-42: ${errorSummaryForLog(dbError)}`,
+        describeErrorForLog(dbError).stack
+      )
+      const [, stack] = loggerSpies.error.mock.calls[0]!
+      expect(stack).not.toBeInstanceOf(Error)
+      expect(typeof stack).toBe('string')
+      stack.split('\n').forEach((line: string) => expect(line).toMatch(/^\s+at\s/))
     })
 
     test('a refused code records nothing', async () => {

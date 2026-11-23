@@ -2,16 +2,23 @@ import { SocketIODispatcher } from './socketio.dispatcher'
 import { SocketIOService } from './socketio.service'
 import { AdminSocketGateway } from './admin-socket.gateway'
 import { SocketWithAuth } from './types/socket-with-auth.type'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
-describe('SocketIODispatcher (Spec 0013 / Spec 0034 review fix)', () => {
+describe('SocketIODispatcher (Spec 0013 / Spec 0034 review fix / Row 139)', () => {
   let dispatcher: SocketIODispatcher
   let socketIOService: SocketIOService
   let adminSocketGateway: AdminSocketGateway
+  let loggerErrorSpy: jest.SpyInstance
 
   beforeEach(() => {
     socketIOService = new SocketIOService()
     adminSocketGateway = new AdminSocketGateway()
     dispatcher = new SocketIODispatcher(socketIOService, adminSocketGateway)
+    loggerErrorSpy = jest.spyOn((dispatcher as any).logger, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
   })
 
   test('disconnectUser calls both socketIOService.disconnectUser and adminSocketGateway.disconnectUser', () => {
@@ -22,6 +29,30 @@ describe('SocketIODispatcher (Spec 0013 / Spec 0034 review fix)', () => {
 
     expect(socketIOSpy).toHaveBeenCalledWith('user-123')
     expect(adminGatewaySpy).toHaveBeenCalledWith('user-123')
+  })
+
+  test('publishMessage error logs summary and stack frames only, never Error object', async () => {
+    const error = new Error('SocketIO channel emit failed')
+    jest.spyOn(socketIOService, 'publishMessage').mockImplementation(() => {
+      throw error
+    })
+
+    await (dispatcher as any).publishMessage('chat:user-1', 'chat-message', { text: 'hello' })
+
+    expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+    const [msg, stack] = loggerErrorSpy.mock.calls[0]!
+
+    expect(msg).toBe(
+      `There was a problem trying to publish a message to socketio channel chat:user-1: ${errorSummaryForLog(error)}`
+    )
+    expect(msg).toContain('Error: SocketIO channel emit failed')
+
+    expect(stack).toBe(describeErrorForLog(error).stack)
+    expect(stack).not.toBeInstanceOf(Error)
+    expect(typeof stack).toBe('string')
+    const lines = stack.split('\n')
+    expect(lines.length).toBeGreaterThan(0)
+    lines.forEach((l: string) => expect(l).toMatch(/^\s+at\s/))
   })
 })
 

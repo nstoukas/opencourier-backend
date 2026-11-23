@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 import { GcpTaskScheduler, WEBHOOK_NAME, WEBHOOK_PATH } from './gcpTask.scheduler'
 import {
   GCP_LOCATION,
@@ -200,8 +201,16 @@ describe('GcpTaskScheduler (Row 94, Decision 94.1)', () => {
       const [errorMessage, errorArg] = errorSpy.mock.calls[0]
 
       // Error log message must match safe format
-      expect(errorMessage).toBe(`Failed to schedule task offer-expiry for ${scheduleTime.toISOString()}`)
-      expect(errorArg).toBe(gcpError)
+      expect(errorMessage).toBe(
+        `Failed to schedule task offer-expiry for ${scheduleTime.toISOString()}: ${errorSummaryForLog(gcpError)}`
+      )
+      expect(errorArg).toBe(describeErrorForLog(gcpError).stack)
+      expect(errorArg).not.toBe(gcpError)
+      if (typeof errorArg === 'string') {
+        const stackLines = errorArg.split('\n')
+        expect(stackLines.length).toBeGreaterThan(0)
+        stackLines.forEach((l) => expect(l).toMatch(/^\s+at\s/))
+      }
 
       // Must never log the secret in the error message
       expect(errorMessage).not.toContain(FAKE_CONFIG[TASK_RUNNER_SECRET])

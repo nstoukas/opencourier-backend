@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common'
-import { EnumDeliveryIssueReason } from '@prisma/types'
+import { EnumDeliveryIssueReason, Prisma } from '@prisma/types'
 import { DeliveryIssueDomainService } from './delivery-issue.domain.service'
 import { ChatDomainService } from 'src/domains/chat/chat.domain.service'
 import {
@@ -179,6 +179,42 @@ describe('DeliveryIssueDomainService (clause 3)', () => {
       await expect(service.markHandled('del-unknown', 'issue-unknown', 'admin-1')).rejects.toThrow(
         'Report issue-unknown not found on delivery del-unknown'
       )
+    })
+  })
+
+  describe('Row 139 (Clause 2): Logging privacy when adding report to rider chat fails', () => {
+    const recipientName = 'Kostas Varnalis'
+    const recipientPhone = '+306949876543'
+
+    test('withholds recipient name and phone when chatDomainService.addSystemLine throws a Prisma error', async () => {
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+      const validationMessage = `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`
+      const prismaError = new Prisma.PrismaClientValidationError(validationMessage, {
+        clientVersion: '5.3.1',
+      })
+
+      mockChatDomainService.addSystemLine.mockRejectedValue(prismaError)
+
+      const result = await service.report({
+        deliveryId: 'del-101',
+        courierId: 'courier-202',
+        reason: EnumDeliveryIssueReason.WRONG_ADDRESS,
+        note: 'Customer address issue',
+      })
+
+      // The report itself still succeeds (AC-16)
+      expect(result).toEqual(mockCreatedIssue)
+
+      // The logger was called without the customer details
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const callArgs = loggerErrorSpy.mock.calls[0]!
+      const loggedText = callArgs.map(String).join(' ')
+      expect(loggedText).not.toContain(recipientName)
+      expect(loggedText).not.toContain(recipientPhone)
+      expect(loggedText).toContain('PrismaClientValidationError')
+      expect(loggedText).toContain(`Could not add report ${mockCreatedIssue.id} to the rider's chat`)
+
+      loggerErrorSpy.mockRestore()
     })
   })
 })

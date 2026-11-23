@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
@@ -98,14 +99,19 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
   })
 
   test('continues cut off when websocket disconnectUser throws, logging error with courier id', async () => {
-    mockWebsocketDispatcher.disconnectUser.mockRejectedValue(new Error('Connection failure'))
+    const connectionError = new Error('Connection failure')
+    mockWebsocketDispatcher.disconnectUser.mockRejectedValue(connectionError)
 
     await expect(service.cutOff(mockCourier)).resolves.toBeUndefined()
 
     expect(loggerSpies.error).toHaveBeenCalledWith(
-      'Could not close the connections of courier courier-123',
-      expect.any(Error)
+      `Could not close the connections of courier courier-123: ${errorSummaryForLog(connectionError)}`,
+      describeErrorForLog(connectionError).stack
     )
+    const [, stack] = loggerSpies.error.mock.calls[0]
+    expect(stack).not.toBeInstanceOf(Error)
+    expect(typeof stack).toBe('string')
+    stack.split('\n').forEach((line: string) => expect(line).toMatch(/^\s+at\s/))
     expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
     expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
       'courier-123',
@@ -120,14 +126,19 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
   })
 
   test('continues cut off when deleteAllForCourier throws, logging error with courier id', async () => {
-    mockCourierDeviceRepository.deleteAllForCourier.mockRejectedValue(new Error('DB failure'))
+    const dbError = new Error('DB failure')
+    mockCourierDeviceRepository.deleteAllForCourier.mockRejectedValue(dbError)
 
     await expect(service.cutOff(mockCourier)).resolves.toBeUndefined()
 
     expect(loggerSpies.error).toHaveBeenCalledWith(
-      'Could not remove the devices of courier courier-123',
-      expect.any(Error)
+      `Could not remove the devices of courier courier-123: ${errorSummaryForLog(dbError)}`,
+      describeErrorForLog(dbError).stack
     )
+    const [, stack] = loggerSpies.error.mock.calls[0]
+    expect(stack).not.toBeInstanceOf(Error)
+    expect(typeof stack).toBe('string')
+    stack.split('\n').forEach((line: string) => expect(line).toMatch(/^\s+at\s/))
     expect(mockWebsocketDispatcher.disconnectUser).toHaveBeenCalledWith('user-456')
     expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
       'courier-123',
@@ -142,11 +153,19 @@ describe('CourierCutOffService (Clause 9, spec 0039 AC-10, spec 0013 AC-5)', () 
   })
 
   test('continues when setting Offline throws, logging error with courier id', async () => {
-    mockCourierDomainService.changeStatus.mockRejectedValue(new Error('Update status failure'))
+    const statusError = new Error('Update status failure')
+    mockCourierDomainService.changeStatus.mockRejectedValue(statusError)
 
     await expect(service.cutOff(mockCourier)).resolves.toBeUndefined()
 
-    expect(loggerSpies.error).toHaveBeenCalledWith('Could not set courier courier-123 Offline', expect.any(Error))
+    expect(loggerSpies.error).toHaveBeenCalledWith(
+      `Could not set courier courier-123 Offline: ${errorSummaryForLog(statusError)}`,
+      describeErrorForLog(statusError).stack
+    )
+    const [, stack] = loggerSpies.error.mock.calls[0]
+    expect(stack).not.toBeInstanceOf(Error)
+    expect(typeof stack).toBe('string')
+    stack.split('\n').forEach((line: string) => expect(line).toMatch(/^\s+at\s/))
     expect(mockWebsocketDispatcher.disconnectUser).toHaveBeenCalledWith('user-456')
     expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith('courier-123')
   })

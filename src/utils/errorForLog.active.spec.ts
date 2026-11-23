@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { describeErrorForLog, errorForConsole } from './errorForLog'
+import { describeErrorForLog, errorForConsole, errorSummaryForLog } from './errorForLog'
 import { Prisma } from '@prisma/types'
 import { ApiException, ErrorCode } from '../errors'
 
@@ -32,6 +32,76 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       )
       expect(mainSource).toContain('describeErrorForLog(reason)')
       expect(mainSource).toContain('errorForConsole(reason)')
+
+      const chainWatcherSource = fs.readFileSync(path.resolve(__dirname, '../main.chain-watcher.ts'), 'utf8')
+      expect(chainWatcherSource).toMatch(
+        /import\s*\{[^}]*describeErrorForLog[^}]*errorForConsole[^}]*\}\s*from\s*'\.\/utils\/errorForLog'/
+      )
+      expect(chainWatcherSource).toContain('describeErrorForLog(reason)')
+      expect(chainWatcherSource).toContain('errorForConsole(reason)')
+      expect(chainWatcherSource).toContain('describeErrorForLog(err)')
+      expect(chainWatcherSource).toContain('errorForConsole(err)')
+      // No rejected promise p printed or accepted as argument
+      expect(chainWatcherSource).not.toMatch(/unhandledRejection['"]\s*,\s*\([^)]*,\s*[a-zA-Z0-9_$]+\)/)
+      // main() does not use unbound catch(console.error)
+      expect(chainWatcherSource).not.toContain('.catch(console.error)')
+      expect(chainWatcherSource).toMatch(/\.catch\(\(error\)\s*=>\s*console\.error\(.*errorForConsole\(error\)/)
+    })
+  })
+
+  describe('Row 139: errorSummaryForLog helper', () => {
+    it('exports errorSummaryForLog function', () => {
+      expect(typeof errorSummaryForLog).toBe('function')
+    })
+
+    it('equals describeErrorForLog(x).summary for standard Error', () => {
+      const err = new Error('Database unreachable')
+      expect(errorSummaryForLog(err)).toBe(describeErrorForLog(err).summary)
+      expect(errorSummaryForLog(err)).toBe('Error: Database unreachable')
+    })
+
+    it('for a Prisma error it carries name and code, NEVER the message', () => {
+      const validationMessage = `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`
+      const prismaValidationError = new Prisma.PrismaClientValidationError(validationMessage, {
+        clientVersion: '5.3.1',
+      })
+
+      const summary = errorSummaryForLog(prismaValidationError)
+      expect(summary).toBe(describeErrorForLog(prismaValidationError).summary)
+      expect(summary).toBe("PrismaClientValidationError (message withheld: it can repeat the call's data)")
+      expect(summary).not.toContain(recipientName)
+      expect(summary).not.toContain(recipientPhone)
+      expect(summary).not.toContain('prisma.delivery.create')
+
+      const prismaKnownError = new Prisma.PrismaClientKnownRequestError(
+        `Unique constraint failed on (phone) for ${recipientName} (${recipientPhone})`,
+        {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'Delivery', target: ['phone'] },
+        }
+      )
+      const knownSummary = errorSummaryForLog(prismaKnownError)
+      expect(knownSummary).toBe(describeErrorForLog(prismaKnownError).summary)
+      expect(knownSummary).toBe(
+        "PrismaClientKnownRequestError P2002 [model Delivery; target phone] (message withheld: it can repeat the call's data)"
+      )
+      expect(knownSummary).not.toContain(recipientName)
+      expect(knownSummary).not.toContain(recipientPhone)
+    })
+
+    it('equals describeErrorForLog(x).summary for ApiException', () => {
+      const apiEx = new ApiException(ErrorCode.BAD_REQUEST, 'Invalid request parameter', 400)
+      expect(errorSummaryForLog(apiEx)).toBe(describeErrorForLog(apiEx).summary)
+      expect(errorSummaryForLog(apiEx)).toBe('ApiException BAD_REQUEST: Invalid request parameter')
+    })
+
+    it('equals describeErrorForLog(x).summary for non-Error thrown values', () => {
+      expect(errorSummaryForLog(null)).toBe('A value that is not an Error was thrown (null)')
+      expect(errorSummaryForLog(undefined)).toBe('A value that is not an Error was thrown (undefined)')
+      expect(errorSummaryForLog('network timeout')).toBe('A value that is not an Error was thrown (string)')
+      expect(errorSummaryForLog(404)).toBe('A value that is not an Error was thrown (number)')
+      expect(errorSummaryForLog({ code: 'ERR' })).toBe('A value that is not an Error was thrown (object)')
     })
   })
 

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Logger } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import {
   EnumCourierAccountChangeKind,
   EnumCourierDeliverySetting,
@@ -1110,8 +1111,10 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
     })
 
     test('success even when the other devices cannot be removed: the password is saved and the session returned', async () => {
-      courierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('db down'))
-      websocketDispatcher.disconnectUser.mockRejectedValue(new Error('socket down'))
+      const dbError = new Error('db down')
+      const socketError = new Error('socket down')
+      courierDeviceRepository.findTokensForCourier.mockRejectedValue(dbError)
+      websocketDispatcher.disconnectUser.mockRejectedValue(socketError)
 
       const result = await service.changeOwnPassword(rider, {
         currentPassword: 'current-password',
@@ -1120,6 +1123,23 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
 
       expect(result.session).toEqual({ accessToken: 'fresh-access', refreshToken: 'fresh-refresh' })
       expect(tx.user.update).toHaveBeenCalledTimes(1)
+
+      const errorCalls = ((service as any).logger.error as jest.Mock).mock.calls
+      expect(errorCalls.length).toBeGreaterThanOrEqual(2)
+
+      // First error call: devices removal
+      expect(errorCalls[0]![0]).toBe(
+        `Could not remove the other devices of courier ${rider.id}: ${errorSummaryForLog(dbError)}`
+      )
+      expect(errorCalls[0]![1]).toBe(describeErrorForLog(dbError).stack)
+      expect(errorCalls[0]![1]).not.toBeInstanceOf(Error)
+
+      // Second error call: websocket disconnect
+      expect(errorCalls[1]![0]).toBe(
+        `Could not close the connections of courier ${rider.id}: ${errorSummaryForLog(socketError)}`
+      )
+      expect(errorCalls[1]![1]).toBe(describeErrorForLog(socketError).stack)
+      expect(errorCalls[1]![1]).not.toBeInstanceOf(Error)
     })
 
     test('no password, old or new, reaches a log line', async () => {
@@ -1168,14 +1188,24 @@ describe('CourierAccountService (spec 0051: AC-1, AC-3, AC-4, AC-5, AC-8, cross 
       ["an admin's set password", { adminUserId: ADMIN_ID }],
       ["a rider's own change", 'rider'],
     ])('%s: a record that cannot be written is logged, never thrown', async (_name, actor) => {
-      accounts.record.mockRejectedValue(new Error('database down'))
+      const dbError = new Error('database down')
+      accounts.record.mockRejectedValue(dbError)
 
       await expect(service.recordPasswordChange(COURIER_ID, actor)).resolves.toBeUndefined()
 
       expect(accounts.record).toHaveBeenCalledTimes(1)
       const errorLines = ((service as any).logger.error as jest.Mock).mock.calls
       expect(errorLines).toHaveLength(1)
-      expect(String(errorLines[0][0])).toContain(COURIER_ID)
+      expect(String(errorLines[0][0])).toBe(
+        `Could not record the password change of courier ${COURIER_ID}: ${errorSummaryForLog(dbError)}`
+      )
+      expect(errorLines[0][1]).toBe(describeErrorForLog(dbError).stack)
+      expect(errorLines[0][1]).not.toBeInstanceOf(Error)
+      if (typeof errorLines[0][1] === 'string') {
+        const frames = errorLines[0][1].split('\n')
+        expect(frames.length).toBeGreaterThan(0)
+        frames.forEach((f: string) => expect(f).toMatch(/^\s+at\s/))
+      }
     })
 
     test('a record that throws at once (not a rejected promise) is not thrown either', async () => {

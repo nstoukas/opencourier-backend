@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import {
   EnumCourierDeliverySetting,
   EnumCourierStatus,
@@ -349,7 +350,8 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
     })
 
     test('continues cut off when websocket disconnectUser fails, logs error, and keeps password updated', async () => {
-      mockWebsocketDispatcher.disconnectUser.mockRejectedValue(new Error('Ably / socket network error'))
+      const socketError = new Error('Ably / socket network error')
+      mockWebsocketDispatcher.disconnectUser.mockRejectedValue(socketError)
 
       await service.rotatePassword(mockCourier.id, 'newSuperPassword99', 'admin-user-77')
 
@@ -357,9 +359,11 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
       expect(mockUserDomainService.update).toHaveBeenCalledTimes(1)
       // Error was logged
       expect(loggerSpies.error).toHaveBeenCalledWith(
-        `Could not close the connections of courier ${mockCourier.id}`,
-        expect.any(Error)
+        `Could not close the connections of courier ${mockCourier.id}: ${errorSummaryForLog(socketError)}`,
+        describeErrorForLog(socketError).stack
       )
+      const [, stack] = loggerSpies.error.mock.calls[0]
+      expect(stack).not.toBeInstanceOf(Error)
       // Remaining cut off steps still ran
       expect(mockCourierDeviceRepository.deleteAllForCourier).toHaveBeenCalledWith(mockCourier.id)
       expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
@@ -375,15 +379,18 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
     })
 
     test('continues cut off when deleteAllForCourier fails, logs error, and keeps password updated', async () => {
-      mockCourierDeviceRepository.deleteAllForCourier.mockRejectedValue(new Error('DB device error'))
+      const dbError = new Error('DB device error')
+      mockCourierDeviceRepository.deleteAllForCourier.mockRejectedValue(dbError)
 
       await service.rotatePassword(mockCourier.id, 'newSuperPassword99', 'admin-user-77')
 
       expect(mockUserDomainService.update).toHaveBeenCalledTimes(1)
       expect(loggerSpies.error).toHaveBeenCalledWith(
-        `Could not remove the devices of courier ${mockCourier.id}`,
-        expect.any(Error)
+        `Could not remove the devices of courier ${mockCourier.id}: ${errorSummaryForLog(dbError)}`,
+        describeErrorForLog(dbError).stack
       )
+      const [, stack] = loggerSpies.error.mock.calls[0]
+      expect(stack).not.toBeInstanceOf(Error)
       expect(mockCourierDomainService.changeStatus).toHaveBeenCalledWith(
         mockCourier.id,
         EnumCourierStatus.OFFLINE,
@@ -397,15 +404,18 @@ describe('CourierAdminRestApiService (Spec 0013 AC-1, AC-3, AC-4, AC-5, AC-10)',
     })
 
     test('continues when setting Offline fails, logs error, and keeps password updated', async () => {
-      mockCourierDomainService.changeStatus.mockRejectedValue(new Error('State transition error'))
+      const statusError = new Error('State transition error')
+      mockCourierDomainService.changeStatus.mockRejectedValue(statusError)
 
       await service.rotatePassword(mockCourier.id, 'newSuperPassword99', 'admin-user-77')
 
       expect(mockUserDomainService.update).toHaveBeenCalledTimes(1)
       expect(loggerSpies.error).toHaveBeenCalledWith(
-        `Could not set courier ${mockCourier.id} Offline`,
-        expect.any(Error)
+        `Could not set courier ${mockCourier.id} Offline: ${errorSummaryForLog(statusError)}`,
+        describeErrorForLog(statusError).stack
       )
+      const [, stack] = loggerSpies.error.mock.calls[0]
+      expect(stack).not.toBeInstanceOf(Error)
     })
   })
 })
