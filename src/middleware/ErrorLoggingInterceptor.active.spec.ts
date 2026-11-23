@@ -94,7 +94,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept No Delivery found'
+        "Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept NotFoundError P2025 (message withheld: it can repeat the call's data)"
       )
       const warnMessage = loggerWarnSpy.mock.calls[0][0]
       expect(warnMessage).toContain('POST /api/courier/v1/deliveries/:deliveryId/accept')
@@ -116,7 +116,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept Record to update not found.'
+        "Endpoint answered 404 for a missing row: POST /api/courier/v1/deliveries/:deliveryId/accept PrismaClientKnownRequestError P2025 (message withheld: it can repeat the call's data)"
       )
       const warnMessage = loggerWarnSpy.mock.calls[0][0]
       expect(warnMessage).toContain('POST /api/courier/v1/deliveries/:deliveryId/accept')
@@ -131,7 +131,7 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Endpoint answered 404 for a missing row: GET (no route) No Delivery found'
+        "Endpoint answered 404 for a missing row: GET (no route) NotFoundError P2025 (message withheld: it can repeat the call's data)"
       )
     })
 
@@ -142,7 +142,9 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
 
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
-      expect(loggerWarnSpy).toHaveBeenCalledWith('Endpoint answered 404 for a missing row: ws No Delivery found')
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        "Endpoint answered 404 for a missing row: ws NotFoundError P2025 (message withheld: it can repeat the call's data)"
+      )
     })
 
     it('for a non-HTTP context (rpc), does not throw and names the context type in logger.warn', async () => {
@@ -152,7 +154,36 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
 
       expect(loggerErrorSpy).not.toHaveBeenCalled()
       expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
-      expect(loggerWarnSpy).toHaveBeenCalledWith('Endpoint answered 404 for a missing row: rpc No Delivery found')
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        "Endpoint answered 404 for a missing row: rpc NotFoundError P2025 (message withheld: it can repeat the call's data)"
+      )
+    })
+
+    it('withholds message and customer details from logger.warn when P2025 error message carries recipient name and phone', async () => {
+      const recipientName = 'Maria Papadopoulou'
+      const recipientPhone = '+306912345678'
+      const err = new Prisma.PrismaClientKnownRequestError(
+        `Record to update not found for ${recipientName} (${recipientPhone})`,
+        {
+          code: 'P2025',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'Delivery', target: 'id' },
+        }
+      )
+      const context = makeMockContext('http', {
+        method: 'POST',
+        route: { path: '/api/courier/v1/deliveries/:deliveryId/accept' },
+      })
+      await expect(runInterceptor(err, context)).rejects.toThrow(err)
+
+      expect(loggerErrorSpy).not.toHaveBeenCalled()
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1)
+      const warnMessage = loggerWarnSpy.mock.calls[0][0]
+      expect(warnMessage).not.toContain(recipientName)
+      expect(warnMessage).not.toContain(recipientPhone)
+      expect(warnMessage).toContain('P2025')
+      expect(warnMessage).toContain('[model Delivery; target id]')
+      expect(warnMessage).toContain("(message withheld: it can repeat the call's data)")
     })
   })
 

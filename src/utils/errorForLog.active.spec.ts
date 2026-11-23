@@ -305,4 +305,161 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
       )
     })
   })
+
+  describe('Row 132 Review Fixes (Decision 132.2)', () => {
+    describe('codeOf reads errorCode when code is absent (PrismaClientInitializationError)', () => {
+      it('reads errorCode for PrismaClientInitializationError (P1001)', () => {
+        const initError = new Prisma.PrismaClientInitializationError(
+          "Can't reach database server at localhost:5432",
+          '5.3.1',
+          'P1001'
+        )
+        const logged = describeErrorForLog(initError)
+        expect(logged.summary).toBe(
+          "PrismaClientInitializationError P1001 (message withheld: it can repeat the call's data)"
+        )
+        expect(logged.summary).not.toContain('localhost:5432')
+      })
+
+      it('reads errorCode when code is undefined on custom Error', () => {
+        const customError = Object.assign(new Error('Init failure'), {
+          name: 'InitError',
+          errorCode: 'P1001',
+        })
+        const logged = describeErrorForLog(customError)
+        expect(logged.summary).toBe('InitError P1001: Init failure')
+      })
+
+      it('prefers code when both code and errorCode are present', () => {
+        const customError = Object.assign(new Error('Dual code error'), {
+          name: 'CustomError',
+          code: 'PRIMARY_CODE',
+          errorCode: 'FALLBACK_CODE',
+        })
+        const logged = describeErrorForLog(customError)
+        expect(logged.summary).toBe('CustomError PRIMARY_CODE: Dual code error')
+      })
+    })
+
+    describe('Prisma error meta allow-list (modelName and target only)', () => {
+      it('includes modelName and string target in Prisma error summary', () => {
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Constraint violation', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'Delivery', target: 'id' },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2002 [model Delivery; target id] (message withheld: it can repeat the call's data)"
+        )
+      })
+
+      it('includes modelName and string array target in Prisma error summary', () => {
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'User', target: ['email', 'role'] },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2002 [model User; target email, role] (message withheld: it can repeat the call's data)"
+        )
+      })
+
+      it('includes only modelName when target is absent', () => {
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Error on model', {
+          code: 'P2025',
+          clientVersion: '5.3.1',
+          meta: { modelName: 'Delivery' },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2025 [model Delivery] (message withheld: it can repeat the call's data)"
+        )
+      })
+
+      it('includes only target when modelName is absent', () => {
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Error on target', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: { target: 'phone' },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2002 [target phone] (message withheld: it can repeat the call's data)"
+        )
+      })
+
+      it('never includes other meta fields (e.g. phone, customer name) in summary', () => {
+        const phone = '+306912345678'
+        const customerName = 'Maria Papadopoulou'
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Violation', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: {
+            modelName: 'Delivery',
+            target: 'phone',
+            phone,
+            customerName,
+            queryData: { secret: 'hidden' },
+          },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2002 [model Delivery; target phone] (message withheld: it can repeat the call's data)"
+        )
+        expect(logged.summary).not.toContain(phone)
+        expect(logged.summary).not.toContain(customerName)
+        expect(logged.summary).not.toContain('secret')
+        expect(logged.summary).not.toContain('hidden')
+      })
+
+      it('ignores non-string or non-string-array targets and non-string modelName without throwing', () => {
+        const prismaKnownError = new Prisma.PrismaClientKnownRequestError('Odd meta', {
+          code: 'P2002',
+          clientVersion: '5.3.1',
+          meta: {
+            modelName: 12345,
+            target: { complex: true },
+          },
+        })
+        const logged = describeErrorForLog(prismaKnownError)
+        expect(logged.summary).toBe(
+          "PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call's data)"
+        )
+      })
+    })
+
+    describe('Thrown Error whose name is not a string does not throw and is logged as "Error"', () => {
+      it('handles Error with number name without throwing and logs as Error', () => {
+        const err = new Error('Something broke')
+        Object.defineProperty(err, 'name', { value: 42 })
+        const logged = describeErrorForLog(err)
+        expect(logged.summary).toBe('Error: Something broke')
+      })
+
+      it('handles Error with object name without throwing and logs as Error', () => {
+        const err = new Error('Custom object name failure')
+        Object.defineProperty(err, 'name', { value: { custom: true } })
+        const logged = describeErrorForLog(err)
+        expect(logged.summary).toBe('Error: Custom object name failure')
+      })
+
+      it('handles Error with undefined name without throwing and logs as Error', () => {
+        const err = new Error('No name failure')
+        Object.defineProperty(err, 'name', { value: undefined })
+        const logged = describeErrorForLog(err)
+        expect(logged.summary).toBe('Error: No name failure')
+      })
+
+      it('preserves code when name is not a string', () => {
+        const err = Object.assign(new Error('Failure with code'), {
+          code: 'FAIL_CODE',
+        })
+        Object.defineProperty(err, 'name', { value: 123 })
+        const logged = describeErrorForLog(err)
+        expect(logged.summary).toBe('Error FAIL_CODE: Failure with code')
+      })
+    })
+  })
 })
