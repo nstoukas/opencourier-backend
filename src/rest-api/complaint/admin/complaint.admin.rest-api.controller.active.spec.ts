@@ -40,6 +40,7 @@ describe('ComplaintAdminRestApiController (Spec 0052, AC-3, AC-5, AC-6, AC-9, cr
     riderReply: null,
     repliedAt: null,
     replyEnteredByUserId: null,
+    replyEnteredForRider: false,
     outcome: null,
     decidedAt: null,
     decidedByUserId: null,

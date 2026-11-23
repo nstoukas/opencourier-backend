@@ -39,6 +39,7 @@ describe('ComplaintPartnerRestApiController (Spec 0052, AC-3, AC-7)', () => {
     riderReply: null,
     repliedAt: null,
     replyEnteredByUserId: null,
+    replyEnteredForRider: false,
     outcome: null,
     decidedAt: null,
     decidedByUserId: null,

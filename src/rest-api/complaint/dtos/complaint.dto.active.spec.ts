@@ -40,6 +40,7 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
     riderReply: null,
     repliedAt: null,
     replyEnteredByUserId: null,
+    replyEnteredForRider: false,
     outcome: null,
     decidedAt: null,
     decidedByUserId: null,
@@ -102,11 +103,12 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
       expect((targetDto as any).photoKey).toBeUndefined()
     })
 
-    it('indicates replyEnteredForRider when replyEnteredByUserId was set', () => {
+    it('indicates replyEnteredForRider when the stored flag is set', () => {
       const adminEnteredRecord: ComplaintRecord = {
         ...baseRecord,
         riderReply: 'Reply via phone',
         replyEnteredByUserId: 'admin-1',
+        replyEnteredForRider: true,
       }
       const dto = new ComplaintCourierDto(adminEnteredRecord, 'courier-1')
       expect(dto.replyEnteredForRider).toBe(true)
@@ -120,6 +122,7 @@ describe('Complaint DTOs (Spec 0052, AC-4, AC-6, AC-7, cross check 7)', () => {
         decidedByUserId: 'admin-decider-id',
         withdrawnByUserId: 'admin-withdrawer-id',
         replyEnteredByUserId: 'admin-phone-id',
+        replyEnteredForRider: true,
         decidedBy: { id: 'admin-decider-id', email: 'admin@coop.gr', username: 'superadmin' },
       }
       const dto = new ComplaintCourierDto(recordWithAdminData, 'courier-1')

@@ -39,6 +39,7 @@ describe('ComplaintCourierRestApiController (Spec 0052, AC-2, AC-5, AC-7, AC-9)'
     riderReply: null,
     repliedAt: null,
     replyEnteredByUserId: null,
+    replyEnteredForRider: false,
     outcome: null,
     decidedAt: null,
     decidedByUserId: null,

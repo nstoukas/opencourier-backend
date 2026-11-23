@@ -85,6 +85,7 @@ describe('ComplaintService (Spec 0052, AC-1 to AC-7, AC-9, AC-10)', () => {
       riderReply: null,
       repliedAt: null,
       replyEnteredByUserId: null,
+      replyEnteredForRider: false,
       outcome: null,
       decidedAt: null,
       decidedByUserId: null,
@@ -685,6 +686,7 @@ describe('ComplaintService (Spec 0052, AC-1 to AC-7, AC-9, AC-10)', () => {
         status: EnumComplaintStatus.OPEN,
         riderReply: 'Rider called in and explained situation.',
         replyEnteredByUserId: adminUserId,
+        replyEnteredForRider: true,
       })
 
       mockComplaintRepository.findById

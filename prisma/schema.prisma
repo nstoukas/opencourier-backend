@@ -1756,6 +1756,9 @@ model Complaint {
   repliedAt            DateTime?
   replyEnteredByUserId String?
   replyEnteredBy       User?     @relation(name: "complaintReplyEnteredBy", fields: [replyEnteredByUserId], references: [id], onDelete: SetNull)
+  // Row 126: true when an admin entered the reply for the rider. Kept apart from the admin's id, which
+  // goes null when that admin's account is deleted, so the reply never turns into the rider's own words.
+  replyEnteredForRider Boolean   @default(false)
 
   outcome         String?   @postgres.VarChar(1000)
   decidedAt       DateTime?

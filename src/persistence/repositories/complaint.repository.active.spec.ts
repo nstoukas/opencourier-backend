@@ -183,6 +183,7 @@ describe('ComplaintRepository (Spec 0052, AC-1, AC-3, AC-5, AC-6, AC-7)', () => 
           riderReply: 'My explanation',
           repliedAt: expect.any(Date),
           replyEnteredByUserId: null,
+          replyEnteredForRider: false,
           status: EnumComplaintStatus.OPEN,
         },
       })

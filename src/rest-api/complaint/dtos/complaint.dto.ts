@@ -54,7 +54,8 @@ export class ComplaintCourierDto {
   @ApiProperty({ type: Date }) createdAt: Date
   @ApiProperty({ type: String, nullable: true }) riderReply: string | null
   @ApiProperty({ type: Date, nullable: true }) repliedAt: Date | null
-  // True when an admin entered the reply from a phone call, the rider's account being deactivated.
+  // True when an admin entered the reply from a phone call, the rider's account being deactivated. Read
+  // from the stored flag (row 126), so it stays true after that admin's account is deleted.
   @ApiProperty({ type: Boolean }) replyEnteredForRider: boolean
   @ApiProperty({ type: String, nullable: true }) outcome: string | null
   @ApiProperty({ type: Date, nullable: true }) decidedAt: Date | null
@@ -75,7 +76,7 @@ export class ComplaintCourierDto {
     this.createdAt = complaint.createdAt
     this.riderReply = complaint.riderReply
     this.repliedAt = complaint.repliedAt
-    this.replyEnteredForRider = complaint.replyEnteredByUserId !== null
+    this.replyEnteredForRider = complaint.replyEnteredForRider
     this.outcome = complaint.outcome
     this.decidedAt = complaint.decidedAt
     this.withdrawnReason = complaint.withdrawnReason
@@ -146,7 +147,11 @@ export class ComplaintAdminDto {
   @ApiProperty({ type: Date }) createdAt: Date
   @ApiProperty({ type: String, nullable: true }) riderReply: string | null
   @ApiProperty({ type: Date, nullable: true }) repliedAt: Date | null
+  // The admin who typed a deactivated rider's reply; null when the rider replied in the app, or when that
+  // admin's account was deleted (then replyEnteredForRider is still true: read it as "a removed admin").
   @ApiProperty({ type: String, nullable: true }) replyEnteredBy: string | null
+  // Row 126: an admin entered the reply for the rider, whether or not that admin still exists.
+  @ApiProperty({ type: Boolean }) replyEnteredForRider: boolean
   @ApiProperty({ type: String, nullable: true }) outcome: string | null
   @ApiProperty({ type: Date, nullable: true }) decidedAt: Date | null
   @ApiProperty({ type: String, nullable: true }) decidedBy: string | null
@@ -178,6 +183,7 @@ export class ComplaintAdminDto {
     this.riderReply = complaint.riderReply
     this.repliedAt = complaint.repliedAt
     this.replyEnteredBy = adminLabel(complaint.replyEnteredBy)
+    this.replyEnteredForRider = complaint.replyEnteredForRider
     this.outcome = complaint.outcome
     this.decidedAt = complaint.decidedAt
     this.decidedBy = adminLabel(complaint.decidedBy)

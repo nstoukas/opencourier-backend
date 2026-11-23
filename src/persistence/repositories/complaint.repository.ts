@@ -139,10 +139,18 @@ export class ComplaintRepository extends EntityRepository {
   // AC-5: the reply, stored once. Only while AWAITING_REPLY; `riderReply: null` makes "once" hold even
   // if the status were ever moved back. `replyEnteredByUserId` is set only for an admin entering a
   // deactivated rider's reply (cross check 2). False when it lost (already replied, decided, withdrawn).
+  // Row 126: `replyEnteredForRider` is written with it, because the id goes null if that admin's account
+  // is deleted and the reply must not then read as the rider's own words.
   async reply(id: string, reply: string, replyEnteredByUserId: string | null): Promise<boolean> {
     const { count } = await this.prisma.complaint.updateMany({
       where: { id, status: EnumComplaintStatus.AWAITING_REPLY, riderReply: null },
-      data: { riderReply: reply, repliedAt: new Date(), replyEnteredByUserId, status: EnumComplaintStatus.OPEN },
+      data: {
+        riderReply: reply,
+        repliedAt: new Date(),
+        replyEnteredByUserId,
+        replyEnteredForRider: replyEnteredByUserId !== null,
+        status: EnumComplaintStatus.OPEN,
+      },
     })
     return count === 1
   }
