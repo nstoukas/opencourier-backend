@@ -376,6 +376,43 @@ describe('errorForLog (Row 132, Clauses 1-5)', () => {
     })
   })
 
+  describe('Clause 5 / Row 139: main.chain-watcher.ts no longer prints rejected promise (p) and logs through helper', () => {
+    // main.chain-watcher.ts registers global process handlers at import and starts the server via main().
+    // Directly importing main.chain-watcher.ts in a test would attempt server boot and socket binding,
+    // so we pin main.chain-watcher.ts source structure and verify handler behavior through the helper.
+    const chainWatcherPath = path.resolve(__dirname, '../main.chain-watcher.ts')
+    const chainWatcherContent = fs.readFileSync(chainWatcherPath, 'utf8')
+
+    it('unhandledRejection handler takes only reason and no second promise parameter (p)', () => {
+      // Must be (reason) => or reason =>, not (reason, p) =>
+      expect(chainWatcherContent).toMatch(/\.on\('unhandledRejection',\s*\((reason)\)\s*=>/)
+      expect(chainWatcherContent).not.toMatch(/\.on\('unhandledRejection',\s*\([^)]*,/)
+    })
+
+    it('unhandledRejection handler does not print p to console.error or panicLogger', () => {
+      expect(chainWatcherContent).not.toContain("'Unhandled Rejection at Promise', p")
+      expect(chainWatcherContent).not.toContain("Promise', p")
+    })
+
+    it('unhandledRejection logs through errorForConsole and describeErrorForLog', () => {
+      expect(chainWatcherContent).toContain('console.error(`Unhandled Rejection at Promise: ${errorForConsole(reason)}`)')
+      expect(chainWatcherContent).toContain('const { summary, stack } = describeErrorForLog(reason)')
+      expect(chainWatcherContent).toContain('panicLogger.error(`Unhandled Rejection at Promise: ${summary}`, { stack })')
+    })
+
+    it('uncaughtException logs through errorForConsole and describeErrorForLog', () => {
+      expect(chainWatcherContent).toContain('console.error(`Uncaught Exception thrown: ${errorForConsole(err)}`)')
+      expect(chainWatcherContent).toContain('const { summary, stack } = describeErrorForLog(err)')
+      expect(chainWatcherContent).toContain('panicLogger.error(`Uncaught Exception thrown: ${summary}`, { stack })')
+    })
+
+    it('main().catch logs startup failure through errorForConsole', () => {
+      expect(chainWatcherContent).toMatch(
+        /main\(\)\.catch\(\(error\)\s*=>\s*console\.error\(`The chain watcher did not start: \$\{errorForConsole\(error\)\}`\)\)/
+      )
+    })
+  })
+
   describe('Row 132 Review Fixes (Decision 132.2)', () => {
     describe('codeOf reads errorCode when code is absent (PrismaClientInitializationError)', () => {
       it('reads errorCode for PrismaClientInitializationError (P1001)', () => {
