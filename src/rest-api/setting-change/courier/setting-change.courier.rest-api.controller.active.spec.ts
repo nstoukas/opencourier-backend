@@ -79,15 +79,38 @@ describe('SettingChangeCourierRestApiController (row 137, problem 15)', () => {
   })
 
   describe('GET /setting-changes (changes)', () => {
-    it('delegates to workRulesService.riderChanges with query arguments', async () => {
+    it('passes page and perPage through and hands back the service result', async () => {
       const args: ReviewPageArgs = { page: 2, perPage: 10 }
       const expectedPage: SettingChangeCourierPageDto = { data: [] }
       mockWorkRulesService.riderChanges.mockResolvedValue(expectedPage)
 
-      const result = await controller.changes(args)
+      const result = await controller.changes(args, 'el')
 
-      expect(mockWorkRulesService.riderChanges).toHaveBeenCalledWith(args)
+      expect(mockWorkRulesService.riderChanges).toHaveBeenCalledTimes(1)
+      expect(mockWorkRulesService.riderChanges).toHaveBeenCalledWith({ page: 2, perPage: 10 }, 'el')
       expect(result).toBe(expectedPage)
     })
+
+    it('passes another page and perPage through unchanged', async () => {
+      await controller.changes({ page: 5, perPage: 3 }, 'en')
+
+      expect(mockWorkRulesService.riderChanges).toHaveBeenCalledWith({ page: 5, perPage: 3 }, 'en')
+    })
+
+    it('passes "el" to the service only when lang is exactly "el"', async () => {
+      await controller.changes({ page: 1, perPage: 20 }, 'el')
+
+      expect(mockWorkRulesService.riderChanges.mock.calls[0]?.[1]).toBe('el')
+    })
+
+    // Anything but exactly "el" reads English: missing, another language, another case, padding.
+    it.each([[undefined], ['en'], ['fr'], ['EL'], ['El'], [''], ['greek'], [' el'], ['el-GR']])(
+      'passes "en" to the service when lang is %p',
+      async (lang) => {
+        await controller.changes({ page: 1, perPage: 20 }, lang)
+
+        expect(mockWorkRulesService.riderChanges).toHaveBeenCalledWith({ page: 1, perPage: 20 }, 'en')
+      }
+    )
   })
 })

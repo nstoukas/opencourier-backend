@@ -17,6 +17,8 @@ import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { SettingChangeRepository } from 'src/persistence/repositories/setting-change.repository'
 import { RIDER_REACH_MONTHS } from 'src/services/time-worked/time-worked.service'
+import { RIDER_FACING_SETTINGS, RIDER_FACING_SETTING_KEYS } from 'src/shared-types/rider-facing-settings'
+import { RIDER_FACING_SETTINGS_EL } from 'src/shared-types/rider-facing-settings.el'
 
 describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () => {
   let service: WorkRulesService
@@ -152,9 +154,9 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         expect(EL_WORDS.money(150, 'GBP')).toBe('1,50 GBP')
       })
 
-      it('formats null as em-dash ("—")', () => {
-        expect(EL_WORDS.money(null, 'EUR')).toBe('—')
-        expect(EL_WORDS.money(null, 'USD')).toBe('—')
+      it('formats null as "δεν έχει οριστεί" (not set), never a dash', () => {
+        expect(EL_WORDS.money(null, 'EUR')).toBe('δεν έχει οριστεί')
+        expect(EL_WORDS.money(null, 'USD')).toBe('δεν έχει οριστεί')
       })
     })
 
@@ -166,8 +168,8 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
     })
 
     describe('policyName formatting', () => {
-      it('translates known compensation policies into Greek', () => {
-        expect(EL_WORDS.policyName('FULL_COMPENSATION', 'full compensation')).toBe('πλήρη αποζημίωση')
+      it('translates known compensation policies into Greek, in the nominative', () => {
+        expect(EL_WORDS.policyName('FULL_COMPENSATION', 'full compensation')).toBe('πλήρης αποζημίωση')
         expect(EL_WORDS.policyName('HALF_COMPENSATION', 'half compensation')).toBe('μισή αποζημίωση')
         expect(EL_WORDS.policyName('NO_COMPENSATION', 'no compensation')).toBe('καμία αποζημίωση')
       })
@@ -179,7 +181,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
 
     describe('policyWithPercent formatting', () => {
       it('formats policy with percentage in Greek', () => {
-        expect(EL_WORDS.policyWithPercent('πλήρη αποζημίωση', 100)).toBe('πλήρη αποζημίωση (100% της αμοιβής της)')
+        expect(EL_WORDS.policyWithPercent('πλήρης αποζημίωση', 100)).toBe('πλήρης αποζημίωση (100% της αμοιβής της)')
         expect(EL_WORDS.policyWithPercent('μισή αποζημίωση', 50)).toBe('μισή αποζημίωση (50% της αμοιβής της)')
       })
     })
@@ -242,6 +244,23 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         }
       })
 
+      it('names the Earnings figures and the time split with the app\'s own labels', () => {
+        const figures = EL_WORDS.earningsFigures().join(' ')
+        expect(figures).toContain('€ ανά ώρα σε παραγγελία')
+        expect(figures).toContain('€ ανά αμειβόμενο km')
+
+        const split = EL_WORDS.timeWorked(30).join(' ')
+        expect(split).toContain('«Παραγγελίες»')
+        expect(split).toContain('«Αμειβόμενη αναμονή»')
+        expect(split).toContain('«Χωρίς αμοιβή»')
+      })
+
+      it('personDecides says "αποδέσμευση" and "παύση διανομών"', () => {
+        const text = EL_WORDS.personDecides.join(' ')
+        expect(text).toContain('αποδέσμευση')
+        expect(text).toContain('παύση διανομών')
+      })
+
       it('returns 2 Greek sentences for personDecides', () => {
         expect(EL_WORDS.personDecides).toHaveLength(2)
         for (const s of EL_WORDS.personDecides) {
@@ -262,7 +281,9 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         expect(GREEK_REGEX.test(note6Months)).toBe(true)
 
         const note1Month = EL_WORDS.addressNotes(30)
-        expect(note1Month).toContain('30 ημέρες (περίπου 1 μήνας)')
+        // Accusative after "για ... (περίπου ...)": "1 μήνα", not "1 μήνας".
+        expect(note1Month).toContain('30 ημέρες (περίπου 1 μήνα)')
+        expect(note1Month).not.toContain('μήνας')
       })
     })
   })
@@ -652,7 +673,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         const el = await service.howItWorks('el')
 
         assertGreekParity(el, en)
-        expect(el.pay.some((line) => line.includes('Η αφαίρεση από μια παραγγελία σας πληρώνεται για αυτούς τους λόγους: Βλάβη μηχανής.'))).toBe(true)
+        expect(el.pay.some((line) => line.includes('Η αποδέσμευση από μια παραγγελία πληρώνεται για αυτούς τους λόγους: Βλάβη μηχανής.'))).toBe(true)
         expect(el.pay.some((line) => line.includes('Αυτοί οι λόγοι δεν πληρώνονται: Απών πελάτης.'))).toBe(true)
       })
 
@@ -665,7 +686,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         const el = await service.howItWorks('el')
 
         assertGreekParity(el, en)
-        expect(el.pay.some((line) => line.includes('Η αφαίρεση από μια παραγγελία σας πληρώνεται'))).toBe(true)
+        expect(el.pay.some((line) => line.includes('Η αποδέσμευση από μια παραγγελία πληρώνεται'))).toBe(true)
         expect(el.pay.some((line) => line.includes('Αυτοί οι λόγοι δεν πληρώνονται'))).toBe(false)
       })
 
@@ -716,7 +737,9 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
 
       el = await service.howItWorks('el')
       expect(el.offers[0]).toContain('12 μίλια')
-      expect(el.pay[0]).toContain('ανά μίλια')
+      // After "ανά" the unit is singular: "ανά μίλι", while the distance itself stays "12 μίλια".
+      expect(el.pay[0]).toContain('ανά μίλι της διαδρομής')
+      expect(el.pay[0]).not.toContain('ανά μίλια')
     })
 
     it('reflects fairness weights, limits, and minutes in Greek sentences', async () => {
@@ -741,7 +764,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       expect(el.offers[3]).toContain('βάρος 18')
     })
 
-    it('reflects Greek money ("2,50 €", non-EUR "2,50 USD", null "—") and pay values', async () => {
+    it('reflects Greek money ("2,50 €", non-EUR "2,50 USD") and pay values', async () => {
       // EUR
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
         ...baseSettings,
@@ -786,8 +809,8 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       })
 
       let el = await service.howItWorks('el')
-      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, πληρώνεστε πλήρη αποζημίωση (100% της αμοιβής της).')
-      expect(el.pay[5]).toBe('Αν σας αφαιρεθεί μια δουλειά, συνήθως πληρώνεστε πλήρη αποζημίωση (100% της αμοιβής της).')
+      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, η πληρωμή σας είναι: πλήρης αποζημίωση (100% της αμοιβής της).')
+      expect(el.pay[5]).toBe('Αν αποδεσμευτείτε από μια δουλειά, η πληρωμή σας συνήθως είναι: πλήρης αποζημίωση (100% της αμοιβής της).')
 
       // 2. HALF_COMPENSATION
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
@@ -798,7 +821,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       })
 
       el = await service.howItWorks('el')
-      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, πληρώνεστε μισή αποζημίωση (50% της αμοιβής της).')
+      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, η πληρωμή σας είναι: μισή αποζημίωση (50% της αμοιβής της).')
 
       // 3. NO_COMPENSATION without percentage entry
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
@@ -809,7 +832,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       })
 
       el = await service.howItWorks('el')
-      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, πληρώνεστε καμία αποζημίωση.')
+      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, η πληρωμή σας είναι: καμία αποζημίωση.')
 
       // 4. Unknown policy keeps English name
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
@@ -820,7 +843,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       })
 
       el = await service.howItWorks('el')
-      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, πληρώνεστε custom compensation.')
+      expect(el.pay[4]).toBe('Αν ακυρωθεί μια δουλειά που αποδεχτήκατε, η πληρωμή σας είναι: custom compensation.')
     })
   })
 
@@ -839,7 +862,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       // - 'Moped breakdown' has labelEl -> 'Βλάβη μηχανής'
       // - 'Severe storm' has empty labelEl -> 'Severe storm'
       // - 'Customer absent' has null labelEl -> 'Customer absent'
-      const elPaidLine = el.pay.find((line) => line.includes('Η αφαίρεση από μια παραγγελία σας πληρώνεται'))
+      const elPaidLine = el.pay.find((line) => line.includes('Η αποδέσμευση από μια παραγγελία πληρώνεται'))
       expect(elPaidLine).toContain('Βλάβη μηχανής, Severe storm')
 
       const elUnpaidLine = el.pay.find((line) => line.includes('Αυτοί οι λόγοι δεν πληρώνονται'))
@@ -852,6 +875,219 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
 
       const enUnpaidLine = en.pay.find((line) => line.includes('These reasons do not pay'))
       expect(enUnpaidLine).toContain('Customer absent')
+    })
+  })
+
+  // Row 137 review fixes: the rider's "What changed" list in the rider's language.
+  describe('riderChanges in Greek (row 137 review, requirement 1)', () => {
+    const LATIN_WORD = /[A-Za-z]{2,}/
+    let nextId = 0
+    const change = (key: string, oldValue: unknown, newValue: unknown) =>
+      ({
+        id: `change-${nextId++}`,
+        key,
+        subject: null,
+        oldValue,
+        newValue,
+        createdAt: new Date('2026-11-23T08:00:00Z'),
+        changedBy: { id: 'admin-1', email: 'admin@coop.gr', username: 'admin' },
+      } as any)
+
+    const pageOf = (...rows: unknown[]) =>
+      mockSettingChangeRepository.findPage.mockResolvedValue({ data: rows, pagination: { totalPages: 1 } } as any)
+
+    const useSettings = (overrides: Partial<InstanceConfigSettings>) =>
+      (mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
+        ...baseSettings,
+        ...overrides,
+      })
+
+    it('words labels, on/off, units and money in Greek', async () => {
+      pageOf(
+        change('waitPayEnabled', false, true),
+        change('shiftsEnabled', true, false),
+        change('waitPayFreeMinutes', 5, 10),
+        change('offerExpirySeconds', 60, 45),
+        change('shiftDropNoticeHours', 12, 24),
+        change('reviewAnswerDays', 14, 7),
+        change('quoteBaseFee', 200, 250),
+        change('quoteBaseFee', null, 250),
+        change('maxAssignmentDistance', 20, 15),
+        change('quoteRatePerDistanceUnit', 150, 180)
+      )
+
+      const result = await service.riderChanges({ page: 1, perPage: 20 }, 'el')
+      const lines = result.data
+
+      expect(lines).toHaveLength(10)
+      // Every label is the Greek entry's label, holds Greek letters and is not the English label.
+      const keys = [
+        'waitPayEnabled',
+        'shiftsEnabled',
+        'waitPayFreeMinutes',
+        'offerExpirySeconds',
+        'shiftDropNoticeHours',
+        'reviewAnswerDays',
+        'quoteBaseFee',
+        'quoteBaseFee',
+        'maxAssignmentDistance',
+        'quoteRatePerDistanceUnit',
+      ]
+      lines.forEach((line, index) => {
+        const key = keys[index] as string
+        expect(line.label).toBe(RIDER_FACING_SETTINGS_EL[key]?.label)
+        expect(line.label).not.toBe(RIDER_FACING_SETTINGS[key]?.label)
+        expect(GREEK_REGEX.test(line.label)).toBe(true)
+        expect(LATIN_WORD.test(line.label)).toBe(false)
+      })
+
+      // On / off
+      expect([lines[0]?.oldText, lines[0]?.newText]).toEqual(['ανενεργό', 'ενεργό'])
+      expect([lines[1]?.oldText, lines[1]?.newText]).toEqual(['ενεργό', 'ανενεργό'])
+      // Units
+      expect([lines[2]?.oldText, lines[2]?.newText]).toEqual(['5 λεπτά', '10 λεπτά'])
+      expect([lines[3]?.oldText, lines[3]?.newText]).toEqual(['60 δευτερόλεπτα', '45 δευτερόλεπτα'])
+      expect([lines[4]?.oldText, lines[4]?.newText]).toEqual(['12 ώρες', '24 ώρες'])
+      expect([lines[5]?.oldText, lines[5]?.newText]).toEqual(['14 ημέρες', '7 ημέρες'])
+      // Money: decimal comma, the symbol after; a missing value reads "not set" in Greek.
+      expect([lines[6]?.oldText, lines[6]?.newText]).toEqual(['2,00 €', '2,50 €'])
+      expect([lines[7]?.oldText, lines[7]?.newText]).toEqual(['δεν έχει οριστεί', '2,50 €'])
+      // Distance, in the instance's unit (km here).
+      expect([lines[8]?.oldText, lines[8]?.newText]).toEqual(['20 km', '15 km'])
+      expect([lines[9]?.oldText, lines[9]?.newText]).toEqual(['1,50 € ανά km', '1,80 € ανά km'])
+
+      // No English word from the English list leaks into a Greek line.
+      for (const line of lines) {
+        for (const text of [line.oldText, line.newText]) {
+          expect(text).not.toMatch(/\b(on|off|minutes|seconds|hours|days|not set|per)\b/)
+        }
+      }
+      // Still no person on a rider's line.
+      expect((lines[0] as any).changedBy).toBeUndefined()
+    })
+
+    it('uses Greek distance words on a MILES instance and another currency after the amount', async () => {
+      useSettings({ distanceUnit: EnumDistanceUnit.MILES, currency: EnumCurrency.USD })
+      pageOf(change('maxAssignmentDistance', 20, 12), change('quoteRatePerDistanceUnit', 150, 180))
+
+      const result = await service.riderChanges({}, 'el')
+
+      expect([result.data[0]?.oldText, result.data[0]?.newText]).toEqual(['20 μίλια', '12 μίλια'])
+      expect([result.data[1]?.oldText, result.data[1]?.newText]).toEqual(['1,50 USD ανά μίλι', '1,80 USD ανά μίλι'])
+    })
+
+    it('names every weekday of a shift slot in Greek', async () => {
+      const greekDays = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο', 'Κυριακή']
+      const englishDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+      // Weekday 1 is Monday, as in the English list.
+      pageOf(
+        ...greekDays.map((_, index) =>
+          change('shiftSlot', null, { weekday: index + 1, startMinute: 600, endMinute: 870, riderCap: 4 })
+        )
+      )
+
+      const el = await service.riderChanges({}, 'el')
+      const en = await service.riderChanges({}, 'en')
+
+      expect(el.data).toHaveLength(7)
+      el.data.forEach((line, index) => {
+        expect(line.label).toBe(RIDER_FACING_SETTINGS_EL['shiftSlot']?.label)
+        expect(line.newText.startsWith(`${greekDays[index]} `)).toBe(true)
+        expect(line.newText).toContain('10:00')
+        expect(line.newText).toContain('14:30')
+        expect(line.newText).toContain('4')
+        expect(LATIN_WORD.test(line.newText)).toBe(false)
+        expect(LATIN_WORD.test(line.oldText)).toBe(false)
+        expect(GREEK_REGEX.test(line.oldText)).toBe(true)
+      })
+      // The same rows in English are unchanged.
+      en.data.forEach((line, index) => {
+        expect(line.newText).toBe(`${englishDays[index]} 10:00 to 14:30, up to 4 riders`)
+        expect(line.oldText).toBe('none')
+      })
+    })
+
+    it('words a removal reason by labelEl, by label when labelEl is missing or empty, with its pay in Greek', async () => {
+      pageOf(
+        change('removalReason', null, { label: 'Moped breakdown', labelEl: 'Βλάβη μηχανής', paidToRider: true }),
+        change('removalReason', null, { label: 'Customer absent', labelEl: null, paidToRider: false }),
+        change('removalReason', null, { label: 'Severe storm', labelEl: '', paidToRider: true }),
+        change('removalReason', null, { label: 'Wrong address', paidToRider: false }),
+        // The pay flips and nothing else: both sides must still read in Greek.
+        change(
+          'removalReason',
+          { label: 'Flat tyre', labelEl: 'Σκασμένο λάστιχο', paidToRider: false },
+          { label: 'Flat tyre', labelEl: 'Σκασμένο λάστιχο', paidToRider: true }
+        )
+      )
+
+      const result = await service.riderChanges({}, 'el')
+
+      expect(result.data.map((line) => line.newText)).toEqual([
+        'Βλάβη μηχανής, πληρώνει τον διανομέα',
+        'Customer absent, δεν πληρώνει',
+        'Severe storm, πληρώνει τον διανομέα',
+        'Wrong address, δεν πληρώνει',
+        'Σκασμένο λάστιχο, πληρώνει τον διανομέα',
+      ])
+      expect(result.data[4]?.oldText).toBe('Σκασμένο λάστιχο, δεν πληρώνει')
+      for (const line of result.data) {
+        expect(line.label).toBe(RIDER_FACING_SETTINGS_EL['removalReason']?.label)
+        expect(line.newText).not.toContain('pays the rider')
+        expect(line.newText).not.toContain('does not pay')
+      }
+      // A reason that did not exist before reads as Greek, not "none".
+      expect(result.data[0]?.oldText).not.toBe('none')
+      expect(GREEK_REGEX.test(result.data[0]?.oldText ?? '')).toBe(true)
+    })
+
+    it('still asks the repository for the rider facing keys and the same page in Greek', async () => {
+      pageOf(change('waitPayFreeMinutes', 5, 10))
+
+      const result = await service.riderChanges({ page: 3, perPage: 7 }, 'el')
+
+      expect(mockSettingChangeRepository.findPage).toHaveBeenCalledWith({
+        keys: RIDER_FACING_SETTING_KEYS,
+        page: 3,
+        perPage: 7,
+      })
+      expect(result.pagination).toEqual({ totalPages: 1 })
+    })
+
+    it('riderChanges(options) and riderChanges(options, "en") stay exactly English', async () => {
+      pageOf(
+        change('waitPayEnabled', false, true),
+        change('waitPayFreeMinutes', 5, 10),
+        change('quoteBaseFee', null, 250),
+        change('maxAssignmentDistance', 20, 15),
+        change('quoteRatePerDistanceUnit', 150, 180),
+        change('cancellationPayoutPolicy', 'FULL_COMPENSATION', 'HALF_COMPENSATION'),
+        change('shiftSlot', null, { weekday: 3, startMinute: 600, endMinute: 840, riderCap: 4 }),
+        // A Greek label on the reason must not reach the English list.
+        change('removalReason', null, { label: 'Moped breakdown', labelEl: 'Βλάβη μηχανής', paidToRider: true })
+      )
+
+      const byDefault = await service.riderChanges({ page: 1, perPage: 20 })
+      const english = await service.riderChanges({ page: 1, perPage: 20 }, 'en')
+
+      expect(byDefault).toEqual(english)
+      expect(english.data.map(({ label, oldText, newText }) => ({ label, oldText, newText }))).toEqual([
+        { label: 'Pay for waiting at a restaurant', oldText: 'off', newText: 'on' },
+        { label: 'Unpaid minutes of waiting', oldText: '5 minutes', newText: '10 minutes' },
+        { label: 'Base pay per delivery', oldText: 'not set', newText: '€2.50' },
+        { label: 'Farthest distance to the restaurant for an offer', oldText: '20 km', newText: '15 km' },
+        { label: 'Pay per distance', oldText: '€1.50 per km', newText: '€1.80 per km' },
+        {
+          label: 'Pay when a job you accepted is cancelled',
+          oldText: 'full compensation',
+          newText: 'half compensation',
+        },
+        { label: 'Shift', oldText: 'none', newText: 'Wednesday 10:00 to 14:00, up to 4 riders' },
+        { label: 'Reason to be taken off an order', oldText: 'none', newText: 'Moped breakdown, pays the rider' },
+      ])
+      for (const line of english.data) {
+        expect(GREEK_REGEX.test(`${line.label}${line.oldText}${line.newText}`)).toBe(false)
+      }
     })
   })
 })
