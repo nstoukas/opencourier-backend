@@ -25,14 +25,16 @@ export class BullMQProcessor extends WorkerHost {
       const { summary, stack } = describeErrorForLog(error)
       const tries = `try ${job.attemptsMade + 1} of ${job.opts.attempts ?? 1}`
       this.logger.error(`Job ${job.name} failed (${tries}): ${summary}`, stack)
-      throw describedError(summary, stack)
+      throw describedError(error, summary, stack)
     }
   }
 }
 
-// An Error carrying only the described parts: the summary as its message, the frames as its stack.
-function describedError(summary: string, frames: string | undefined): Error {
+// An Error carrying only the described parts: the summary as its message, the frames as its stack, and the
+// original's name, which BullMQ reads as a signal (an `UnrecoverableError` is never retried; row 141 review).
+function describedError(error: unknown, summary: string, frames: string | undefined): Error {
   const described = new Error(summary)
-  described.stack = frames ? `Error: ${summary}\n${frames}` : `Error: ${summary}`
+  described.name = error instanceof Error ? error.name : 'Error'
+  described.stack = frames ? `${described.name}: ${summary}\n${frames}` : `${described.name}: ${summary}`
   return described
 }

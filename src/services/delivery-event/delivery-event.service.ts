@@ -1004,11 +1004,22 @@ export class DeliveryEventService {
 
     // Every write first, then the follow ups, so neither delivery of a stack is matched again while the
     // other still holds the rider.
+    // Row 141 review: a write that throws does not stop the others, and what did end is still followed up
+    // before the error goes on. Otherwise a stack whose second write failed would leave the first delivery
+    // cleared with no OFFER_EXPIRED row, and the job's retry would find nothing left to end.
     const ended: string[] = []
+    let failedWrite: { error: unknown } | null = null
     for (const id of ids) {
-      if (await this.endOneOffer(id, courierId, reason, stillThisOffer)) ended.push(id)
+      try {
+        if (await this.endOneOffer(id, courierId, reason, stillThisOffer)) ended.push(id)
+      } catch (error) {
+        failedWrite ??= { error }
+      }
     }
-    if (ended.length === 0) return 0
+    if (ended.length === 0) {
+      if (failedWrite) throw failedWrite.error
+      return 0
+    }
 
     // Cross check 9: a stack declined or missed is not offered as the same pair again for 20 minutes. Not
     // after Offline or a dispatch stop: the rider never judged the pair. Keyed on the pair, not on what this
@@ -1018,6 +1029,8 @@ export class DeliveryEventService {
     for (const id of ended) {
       await this.followUpEndedOffer(id, courierId, reason, isStack ? stackVariantOf(text) : text)
     }
+    // The job fails, so its retry ends the write that failed.
+    if (failedWrite) throw failedWrite.error
     return ended.length
   }
 
@@ -1087,8 +1100,8 @@ export class DeliveryEventService {
 
   // The follow up half, once the offer is gone. Every step is guarded on its own, so a failure in one
   // (the rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
-  // row and nobody looking for a rider. The expiry job is added without `attempts`, so BullMQ never retries it
-  // and nothing else would.
+  // row and nobody looking for a rider. Its retry (row 141) could not help: by then the offer is gone, so the
+  // retry finds nothing to end and never reaches this.
   private async followUpEndedOffer(
     deliveryId: string,
     courierId: string,

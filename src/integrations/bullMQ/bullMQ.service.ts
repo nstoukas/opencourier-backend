@@ -6,13 +6,14 @@ import dayjs from 'dayjs'
 
 // Row 141: how every job on this queue is retried when its handler throws. Three tries in all, the
 // second 5 seconds after the first fails and the third 10 seconds after that ('exponential' doubles the
-// wait each time). Then the job stays in the failed list for 7 days (at most 1000 of them), where its
+// wait each time). Then the job stays in the failed list for 7 days, where its
 // error is the summary BullMQProcessor gave it, never a Prisma message. Operational numbers, not pay or
-// matching ones, so they live here rather than on Instance configuration (decision 141.1).
+// matching ones, so they live here rather than on Instance configuration (decision 141.1). The count is
+// only a safety cap, shared by every job: a minute job failing all week keeps about 10,080 (row 141 review).
 export const JOB_RETRY_OPTIONS = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 5_000 },
-  removeOnFail: { age: 7 * 24 * 60 * 60, count: 1000 },
+  removeOnFail: { age: 7 * 24 * 60 * 60, count: 20_000 },
 } as const
 
 @Injectable()
@@ -23,7 +24,7 @@ export class BullMQService {
 
   // `jobId` names the job so it can be found and removed later (spec 0002). BullMQ ignores an add
   // whose jobId already exists, and refuses ids containing ':', so callers build ids with '-'.
-  // Every job gets JOB_RETRY_OPTIONS (row 141); a caller's own options win over them.
+  // Every job gets JOB_RETRY_OPTIONS (row 141); a caller can set only its delay and id, never its own retries.
   async addJob<T>(name: string, data: T, options?: { delay?: number; jobId?: string }) {
     await this.queue.add(name, data, { ...JOB_RETRY_OPTIONS, ...options, removeOnComplete: true })
   }
@@ -43,14 +44,14 @@ export class BullMQService {
   // schedule again changes nothing.
   async addRepeatableJob<T>(name: string, data: T, pattern: string, tz?: string) {
     const schedules = (await this.queue.getRepeatableJobs()).filter((schedule) => schedule.name === name)
-    const savedWithoutRetries = await this.hasRunWithoutRetryOptions(name)
+    const savedWithOtherRetries = await this.hasRunWithOtherRetryOptions(name)
     for (const schedule of schedules) {
-      if (savedWithoutRetries || schedule.pattern !== pattern || (schedule.tz ?? undefined) !== tz) {
+      if (savedWithOtherRetries || schedule.pattern !== pattern || (schedule.tz ?? undefined) !== tz) {
         await this.queue.removeRepeatableByKey(schedule.key)
+        if (savedWithOtherRetries) {
+          this.logger.log(`Replaced the ${name} schedule, saved with other retry options`)
+        }
       }
-    }
-    if (savedWithoutRetries) {
-      this.logger.log(`Replaced the ${name} schedule, saved before failed jobs were retried`)
     }
     await this.queue.add(name, data, {
       ...JOB_RETRY_OPTIONS,
@@ -60,12 +61,13 @@ export class BullMQService {
     })
   }
 
-  // Whether the next run of a schedule with this name waits in the queue without the retry options.
-  private async hasRunWithoutRetryOptions(name: string): Promise<boolean> {
-    const delayed = await this.queue.getJobs('delayed')
-    return delayed.some(
-      (job) => job.name === name && Boolean(job.repeatJobKey) && job.opts.attempts !== JOB_RETRY_OPTIONS.attempts
-    )
+  // Whether the next run of a schedule with this name waits in the queue with retry options other than
+  // today's (none at all, before row 141). All three are compared, so a later change to any of them
+  // reaches the saved schedules too. `job &&`: a job removed while the list is read comes back undefined.
+  private async hasRunWithOtherRetryOptions(name: string): Promise<boolean> {
+    // BullMQ's type says Job, but its source can return undefined there (job.js, fromId).
+    const delayed: Array<Job | undefined> = await this.queue.getJobs('delayed')
+    return delayed.some((job) => job && job.name === name && Boolean(job.repeatJobKey) && !sameRetryOptions(job.opts))
   }
 
   async getAllJobs() {
@@ -82,13 +84,15 @@ export class BullMQService {
   }
 
   async removeDelayedJobs<T>(filter: (job: Job<T, unknown, string>) => boolean) {
-    const pendingJobs = await this.queue.getJobs('delayed')
-    const jobs = pendingJobs.filter(filter)
+    // A job removed while the list is read comes back undefined (row 141 review), whatever the type says.
+    const pendingJobs: Array<Job<T, unknown, string> | undefined> = await this.queue.getJobs('delayed')
+    const jobs = pendingJobs.filter((job): job is Job<T, unknown, string> => job !== undefined && filter(job))
     return Promise.all(jobs.map((job) => job.remove()))
   }
 
   // Removes every job still waiting for its delay whose id starts with `prefix`. A job that is
-  // already running is not delayed, so it is never touched here.
+  // already running is not delayed, so it is never touched here. A job waiting for its retry (row 141)
+  // is delayed too, and is removed: right for the no courier retry, which a fresh timer replaces.
   async removeDelayedJobsWithIdPrefix(prefix: string) {
     return this.removeDelayedJobs((job) => typeof job.id === 'string' && job.id.startsWith(prefix))
   }
@@ -97,4 +101,12 @@ export class BullMQService {
     const failedJobs = await this.getFailedJobs()
     await Promise.all(failedJobs.map((job) => job.remove()))
   }
+}
+
+// The retry options a job was saved with, compared with today's JOB_RETRY_OPTIONS.
+function sameRetryOptions(opts: { attempts?: number; backoff?: unknown; removeOnFail?: unknown }): boolean {
+  return (
+    JSON.stringify([opts.attempts, opts.backoff, opts.removeOnFail]) ===
+    JSON.stringify([JOB_RETRY_OPTIONS.attempts, JOB_RETRY_OPTIONS.backoff, JOB_RETRY_OPTIONS.removeOnFail])
+  )
 }
