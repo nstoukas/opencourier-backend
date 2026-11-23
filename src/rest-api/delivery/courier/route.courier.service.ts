@@ -1,3 +1,4 @@
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
@@ -220,7 +221,7 @@ export class DeliveryRouteCourierService {
       // Any OSRM failure (not configured, down, slow, a bad answer). The app then shows the pins
       // with no line; it never asks another routing server (AC-2). Ids only in the log: a route is
       // a rider's whereabouts (value 5).
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = errorSummaryForLog(error)
       this.logger.warn(`Route for delivery ${deliveryId} unavailable: ${reason}`)
       throw new ServiceUnavailableException(ROUTE_UNAVAILABLE_MESSAGE)
     }

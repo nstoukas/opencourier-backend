@@ -15,10 +15,14 @@ export class BullMQProcessor extends WorkerHost {
 
   async process(job: Job) {
     // Row 139: the job's name and the error's summary only, never the job's data or the whole error.
-    await this.eventBusService
-      .emit(job.name, job.data)
-      .catch((error) =>
-        this.logger.error(`Job ${job.name} failed: ${errorSummaryForLog(error)}`, describeErrorForLog(error).stack)
-      )
+    // Then the error goes on to BullMQ, which marks the job failed (and retries it only if it was added
+    // with `attempts`). The old `.catch(this.logger.error)` failed the job too, by accident: Nest's
+    // logger, called without its `this`, threw a TypeError and logged nothing (row 139 review).
+    try {
+      await this.eventBusService.emit(job.name, job.data)
+    } catch (error) {
+      this.logger.error(`Job ${job.name} failed: ${errorSummaryForLog(error)}`, describeErrorForLog(error).stack)
+      throw error
+    }
   }
 }

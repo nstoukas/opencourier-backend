@@ -1087,7 +1087,8 @@ export class DeliveryEventService {
 
   // The follow up half, once the offer is gone. Every step is guarded on its own, so a failure in one
   // (the rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
-  // row and nobody looking for a rider. The processor never retries a job, so nothing else would.
+  // row and nobody looking for a rider. The expiry job is added without `attempts`, so BullMQ never retries it
+  // and nothing else would.
   private async followUpEndedOffer(
     deliveryId: string,
     courierId: string,

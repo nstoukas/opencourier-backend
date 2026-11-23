@@ -39,7 +39,7 @@ export class NgrokMiddleware implements NestMiddleware {
           headers: headers,
         })
       } catch (error) {
-        // The message only (row 95 review): an Axios error carries the forwarded headers and body.
+        // Name, code and message only (rows 95 and 139): an Axios error carries the forwarded headers and body.
         this.logger.log(`Error forwarding ngrok ${errorSummaryForLog(error)}`)
       }
       next()

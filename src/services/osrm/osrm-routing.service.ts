@@ -1,3 +1,4 @@
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
@@ -125,7 +126,7 @@ export class OsrmRoutingService {
     } catch (error: unknown) {
       // `unknown` is TypeScript's safe type for a caught value — anything can be thrown, not
       // just an Error. It forces the check below instead of letting a bad property access through.
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = errorSummaryForLog(error)
       // The address and the cause are for the co-op's log only. Restaurants read the refusal
       // below, and it must not tell them where the co-op's servers are (decision 69.4).
       // There is deliberately no fallback to straight line distance: it would silently change
@@ -165,7 +166,7 @@ export class OsrmRoutingService {
         return typeof value === 'number' && Number.isFinite(value) ? value : null
       })
     } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = errorSummaryForLog(error)
       this.logger.error(`OSRM table request failed: ${reason}`)
       throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
@@ -209,7 +210,7 @@ export class OsrmRoutingService {
       }
       return { seconds: read(data.durations), metres: read(data.distances) }
     } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = errorSummaryForLog(error)
       this.logger.error(`OSRM table request failed: ${reason}`)
       throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
@@ -236,7 +237,7 @@ export class OsrmRoutingService {
         })
       )
     } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = errorSummaryForLog(error)
       this.logger.error(`OSRM table request failed: ${reason}`)
       throw new ServiceUnavailableException(OSRM_UNAVAILABLE_MESSAGE)
     }
