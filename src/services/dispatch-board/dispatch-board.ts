@@ -140,7 +140,8 @@ function deliveryFields(delivery: {
     courierId: delivery.courierId,
     orderReference: delivery.orderReference,
     restaurantName: delivery.pickupBusinessName,
-    customerLabel: delivery.dropoffBusinessName ?? delivery.dropoffName,
+    // `||`, not `??`: an order with no business stores an empty business name (row 140).
+    customerLabel: delivery.dropoffBusinessName || delivery.dropoffName,
   }
 }
 
