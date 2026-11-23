@@ -156,14 +156,17 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
     })
   })
 
-  describe('Other errors are logged with logger.error (AC-4)', () => {
+  describe('Other errors are logged with logger.error (AC-4, Row 132 summary and frames)', () => {
     it('logs non-404 ApiException with logger.error (e.g. 400)', async () => {
       const err = new VerificationCodeException('Verification code is invalid')
       await expect(runInterceptor(err)).rejects.toThrow(err)
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
       expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Endpoint returned error', err)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Endpoint returned error: POST /api/courier/v1/deliveries/:deliveryId/accept VerificationCodeException VERIFICATION_CODE: Verification code is invalid',
+        { stack: expect.stringMatching(/^\s+at\s/) }
+      )
     })
 
     it('logs 403 ForbiddenException with logger.error', async () => {
@@ -172,10 +175,13 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
       expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Endpoint returned error', err)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Endpoint returned error: POST /api/courier/v1/deliveries/:deliveryId/accept ForbiddenException FORBIDDEN: Forbidden',
+        { stack: expect.stringMatching(/^\s+at\s/) }
+      )
     })
 
-    it('logs Prisma unique constraint error (P2002) with logger.error', async () => {
+    it('logs Prisma unique constraint error (P2002) with logger.error and message withheld', async () => {
       const err = new Prisma.PrismaClientKnownRequestError('Unique constraint failed on (phone)', {
         code: 'P2002',
         clientVersion: '5.3.1',
@@ -184,7 +190,10 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
       expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Endpoint returned error', err)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        "Endpoint returned error: POST /api/courier/v1/deliveries/:deliveryId/accept PrismaClientKnownRequestError P2002 (message withheld: it can repeat the call's data)",
+        { stack: expect.stringMatching(/^\s+at\s/) }
+      )
     })
 
     it('logs generic Error with logger.error', async () => {
@@ -193,7 +202,70 @@ describe('ErrorLoggingInterceptor (Row 121, AC-4)', () => {
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
       expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Endpoint returned error', err)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Endpoint returned error: POST /api/courier/v1/deliveries/:deliveryId/accept Error: Database connection failed',
+        { stack: expect.stringMatching(/^\s+at\s/) }
+      )
+    })
+  })
+
+  describe('Row 132: Whole error objects in the error logs (AC-6)', () => {
+    it('fails if recipient name or phone from a failed create reaches logger.error (Clause 6)', async () => {
+      const recipientName = 'Maria Papadopoulou'
+      const recipientPhone = '+306912345678'
+      const prismaValidationError = new Prisma.PrismaClientValidationError(
+        `Invalid \`prisma.delivery.create()\` invocation:\n{\n  recipientName: "${recipientName}",\n  phone: "${recipientPhone}"\n}`,
+        { clientVersion: '5.3.1' }
+      )
+
+      await expect(runInterceptor(prismaValidationError)).rejects.toThrow(prismaValidationError)
+
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const callArgs = loggerErrorSpy.mock.calls[0]
+      const loggedMessage = callArgs[0]
+      const loggedMeta = callArgs[1]
+      const combinedLog = `${loggedMessage} ${JSON.stringify(loggedMeta)}`
+
+      // Assert neither recipient name nor phone appears anywhere in the logged message or meta
+      expect(combinedLog).not.toContain(recipientName)
+      expect(combinedLog).not.toContain(recipientPhone)
+
+      // Assert error summary was logged properly
+      expect(loggedMessage).toContain(
+        "PrismaClientValidationError (message withheld: it can repeat the call's data)"
+      )
+      // Assert stack frames are present, but stack header containing the parameters is excluded
+      expect(loggedMeta.stack).toBeDefined()
+      expect(loggedMeta.stack).toMatch(/^\s+at\s/)
+      expect(loggedMeta.stack).not.toContain(recipientName)
+      expect(loggedMeta.stack).not.toContain(recipientPhone)
+    })
+
+    it('logs type only and never content when thrown value is a non-Error string with phone (Clause 4, 6)', async () => {
+      const customerPhone = '+306912345678'
+      await expect(runInterceptor(customerPhone)).rejects.toBe(customerPhone)
+
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const [loggedMessage, loggedMeta] = loggerErrorSpy.mock.calls[0]
+      const combinedLog = `${loggedMessage} ${JSON.stringify(loggedMeta)}`
+
+      expect(combinedLog).not.toContain(customerPhone)
+      expect(loggedMessage).toContain('A value that is not an Error was thrown (string)')
+      expect(loggedMeta.stack).toBeUndefined()
+    })
+
+    it('logs type only and never content when thrown value is a non-Error object with customer data (Clause 4, 6)', async () => {
+      const customerData = { name: 'Maria Papadopoulou', phone: '+306912345678' }
+      await expect(runInterceptor(customerData)).rejects.toBe(customerData)
+
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+      const [loggedMessage, loggedMeta] = loggerErrorSpy.mock.calls[0]
+      const combinedLog = `${loggedMessage} ${JSON.stringify(loggedMeta)}`
+
+      expect(combinedLog).not.toContain('Maria Papadopoulou')
+      expect(combinedLog).not.toContain('+306912345678')
+      expect(loggedMessage).toContain('A value that is not an Error was thrown (object)')
+      expect(loggedMeta.stack).toBeUndefined()
     })
   })
 

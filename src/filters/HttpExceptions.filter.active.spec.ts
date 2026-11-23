@@ -178,7 +178,7 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
       expect(consoleLogSpy).not.toHaveBeenCalled()
     })
 
-    it('answers 500 and console.logs unexpected database errors', () => {
+    it('answers 500 and console.logs unexpected database errors with errorForConsole format (Row 132)', () => {
       const error = new Prisma.PrismaClientKnownRequestError('Raw query failed', {
         code: 'P2010',
         clientVersion: '5.3.1',
@@ -191,7 +191,39 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
         message: 'Internal server error',
         statusCode: 500,
       })
-      expect(consoleLogSpy).toHaveBeenCalledWith(error)
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Unexpected database error: PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call's data)"
+        )
+      )
+    })
+
+    describe('Row 132: Whole error objects in the error logs (AC-6)', () => {
+      it('asserts recipient name or phone in unexpected database error never reaches console.log (Clause 6)', () => {
+        const customerName = 'Maria Papadopoulou'
+        const customerPhone = '+306912345678'
+        const error = new Prisma.PrismaClientKnownRequestError(
+          `Raw query failed for recipient ${customerName} with phone ${customerPhone}`,
+          {
+            code: 'P2010',
+            clientVersion: '5.3.1',
+          }
+        )
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(500)
+        expect(consoleLogSpy).toHaveBeenCalledTimes(1)
+        const loggedOutput = consoleLogSpy.mock.calls[0].join(' ')
+
+        // Neither recipient name nor phone appears anywhere in the console.log output
+        expect(loggedOutput).not.toContain(customerName)
+        expect(loggedOutput).not.toContain(customerPhone)
+        expect(loggedOutput).toContain(
+          "Unexpected database error: PrismaClientKnownRequestError P2010 (message withheld: it can repeat the call's data)"
+        )
+        // Stack frames are present, but header line with name and phone is absent
+        expect(loggedOutput).toMatch(/\n\s+at\s/)
+      })
     })
 
     describe('Spec 0054 AC-6: Refusals by code and params', () => {
