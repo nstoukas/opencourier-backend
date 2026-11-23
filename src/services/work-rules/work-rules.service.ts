@@ -16,6 +16,7 @@ import {
   policyName,
 } from 'src/shared-types/rider-facing-settings'
 import { RIDER_REACH_MONTHS } from 'src/services/time-worked/time-worked.service'
+import { EL_WORDS } from './work-rules.el'
 
 // The "How offers and pay work" page (spec 0038, AC-11): plain sentences built from the settings in
 // effect at the moment it is asked for, so it can never go stale. The sentences are fixed text tied
@@ -80,7 +81,9 @@ export function fairnessSentences(
   // by the same amount every time, unlike the other three.
   const shift = settings.shiftsEnabled
     ? [
-        `While shifts are on, being on a booked shift counts too (weight ${settings.fairnessWeightShift ?? 0}). It is a fixed yes or no, so it moves your place by the same amount every time, while the other three depend on how different the riders are. Going Offline during a booked shift is written on that shift, for you and a representative to see; it changes nothing about your offers or pay.`,
+        `While shifts are on, being on a booked shift counts too (weight ${
+          settings.fairnessWeightShift ?? 0
+        }). It is a fixed yes or no, so it moves your place by the same amount every time, while the other three depend on how different the riders are. Going Offline during a booked shift is written on that shift, for you and a representative to see; it changes nothing about your offers or pay.`,
       ]
     : []
   return [
@@ -150,6 +153,115 @@ export function earningsFigureSentences(): string[] {
   ]
 }
 
+// Row 137: the page's language. English stays the default, so an app that does not ask keeps reading
+// what it read before.
+export type WorkRulesLang = 'el' | 'en'
+
+type FairnessSettings = Parameters<typeof fairnessSentences>[0]
+
+// Every sentence of the page, one entry each, so the Greek (`EL_WORDS`, work-rules.el.ts) and the English
+// below say the same thing line for line. A change to a rule updates both in the same change.
+export interface WorkRulesWords {
+  money: (cents: number | null, currency: string) => string
+  unit: (distanceUnit: string) => string
+  // `englishName` is `policyName`'s wording, for a policy a language does not name.
+  policyName: (policy: string, englishName: string) => string
+  policyWithPercent: (name: string, percent: number) => string
+  reasonLabel: (reason: { label: string; labelEl: string | null }) => string
+  matcher: Record<string, (distance: string) => string>
+  // The sentence for a matcher `matcher` does not list, as before row 137.
+  nearest: (distance: string) => string
+  fairness: (settings: FairnessSettings, distance: string) => string[]
+  seeWhy: string
+  noSecondOffer: string
+  offerExpiry: (seconds: number) => string
+  offerWaits: string
+  notOfferedAgain: (minutes: number) => string
+  offerLead: (minutes: number) => string
+  stacking: (wheneverFits: boolean, delayMinutes: number) => string
+  addOnMoment: Record<EnumAddOnMoment, string>
+  addOn: (moment: string, wheneverFits: boolean, delayMinutes: number, expirySeconds: number) => string
+  payBase: (base: string, perUnit: string, unit: string) => string
+  waitPay: (freeMinutes: number, perMinute: string) => string
+  waitNotPaid: string
+  leaveLate: (minutes: number) => string
+  split: (minutes: number) => string
+  cancelled: (policy: string) => string
+  takenOff: (policy: string) => string
+  returnTrip: (percent: number) => string
+  handBack: (seconds: number) => string
+  handBackOff: string
+  paidReasons: (list: string) => string
+  unpaidReasons: (list: string) => string
+  review: (max: string) => string
+  personDecides: string[]
+  appRecords: string[]
+  addressNotes: (retentionDays: number) => string
+  timeWorked: (shiftBreakMinutes: number) => string[]
+  earningsFigures: () => string[]
+}
+
+// The English page, word for word as it read before row 137.
+export const EN_WORDS: WorkRulesWords = {
+  money: (cents, currency) => formatCents(cents, currency),
+  unit: (distanceUnit) => distanceUnitName(distanceUnit),
+  policyName: (_policy, englishName) => englishName,
+  policyWithPercent: (name, percent) => `${name} (${percent}% of its pay)`,
+  reasonLabel: (reason) => reason.label,
+  matcher: MATCHER_SENTENCES,
+  nearest: nearestSentence,
+  fairness: fairnessSentences,
+  seeWhy: 'See why a job came to you on its page in Earnings.',
+  noSecondOffer: 'A rider already on a job gets no second offer.',
+  offerExpiry: (seconds) => `You have ${seconds} seconds to answer an offer; then it goes to the next rider.`,
+  offerWaits: 'An offer waits for your answer until you accept or decline it.',
+  notOfferedAgain: (minutes) =>
+    `If you decline or miss an offer, that order is not offered to you again for ${minutes} minutes.`,
+  offerLead: (minutes) => `Offers go out about ${minutes} minutes before the restaurant says the food is ready.`,
+  stacking: (wheneverFits, delayMinutes) =>
+    `Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens ${
+      wheneverFits ? 'whenever the two fit' : 'only when one of them found no free rider'
+    }. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${delayMinutes} minutes later than it would alone, and both orders always fit in your box.`,
+  addOnMoment: {
+    [EnumAddOnMoment.BEFORE_DROPOFF]: 'any time before you drop off your current order',
+    [EnumAddOnMoment.SAME_RESTAURANT]: 'before you pick up your current order, and only from the same restaurant',
+    [EnumAddOnMoment.BEFORE_PICKUP]: 'before you pick up your current order',
+  },
+  addOn: (moment, wheneverFits, delayMinutes, expirySeconds) =>
+    `While you are on a job, you may be offered one more order on the way, ${moment}. This happens ${
+      wheneverFits
+        ? 'whenever it fits, even when a free rider is available'
+        : 'only when that order found no free rider'
+    }. The offer shows how many km and minutes it adds. Declining it is free and changes nothing about your current order, and it is never accepted automatically. It pays in full, exactly as it would alone, your current customer's food arrives at most ${delayMinutes} minutes later, and both orders always fit in your box. Answer an add on only when you are stopped. You have ${expirySeconds} seconds to answer one; while you carry food you have ${
+      expirySeconds * 2
+    } seconds and it never rings insistently. An unanswered add on goes back to matching.`,
+  payBase: (base, perUnit, unit) =>
+    `Each delivery pays a base of ${base} plus ${perUnit} per ${unit} of the route from the restaurant to the customer. The amount is fixed when the order is placed.`,
+  waitPay: (freeMinutes, perMinute) =>
+    `If a restaurant keeps you waiting past the time it promised, the first ${freeMinutes} minutes are not paid, then each minute pays ${perMinute}.`,
+  waitNotPaid: 'Waiting at a restaurant is not paid at the moment.',
+  leaveLate: (minutes) => `You may leave a restaurant that is ${minutes} minutes late.`,
+  split: (minutes) =>
+    `If an order does not fit one box, tell dispatch from the restaurant: you are paid while you wait for the split, and may leave after ${minutes} minutes without an answer.`,
+  cancelled: (policy) => `If a job you accepted is cancelled, you are paid ${policy}.`,
+  takenOff: (policy) => `If a job is taken off you, you are usually paid ${policy}.`,
+  returnTrip: (percent) =>
+    `Taking food back to the restaurant after a cancellation pays ${percent}% of the order's distance pay.`,
+  handBack: (seconds) => `You can give an accepted order back for free within ${seconds} seconds.`,
+  handBackOff: 'Giving an accepted order back for free is switched off.',
+  paidReasons: (list) => `Being taken off an order pays you for these reasons: ${list}.`,
+  unpaidReasons: (list) => `These reasons do not pay: ${list}.`,
+  review: (max) =>
+    `When a review finds your pay was wrong, a person can add up to ${max}. A review never lowers your pay.`,
+  personDecides: PERSON_DECIDES,
+  appRecords: APP_RECORDS,
+  addressNotes: addressNotesSentence,
+  timeWorked: timeWorkedSentences,
+  earningsFigures: earningsFigureSentences,
+}
+
+const WORDS: Record<WorkRulesLang, WorkRulesWords> = { en: EN_WORDS, el: EL_WORDS }
+
 @Injectable()
 export class WorkRulesService {
   constructor(
@@ -158,49 +270,38 @@ export class WorkRulesService {
     private readonly settingChangeRepository: SettingChangeRepository
   ) {}
 
-  async howItWorks(): Promise<HowItWorks> {
+  async howItWorks(lang: WorkRulesLang = 'en'): Promise<HowItWorks> {
+    const words = WORDS[lang]
     const settings = await this.configDomainService.instanceConfig.getInstanceConfigSettings()
     const reasons = await this.removalRequestRepository.findActiveReasons()
     const context = formatContext(settings)
-    const unit = distanceUnitName(context.distanceUnit)
-    const money = (cents: number | null) => formatCents(cents, context.currency)
+    const unit = words.unit(context.distanceUnit)
+    const money = (cents: number | null) => words.money(cents, context.currency)
     const percentOf = (policy: string) => settings.reassignmentPayoutPolicies[policy]
     const policy = (key: string) => {
       const percent = percentOf(key)
-      return percent === undefined ? policyName(key) : `${policyName(key)} (${percent}% of its pay)`
+      const name = words.policyName(key, policyName(key))
+      return percent === undefined ? name : words.policyWithPercent(name, percent)
     }
 
-    const matcher = MATCHER_SENTENCES[settings.courierMatcherType] ?? nearestSentence
+    const matcher = words.matcher[settings.courierMatcherType] ?? words.nearest
     const distance = `${settings.maxAssignmentDistance} ${unit}`
+    const wheneverFits = settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
     const offers = [
       ...(settings.courierMatcherType === EnumCourierMatcherType.FAIRNESS
-        ? fairnessSentences(settings, distance)
+        ? words.fairness(settings, distance)
         : // Review fix (AC-4): every matcher records why; the link back is not the fairness matcher's alone.
-          [matcher(distance), 'See why a job came to you on its page in Earnings.']),
-      'A rider already on a job gets no second offer.',
-      settings.offerExpiryEnabled
-        ? `You have ${settings.offerExpirySeconds} seconds to answer an offer; then it goes to the next rider.`
-        : 'An offer waits for your answer until you accept or decline it.',
-      `If you decline or miss an offer, that order is not offered to you again for ${Math.round(
-        REJECTED_LIST_TTL_SECONDS / 60
-      )} minutes.`,
+          [matcher(distance), words.seeWhy]),
+      words.noSecondOffer,
+      settings.offerExpiryEnabled ? words.offerExpiry(settings.offerExpirySeconds) : words.offerWaits,
+      words.notOfferedAgain(Math.round(REJECTED_LIST_TTL_SECONDS / 60)),
     ]
     if (settings.offerTimingEnabled) {
-      offers.push(
-        `Offers go out about ${settings.offerLeadMinutes} minutes before the restaurant says the food is ready.`
-      )
+      offers.push(words.offerLead(settings.offerLeadMinutes))
     }
     // Spec 0048 (AC-1): stacked orders, said only while the co-op has them on. Decision 128.0: auto accept takes a pair.
     if (settings.stackingEnabled) {
-      offers.push(
-        `Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens ${
-          settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
-            ? 'whenever the two fit'
-            : 'only when one of them found no free rider'
-        }. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than ${
-          settings.twoOrderDelayLimitMinutes
-        } minutes later than it would alone, and both orders always fit in your box.`
-      )
+      offers.push(words.stacking(wheneverFits, settings.twoOrderDelayLimitMinutes))
     }
     // Spec 0048 (AC-1, row 81): mid job add ons, said only while the co-op has them on. Cross check 2: the
     // rider reads that an add on is answered only when stopped, and that one offered with food in the box
@@ -211,60 +312,38 @@ export class WorkRulesService {
     if (settings.addOnOffersEnabled && settings.courierMatcherType !== EnumCourierMatcherType.STATIC) {
       const moment =
         settings.addOnMoment === EnumAddOnMoment.BEFORE_DROPOFF
-          ? 'any time before you drop off your current order'
+          ? words.addOnMoment.BEFORE_DROPOFF
           : settings.addOnMoment === EnumAddOnMoment.SAME_RESTAURANT
-            ? 'before you pick up your current order, and only from the same restaurant'
-            : 'before you pick up your current order'
-      offers.push(
-        `While you are on a job, you may be offered one more order on the way, ${moment}. This happens ${
-          settings.twoOrderPolicy === EnumTwoOrderPolicy.WHENEVER_FITS
-            ? 'whenever it fits, even when a free rider is available'
-            : 'only when that order found no free rider'
-        }. The offer shows how many km and minutes it adds. Declining it is free and changes nothing about your current order, and it is never accepted automatically. It pays in full, exactly as it would alone, your current customer's food arrives at most ${
-          settings.twoOrderDelayLimitMinutes
-        } minutes later, and both orders always fit in your box. Answer an add on only when you are stopped. You have ${
-          settings.offerExpirySeconds
-        } seconds to answer one; while you carry food you have ${
-          settings.offerExpirySeconds * 2
-        } seconds and it never rings insistently. An unanswered add on goes back to matching.`
-      )
+          ? words.addOnMoment.SAME_RESTAURANT
+          : words.addOnMoment.BEFORE_PICKUP
+      offers.push(words.addOn(moment, wheneverFits, settings.twoOrderDelayLimitMinutes, settings.offerExpirySeconds))
     }
 
-    const paid = reasons.filter((reason) => reason.paidToRider).map((reason) => reason.label)
-    const unpaid = reasons.filter((reason) => !reason.paidToRider).map((reason) => reason.label)
+    const paid = reasons.filter((reason) => reason.paidToRider).map((reason) => words.reasonLabel(reason))
+    const unpaid = reasons.filter((reason) => !reason.paidToRider).map((reason) => words.reasonLabel(reason))
     const pay = [
-      `Each delivery pays a base of ${money(settings.quoteBaseFee)} plus ${money(
-        settings.quoteRatePerDistanceUnit
-      )} per ${unit} of the route from the restaurant to the customer. The amount is fixed when the order is placed.`,
+      words.payBase(money(settings.quoteBaseFee), money(settings.quoteRatePerDistanceUnit), unit),
       settings.waitPayEnabled && settings.waitPayCentsPerMinute > 0
-        ? `If a restaurant keeps you waiting past the time it promised, the first ${
-            settings.waitPayFreeMinutes
-          } minutes are not paid, then each minute pays ${money(settings.waitPayCentsPerMinute)}.`
-        : 'Waiting at a restaurant is not paid at the moment.',
-      `You may leave a restaurant that is ${settings.waitLimitMinutes} minutes late.`,
-      `If an order does not fit one box, tell dispatch from the restaurant: you are paid while you wait for the split, and may leave after ${settings.splitAnswerMinutes} minutes without an answer.`,
-      `If a job you accepted is cancelled, you are paid ${policy(settings.cancellationPayoutPolicy)}.`,
-      `If a job is taken off you, you are usually paid ${policy(settings.reassignmentPayoutDefaultPolicy)}.`,
-      `Taking food back to the restaurant after a cancellation pays ${settings.returnTripPayPercent}% of the order's distance pay.`,
-      settings.handBackSeconds > 0
-        ? `You can give an accepted order back for free within ${settings.handBackSeconds} seconds.`
-        : 'Giving an accepted order back for free is switched off.',
+        ? words.waitPay(settings.waitPayFreeMinutes, money(settings.waitPayCentsPerMinute))
+        : words.waitNotPaid,
+      words.leaveLate(settings.waitLimitMinutes),
+      words.split(settings.splitAnswerMinutes),
+      words.cancelled(policy(settings.cancellationPayoutPolicy)),
+      words.takenOff(policy(settings.reassignmentPayoutDefaultPolicy)),
+      words.returnTrip(settings.returnTripPayPercent),
+      settings.handBackSeconds > 0 ? words.handBack(settings.handBackSeconds) : words.handBackOff,
     ]
-    if (paid.length > 0) pay.push(`Being taken off an order pays you for these reasons: ${paid.join(', ')}.`)
-    if (unpaid.length > 0) pay.push(`These reasons do not pay: ${unpaid.join(', ')}.`)
-    pay.push(
-      `When a review finds your pay was wrong, a person can add up to ${money(
-        settings.reviewCorrectionMaxCents
-      )}. A review never lowers your pay.`
-    )
+    if (paid.length > 0) pay.push(words.paidReasons(paid.join(', ')))
+    if (unpaid.length > 0) pay.push(words.unpaidReasons(unpaid.join(', ')))
+    pay.push(words.review(money(settings.reviewCorrectionMaxCents)))
 
     return {
       offers,
       pay,
-      personDecides: PERSON_DECIDES,
-      appRecords: [...APP_RECORDS, addressNotesSentence(settings.addressNoteRetentionDays)],
-      timeWorked: timeWorkedSentences(settings.shiftBreakMinutes),
-      earningsFigures: earningsFigureSentences(),
+      personDecides: words.personDecides,
+      appRecords: [...words.appRecords, words.addressNotes(settings.addressNoteRetentionDays)],
+      timeWorked: words.timeWorked(settings.shiftBreakMinutes),
+      earningsFigures: words.earningsFigures(),
       reviewAnswerDays: settings.reviewAnswerDays,
     }
   }

@@ -1,18 +1,7 @@
-import {
-  DEFAULT_SHIFT_BREAK_MINUTES,
-  SHIFT_BREAK_MINUTES_MAX,
-  SHIFT_BREAK_MINUTES_MIN,
-} from 'src/constants'
-import {
-  InstanceConfigDomainService,
-  NUMERIC_SETTING_RULES,
-} from 'src/domains/config/instance-config.domain.service'
+import { DEFAULT_SHIFT_BREAK_MINUTES, SHIFT_BREAK_MINUTES_MAX, SHIFT_BREAK_MINUTES_MIN } from 'src/constants'
+import { InstanceConfigDomainService, NUMERIC_SETTING_RULES } from 'src/domains/config/instance-config.domain.service'
 import { RIDER_FACING_SETTINGS } from 'src/shared-types/rider-facing-settings'
-import {
-  TIME_WORKED_ADMIN_VIEW,
-  WorkRulesService,
-  timeWorkedSentences,
-} from './work-rules.service'
+import { TIME_WORKED_ADMIN_VIEW, WorkRulesService, timeWorkedSentences } from './work-rules.service'
 
 describe('Time Worked Settings (spec 0040, AC-9, AC-13, AC-17)', () => {
   describe('NUMERIC_SETTING_RULES for shiftBreakMinutes (AC-17)', () => {
@@ -35,10 +24,7 @@ describe('Time Worked Settings (spec 0040, AC-9, AC-13, AC-17)', () => {
       const mockConfigRepo = {
         getByKey: jest.fn().mockRejectedValue(notFoundErr),
       }
-      const instanceConfigService = new InstanceConfigDomainService(
-        mockConfigRepo as any,
-        {} as any
-      )
+      const instanceConfigService = new InstanceConfigDomainService(mockConfigRepo as any, {} as any)
 
       const value = await instanceConfigService.getShiftBreakMinutes()
       expect(value).toBe(30)

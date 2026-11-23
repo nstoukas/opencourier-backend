@@ -117,11 +117,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       findOldest: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<SettingChangeRepository>
 
-    service = new WorkRulesService(
-      mockConfigDomainService,
-      mockRemovalRequestRepository,
-      mockSettingChangeRepository
-    )
+    service = new WorkRulesService(mockConfigDomainService, mockRemovalRequestRepository, mockSettingChangeRepository)
   })
 
   describe('howItWorks (AC-11)', () => {
@@ -133,20 +129,28 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.offers[0]).toContain('20 km')
       expect(result.offers).toContain('A rider already on a job gets no second offer.')
       expect(result.offers).toContain('You have 60 seconds to answer an offer; then it goes to the next rider.')
-      expect(result.offers).toContain('If you decline or miss an offer, that order is not offered to you again for 20 minutes.')
+      expect(result.offers).toContain(
+        'If you decline or miss an offer, that order is not offered to you again for 20 minutes.'
+      )
 
       // Pay section
       expect(result.pay[0]).toContain('base of €2.00 plus €1.50 per km')
-      expect(result.pay.some((line) => line.includes('first 5 minutes are not paid, then each minute pays €0.10'))).toBe(true)
+      expect(
+        result.pay.some((line) => line.includes('first 5 minutes are not paid, then each minute pays €0.10'))
+      ).toBe(true)
       expect(result.pay.some((line) => line.includes('leave a restaurant that is 10 minutes late'))).toBe(true)
-      expect(result.pay.some((line) => line.includes('Being taken off an order pays you for these reasons: Moped breakdown'))).toBe(true)
+      expect(
+        result.pay.some((line) => line.includes('Being taken off an order pays you for these reasons: Moped breakdown'))
+      ).toBe(true)
       expect(result.pay.some((line) => line.includes('These reasons do not pay: Customer absent'))).toBe(true)
       expect(result.pay.some((line) => line.includes('add up to €50.00. A review never lowers your pay'))).toBe(true)
 
       // Fixed sections
       expect(result.personDecides).toBeDefined()
       expect(result.appRecords).toBeDefined()
-      expect(result.appRecords.some((line) => line.includes('Address notes describe the place, never the person'))).toBe(true)
+      expect(
+        result.appRecords.some((line) => line.includes('Address notes describe the place, never the person'))
+      ).toBe(true)
       expect(result.appRecords.some((line) => line.includes('182 days (about 6 months)'))).toBe(true)
       expect(result.reviewAnswerDays).toBe(14)
     })
@@ -210,7 +214,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
 
       const shortageResult = await service.howItWorks()
       expect(shortageResult.offers).toContain(
-        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens only when one of them found no free rider. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 10 minutes later than it would alone, and both orders always fit in your box.'
+        "Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens only when one of them found no free rider. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than 10 minutes later than it would alone, and both orders always fit in your box."
       )
 
       // 2. WHENEVER_FITS with 15 minutes delay limit
@@ -223,7 +227,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
 
       const wheneverResult = await service.howItWorks()
       expect(wheneverResult.offers).toContain(
-        'Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens whenever the two fit. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer\'s food arrives more than 15 minutes later than it would alone, and both orders always fit in your box.'
+        "Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens whenever the two fit. You take or decline both at once, and with auto accept on, your phone takes a pair just as it takes a single order. Each order pays in full, exactly as it would alone. Neither customer's food arrives more than 15 minutes later than it would alone, and both orders always fit in your box."
       )
 
       // 3. stackingEnabled: false omits the rule

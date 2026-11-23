@@ -18,9 +18,11 @@ export class SettingChangeCourierRestApiController {
   @common.Get('how-it-works')
   @swagger.ApiOkResponse({ type: HowItWorksCourierDto })
   @swagger.ApiOperation({ summary: 'How offers and pay work, from the settings in effect now' })
+  // Row 137: the app sends its own language; anything but "el" reads English, as before.
+  @swagger.ApiQuery({ name: 'lang', required: false, enum: ['el', 'en'] })
   @Roles(EnumUserRole.COURIER)
-  async howItWorks(): Promise<HowItWorksCourierDto> {
-    return this.workRulesService.howItWorks()
+  async howItWorks(@common.Query('lang') lang?: string): Promise<HowItWorksCourierDto> {
+    return this.workRulesService.howItWorks(lang === 'el' ? 'el' : 'en')
   }
 
   @common.Get('setting-changes')
