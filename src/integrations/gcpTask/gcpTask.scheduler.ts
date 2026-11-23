@@ -1,10 +1,10 @@
-import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 import { CloudTasksClient, protos } from '@google-cloud/tasks'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GCP_LOCATION, GCP_PROJECT_NAME, PUBLIC_API_URL, TASK_RUNNER_SECRET } from '../../constants'
 import { TASK_RUNNER_SECRET_HEADER, usableTaskRunnerSecret } from '../../services/taskBus/task-runner-secret.guard'
 import { TaskBusScheduler } from '../../services/taskBus/models/TaskBusScheduler'
+import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 
 export const WEBHOOK_PATH = 'api/tasks/v1'
 export const WEBHOOK_NAME = 'execute'

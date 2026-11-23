@@ -1,9 +1,9 @@
-import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { MESSAGE_BUS_QUEUE } from '../../constants'
 import { Job } from 'bullmq'
 import { EventBusService } from '../../services/eventBus/eventBus.service'
 import { Logger } from '@nestjs/common'
+import { describeErrorForLog, errorSummaryForLog } from '../../utils/errorForLog'
 
 @Processor(MESSAGE_BUS_QUEUE)
 export class BullMQProcessor extends WorkerHost {

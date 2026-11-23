@@ -1,4 +1,3 @@
-import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
@@ -6,6 +5,7 @@ import { OSRM_CACHE_TTL_SECONDS, OSRM_REQUEST_TIMEOUT_MS, OSRM_URL } from 'src/c
 import { EnvVarMissingException } from 'src/errors'
 import { IOsrmRouteInput } from './interfaces/IOsrmRouteInput'
 import { IOsrmRoutePoint, IOsrmRouteResult } from './interfaces/IOsrmRouteResult'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // What a restaurant reads when a quote cannot be priced because OSRM did not answer.
 export const OSRM_UNAVAILABLE_MESSAGE =

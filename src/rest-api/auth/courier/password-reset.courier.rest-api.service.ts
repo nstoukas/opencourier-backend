@@ -1,9 +1,7 @@
-import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { AuthDomainService } from 'src/domains/auth/auth.domain.service'
 import { PasswordService } from 'src/domains/auth/password.service'
 import {
-  describeError,
   PasswordResetService,
   RESET_BY_EMAIL_OFF_MESSAGE,
 } from 'src/domains/auth/password-reset.service'
@@ -12,6 +10,7 @@ import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-o
 import { UserInfoCourierDto } from './dtos/user-info.courier.dto'
 import { EnumCourierAccountChangeKind } from '@prisma/types'
 import { CourierAccountRepository } from 'src/persistence/repositories/courier-account.repository'
+import { describeError, describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // The two public reset routes' work (row 17, spec 0039). It lives in the REST module rather than in
 // AuthDomainModule, which is global and imported by the courier domain: the cut off pulls in sockets

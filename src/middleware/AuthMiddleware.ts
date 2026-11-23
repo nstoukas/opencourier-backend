@@ -1,4 +1,3 @@
-import { errorForConsole } from 'src/utils/errorForLog'
 import { Injectable, NestMiddleware } from '@nestjs/common'
 import { Response, NextFunction } from 'express'
 import { AuthDomainService } from '../domains/auth/auth.domain.service'
@@ -11,6 +10,7 @@ import { CourierDomainService } from 'src/domains/courier/courier.domain.service
 import { EnumUserRole } from '@prisma/types'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
 import { API_KEY_IN_URL_MESSAGE, queryHasApiKey } from 'src/domains/auth/api-key'
+import { errorForConsole } from 'src/utils/errorForLog'
 
 // The 401's sentence when a request carries an API key and a login token together (row 113).
 export const MIXED_CREDENTIALS_MESSAGE = 'Send either an API key or a login token, not both'

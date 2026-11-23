@@ -88,3 +88,14 @@ export function errorForConsole(error: unknown): string {
 export function errorSummaryForLog(error: unknown): string {
   return describeErrorForLog(error).summary
 }
+
+// For a mail error (spec 0039; moved here from the password reset by row 139's review): an error described
+// without its message, which can name the recipient (a database error, the email searched for). It keeps the
+// class, the code (ECONNECTION, EAUTH, P2025...) and the SMTP reply number.
+export function describeError(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return 'Error'
+  const e = error as { name?: unknown; code?: unknown; responseCode?: unknown }
+  return [e.name ?? 'Error', e.code, e.responseCode]
+    .filter((part) => typeof part === 'string' || typeof part === 'number')
+    .join(' ')
+}

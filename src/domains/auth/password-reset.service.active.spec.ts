@@ -13,7 +13,6 @@ import { CacheService } from 'src/services/cache/cache.service'
 import { MailService } from 'src/services/mail/mail.service'
 import {
   buildResetEmail,
-  describeError,
   PasswordResetService,
   RESET_BY_EMAIL_OFF_MESSAGE,
   RESET_CODE_REFUSED_MESSAGE,
@@ -24,6 +23,7 @@ import {
   RESET_TRIES_PER_DAY,
   resetKeys,
 } from './password-reset.service'
+import { describeError } from 'src/utils/errorForLog'
 
 jest.mock('crypto', () => {
   const actual = jest.requireActual('crypto')

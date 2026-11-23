@@ -1,4 +1,3 @@
-import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger } from '@nestjs/common'
 import { EnumCourierStatus, EnumCourierStatusChangeCause } from '@prisma/types'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
@@ -6,6 +5,7 @@ import { CourierEntity } from 'src/domains/courier/entities/courier.entity'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
+import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // What happens to a rider's phones after their password changes (spec 0013, AC-5 b, c, d), shared
 // by an admin setting a new password and a rider's own reset by email (row 17, spec 0039, AC-10).

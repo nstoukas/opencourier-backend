@@ -1,8 +1,8 @@
-import { describeErrorForLog, errorForConsole } from './utils/errorForLog'
 import { NestFactory } from '@nestjs/core'
 import { WinstonModule } from 'nest-winston'
 import { getLogger } from './services/logger'
 import { ChainWatcherAppModule } from './app.chain-watcher.module'
+import { describeErrorForLog, errorForConsole } from './utils/errorForLog'
 
 const { PORT = 3088 } = process.env
 

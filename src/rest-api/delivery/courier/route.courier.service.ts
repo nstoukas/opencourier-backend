@@ -1,4 +1,3 @@
-import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
@@ -10,6 +9,7 @@ import { isRecordNotFoundError } from 'src/prisma.util'
 import { DeliveryRouteLegKind } from './dtos/delivery-route.courier.dto'
 import { StackStop, StackStopKind, isStopDone, stackStopsOf } from 'src/domains/delivery/stack'
 import { isAddOnOffer } from 'src/domains/delivery/add-on'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 // Before pickup the rider rides to the restaurant first; from PICKED_UP on, straight to the customer.
 const BEFORE_PICKUP_STATUSES: EnumDeliveryStatus[] = [

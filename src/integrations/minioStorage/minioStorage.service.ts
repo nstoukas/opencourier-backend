@@ -1,4 +1,3 @@
-import { errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Client, ClientOptions } from 'minio'
@@ -9,6 +8,7 @@ import {
   StorageProvider,
   StoredFileNotFoundError,
 } from 'src/services/storage/models/StorageProvider'
+import { errorSummaryForLog } from 'src/utils/errorForLog'
 
 const DEFAULT_COMPLAINTS_BUCKET = 'complaints'
 

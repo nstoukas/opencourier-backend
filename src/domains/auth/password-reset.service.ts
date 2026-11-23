@@ -13,6 +13,7 @@ import * as errors from 'src/errors'
 import { isRecordNotFoundError } from 'src/prisma.util'
 import { CacheService } from 'src/services/cache/cache.service'
 import { MailService } from 'src/services/mail/mail.service'
+import { describeError } from 'src/utils/errorForLog'
 
 // The sentences a rider reads (spec 0039, AC-11 and AC-12). One sentence for every bad code, so an
 // answer never tells a wrong code from an unknown email.
@@ -216,16 +217,6 @@ function hashesMatch(stored: string, expected: string): boolean {
   const a = Buffer.from(stored, 'utf8')
   const b = Buffer.from(expected, 'utf8')
   return a.length === b.length && timingSafeEqual(a, b)
-}
-
-// An error described without its message (a mail error can name the recipient, a database error the
-// email searched for): its class, its code (ECONNECTION, EAUTH, P2025...) and the SMTP reply number.
-export function describeError(error: unknown): string {
-  if (typeof error !== 'object' || error === null) return 'Error'
-  const e = error as { name?: unknown; code?: unknown; responseCode?: unknown }
-  return [e.name ?? 'Error', e.code, e.responseCode]
-    .filter((part) => typeof part === 'string' || typeof part === 'number')
-    .join(' ')
 }
 
 // AC-9: the reset email in both languages, the rider's own first (spec 0054, cross check 8: User.language;

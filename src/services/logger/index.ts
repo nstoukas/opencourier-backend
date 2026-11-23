@@ -1,7 +1,7 @@
-import { errorForConsole } from '../../utils/errorForLog'
 import { stringify } from 'flatted'
 import * as winston from 'winston'
 import { LoggingWinston as GoogleWinstonLogger } from '@google-cloud/logging-winston'
+import { errorForConsole } from '../../utils/errorForLog'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const textFormat = winston.format.printf(({ level, message, label, timestamp, stack, context }: any) => {

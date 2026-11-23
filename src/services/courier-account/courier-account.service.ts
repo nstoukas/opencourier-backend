@@ -1,4 +1,3 @@
-import { describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
 import { languageOf, translate } from 'src/localization/translate'
 import {
@@ -29,9 +28,8 @@ import { CacheService } from 'src/services/cache/cache.service'
 import { CourierCutOffService } from 'src/services/courier-cut-off/courier-cut-off.service'
 import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { MailService } from 'src/services/mail/mail.service'
-// A mail error is logged without its message, which can name the recipient (spec 0039).
-import { describeError } from 'src/domains/auth/password-reset.service'
 import { WebsocketDispatcher } from 'src/services/websocket/models/WebsocketDispatcher'
+import { describeError, describeErrorForLog, errorSummaryForLog } from 'src/utils/errorForLog'
 
 // The fields an admin may edit (AC-4, cross check 11): node_uri and the Stripe fields are not here.
 export interface CourierAccountEdit {

@@ -1,9 +1,9 @@
-import { errorForConsole } from '../utils/errorForLog'
 import { PrismaClient } from '@prisma/types'
 import { seedCouriers } from './couriers'
 import { seedAdminUser } from './admin'
 import { seedPartnerUser } from './partner'
 import { seedInitialInstanceConfig } from './instance-config'
+import { errorForConsole } from '../utils/errorForLog'
 
 const prisma = new PrismaClient()
 

@@ -1,4 +1,3 @@
-import { describeErrorForLog, errorForConsole, errorSummaryForLog } from 'src/utils/errorForLog'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { WebsocketDispatcher } from '../../services/websocket/models/WebsocketDispatcher'
@@ -11,6 +10,7 @@ import {
   ChatMessageToCourier, ChatReadByDispatchMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
+import { describeErrorForLog, errorForConsole, errorSummaryForLog } from 'src/utils/errorForLog'
 
 @Injectable()
 export class AblyDispatcher extends WebsocketDispatcher {
