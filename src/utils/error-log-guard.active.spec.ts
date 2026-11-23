@@ -10,7 +10,21 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
     'describeError',
   ])
 
+  const SAFE_PROPERTIES = new Set(['name', 'code', 'statusCode', 'status'])
   const LOG_METHODS = new Set(['error', 'warn', 'log', 'info', 'debug', 'verbose'])
+
+  function unwrap(node: ts.Node): ts.Node {
+    let curr = node
+    while (
+      ts.isParenthesizedExpression(curr) ||
+      ts.isAsExpression(curr) ||
+      ts.isTypeAssertionExpression(curr) ||
+      ts.isNonNullExpression(curr)
+    ) {
+      curr = curr.expression
+    }
+    return curr
+  }
 
   function isLoggerOrConsole(expr: ts.Expression): boolean {
     if (!ts.isPropertyAccessExpression(expr)) return false
@@ -22,7 +36,9 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
       callerText === 'this.logger' ||
       callerText === 'logger' ||
       callerText === 'panicLogger' ||
-      /logger/i.test(callerText)
+      /logger/i.test(callerText) ||
+      callerText === 'this.log' ||
+      callerText === 'log'
     )
   }
 
@@ -36,66 +52,215 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
         callerText === 'logger' ||
         callerText === 'console' ||
         callerText === 'panicLogger' ||
-        /logger/i.test(callerText)) &&
+        /logger/i.test(callerText) ||
+        callerText === 'this.log' ||
+        callerText === 'log') &&
       LOG_METHODS.has(methodName)
     )
   }
 
-  function unwrap(node: ts.Expression): ts.Expression {
-    let curr: ts.Expression = node
-    while (curr) {
-      if (ts.isParenthesizedExpression(curr)) {
-        curr = curr.expression
-      } else if (ts.isAsExpression(curr)) {
-        curr = curr.expression
-      } else if (ts.isTypeAssertionExpression(curr)) {
-        curr = curr.expression
-      } else if (ts.isNonNullExpression(curr)) {
-        curr = curr.expression
-      } else {
-        break
-      }
-    }
-    return curr
-  }
-
-  function isWrappedInAllowed(node: ts.Expression): boolean {
-    const unwrapped = unwrap(node)
-    if (ts.isCallExpression(unwrapped)) {
-      const fn = unwrap(unwrapped.expression)
+  function isAllowedWrapperCall(node: ts.Node): boolean {
+    const curr = unwrap(node)
+    if (ts.isCallExpression(curr)) {
+      const fn = unwrap(curr.expression)
       if (ts.isIdentifier(fn) && ALLOWED_WRAPPERS.has(fn.text)) {
         return true
       }
     }
-    if (ts.isPropertyAccessExpression(unwrapped)) {
-      if (isWrappedInAllowed(unwrapped.expression)) {
-        return true
+    if (ts.isPropertyAccessExpression(curr)) {
+      return isAllowedWrapperCall(curr.expression)
+    }
+    return false
+  }
+
+  function isSafePropertyAccess(node: ts.Node, trackedVars: Set<string>): boolean {
+    const curr = unwrap(node)
+    if (ts.isPropertyAccessExpression(curr)) {
+      const propName = curr.name.text
+      if (SAFE_PROPERTIES.has(propName)) {
+        const target = unwrap(curr.expression)
+        if (ts.isIdentifier(target) && trackedVars.has(target.text)) {
+          return true
+        }
       }
     }
     return false
   }
 
-  function scanCodeForViolations(code: string, fileName = 'file.ts'): { line: number; reason: string }[] {
+  function extractBindingNames(name: ts.BindingName): string[] {
+    if (ts.isIdentifier(name)) {
+      return [name.text]
+    }
+    const names: string[] = []
+    if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+      for (const element of name.elements) {
+        if (ts.isBindingElement(element)) {
+          names.push(...extractBindingNames(element.name))
+        }
+      }
+    }
+    return names
+  }
+
+  function isErrorParamName(name: string): boolean {
+    const lower = name.toLowerCase()
+    if (
+      lower === 'err' ||
+      lower === 'error' ||
+      lower === 'reason' ||
+      lower === 'cause' ||
+      lower === 'exception' ||
+      name === 'e'
+    ) {
+      return true
+    }
+    if (name.endsWith('Error') || name.endsWith('Err') || name.endsWith('error') || name.endsWith('err')) {
+      return true
+    }
+    return false
+  }
+
+  function isAliasOfTrackedError(expr: ts.Expression | undefined, trackedVars: Set<string>): boolean {
+    if (!expr) return false
+    const curr = unwrap(expr) as ts.Expression
+
+    if (isAllowedWrapperCall(curr)) return false
+    if (isSafePropertyAccess(curr, trackedVars)) return false
+
+    if (ts.isIdentifier(curr) && trackedVars.has(curr.text)) {
+      return true
+    }
+
+    if (ts.isPropertyAccessExpression(curr)) {
+      const target = unwrap(curr.expression)
+      if (ts.isIdentifier(target) && trackedVars.has(target.text)) {
+        if (!SAFE_PROPERTIES.has(curr.name.text)) {
+          return true
+        }
+      }
+    }
+
+    if (ts.isElementAccessExpression(curr)) {
+      const target = unwrap(curr.expression)
+      if (ts.isIdentifier(target) && trackedVars.has(target.text)) {
+        return true
+      }
+    }
+
+    if (ts.isCallExpression(curr)) {
+      if (ts.isPropertyAccessExpression(curr.expression)) {
+        const target = unwrap(curr.expression.expression)
+        if (ts.isIdentifier(target) && trackedVars.has(target.text)) {
+          return true
+        }
+      }
+      for (const arg of curr.arguments) {
+        if (isAliasOfTrackedError(arg, trackedVars)) return true
+      }
+    }
+
+    if (ts.isConditionalExpression(curr)) {
+      if (isAliasOfTrackedError(curr.whenTrue, trackedVars) || isAliasOfTrackedError(curr.whenFalse, trackedVars)) {
+        return true
+      }
+    }
+
+    if (ts.isBinaryExpression(curr)) {
+      if (isAliasOfTrackedError(curr.left, trackedVars) || isAliasOfTrackedError(curr.right, trackedVars)) {
+        return true
+      }
+    }
+
+    if (ts.isTemplateExpression(curr)) {
+      for (const span of curr.templateSpans) {
+        if (isAliasOfTrackedError(span.expression, trackedVars)) return true
+      }
+    }
+
+    return false
+  }
+
+  function scanCodeForViolations(
+    code: string,
+    fileName = 'file.ts',
+    stats?: { allowedWrapperCalls: number }
+  ): { line: number; reason: string }[] {
     const sourceFile = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true)
     const violations: { line: number; reason: string }[] = []
 
-    function visit(node: ts.Node, caughtVars: Set<string>) {
-      // 1. Check logger/console calls for caught errors passed whole, as stack, as message, or in template
+    function countAllowedWrappersInArg(node: ts.Node) {
+      if (!stats) return
+      const curr = unwrap(node)
+      if (ts.isCallExpression(curr)) {
+        const fn = unwrap(curr.expression)
+        if (ts.isIdentifier(fn) && ALLOWED_WRAPPERS.has(fn.text)) {
+          stats.allowedWrapperCalls++
+        }
+      }
+      ts.forEachChild(node, countAllowedWrappersInArg)
+    }
+
+    function checkNodeInLogArg(node: ts.Node, trackedVars: Set<string>) {
+      if (isAllowedWrapperCall(node)) return
+      if (isSafePropertyAccess(node, trackedVars)) return
+      if (ts.isIdentifier(node) && trackedVars.has(node.text)) {
+        if (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) return
+        if (ts.isTypeNode(node.parent)) return
+        if (ts.isPropertyAssignment(node.parent) && node.parent.name === node) return
+
+        const startLine = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+
+        let detail = ''
+        let p: ts.Node | undefined = node.parent
+        while (
+          p &&
+          (ts.isParenthesizedExpression(p) ||
+            ts.isAsExpression(p) ||
+            ts.isTypeAssertionExpression(p) ||
+            ts.isNonNullExpression(p))
+        ) {
+          p = p.parent
+        }
+
+        if (p && ts.isPropertyAccessExpression(p) && (p.name.text === 'stack' || p.name.text === 'message')) {
+          detail = `Direct "${node.text}.${p.name.text}"`
+        } else if (p && ts.isTemplateSpan(p)) {
+          detail = `\${${node.text}} interpolated in template`
+        } else if (p && ts.isCallExpression(p) && p.arguments.includes(node as ts.Expression)) {
+          detail = `Caught error object "${node.text}" passed directly`
+        }
+
+        const reason = detail
+          ? `Tracked error identifier "${node.text}" (${detail}) passed to log call without allowed wrapper`
+          : `Tracked error identifier "${node.text}" referenced in log call without allowed wrapper`
+
+        violations.push({
+          line: startLine,
+          reason,
+        })
+        return
+      }
+      ts.forEachChild(node, (child) => checkNodeInLogArg(child, trackedVars))
+    }
+
+    function visit(node: ts.Node, trackedVars: Set<string>) {
+      // 1. Check logger/console calls for tracked error references
       if (ts.isCallExpression(node) && isLoggerOrConsole(node.expression)) {
-        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
         for (const arg of node.arguments) {
-          checkLogArgument(arg, caughtVars, line)
+          countAllowedWrappersInArg(arg)
+          checkNodeInLogArg(arg, trackedVars)
         }
       }
 
       // 2. Track caught error variable in catch clause
       if (ts.isCatchClause(node)) {
-        const newCaught = new Set(caughtVars)
-        if (node.variableDeclaration && ts.isIdentifier(node.variableDeclaration.name)) {
-          newCaught.add(node.variableDeclaration.name.text)
+        const newTracked = new Set(trackedVars)
+        if (node.variableDeclaration) {
+          const names = extractBindingNames(node.variableDeclaration.name)
+          for (const n of names) newTracked.add(n)
         }
         if (node.block) {
-          visit(node.block, newCaught)
+          visitBlock(node.block, newTracked)
         }
         return
       }
@@ -104,30 +269,29 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'catch'
+        node.expression.name.text === 'catch' &&
+        node.arguments.length > 0
       ) {
-        if (node.arguments.length > 0) {
-          const firstArg = unwrap(node.arguments[0]!)
-          if (isUnboundLogger(firstArg)) {
-            const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
-            violations.push({
-              line,
-              reason: `Unbound logger method passed to .catch(): ${firstArg.getText()}`,
-            })
-          } else if (ts.isArrowFunction(firstArg) || ts.isFunctionExpression(firstArg)) {
-            visit(node.expression, caughtVars)
-            for (let i = 1; i < node.arguments.length; i++) {
-              visit(node.arguments[i]!, caughtVars)
-            }
-            const newCaught = new Set(caughtVars)
-            for (const param of firstArg.parameters) {
-              if (ts.isIdentifier(param.name)) {
-                newCaught.add(param.name.text)
-              }
-            }
-            visit(firstArg.body, newCaught)
-            return
+        const firstArg = node.arguments[0]!
+        if (isUnboundLogger(firstArg)) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+          violations.push({
+            line,
+            reason: `Unbound logger method passed to .catch(): ${firstArg.getText()}`,
+          })
+        } else if (ts.isArrowFunction(firstArg) || ts.isFunctionExpression(firstArg)) {
+          visit(node.expression, trackedVars)
+          const newTracked = new Set(trackedVars)
+          for (const param of firstArg.parameters) {
+            const names = extractBindingNames(param.name)
+            for (const n of names) newTracked.add(n)
           }
+          if (ts.isBlock(firstArg.body)) {
+            visitBlock(firstArg.body, newTracked)
+          } else {
+            visit(firstArg.body, newTracked)
+          }
+          return
         }
       }
 
@@ -138,26 +302,26 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
         node.expression.name.text === 'then' &&
         node.arguments.length >= 2
       ) {
-        const rejectionArg = unwrap(node.arguments[1]!)
-        if (isUnboundLogger(rejectionArg)) {
+        const rejArg = node.arguments[1]!
+        if (isUnboundLogger(rejArg)) {
           const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
           violations.push({
             line,
-            reason: `Unbound logger method passed to .then(): ${rejectionArg.getText()}`,
+            reason: `Unbound logger method passed to .then(): ${rejArg.getText()}`,
           })
-        } else if (ts.isArrowFunction(rejectionArg) || ts.isFunctionExpression(rejectionArg)) {
-          visit(node.expression, caughtVars)
-          visit(node.arguments[0]!, caughtVars)
-          for (let i = 2; i < node.arguments.length; i++) {
-            visit(node.arguments[i]!, caughtVars)
+        } else if (ts.isArrowFunction(rejArg) || ts.isFunctionExpression(rejArg)) {
+          visit(node.expression, trackedVars)
+          visit(node.arguments[0]!, trackedVars)
+          const newTracked = new Set(trackedVars)
+          for (const param of rejArg.parameters) {
+            const names = extractBindingNames(param.name)
+            for (const n of names) newTracked.add(n)
           }
-          const newCaught = new Set(caughtVars)
-          for (const param of rejectionArg.parameters) {
-            if (ts.isIdentifier(param.name)) {
-              newCaught.add(param.name.text)
-            }
+          if (ts.isBlock(rejArg.body)) {
+            visitBlock(rejArg.body, newTracked)
+          } else {
+            visit(rejArg.body, newTracked)
           }
-          visit(rejectionArg.body, newCaught)
           return
         }
       }
@@ -171,141 +335,86 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
           node.expression.name.text === 'once') &&
         node.arguments.length >= 2
       ) {
-        const firstArg = unwrap(node.arguments[0]!)
+        const firstArg = node.arguments[0]!
         let eventName: string | undefined
         if (ts.isStringLiteral(firstArg) || ts.isNoSubstitutionTemplateLiteral(firstArg)) {
           eventName = firstArg.text
         }
-        const isErrorEvent =
-          eventName === 'error' ||
-          eventName === 'unhandledRejection' ||
-          eventName === 'uncaughtException'
-
-        if (isErrorEvent) {
-          const handlerArg = unwrap(node.arguments[1]!)
+        if (eventName === 'error' || eventName === 'unhandledRejection' || eventName === 'uncaughtException') {
+          const handlerArg = node.arguments[1]!
           if (isUnboundLogger(handlerArg)) {
             const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
             violations.push({
               line,
-              reason: `Unbound logger method passed to .${node.expression.name.text}('${eventName}'): ${handlerArg.getText()}`,
+              reason: `Unbound logger method passed to .on('${eventName}'): ${handlerArg.getText()}`,
             })
           } else if (ts.isArrowFunction(handlerArg) || ts.isFunctionExpression(handlerArg)) {
-            visit(node.expression, caughtVars)
-            visit(firstArg, caughtVars)
-            for (let i = 2; i < node.arguments.length; i++) {
-              visit(node.arguments[i]!, caughtVars)
-            }
-            const newCaught = new Set(caughtVars)
+            visit(node.expression, trackedVars)
+            visit(firstArg, trackedVars)
+            const newTracked = new Set(trackedVars)
             for (const param of handlerArg.parameters) {
-              if (ts.isIdentifier(param.name)) {
-                newCaught.add(param.name.text)
-              }
+              const names = extractBindingNames(param.name)
+              for (const n of names) newTracked.add(n)
             }
-            visit(handlerArg.body, newCaught)
+            if (ts.isBlock(handlerArg.body)) {
+              visitBlock(handlerArg.body, newTracked)
+            } else {
+              visit(handlerArg.body, newTracked)
+            }
             return
           }
         }
       }
 
-      ts.forEachChild(node, (child) => visit(child, caughtVars))
+      // 6. Track callback parameters (arrow functions and function expressions) named err, error, e, reason, cause or ending in Error/Err
+      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+        const newTracked = new Set(trackedVars)
+        for (const param of node.parameters) {
+          const names = extractBindingNames(param.name)
+          for (const n of names) {
+            if (isErrorParamName(n)) {
+              newTracked.add(n)
+            }
+          }
+        }
+        if (node.body) {
+          if (ts.isBlock(node.body)) {
+            visitBlock(node.body, newTracked)
+          } else {
+            visit(node.body, newTracked)
+          }
+          return
+        }
+      }
+
+      ts.forEachChild(node, (child) => visit(child, trackedVars))
     }
 
-    function checkLogArgument(arg: ts.Expression, caughtVars: Set<string>, line: number) {
-      const unwrapped = unwrap(arg)
-      if (isWrappedInAllowed(unwrapped)) return
-
-      // Caught error passed directly
-      if (ts.isIdentifier(unwrapped) && caughtVars.has(unwrapped.text)) {
-        violations.push({
-          line,
-          reason: `Caught error object "${unwrapped.text}" passed directly to logger/console`,
-        })
-        return
-      }
-
-      // error.stack or error.message passed directly
-      if (ts.isPropertyAccessExpression(unwrapped)) {
-        const prop = unwrapped.name.text
-        if (prop === 'stack' || prop === 'message') {
-          const target = unwrap(unwrapped.expression)
-          if (ts.isIdentifier(target) && caughtVars.has(target.text)) {
-            violations.push({
-              line,
-              reason: `Direct "${target.text}.${prop}" passed to logger/console without describeErrorForLog`,
-            })
-            return
-          }
-        }
-      }
-
-      // Template expression: check spans for ${error}, ${error.stack}, ${error.message}
-      if (ts.isTemplateExpression(unwrapped)) {
-        for (const span of unwrapped.templateSpans) {
-          checkTemplateSpan(span.expression, caughtVars, line)
-        }
-        return
-      }
-
-      // Object literal: check shorthand properties or values passed directly
-      if (ts.isObjectLiteralExpression(unwrapped)) {
-        for (const prop of unwrapped.properties) {
-          if (ts.isShorthandPropertyAssignment(prop)) {
-            if (caughtVars.has(prop.name.text) && !isWrappedInAllowed(prop.name)) {
-              violations.push({
-                line,
-                reason: `Caught error object "${prop.name.text}" passed directly in object literal to logger/console`,
-              })
+    function visitBlock(block: ts.Block, trackedVars: Set<string>) {
+      const currentTracked = new Set(trackedVars)
+      for (const stmt of block.statements) {
+        // Track simple aliases declared from a tracked identifier or its .message/.stack
+        if (ts.isVariableStatement(stmt)) {
+          for (const decl of stmt.declarationList.declarations) {
+            if (decl.initializer && isAliasOfTrackedError(decl.initializer, currentTracked)) {
+              const names = extractBindingNames(decl.name)
+              for (const n of names) currentTracked.add(n)
             }
-          } else if (ts.isPropertyAssignment(prop)) {
-            checkLogArgument(prop.initializer, caughtVars, line)
           }
         }
-        return
-      }
-
-      // Binary expression (e.g. string concatenation 'failed: ' + error)
-      if (ts.isBinaryExpression(unwrapped) && unwrapped.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-        checkLogArgument(unwrapped.left, caughtVars, line)
-        checkLogArgument(unwrapped.right, caughtVars, line)
-        return
-      }
-
-      // Conditional expression: check branches
-      if (ts.isConditionalExpression(unwrapped)) {
-        checkLogArgument(unwrapped.whenTrue, caughtVars, line)
-        checkLogArgument(unwrapped.whenFalse, caughtVars, line)
-      }
-    }
-
-    function checkTemplateSpan(expr: ts.Expression, caughtVars: Set<string>, line: number) {
-      const unwrapped = unwrap(expr)
-      if (isWrappedInAllowed(unwrapped)) return
-
-      if (ts.isIdentifier(unwrapped) && caughtVars.has(unwrapped.text)) {
-        violations.push({
-          line,
-          reason: `\${${unwrapped.text}} interpolated in template passed to logger/console`,
-        })
-        return
-      }
-
-      if (ts.isPropertyAccessExpression(unwrapped)) {
-        const prop = unwrapped.name.text
-        if (prop === 'stack' || prop === 'message') {
-          const target = unwrap(unwrapped.expression)
-          if (ts.isIdentifier(target) && caughtVars.has(target.text)) {
-            violations.push({
-              line,
-              reason: `\${${target.text}.${prop}} interpolated in template passed to logger/console`,
-            })
-            return
+        // Track assignments: reason = error.message
+        if (
+          ts.isExpressionStatement(stmt) &&
+          ts.isBinaryExpression(stmt.expression) &&
+          stmt.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ) {
+          if (isAliasOfTrackedError(stmt.expression.right, currentTracked)) {
+            if (ts.isIdentifier(stmt.expression.left)) {
+              currentTracked.add(stmt.expression.left.text)
+            }
           }
         }
-      }
-
-      if (ts.isConditionalExpression(unwrapped)) {
-        checkTemplateSpan(unwrapped.whenTrue, caughtVars, line)
-        checkTemplateSpan(unwrapped.whenFalse, caughtVars, line)
+        visit(stmt, currentTracked)
       }
     }
 
@@ -411,6 +520,7 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
       const code = `
         this.logger.log(\`push is on: Firebase project \${String(serviceAccount.project_id ?? 'unknown')}\`)
         this.logger.log(\`Publishing message to channel \${channelName}: \${messageName}, delivery \${deliveryIdOf(message) ?? '-'}\`)
+        this.logger.warn(\`Delivery \${delivery.id} has no restaurant: the split wait is not charged to anyone\`)
       `
       const violations = scanCodeForViolations(code)
       expect(violations).toEqual([])
@@ -580,6 +690,166 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
         expect(violations[1]!.reason).toContain("Unbound logger method passed to .on('error'): console.error")
       })
     })
+
+    describe('Reviewer and retry shapes (Row 139 Major finding)', () => {
+      it('flags shape a: NgrokMiddleware ${(error as any).message || error}', () => {
+        const code = `
+          try {
+            await axios.post(url, req.body)
+          } catch (error) {
+            this.logger.log(\`Error forwarding ngrok \${(error as any).message || error}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags shape b: Winston defaultCallback (err) => console.error(err)', () => {
+        const code = `
+          new GoogleWinstonLogger({
+            defaultCallback: (err) => {
+              if (err) {
+                console.error(err)
+              }
+            },
+          })
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags shape c: minioStorage ${error instanceof Error ? String(error.message) : String(error)}', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.warn(
+              \`MinIO is not ready: \${error instanceof Error ? String(error.message) : String(error)}\`
+            )
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags ${String(error)} and ${JSON.stringify(error)}', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.error(\`Failed 1: \${String(error)}\`)
+            this.logger.error(\`Failed 2: \${JSON.stringify(error)}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toHaveLength(2)
+      })
+
+      it('flags error.toString() and nullish coalescing ${error?.message ?? error}', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.error('Failed: ' + error.toString())
+            this.logger.error(\`Fallback: \${error?.message ?? error}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThanOrEqual(2)
+      })
+
+      it('flags aliases assigned from error.message (const reason = error.message)', () => {
+        const code = `
+          try {} catch (error) {
+            const reason = error.message
+            this.logger.error(\`OSRM table request failed: \${reason}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags destructuring alias (const { message, stack } = error as Error)', () => {
+        const code = `
+          try {} catch (error) {
+            const { message, stack } = error as Error
+            this.logger.error(message, stack)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags destructuring in catch clause: catch ({ message })', () => {
+        const code = `
+          try {} catch ({ message }) {
+            this.logger.error(message)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations.length).toBeGreaterThan(0)
+      })
+
+      it('flags element access error["message"] and error.cause', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.error(error['message'])
+            this.logger.error(error.cause)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toHaveLength(2)
+      })
+
+      it('flags object spread { ...error } and array literal [error]', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.error({ ...error })
+            this.logger.error([error])
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toHaveLength(2)
+      })
+
+      it('flags nested template string: `${`nested ${error}`}`', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.error(\`\${\`nested \${error}\`}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toHaveLength(1)
+      })
+
+      it('flags callback parameters named e, cause, reason, or ending in Error/Err', () => {
+        const code = `
+          doSomething((mailError) => {
+            console.error('Mail failure', mailError)
+          })
+          handleSomething((cause) => {
+            this.logger.error(\`Cause: \${cause}\`)
+          })
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toHaveLength(2)
+      })
+
+      it('allows safe property access error.name and error.code', () => {
+        const code = `
+          try {} catch (error) {
+            this.logger.log(\`Error name: \${error.name}, code: \${error.code}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toEqual([])
+      })
+
+      it('allows aliases assigned from allowed wrappers (const reason = errorSummaryForLog(error))', () => {
+        const code = `
+          try {} catch (error) {
+            const reason = errorSummaryForLog(error)
+            this.logger.error(\`OSRM table request failed: \${reason}\`)
+          }
+        `
+        const violations = scanCodeForViolations(code)
+        expect(violations).toEqual([])
+      })
+    })
   })
 
   describe('Full codebase scan across src/ (outside describeErrorForLog itself)', () => {
@@ -590,14 +860,18 @@ describe('Error Log Guard (Row 139, Clause 1 & Clause 3)', () => {
       expect(files.length).toBeGreaterThan(100)
 
       const allViolations: { file: string; line: number; reason: string }[] = []
+      const stats = { allowedWrapperCalls: 0 }
 
       for (const filePath of files) {
         const content = fs.readFileSync(filePath, 'utf8')
-        const fileViolations = scanCodeForViolations(content, filePath)
+        const fileViolations = scanCodeForViolations(content, filePath, stats)
         for (const v of fileViolations) {
           allViolations.push({ file: path.relative(srcDir, filePath), line: v.line, reason: v.reason })
         }
       }
+
+      // Blindness floor: scan must see at least 200 allowed wrapper calls inside log calls across src/
+      expect(stats.allowedWrapperCalls).toBeGreaterThanOrEqual(200)
 
       if (allViolations.length > 0) {
         // eslint-disable-next-line no-console

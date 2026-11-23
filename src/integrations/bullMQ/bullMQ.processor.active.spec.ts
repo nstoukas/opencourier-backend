@@ -34,7 +34,7 @@ describe('BullMQProcessor (Row 139)', () => {
     expect(loggerErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('logs "Job <name> failed: <summary>" with frames only as stack, never job.data, and process() still resolves', async () => {
+  it('logs "Job <name> failed: <summary>" with frames only as stack, never job.data, and process() rejects with the same error', async () => {
     const error = new Error('Database handler crashed')
     mockEventBusService.emit.mockRejectedValue(error)
 
@@ -48,8 +48,8 @@ describe('BullMQProcessor (Row 139)', () => {
       data: sensitiveData,
     } as Job
 
-    // process() must still resolve (no throw; row 141 handles retries)
-    await expect(processor.process(job)).resolves.toBeUndefined()
+    // process() must reject with the same error so BullMQ marks the job failed
+    await expect(processor.process(job)).rejects.toBe(error)
 
     expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
     const [msg, stack] = loggerErrorSpy.mock.calls[0]!
@@ -73,7 +73,7 @@ describe('BullMQProcessor (Row 139)', () => {
     expect(allLogged).not.toContain(sensitiveData.secretNote)
   })
 
-  it('withholds Prisma error message carrying customer data and still resolves', async () => {
+  it('withholds Prisma error message carrying customer data and process() rejects with the same error', async () => {
     const customerPhone = '+306941112233'
     const customerName = 'Maria Callas'
     const validationMessage = `Invalid invocation for ${customerName} (${customerPhone})`
@@ -88,7 +88,7 @@ describe('BullMQProcessor (Row 139)', () => {
       data: { offerId: 'off-99' },
     } as Job
 
-    await expect(processor.process(job)).resolves.toBeUndefined()
+    await expect(processor.process(job)).rejects.toBe(prismaError)
 
     expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
     const [msg, stack] = loggerErrorSpy.mock.calls[0]!
