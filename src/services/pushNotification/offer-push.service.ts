@@ -441,13 +441,8 @@ export class OfferPushService {
       await this.bullMQService.addJob<OfferInsistJobPayload>(
         'offer-insist',
         { deliveryId, courierId, offeredAt: offeredAt.toISOString() },
-        // removeOnFail: a job that throws is dropped from Redis instead of kept as a failed job, since
-        // it is never retried and only holds a delivery id.
-        {
-          delay: OFFER_INSIST_AFTER_SECONDS * 1000,
-          jobId: offerInsistJobId(deliveryId, offeredAt),
-          removeOnFail: true,
-        }
+        // Retried and then kept in the failed list like every job (row 141); it holds only ids.
+        { delay: OFFER_INSIST_AFTER_SECONDS * 1000, jobId: offerInsistJobId(deliveryId, offeredAt) }
       )
     } catch (error) {
       // Without the timer the alert just keeps ringing on its first channel.

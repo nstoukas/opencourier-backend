@@ -37,7 +37,7 @@ export class AddressNoteRetentionService implements OnModuleInit {
   // A fixed id, and any older schedule of this name at another time removed first (cross check 10).
   async schedule(): Promise<void> {
     try {
-      await this.bullMQService.replaceRepeatableJob(
+      await this.bullMQService.addRepeatableJob(
         ADDRESS_NOTE_RETENTION_JOB_NAME,
         {},
         ADDRESS_NOTE_RETENTION_JOB_PATTERN,
