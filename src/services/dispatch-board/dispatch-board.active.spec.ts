@@ -1069,4 +1069,97 @@ describe('Dispatch Board pure functions (spec 0034)', () => {
       expect(rows[0]?.detail).toBe('Pizza House')
     })
   })
+
+  // Row 140: customerLabel fallback on Attention rows
+  describe('deliveryFields customerLabel fallback (Row 140, decision 140.1)', () => {
+    test('customerLabel is the business name when set and non-empty', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-set',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: 'Acme Corp',
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Acme Corp')
+    })
+
+    test('customerLabel trims the business name when it has surrounding whitespace', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-padded',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: '  Acme Corp  ',
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Acme Corp')
+    })
+
+    test('customerLabel falls back to customer dropoffName when business name is empty string ("")', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-empty',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: '',
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Elena Kostopoulou')
+    })
+
+    test('customerLabel falls back to customer dropoffName when business name is only spaces ("   ")', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-spaces',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: '   ',
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Elena Kostopoulou')
+    })
+
+    test('customerLabel falls back to customer dropoffName when business name is null', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-null',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: null,
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Elena Kostopoulou')
+    })
+
+    test('customerLabel falls back to customer dropoffName when business name is undefined', () => {
+      const delivery = createLiveDelivery({
+        id: 'del-biz-undef',
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: undefined as unknown as null,
+      })
+      const [row] = waitingForRiderRows([delivery], new Map(), false, BASE_NOW)
+      expect(row?.customerLabel).toBe('Elena Kostopoulou')
+    })
+
+    test('restaurantLateRows also applies customerLabel fallback', () => {
+      const lateEmpty = createLiveDelivery({
+        id: 'del-late-empty',
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: '',
+        promisedReadyAt: new Date(BASE_NOW.getTime() - 10 * 60 * 1000), // 10 min ago
+      })
+      const lateSpaces = createLiveDelivery({
+        id: 'del-late-spaces',
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: '   ',
+        promisedReadyAt: new Date(BASE_NOW.getTime() - 10 * 60 * 1000),
+      })
+      const lateSet = createLiveDelivery({
+        id: 'del-late-set',
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+        dropoffName: 'Elena Kostopoulou',
+        dropoffBusinessName: 'Petros Ltd',
+        promisedReadyAt: new Date(BASE_NOW.getTime() - 10 * 60 * 1000),
+      })
+
+      const rows = restaurantLateRows([lateEmpty, lateSpaces, lateSet], BASE_NOW)
+      expect(rows).toHaveLength(3)
+      expect(rows.find((r) => r.deliveryId === 'del-late-empty')?.customerLabel).toBe('Elena Kostopoulou')
+      expect(rows.find((r) => r.deliveryId === 'del-late-spaces')?.customerLabel).toBe('Elena Kostopoulou')
+      expect(rows.find((r) => r.deliveryId === 'del-late-set')?.customerLabel).toBe('Petros Ltd')
+    })
+  })
 })

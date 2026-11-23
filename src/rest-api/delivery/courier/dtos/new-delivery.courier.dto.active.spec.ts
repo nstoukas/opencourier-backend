@@ -116,6 +116,19 @@ describe('NewDeliveryCourierDto & NewDeliveriesCourierPaginatedDto (Spec 0019 AC
 
       expect(dto.dropoffPhoneNumber).toBeUndefined()
     })
+
+    it('withholds drop off business name in offer (ASSIGNING_COURIER status, Row 140)', () => {
+      const rawDelivery = createMockNewDelivery('del-offer-biz')
+      ;(rawDelivery as any).dropoffBusinessName = 'Alpha Pharmacy Volos'
+      const dto = new NewDeliveryCourierDto(rawDelivery, UNKNOWN_OFFER_TRIP)
+
+      expect(dto.dropoffBusinessName).toBeUndefined()
+      const json = JSON.stringify(dto)
+      expect(json).not.toContain('Alpha Pharmacy Volos')
+      expect(json).not.toContain('"dropoffBusinessName"')
+      const parsed = JSON.parse(json)
+      expect('dropoffBusinessName' in parsed).toBe(false)
+    })
   })
 
   describe('NewDeliveriesCourierPaginatedDto', () => {
@@ -179,6 +192,25 @@ describe('NewDeliveryCourierDto & NewDeliveriesCourierPaginatedDto (Spec 0019 AC
         toDropoffMetres: null,
         minutes: null,
       })
+    })
+
+    it('withholds drop off business name across offer list (Row 140)', () => {
+      const delivery1 = createMockNewDelivery('del-p-biz-1')
+      const delivery2 = createMockNewDelivery('del-p-biz-2')
+      ;(delivery1 as any).dropoffBusinessName = 'Thessaly Trading SA'
+      ;(delivery2 as any).dropoffBusinessName = 'Pagasitikos Tech'
+
+      const paginatedDto = new NewDeliveriesCourierPaginatedDto({ data: [delivery1, delivery2] }, [])
+
+      expect(paginatedDto.data[0]?.dropoffBusinessName).toBeUndefined()
+      expect(paginatedDto.data[1]?.dropoffBusinessName).toBeUndefined()
+      const json = JSON.stringify(paginatedDto)
+      expect(json).not.toContain('Thessaly Trading SA')
+      expect(json).not.toContain('Pagasitikos Tech')
+      expect(json).not.toContain('"dropoffBusinessName"')
+      const parsed = JSON.parse(json)
+      expect('dropoffBusinessName' in parsed.data[0]).toBe(false)
+      expect('dropoffBusinessName' in parsed.data[1]).toBe(false)
     })
   })
 })
