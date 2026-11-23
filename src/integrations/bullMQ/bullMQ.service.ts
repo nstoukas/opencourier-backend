@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bullmq'
-import { Job, Queue } from 'bullmq'
+import { Job, JobsOptions, Queue } from 'bullmq'
 import { MESSAGE_BUS_QUEUE } from '../../constants'
 import dayjs from 'dayjs'
 
@@ -103,10 +103,19 @@ export class BullMQService {
   }
 }
 
-// The retry options a job was saved with, compared with today's JOB_RETRY_OPTIONS.
-function sameRetryOptions(opts: { attempts?: number; backoff?: unknown; removeOnFail?: unknown }): boolean {
+// The retry options a job was saved with, compared with today's JOB_RETRY_OPTIONS field by field. Not as JSON
+// text: Redis gives the objects back with their keys in another order (`{"delay":5000,"type":...}`), so a text
+// compare called every schedule stale and replaced them all on every start (seen live, row 141).
+function sameRetryOptions(opts: JobsOptions): boolean {
+  const backoff = typeof opts.backoff === 'object' ? opts.backoff : undefined
+  const removeOnFail = typeof opts.removeOnFail === 'object' ? opts.removeOnFail : undefined
+  // `KeepJobs` is either `{ age, count? }` or `{ count }`; `'age' in` tells TypeScript which one it is.
+  const keptFor = removeOnFail && 'age' in removeOnFail ? removeOnFail.age : undefined
   return (
-    JSON.stringify([opts.attempts, opts.backoff, opts.removeOnFail]) ===
-    JSON.stringify([JOB_RETRY_OPTIONS.attempts, JOB_RETRY_OPTIONS.backoff, JOB_RETRY_OPTIONS.removeOnFail])
+    opts.attempts === JOB_RETRY_OPTIONS.attempts &&
+    backoff?.type === JOB_RETRY_OPTIONS.backoff.type &&
+    backoff.delay === JOB_RETRY_OPTIONS.backoff.delay &&
+    keptFor === JOB_RETRY_OPTIONS.removeOnFail.age &&
+    removeOnFail?.count === JOB_RETRY_OPTIONS.removeOnFail.count
   )
 }
