@@ -168,9 +168,9 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
     it('has offerSkipMinutes in English RIDER_FACING_SETTINGS with label and minutes formatter', () => {
       const entry = RIDER_FACING_SETTINGS.offerSkipMinutes
       expect(entry).toBeDefined()
-      expect(entry!.label).toBe('Time before an order you declined or missed is offered to you again')
+      expect(entry!.label).toBe('Time before an order you declined or missed can be offered to you again')
       expect(entry!.format(20, ctx)).toBe('20 minutes')
-      expect(entry!.format(1, ctx)).toBe('1 minutes')
+      expect(entry!.format(1, ctx)).toBe('1 minute')
       expect(entry!.format(null, ctx)).toBe('not set')
       expect(entry!.format(undefined, ctx)).toBe('not set')
       expect(entry!.format('', ctx)).toBe('not set')
@@ -179,9 +179,9 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
     it('has offerSkipMinutes in Greek RIDER_FACING_SETTINGS_EL with label and minutes formatter', () => {
       const entry = RIDER_FACING_SETTINGS_EL.offerSkipMinutes
       expect(entry).toBeDefined()
-      expect(entry!.label).toBe('Χρόνος πριν σας ξαναπροταθεί μια παραγγελία που απορρίψατε ή χάσατε')
+      expect(entry!.label).toBe('Χρόνος πριν μπορεί να σας ξαναπροταθεί μια παραγγελία που απορρίψατε ή χάσατε')
       expect(entry!.format(20, ctx)).toBe('20 λεπτά')
-      expect(entry!.format(1, ctx)).toBe('1 λεπτά')
+      expect(entry!.format(1, ctx)).toBe('1 λεπτό')
       expect(entry!.format(null, ctx)).toBe('δεν έχει οριστεί')
       expect(entry!.format(undefined, ctx)).toBe('δεν έχει οριστεί')
       expect(entry!.format('', ctx)).toBe('δεν έχει οριστεί')

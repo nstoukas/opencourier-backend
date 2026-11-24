@@ -228,7 +228,7 @@ describe('reassignment-payout.util', () => {
         stage: 'REJECTED_LIST_ROLLBACK_FAILED',
       })
       expect(rejectedListRollbackFailed).toContain('excluded from re-offers')
-      expect(rejectedListRollbackFailed).toContain('20 minutes')
+      expect(rejectedListRollbackFailed).toContain('offerSkipMinutes')
     })
 
     // Test Plan Case 5: amount is logged raw in cents

@@ -21,6 +21,7 @@ import { PartnerChargeRepository } from 'src/persistence/repositories/partner-ch
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
 import { OsrmRoutingService } from '../osrm/osrm-routing.service'
+import { OfferHasEndedException } from 'src/errors'
 
 // Scope row 144, Clause 1:
 // A representative edits the skip time on Instance configuration and the next decline uses it, with no deploy:
@@ -485,6 +486,150 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
         expect(mockCacheService.save).toHaveBeenNthCalledWith(1, key, [courierId], 300)
         expect(mockCacheService.save).toHaveBeenNthCalledWith(2, key, [], 300)
       })
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // Minor 1: DeliveryDomainService.rejectDelivery undo failure handling
+  // --------------------------------------------------------------------------
+  describe('Minor 1: DeliveryDomainService.rejectDelivery undo failures never replace original error', () => {
+    it('throws the original database error and logs undo failure when updateIfMatches throws and undo fails (setting read rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
+        .mockResolvedValueOnce(20) // initial addCourierToRejectedList succeeds
+        .mockRejectedValueOnce(new Error('Config service unreachable on undo')) // undo rejects
+      mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(new Error('Postgres connection lost'))
+      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
+
+      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow('Postgres connection lost')
+
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
+      )
+    })
+
+    it('throws the original database error and logs undo failure when updateIfMatches throws and undo fails (cache save rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
+      mockCacheService.save
+        .mockResolvedValueOnce(undefined) // add succeeds
+        .mockRejectedValueOnce(new Error('Redis connection down on undo')) // undo save fails
+      mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(new Error('Postgres connection lost'))
+      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
+
+      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow('Postgres connection lost')
+
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
+      )
+    })
+
+    it('throws OfferHasEndedException and logs undo failure when updateIfMatches returns false and undo fails (setting read rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
+        .mockResolvedValueOnce(20) // add succeeds
+        .mockRejectedValueOnce(new Error('Config service unreachable on undo')) // undo rejects
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
+
+      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
+
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
+      )
+    })
+
+    it('throws OfferHasEndedException and logs undo failure when updateIfMatches returns false and undo fails (cache save rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
+      mockCacheService.save
+        .mockResolvedValueOnce(undefined) // add succeeds
+        .mockRejectedValueOnce(new Error('Redis connection down on undo')) // undo save fails
+      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
+
+      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
+
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
+      )
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // Minor 6: Failed setting read must not stop the rider's or system's action
+  // --------------------------------------------------------------------------
+  describe('Minor 6: failed offerSkipMinutes read does not block rider or system actions', () => {
+    it('rider decline (rejectDelivery) still declines, logs error, and leaves no skip entry when getOfferSkipMinutes rejects', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockRejectedValue(new Error('Config DB down'))
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
+
+      await domainService.rejectDelivery(deliveryId, courierId)
+
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not add courier ${courierId} to the skip list of ${deliveryId}`)
+      )
+    })
+
+    it('offer expiry (endOffer) still ends the offer, logs error, and leaves no skip entry when getOfferSkipMinutes rejects', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockRejectedValue(new Error('Config DB down'))
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
+
+      const count = await (eventService as any).endOffer({ deliveryId, courierId, reason: 'EXPIRED' })
+
+      expect(count).toBe(1)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not add courier ${courierId} to the skip list of ${deliveryId}`)
+      )
+    })
+
+    it('hand back (handBack) still goes through, logs error, and leaves no skip entry when getOfferSkipMinutes rejects', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockRejectedValue(new Error('Config DB down'))
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
+
+      const success = await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
+
+      expect(success).toBe(true)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
+      )
+    })
+
+    it('leave wait (leaveWait) still goes through, logs error, and leaves no skip entry when getOfferSkipMinutes rejects', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockRejectedValue(new Error('Config DB down'))
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
+
+      const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
+      const success = await eventService.leaveWait(delivery, courierId, new Date())
+
+      expect(success).toBe(true)
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
+      )
+    })
+
+    it('removal before pickup (removeRiderBeforePickup) still goes through, logs error, and leaves no skip entry when getOfferSkipMinutes rejects', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockRejectedValue(new Error('Config DB down'))
+      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
+
+      const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ACCEPTED }
+      const result = await eventService.removeRiderBeforePickup(delivery, courierId, 'Emergency')
+
+      expect(result).toBeDefined()
+      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(loggerSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
+      )
     })
   })
 })

@@ -125,10 +125,10 @@ describe('How offers and pay work shows offerSkipMinutes setting (row 144, Claus
       const result = await service.howItWorks('en')
 
       expect(result.offers).toContain(
-        'If you decline or miss an offer, that order is not offered to you again for 5 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for at least 5 minutes.'
       )
       expect(result.offers).not.toContain(
-        'If you decline or miss an offer, that order is not offered to you again for 20 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for at least 20 minutes.'
       )
     })
 
@@ -141,16 +141,32 @@ describe('How offers and pay work shows offerSkipMinutes setting (row 144, Claus
       const result = await service.howItWorks('en')
 
       expect(result.offers).toContain(
-        'If you decline or miss an offer, that order is not offered to you again for 7 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for at least 7 minutes.'
       )
     })
 
-    it('EN_WORDS.notOfferedAgain formats dynamic minutes', () => {
+    it('shows 1 minute (singular) when offerSkipMinutes is 1 (minor 5)', async () => {
+      mockConfigDomainService.instanceConfig.getInstanceConfigSettings.mockResolvedValue({
+        ...baseSettings,
+        offerSkipMinutes: 1,
+      })
+
+      const result = await service.howItWorks('en')
+
+      expect(result.offers).toContain(
+        'If you decline or miss an offer, that order is not offered to you again for at least 1 minute.'
+      )
+    })
+
+    it('EN_WORDS.notOfferedAgain formats dynamic minutes with at least and singular at 1', () => {
+      expect(EN_WORDS.notOfferedAgain(1)).toBe(
+        'If you decline or miss an offer, that order is not offered to you again for at least 1 minute.'
+      )
       expect(EN_WORDS.notOfferedAgain(5)).toBe(
-        'If you decline or miss an offer, that order is not offered to you again for 5 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for at least 5 minutes.'
       )
       expect(EN_WORDS.notOfferedAgain(7)).toBe(
-        'If you decline or miss an offer, that order is not offered to you again for 7 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for at least 7 minutes.'
       )
     })
   })
@@ -165,10 +181,10 @@ describe('How offers and pay work shows offerSkipMinutes setting (row 144, Claus
       const result = await service.howItWorks('el')
 
       expect(result.offers).toContain(
-        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για 5 λεπτά.'
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 5 λεπτά.'
       )
       expect(result.offers).not.toContain(
-        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για 20 λεπτά.'
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 20 λεπτά.'
       )
     })
 
@@ -181,16 +197,32 @@ describe('How offers and pay work shows offerSkipMinutes setting (row 144, Claus
       const result = await service.howItWorks('el')
 
       expect(result.offers).toContain(
-        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για 7 λεπτά.'
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 7 λεπτά.'
       )
     })
 
-    it('EL_WORDS.notOfferedAgain formats dynamic minutes in Greek', () => {
+    it('shows 1 λεπτό (singular) when offerSkipMinutes is 1 (minor 5)', async () => {
+      mockConfigDomainService.instanceConfig.getInstanceConfigSettings.mockResolvedValue({
+        ...baseSettings,
+        offerSkipMinutes: 1,
+      })
+
+      const result = await service.howItWorks('el')
+
+      expect(result.offers).toContain(
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 1 λεπτό.'
+      )
+    })
+
+    it('EL_WORDS.notOfferedAgain formats dynamic minutes in Greek with τουλάχιστον and singular at 1', () => {
+      expect(EL_WORDS.notOfferedAgain(1)).toBe(
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 1 λεπτό.'
+      )
       expect(EL_WORDS.notOfferedAgain(5)).toBe(
-        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για 5 λεπτά.'
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 5 λεπτά.'
       )
       expect(EL_WORDS.notOfferedAgain(7)).toBe(
-        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για 7 λεπτά.'
+        'Αν απορρίψετε ή χάσετε μια πρόταση, η παραγγελία αυτή δεν σας ξαναπροτείνεται για τουλάχιστον 7 λεπτά.'
       )
     })
   })
