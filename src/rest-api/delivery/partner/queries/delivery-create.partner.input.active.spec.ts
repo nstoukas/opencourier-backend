@@ -61,6 +61,23 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
       expect(result.dropoffDoorbell).toBe('B'.repeat(60))
     })
 
+    // A restaurant tip is added to rider pay, so it can never be negative: 0 and positive accepted.
+    it.each([0, 250])('accepts tip of %d (0 or positive)', async (tip) => {
+      const result = (await pipe.transform(
+        { ...validBody, tip },
+        { type: 'body', metatype: DeliveryCreatePartnerInput }
+      )) as DeliveryCreatePartnerInput
+
+      expect(result.tip).toBe(tip)
+    })
+
+    // Refuses negative values (-1 and -1000) with 400 BadRequestException.
+    it.each([-1, -1000])('refuses negative tip of %d with 400 BadRequestException', async (tip) => {
+      await expect(
+        pipe.transform({ ...validBody, tip }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+
     it('accepts omitted, undefined or null dropoffFloor and dropoffDoorbell', async () => {
       const { dropoffFloor, dropoffDoorbell, ...withoutFields } = validBody
       const omittedResult = (await pipe.transform(withoutFields, {
@@ -98,10 +115,7 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
 
     it('refuses non-string dropoffFloor or dropoffDoorbell with 400 BadRequestException', async () => {
       await expect(
-        pipe.transform(
-          { ...validBody, dropoffFloor: 123 },
-          { type: 'body', metatype: DeliveryCreatePartnerInput }
-        )
+        pipe.transform({ ...validBody, dropoffFloor: 123 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
       ).rejects.toThrow(BadRequestException)
 
       await expect(
