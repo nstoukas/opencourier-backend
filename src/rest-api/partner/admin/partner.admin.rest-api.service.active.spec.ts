@@ -73,6 +73,25 @@ describe('PartnerAdminRestApiService', () => {
     updatedAt: new Date(),
   })
 
+  // Helper object representing the existing location entity for mockPartnerEntity (Row 150)
+  const mockCurrentLocation = new LocationEntity({
+    id: 'loc-300',
+    addressLine1: null,
+    addressLine2: null,
+    city: 'Volos',
+    state: 'Magnesia',
+    street: 'Iasonos',
+    zipCode: '38221',
+    countryCode: EnumCountryCode.GR,
+    stateCode: 'Magnesia',
+    houseNumber: '12',
+    longitude: 22.944,
+    latitude: 39.362,
+    formattedAddress: 'Iasonos 12, Volos',
+    createdAt: new Date('2026-07-01T10:00:00Z'),
+    updatedAt: new Date('2026-07-01T10:00:00Z'),
+  })
+
   beforeEach(() => {
     // Inject mock domain and auth services into PartnerAdminRestApiService
     mockPartnerDomainService = {
@@ -83,9 +102,9 @@ describe('PartnerAdminRestApiService', () => {
     } as unknown as jest.Mocked<PartnerDomainService>
 
     mockLocationDomainService = {
-      create: jest.fn(),
+      create: jest.fn().mockResolvedValue(mockCreatedLocation),
       update: jest.fn(),
-      getById: jest.fn(),
+      getById: jest.fn().mockResolvedValue(mockCurrentLocation),
     } as unknown as jest.Mocked<LocationDomainService>
 
     mockUserDomainService = {
@@ -229,8 +248,10 @@ describe('PartnerAdminRestApiService', () => {
   })
 
   describe('updateRestaurant', () => {
-    test('4. updates location in-place when pickupLocationId exists and preserves ID stability', async () => {
+    test('4. creates a new location and repoints partner when pickup address changes, never updating old location in place (Row 150)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
       mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
 
       const updateInput = {
@@ -246,12 +267,22 @@ describe('PartnerAdminRestApiService', () => {
 
       await service.updateRestaurant('partner-100', updateInput)
 
-      // Ensures existing location 'loc-300' is updated and locationDomainService.create is NOT called
-      expect(mockLocationDomainService.update).toHaveBeenCalledWith('loc-300', expect.anything())
-      expect(mockLocationDomainService.create).not.toHaveBeenCalled()
-      // Partner pickupLocationId remains unchanged ('loc-300') so updateData doesn't duplicate it
+      // Row 150: creates a NEW Location row for the restaurant
+      expect(mockLocationDomainService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          street: 'Iasonos Updated',
+          city: 'Volos',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.362,
+          longitude: 22.944,
+        }),
+      )
+      // Row 150: the old location row is NEVER updated in place so shared orders/quotes do not move
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      // Partner is updated with the new location ID and other changed fields
       expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
         name: 'Taverna Volos Updated',
+        pickupLocationId: 'loc-new',
       })
     })
 
@@ -280,19 +311,22 @@ describe('PartnerAdminRestApiService', () => {
       await service.updateRestaurant('partner-100', updateInput)
 
       expect(mockLocationDomainService.create).toHaveBeenCalled()
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
       expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
         pickupLocationId: 'loc-new',
       })
     })
 
-    test('6. location update payload has no streetAddress property and propagates street field correctly', async () => {
+    test('6. location creation payload has no streetAddress property and propagates street field correctly (Row 150)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
       mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
 
       const updateInput = {
         name: 'Taverna Volos Updated',
         pickupAddress: {
-          street: 'Iasonos',
+          street: 'Iasonos Changed',
           city: 'Volos',
           countryCode: EnumCountryCode.GR,
           latitude: 39.362,
@@ -302,38 +336,51 @@ describe('PartnerAdminRestApiService', () => {
 
       await service.updateRestaurant('partner-100', updateInput)
 
-      const updatePayload = mockLocationDomainService.update.mock.calls[0]?.[1] as Record<string, unknown>
+      // Row 150: new location is created, old location is never updated
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      const createPayload = mockLocationDomainService.create.mock.calls[0]?.[0] as unknown as Record<string, unknown>
       // Verify streetAddress key is completely undefined / omitted and street is passed through
-      expect('streetAddress' in updatePayload).toBe(false)
-      expect(updatePayload.street).toBe(updateInput.pickupAddress.street)
+      expect('streetAddress' in createPayload).toBe(false)
+      expect(createPayload.street).toBe(updateInput.pickupAddress.street)
     })
 
-    test('6b. skips partnerDomainService.update call when only in-place pickupAddress is updated', async () => {
+    test('6b. keeps existing location row and skips partner update when pickup address and point are unchanged (Row 150)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
 
-      const updateInputOnlyAddress = {
+      // Identical fields to mockCurrentLocation
+      const updateInputSameAddress = {
         pickupAddress: {
-          street: 'Iasonos Updated Only',
+          street: 'Iasonos',
+          houseNumber: '12',
           city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
           countryCode: EnumCountryCode.GR,
           latitude: 39.362,
           longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
         },
       }
 
-      const result = await service.updateRestaurant('partner-100', updateInputOnlyAddress)
+      const result = await service.updateRestaurant('partner-100', updateInputSameAddress)
 
-      // Location is updated in place
-      expect(mockLocationDomainService.update).toHaveBeenCalledWith('loc-300', expect.anything())
-      // partnerDomainService.update is NOT called with empty {}
+      // Row 150: unchanged pickup address keeps the row: no create, no update in place
+      expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      // Partner pickupLocationId is unchanged, so partnerDomainService.update is NOT called
       expect(mockPartnerDomainService.update).not.toHaveBeenCalled()
-      // getByIdOrThrow re-fetches or returns fresh partner entity
+      // Returns fresh partner entity via getByIdOrThrow
       expect(result).toBe(mockPartnerEntity)
       expect(mockPartnerDomainService.getByIdOrThrow).toHaveBeenCalledTimes(2)
     })
 
-    test('6c. recomputes formattedAddress on pickupAddress update when formattedAddress is omitted', async () => {
+    test('6c. recomputes formattedAddress on new location creation when formattedAddress is omitted (Row 150)', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
 
       const updateInput = {
         pickupAddress: {
@@ -348,9 +395,105 @@ describe('PartnerAdminRestApiService', () => {
 
       await service.updateRestaurant('partner-100', updateInput)
 
-      const updatePayload = mockLocationDomainService.update.mock.calls[0]?.[1] as Record<string, unknown>
-      expect(updatePayload.formattedAddress).toBe('Ermou 45, Volos, GR')
-      expect(updatePayload.formattedAddress).not.toBe('Iasonos 12, Volos')
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      const createPayload = mockLocationDomainService.create.mock.calls[0]?.[0] as unknown as Record<string, unknown>
+      expect(createPayload.formattedAddress).toBe('Ermou 45, Volos, GR')
+      expect(createPayload.formattedAddress).not.toBe('Iasonos 12, Volos')
+    })
+
+    test('6f. creates a new location and repoints partner when only map coordinates change (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      const updateInputOnlyCoordChange = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.370,
+          longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
+        },
+      }
+
+      await service.updateRestaurant('partner-100', updateInputOnlyCoordChange)
+
+      expect(mockLocationDomainService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          latitude: 39.370,
+          longitude: 22.944,
+        }),
+      )
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
+    test('6g. creates a new location when partner pickupLocationId points to a missing location row (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(null)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      const updateInput = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.362,
+          longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
+        },
+      }
+
+      await service.updateRestaurant('partner-100', updateInput)
+
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
+    test('6h. matches null and undefined fields without creating an unnecessary location row (Row 150)', async () => {
+      const locationWithNulls = new LocationEntity({
+        ...mockCurrentLocation,
+        houseNumber: null,
+        state: null,
+        zipCode: null,
+        formattedAddress: 'Iasonos, Volos',
+      })
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(locationWithNulls)
+
+      // Input leaves out houseNumber, state, zipCode (undefined in JS)
+      const updateInputUndefinedFields = {
+        pickupAddress: {
+          street: 'Iasonos',
+          city: 'Volos',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.362,
+          longitude: 22.944,
+          formattedAddress: 'Iasonos, Volos',
+        },
+      }
+
+      await service.updateRestaurant('partner-100', updateInputUndefinedFields)
+
+      // null and undefined match via (saved ?? null) === (sent ?? null), no new row created
+      expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).not.toHaveBeenCalled()
     })
 
     test('6d. updates only scalar fields when no pickupAddress is provided and skips location service', async () => {
