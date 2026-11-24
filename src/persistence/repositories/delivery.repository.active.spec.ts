@@ -240,10 +240,10 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
         },
       })
 
-      // 2. Add-on updated with same groupId and stopSequence
+      // 2. Add-on updated with same groupId and stopSequence, filtering by ongoing status
       const assignedGroupId = fakeTx.delivery.updateMany.mock.calls[0][0].data.offerGroupId
       expect(fakeTx.delivery.updateMany).toHaveBeenNthCalledWith(2, {
-        where: { id: addOnId, courierId },
+        where: { id: addOnId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
         data: {
           offerGroupId: assignedGroupId,
           stopSequence: stops.map((s) => ({ deliveryId: s.deliveryId, stop: s.stop })),
@@ -304,6 +304,64 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       )
 
       expect(mockPrisma.delivery.updateMany).not.toHaveBeenCalled()
+    })
+
+    test('the add on update carries the ongoing status filter (row 146 review fix 176f818)', async () => {
+      fakeTx.delivery.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // job update
+        .mockResolvedValueOnce({ count: 1 }) // addOn update
+      fakeTx.delivery.findUniqueOrThrow.mockResolvedValueOnce({ status: EnumDeliveryStatus.ACCEPTED })
+
+      await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
+
+      // Add-on update must carry status filter { in: DELIVERY_ONGOING_STATUSES }
+      expect(fakeTx.delivery.updateMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          where: {
+            id: addOnId,
+            courierId,
+            status: { in: DELIVERY_ONGOING_STATUSES },
+          },
+        })
+      )
+    })
+
+    test('when add on is cancelled between accept and join, update matches nothing (count 0), transaction rolls back, job keeps no groupId, add on stop list is cleared, and joinAcceptedAddOn returns null', async () => {
+      // In the database: job is ongoing, but add-on was cancelled between its accept and this join.
+      // Under spec 0015, a cancelled order keeps courierId for payout accounting, but its status is CANCELED.
+      const dbAddOn = {
+        id: addOnId,
+        courierId,
+        status: EnumDeliveryStatus.CANCELED,
+      }
+
+      fakeTx.delivery.updateMany.mockImplementation(async ({ where }: { where: any }) => {
+        if (where.id === jobId) return { count: 1 }
+        if (where.id === addOnId) {
+          // If the update checks ongoing status: CANCELED is not ongoing -> 0 matches.
+          // If the status filter is dropped (the bug): id and courierId match -> 1 match.
+          const matchesStatus = where.status?.in ? where.status.in.includes(dbAddOn.status) : true
+          const matchesCourier = where.courierId === dbAddOn.courierId
+          return { count: matchesStatus && matchesCourier ? 1 : 0 }
+        }
+        return { count: 0 }
+      })
+      fakeTx.delivery.findUniqueOrThrow.mockResolvedValue({ status: EnumDeliveryStatus.ACCEPTED })
+
+      const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
+
+      // 1. Returns null on rollback (never the job's status)
+      expect(joined).toBeNull()
+
+      // 2. Transaction rolled back: job was never read for commit, findUniqueOrThrow never called
+      expect(fakeTx.delivery.findUniqueOrThrow).not.toHaveBeenCalled()
+
+      // 3. Add-on stopSequence cleared outside the rolled-back transaction so it goes on alone
+      expect(mockPrisma.delivery.updateMany).toHaveBeenCalledWith({
+        where: { id: addOnId },
+        data: { stopSequence: Prisma.DbNull },
+      })
     })
   })
 

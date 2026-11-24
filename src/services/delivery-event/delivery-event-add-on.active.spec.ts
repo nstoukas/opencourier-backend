@@ -9,6 +9,7 @@ import {
 } from '@prisma/types'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { ADD_ON_NOT_AUTOMATIC_SENTENCE, isAddOnOffer } from 'src/domains/delivery/add-on'
 import { DeliveryEventService } from './delivery-event.service'
 import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
@@ -887,6 +888,84 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         courierId,
         sampleStops
       )
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
+    })
+
+    it('through DeliveryEventService, a rolled back join (cancelled add on failing status filter) records no ADD_ON_JOINED on the job', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+      })
+      const acceptedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+      })
+      const heldJob = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+      })
+
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        return Promise.resolve(assigningAddOn)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
+        return Promise.resolve(null)
+      })
+
+      // In the database: add-on was cancelled after accept (status: CANCELED, keeps courierId under spec 0015).
+      // Wire joinAcceptedAddOn through the real DeliveryRepository logic with a Prisma transaction mock:
+      const dbAddOn = { id: 'del-add-on', courierId, status: EnumDeliveryStatus.CANCELED }
+      const fakeTx = {
+        delivery: {
+          updateMany: jest.fn(async ({ where }: { where: any }) => {
+            if (where.id === 'job-held-1') return { count: 1 }
+            if (where.id === 'del-add-on') {
+              // Ongoing filter rejects CANCELED status; if bug put back (no status filter), it matches 1
+              const matchesStatus = where.status?.in ? where.status.in.includes(dbAddOn.status) : true
+              const matchesCourier = where.courierId === dbAddOn.courierId
+              return { count: matchesStatus && matchesCourier ? 1 : 0 }
+            }
+            return { count: 0 }
+          }),
+          findUniqueOrThrow: jest.fn().mockResolvedValue({ status: EnumDeliveryStatus.ACCEPTED }),
+        },
+      }
+      const fakePrisma = {
+        $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb(fakeTx)),
+        delivery: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const realDeliveryRepo = new DeliveryRepository(fakePrisma as any)
+      mockDeliveryRepo.joinAcceptedAddOn.mockImplementation(
+        (addOnId: string, jobId: string, cId: string, stops: any[]) =>
+          realDeliveryRepo.joinAcceptedAddOn(addOnId, jobId, cId, stops)
+      )
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      // joinAcceptedAddOn was invoked for the add-on and job
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledWith(
+        'del-add-on',
+        'job-held-1',
+        courierId,
+        sampleStops
+      )
+      // Because the add on was CANCELED, join rolled back (returned null), and NO ADD_ON_JOINED event was recorded on the job
       expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
       )
