@@ -287,9 +287,15 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
   // them together, and the stack rule (pairStillTogether) clears the list once they part. Only if the job is
   // still the rider's before its drop off; otherwise the added order goes on alone (its list cleared). A
   // fresh id rather than the job's old one: a job left over from an earlier stack may still carry that
-  // pair's id (cross check 7), and three deliveries under one id would never count as a pair. Returns
-  // whether they were joined.
-  async joinAcceptedAddOn(addOnId: string, jobId: string, courierId: string, stops: StackStop[]): Promise<boolean> {
+  // pair's id (cross check 7), and three deliveries under one id would never count as a pair.
+  // Row 146 review: answers the job's status as the transaction saw it (for the job's ADD_ON_JOINED record), or null
+  // when the join rolled back. `EnumDeliveryStatus | null` reads "a status, or nothing".
+  async joinAcceptedAddOn(
+    addOnId: string,
+    jobId: string,
+    courierId: string,
+    stops: StackStop[]
+  ): Promise<EnumDeliveryStatus | null> {
     const groupId = randomUUID()
     // Copied into plain objects, the shape a Json column takes.
     const stopSequence = stops.map((stop) => ({ deliveryId: stop.deliveryId, stop: stop.stop }))
@@ -308,13 +314,14 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
         // accept). Throwing inside an interactive transaction undoes every write it made, so the job does not
         // keep a group id that no other delivery shares, nor a stop list naming an order its rider lost.
         if (addOn.count !== 1) throw new RollBack()
-        return true
+        const joinedJob = await tx.delivery.findUniqueOrThrow({ where: { id: jobId }, select: { status: true } })
+        return joinedJob.status
       })
     } catch (error) {
       if (!(error instanceof RollBack)) throw error
       // Not joined: the added order goes on alone, without the stop list that names the job.
       await this.prisma.delivery.updateMany({ where: { id: addOnId }, data: { stopSequence: Prisma.DbNull } })
-      return false
+      return null
     }
   }
 

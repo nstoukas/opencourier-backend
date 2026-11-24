@@ -2380,15 +2380,16 @@ export class DeliveryEventService {
     try {
       const stops = delivery.stopSequence !== null ? stackStopsOf(delivery.stopSequence) : null
       if (delivery.status === EnumDeliveryStatus.ACCEPTED && delivery.courierId && stops) {
-        const joined = await this.deliveryRepository.joinAcceptedAddOn(delivery.id, jobId, delivery.courierId, stops)
+        // The job's status inside the join's transaction, or null when the join rolled back.
+        const jobStatus = await this.deliveryRepository.joinAcceptedAddOn(delivery.id, jobId, delivery.courierId, stops)
         this.logger.log(
-          joined
+          jobStatus
             ? `Add on ${delivery.id} accepted; it rides with delivery ${jobId}`
             : `Add on ${delivery.id} accepted after delivery ${jobId} left its rider; it goes on alone`
         )
         // Row 146 (value 1): the job's own trail says a second order joined it, which changes when its food
-        // arrives. Only after the join committed: a join that rolled back returns false and records nothing.
-        if (joined) await this.recordAddOnJoined(jobId, delivery.id, delivery.courierId)
+        // arrives. Only after the join committed: a join that rolled back returns null and records nothing.
+        if (jobStatus) await this.recordAddOnJoined(jobId, delivery.id, delivery.courierId, jobStatus)
         return
       }
       await this.deliveryRepository.updateIfMatches(delivery.id, { offerGroupId: null }, { stopSequence: Prisma.DbNull })
@@ -2398,11 +2399,16 @@ export class DeliveryEventService {
   }
 
   // Row 146: ADD_ON_JOINED on the job, naming the added delivery. No status change, so it is saved with the
-  // job's status as both old and new, never through processDeliveryEvent. Never throws: the join already
-  // happened, and a failed record is logged with both ids so it can be written by hand.
-  private async recordAddOnJoined(jobId: string, addOnId: string, courierId: string): Promise<void> {
+  // job's status as both old and new (read inside the join's transaction, review of row 146), never through
+  // processDeliveryEvent. Never throws: the join already happened, and a failed record is logged with both ids
+  // so it can be written by hand.
+  private async recordAddOnJoined(
+    jobId: string,
+    addOnId: string,
+    courierId: string,
+    jobStatus: EnumDeliveryStatus
+  ): Promise<void> {
     try {
-      const job = await this.deliveryRepository.findByIdOrThrow(jobId)
       const event: DeliveryAddOnJoinedEvent = {
         deliveryId: jobId,
         type: EnumDeliveryEventType.ADD_ON_JOINED,
@@ -2411,7 +2417,7 @@ export class DeliveryEventService {
         courierId,
         ...eventText('ADD_ON_JOINED', { courierId, addOnId }),
       }
-      await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: job.status, newStatus: job.status })
+      await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: jobStatus, newStatus: jobStatus })
     } catch (error) {
       this.logger.error(
         `Could not record that add on ${addOnId} joined delivery ${jobId}: ${errorSummaryForLog(error)}`
