@@ -9,6 +9,7 @@ describe('rejected-couriers cache helpers (row 144)', () => {
   let mockCacheService: {
     getOrDefault: jest.Mock
     save: jest.Mock
+    delete: jest.Mock
   }
 
   const deliveryId = 'del-skip-1'
@@ -19,6 +20,7 @@ describe('rejected-couriers cache helpers (row 144)', () => {
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     }
   })
 
@@ -69,13 +71,24 @@ describe('rejected-couriers cache helpers (row 144)', () => {
   })
 
   describe('removeCourierFromRejectedList', () => {
-    it('removes courier and saves remaining list with the passed ttlSeconds (e.g. 300 s for 5 min setting)', async () => {
+    it('deletes the key (no save) when the last courier comes off (empty list)', async () => {
+      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+
+      await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 300)
+
+      expect(mockCacheService.getOrDefault).toHaveBeenCalledWith(key, [])
+      expect(mockCacheService.delete).toHaveBeenCalledWith(key)
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+    })
+
+    it('removes courier and saves remaining list with the passed ttlSeconds (non-empty remainder, no delete)', async () => {
       mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
 
       await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 300)
 
       expect(mockCacheService.getOrDefault).toHaveBeenCalledWith(key, [])
       expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 300)
+      expect(mockCacheService.delete).not.toHaveBeenCalled()
     })
 
     it('saves with updated ttlSeconds (e.g. 420 s for 7 min setting) when representative changed the setting', async () => {
@@ -84,6 +97,7 @@ describe('rejected-couriers cache helpers (row 144)', () => {
       await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 420)
 
       expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 420)
+      expect(mockCacheService.delete).not.toHaveBeenCalled()
     })
   })
 })

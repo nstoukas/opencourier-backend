@@ -146,6 +146,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     }
     mockOfferPushService = {
       newOffer: jest.fn().mockResolvedValue(undefined),
@@ -574,10 +575,8 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       expect(result).toBe(false)
 
       // Skip list entry removed
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
-        expect.any(String),
-        [],
-        expect.any(Number)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId)
       )
 
       // Failed HANDED_BACK event saved

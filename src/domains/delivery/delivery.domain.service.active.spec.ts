@@ -49,6 +49,7 @@ describe('DeliveryDomainService', () => {
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CacheService>
 
     mockDeliveryEventService = {
@@ -817,10 +818,9 @@ describe('DeliveryDomainService', () => {
         .mockResolvedValueOnce(initialDelivery as any)
         .mockResolvedValueOnce(unchangedDelivery as any)
 
-      // First save succeeds (add), second save rejects (remove)
-      mockCacheService.save
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('Redis down'))
+      // Save succeeds on add, delete rejects on rollback removal
+      mockCacheService.save.mockResolvedValueOnce(undefined)
+      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis down'))
 
       mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
@@ -938,7 +938,10 @@ describe('DeliveryDomainService', () => {
       )
 
       // Test Plan Item 9: Rejected-list removal attempt ran despite award deletion failure
-      expect(mockCacheService.save).toHaveBeenCalledTimes(2)
+      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining('del-double-fault')
+      )
     })
   })
 
@@ -1006,10 +1009,8 @@ describe('DeliveryDomainService', () => {
         'This offer has ended'
       )
       // Rider was added before clear and removed when clear matched nothing (not left on list)
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
-        expect.stringContaining('del-reject-stale'),
-        [],
-        expect.any(Number)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining('del-reject-stale')
       )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })

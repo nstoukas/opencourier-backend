@@ -197,6 +197,9 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       save: jest.fn().mockImplementation(async () => {
         callOrder.push('cacheService.save')
       }),
+      delete: jest.fn().mockImplementation(async () => {
+        callOrder.push('cacheService.delete')
+      }),
     } as unknown as jest.Mocked<CacheService>
 
     mockOfferPushService = {
@@ -878,7 +881,10 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       expect(result).toBe(false)
 
       // Removed from skip list
-      expect(mockCacheService.save).toHaveBeenCalledTimes(2)
+      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining(delivery.id)
+      )
 
       // Failed event saved with transitionSuccessful: false
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(

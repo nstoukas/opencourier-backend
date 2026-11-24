@@ -129,6 +129,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CacheService>
 
     service = new DeliveryEventService(
@@ -630,10 +631,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       })
 
       // Skip list: rider is added before the clear and taken off again when clear matches nothing (not left on list)
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
-        expect.stringContaining(deliveryId),
-        [],
-        expect.any(Number)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId)
       )
       // No OFFER_ENDED socket notification
       expect(mockWebsocketDispatcher.sendOfferEnded).not.toHaveBeenCalled()

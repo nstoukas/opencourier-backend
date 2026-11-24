@@ -49,14 +49,14 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
   // Clause 2: Validation and NUMERIC_SETTING_RULES
   // --------------------------------------------------------------------------
   describe('Clause 2: NUMERIC_SETTING_RULES & Validation', () => {
-    it('has an entry in NUMERIC_SETTING_RULES for offerSkipMinutes with integer constraint and range 1-240', () => {
+    it('has an entry in NUMERIC_SETTING_RULES for offerSkipMinutes with integer constraint and range 1-60', () => {
       const rule = NUMERIC_SETTING_RULES.find((r) => r.key === 'offerSkipMinutes')
       expect(rule).toBeDefined()
       expect(rule?.mustBeInteger).toBe(true)
       expect(rule?.min).toBe(OFFER_SKIP_MINUTES_MIN)
       expect(rule?.max).toBe(OFFER_SKIP_MINUTES_MAX)
       expect(rule?.min).toBe(1)
-      expect(rule?.max).toBe(240)
+      expect(rule?.max).toBe(60)
       expect(rule?.whyZeroIsRefused).toBe(
         'a rider who declined an offer could be offered the same delivery again at once'
       )
@@ -73,9 +73,29 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
       expect(configRepository.saveByKey).not.toHaveBeenCalled()
     })
 
-    it.each([241, 500, -1, -5])('refuses out of range value %p', async (value) => {
+    it.each([61, 241, 500, -1, -5])('refuses out of range value %p', async (value) => {
       await expect(service.setInstanceConfigSettings({ offerSkipMinutes: value } as any)).rejects.toThrow(
         BadRequestException
+      )
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('refuses 61 with its sentence (offerSkipMinutes must be 60 or less)', async () => {
+      await expect(service.setInstanceConfigSettings({ offerSkipMinutes: 61 } as any)).rejects.toThrow(
+        BadRequestException
+      )
+      await expect(service.setInstanceConfigSettings({ offerSkipMinutes: 61 } as any)).rejects.toThrow(
+        'offerSkipMinutes must be 60 or less'
+      )
+      expect(configRepository.saveByKey).not.toHaveBeenCalled()
+    })
+
+    it('refuses null with BadRequestException and never saves (review test gap 3)', async () => {
+      await expect(service.setInstanceConfigSettings({ offerSkipMinutes: null } as any)).rejects.toThrow(
+        BadRequestException
+      )
+      await expect(service.setInstanceConfigSettings({ offerSkipMinutes: null } as any)).rejects.toThrow(
+        'offerSkipMinutes must be a number'
       )
       expect(configRepository.saveByKey).not.toHaveBeenCalled()
     })
@@ -90,7 +110,7 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
       expect(configRepository.saveByKey).not.toHaveBeenCalled()
     })
 
-    it.each([1, 20, 240])('accepts valid boundary value %i and saves to database', async (value) => {
+    it.each([1, 20, 60])('accepts valid boundary value %i and saves to database', async (value) => {
       await service.setInstanceConfigSettings({ offerSkipMinutes: value } as any)
       expect(configRepository.saveByKey).toHaveBeenCalledWith(ConfigKey.OFFER_SKIP_MINUTES, value, expect.anything())
     })
@@ -132,6 +152,8 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
 
     it.each([
       [0, '0'],
+      [61, '61'],
+      [240, '240'],
       [999, '999'],
       [-1, '-1'],
       [2.5, '2.5'],
@@ -148,7 +170,7 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
       )
     })
 
-    it.each([1, 5, 20, 240])('returns valid stored value %i without warning', async (value) => {
+    it.each([1, 5, 20, 60])('returns valid stored value %i without warning', async (value) => {
       configRepository.getByKey.mockImplementation(stored(value, 'number'))
       const warnSpy = jest.spyOn((service as any).logger, 'warn')
 
@@ -179,7 +201,7 @@ describe('the offerSkipMinutes setting (row 144, Clauses 2, 3, 5, 6)', () => {
     it('has offerSkipMinutes in Greek RIDER_FACING_SETTINGS_EL with label and minutes formatter', () => {
       const entry = RIDER_FACING_SETTINGS_EL.offerSkipMinutes
       expect(entry).toBeDefined()
-      expect(entry!.label).toBe('Χρόνος πριν μπορεί να σας ξαναπροταθεί μια παραγγελία που απορρίψατε ή χάσατε')
+      expect(entry!.label).toBe('Χρόνος πριν μπορέσει να σας ξαναπροταθεί μια παραγγελία που απορρίψατε ή χάσατε')
       expect(entry!.format(20, ctx)).toBe('20 λεπτά')
       expect(entry!.format(1, ctx)).toBe('1 λεπτό')
       expect(entry!.format(null, ctx)).toBe('δεν έχει οριστεί')

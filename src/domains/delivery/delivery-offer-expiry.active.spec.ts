@@ -38,6 +38,7 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CacheService>
 
     mockDeliveryEventService = {
@@ -582,10 +583,8 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
       await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
       // Rider was added before clear and removed when clear matched nothing (not left on list)
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
-        expect.stringContaining(deliveryId),
-        [],
-        expect.any(Number)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId)
       )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })

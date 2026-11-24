@@ -133,6 +133,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CacheService>
 
     service = new DeliveryEventService(
@@ -888,6 +889,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockCacheService.save.mockImplementation(async (_key, val) => {
         callOrder.push(`cache.save:${JSON.stringify(val)}`)
       })
+      mockCacheService.delete.mockImplementation(async () => {
+        callOrder.push('cache.delete')
+      })
       mockDeliveryRepository.updateIfMatches.mockImplementation(async () => {
         callOrder.push('updateIfMatches')
         return false // miss
@@ -903,7 +907,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       expect(callOrder).toEqual([
         'cache.save:["courier-skip-1"]',
         'updateIfMatches',
-        'cache.save:[]',
+        'cache.delete',
       ])
     })
 
@@ -921,6 +925,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       mockCacheService.getOrDefault.mockImplementation(async () => [])
       mockCacheService.save.mockImplementation(async (_k, val) => {
         callOrder.push(`cache.save:${JSON.stringify(val)}`)
+      })
+      mockCacheService.delete.mockImplementation(async () => {
+        callOrder.push('cache.delete')
       })
       mockDeliveryRepo.updateIfMatches.mockImplementation(async () => {
         callOrder.push('updateIfMatches')
@@ -943,7 +950,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       expect(callOrder).toEqual([
         'cache.save:["courier-1"]',
         'updateIfMatches',
-        'cache.save:[]',
+        'cache.delete',
       ])
     })
   })

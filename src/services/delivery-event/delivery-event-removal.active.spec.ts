@@ -172,6 +172,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CacheService>
 
     mockOfferPushService = {
@@ -283,7 +284,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
 
       expect(event).toBeNull()
       // Skip list entry undone
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(`delivery-rejected-couriers:${deliveryId}`, [], 1200)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(`delivery-rejected-couriers:${deliveryId}`)
       // No REMOVAL_APPROVED event saved
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.REMOVAL_APPROVED })
