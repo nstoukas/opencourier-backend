@@ -1579,17 +1579,8 @@ export class DeliveryEventService {
     }
 
     if (!written) {
-      if (addedToSkipList) {
-        try {
-          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
-        } catch (error) {
-          this.logger.error(
-            `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
-              error
-            )}`
-          )
-        }
-      }
+      // agy review of row 144: the shared undo, which logs and never throws.
+      if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
       try {
         await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
       } catch (error) {
@@ -1683,17 +1674,8 @@ export class DeliveryEventService {
     }
 
     if (!written) {
-      if (addedToSkipList) {
-        try {
-          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
-        } catch (error) {
-          this.logger.error(
-            `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
-              error
-            )}`
-          )
-        }
-      }
+      // agy review of row 144: the shared undo, which logs and never throws.
+      if (addedToSkipList) await this.undoSkipListEntry(deliveryId, courierId)
       try {
         await this.saveDeliveryEvent(event, { transitionSuccessful: false, oldStatus, newStatus: oldStatus })
       } catch (error) {

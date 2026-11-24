@@ -35,9 +35,11 @@ export async function removeCourierFromRejectedList(
   const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
   const rejectedCouriers = await cacheService.getOrDefault<Array<string>>(rejectedKey, [])
 
-  await cacheService.save<Array<string>>(
-    rejectedKey,
-    rejectedCouriers.filter((id) => id !== courierId),
-    ttlSeconds
-  )
+  const remaining = rejectedCouriers.filter((id) => id !== courierId)
+  // agy review of row 144: an empty list is deleted, not kept in Redis for the whole skip time.
+  if (remaining.length === 0) {
+    await cacheService.delete(rejectedKey)
+    return
+  }
+  await cacheService.save<Array<string>>(rejectedKey, remaining, ttlSeconds)
 }
