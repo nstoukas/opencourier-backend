@@ -306,8 +306,11 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
           data: { offerGroupId: groupId, stopSequence },
         })
         if (job.count !== 1) throw new RollBack()
+        // agy review of row 146: the added order must still be ongoing too, like the job above. An add on cancelled
+        // in the moment between its accept and this join keeps its courierId (spec 0015's pay reads it), so without
+        // the status it would be grouped with the job, and the job would record ADD_ON_JOINED for a cancelled order.
         const addOn = await tx.delivery.updateMany({
-          where: { id: addOnId, courierId },
+          where: { id: addOnId, courierId, status: { in: DELIVERY_ONGOING_STATUSES } },
           data: { offerGroupId: groupId, stopSequence },
         })
         // agy review: the added order is no longer this rider's (moved by an admin in the moment since the
