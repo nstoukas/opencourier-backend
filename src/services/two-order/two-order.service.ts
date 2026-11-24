@@ -109,7 +109,7 @@ export class TwoOrderService {
       for (const candidate of candidates) {
         const refusal = stackRefusal(first, candidate)
         if (refusal) continue
-        // Cross check 9: the two were stacked, and the stack was declined or missed, in the last 20 minutes.
+        // Cross check 9: the two were stacked, and the stack was declined or missed, within the co-op's stackPairBlockMinutes (row 147).
         if (await this.cacheService.get<boolean>(stackPairBlockKey(first.id, candidate.id))) continue
         // Cross check 4: the second order's own filters apply to the rider. Its skip list here; its distance
         // from the rider in the candidate query above.

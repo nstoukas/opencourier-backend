@@ -205,7 +205,7 @@ export function stopParts(stops: StackStop[]): EventPart[] {
   )
 }
 
-// The Redis key that keeps two orders from being stacked together again for 20 minutes after their stack
+// The Redis key that keeps two orders from being stacked together again for stackPairBlockMinutes after their stack
 // was declined or missed (cross check 9). The same key whichever of the two is matched first.
 export function stackPairBlockKey(oneId: string, otherId: string): string {
   const [low, high] = [oneId, otherId].sort()

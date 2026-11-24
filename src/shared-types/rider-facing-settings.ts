@@ -130,7 +130,7 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   },
   // Row 147: 0 means no block.
   stackPairBlockMinutes: {
-    label: 'Time before two orders turned down together can be offered together again',
+    label: 'Time before a declined or missed pair can be offered again',
     format: (value) =>
       asNumber(value) === 0 ? 'no wait' : asNumber(value) === 1 ? '1 minute' : withUnit('minutes')(value),
   },

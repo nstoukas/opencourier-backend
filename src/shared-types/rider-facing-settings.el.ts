@@ -139,7 +139,7 @@ export const RIDER_FACING_SETTINGS_EL: Record<string, RiderFacingSetting> = {
     format: withUnit('λεπτά'),
   },
   stackPairBlockMinutes: {
-    label: 'Χρόνος πριν μπορέσουν δύο παραγγελίες που απορρίφθηκαν μαζί να ξαναπροταθούν μαζί',
+    label: 'Χρόνος πριν ξαναπροταθεί ζευγάρι που απορρίφθηκε ή χάθηκε',
     format: (value) =>
       asNumber(value) === 0 ? 'χωρίς αναμονή' : asNumber(value) === 1 ? '1 λεπτό' : withUnit('λεπτά')(value),
   },

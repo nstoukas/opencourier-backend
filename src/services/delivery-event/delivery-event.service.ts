@@ -1030,7 +1030,7 @@ export class DeliveryEventService {
       return 0
     }
 
-    // Cross check 9: a stack declined or missed is not offered as the same pair again for 20 minutes. Not
+    // Cross check 9: a stack declined or missed is not offered as the same pair again for stackPairBlockMinutes. Not
     // after Offline or a dispatch stop: the rider never judged the pair. Keyed on the pair, not on what this
     // call ended, so two expiry jobs that each ended one half still block it.
     if (isStack && reason === 'EXPIRED') await this.blockStackPair(ids)
@@ -1277,7 +1277,7 @@ export class DeliveryEventService {
 
   // Spec 0048 (AC-5): the rider declines a stack, by either of its deliveries, and both end: each delivery
   // puts the rider on its own skip list (never the other's), each is cleared in its own conditional write,
-  // the two are not stacked together again for 20 minutes, and each gets its REJECTED event, which matches
+  // the two are not stacked together again for stackPairBlockMinutes, and each gets its REJECTED event, which matches
   // it again, the earlier created first (cross check 9). Idempotent: a decline arriving after the stack
   // ended (expired, taken, moved) answers 409 "This offer has ended" and changes nothing.
   async declineStack(delivery: DeliveryEntity, courierId: string): Promise<void> {
