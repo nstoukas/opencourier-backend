@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
 import { DeliveryAddressInput } from './delivery-address-input'
 import { DeliveryCreationDetails } from 'src/shared-types/index'
@@ -243,6 +243,8 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
     type: Number,
   })
   @IsNumber()
+  // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
+  @Min(0)
   tip: number
 
   @ApiProperty({

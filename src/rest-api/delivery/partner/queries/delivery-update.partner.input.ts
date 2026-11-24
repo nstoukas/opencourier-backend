@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator'
+import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
 import { BoxSize } from '@prisma/types'
 import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
@@ -48,6 +48,8 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     type: Number,
   })
   @IsNumber()
+  // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
+  @Min(0)
   tipByCustomer: number
 
   @ApiProperty({
