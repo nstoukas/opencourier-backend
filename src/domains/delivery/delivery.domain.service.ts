@@ -655,11 +655,11 @@ export class DeliveryDomainService {
         { matchedCourierId: null, offeredAt: null, offerExpiresAt: null, stopSequence: Prisma.DbNull }
       )
     } catch (error) {
-      if (addedToSkipList) await this.removeCourierFromRejectedList(deliveryId, courierId)
+      if (addedToSkipList) await this.undoOwnSkipListEntry(deliveryId, courierId)
       throw error
     }
     if (!declined) {
-      if (addedToSkipList) await this.removeCourierFromRejectedList(deliveryId, courierId)
+      if (addedToSkipList) await this.undoOwnSkipListEntry(deliveryId, courierId)
       throw new OfferHasEndedException()
     }
 
@@ -860,6 +860,19 @@ export class DeliveryDomainService {
   // Row 144: the co-op's skip time (offerSkipMinutes) in seconds, the unit the skip list's Redis key expires in.
   private async offerSkipSeconds(): Promise<number> {
     return (await this.configDomainService.instanceConfig.getOfferSkipMinutes()) * 60
+  }
+
+  // Review of row 144: the undo of a failed decline's own skip entry is cleanup, so it never throws. Without
+  // this, a settings read or Redis failure here would replace the decline's real error (say, the database
+  // being down). If it fails, the rider sits out this one delivery for the co-op's skip time.
+  private async undoOwnSkipListEntry(deliveryId: string, courierId: string): Promise<void> {
+    try {
+      await this.removeCourierFromRejectedList(deliveryId, courierId)
+    } catch (error) {
+      this.logger.error(
+        `Could not take courier ${courierId} back off the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
+      )
+    }
   }
 
   // Returns true only when this call is what put the courier on the list. The caller needs

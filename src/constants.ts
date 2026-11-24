@@ -190,7 +190,8 @@ export const TWO_ORDER_DELAY_LIMIT_MINUTES_MAX = 30
 export const DEFAULT_ADD_ON_OFFERS_ENABLED = false
 export const DEFAULT_ADD_ON_MOMENT = 'BEFORE_PICKUP'
 // Spec 0048 (cross check 9): after a stack is declined or missed, the same two orders are not stacked
-// together again for this long (the skip list's 20 minutes). A network rule, not a co-op number.
+// together again for this long (the skip list's default 20 minutes). A network rule, not a co-op number: it
+// stays 20 minutes when a representative changes offerSkipMinutes (review of row 144, left to the operator).
 export const STACK_PAIR_BLOCK_SECONDS = 60 * 20
 // Review of row 80: a stack accept whose second ACCEPTED keeps failing is given back to waiting after this
 // long (ten tries of the minute sweep), so the sweep never retries one row for ever. A technical limit, not a

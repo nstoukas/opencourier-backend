@@ -78,7 +78,7 @@ const REASSIGNMENT_FAILURE_CONSEQUENCES: Record<ReassignmentFailureStage, string
   AWARD_ROLLBACK_FAILED:
     'an award row remains for a delivery that was NOT reassigned; delete it manually',
   REJECTED_LIST_ROLLBACK_FAILED:
-    'the award row was removed correctly, but the dropped courier is still excluded from re-offers of this delivery for up to 20 minutes; no action needed unless the delivery goes back to matching in that window',
+    'the award row was removed correctly, but the dropped courier is still excluded from re-offers of this delivery for the skip time the co-op set (offerSkipMinutes); no action needed unless the delivery goes back to matching in that window',
 }
 
 // One grep-able line per failure, carrying everything needed to recreate a lost award by

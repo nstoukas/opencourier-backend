@@ -1070,7 +1070,7 @@ export class DeliveryEventService {
     reason: OfferEndedReason,
     stillThisOffer: Prisma.DeliveryWhereInput
   ): Promise<boolean> {
-    // Skipped for this delivery like a decline (the same 20 min list). Added BEFORE the offer is
+    // Skipped for this delivery like a decline (the same list, for the co-op's offerSkipMinutes). Added BEFORE the offer is
     // cleared, so a matcher running in between (a rider coming Online, a retry) cannot offer the
     // delivery straight back to this rider. Nothing else about the rider changes: no count, no
     // status change (value 5). A failed write here must not stop the delivery moving on, so it is
@@ -1184,7 +1184,7 @@ export class DeliveryEventService {
   }
 
   // Never throws: undoing a skip list entry is cleanup, and its failure only means the rider sits
-  // out this one delivery for up to 20 minutes.
+  // out this one delivery for the co-op's skip time (offerSkipMinutes).
   private async undoSkipListEntry(deliveryId: string, courierId: string): Promise<void> {
     try {
       await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())

@@ -198,8 +198,9 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
   },
   handBackSeconds: { label: 'Time to give an accepted order back for free', format: withUnit('seconds') },
   offerSkipMinutes: {
-    label: 'Time before an order you declined or missed is offered to you again',
-    format: withUnit('minutes'),
+    label: 'Time before an order you declined or missed can be offered to you again',
+    // "1 minute", not "1 minutes": 1 is the lowest value the co-op can set.
+    format: (value) => (asNumber(value) === 1 ? '1 minute' : withUnit('minutes')(value)),
   },
   arrivalRadiusMetres: {
     label: 'Distance at which the app marks you arrived',

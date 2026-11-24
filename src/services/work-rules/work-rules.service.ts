@@ -215,8 +215,9 @@ export const EN_WORDS: WorkRulesWords = {
   noSecondOffer: 'A rider already on a job gets no second offer.',
   offerExpiry: (seconds) => `You have ${seconds} seconds to answer an offer; then it goes to the next rider.`,
   offerWaits: 'An offer waits for your answer until you accept or decline it.',
+  // Review of row 144: "at least", because each new decline of the same order starts the time again.
   notOfferedAgain: (minutes) =>
-    `If you decline or miss an offer, that order is not offered to you again for ${minutes} minutes.`,
+    `If you decline or miss an offer, that order is not offered to you again for at least ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`,
   offerLead: (minutes) => `Offers go out about ${minutes} minutes before the restaurant says the food is ready.`,
   stacking: (wheneverFits, delayMinutes) =>
     `Two orders may be offered to you together: two from the same restaurant, or one each from two restaurants once both have marked the food ready. This happens ${
