@@ -239,6 +239,7 @@ describe('Box Model: Matcher & Offer Claim Capacity (AC-5)', () => {
       const mockCacheService = {
         getOrDefault: jest.fn().mockResolvedValue([]),
         getCourierSkipList: jest.fn().mockResolvedValue([]),
+        membersStillCounting: jest.fn().mockResolvedValue([]),
       }
 
       const service = new DeliveryMatchingService(

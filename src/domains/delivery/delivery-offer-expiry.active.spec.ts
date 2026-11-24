@@ -39,6 +39,9 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     mockDeliveryEventService = {
@@ -533,7 +536,12 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       )
 
       // 2. Courier added to skip list (20 min TTL)
-      expect(mockCacheService.save).toHaveBeenCalledWith(expect.stringContaining(deliveryId), [courierId], 1200)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId),
+        courierId,
+        expect.any(Number),
+        expect.any(Number)
+      )
 
       // 3. processDeliveryEvent called with REJECTED
       expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
@@ -583,8 +591,9 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
 
       await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
       // Rider was added before clear and removed when clear matched nothing (not left on list)
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining(deliveryId)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId),
+        courierId
       )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
@@ -596,15 +605,18 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
         matchedCourierId: courierId,
         offeredAt,
       } as any)
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+      // courierId was already counting before this call
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(false)
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 
       await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining(deliveryId),
-        [courierId],
+        courierId,
+        expect.any(Number),
         expect.any(Number)
       )
+      expect(mockCacheService.removeMember).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
   })

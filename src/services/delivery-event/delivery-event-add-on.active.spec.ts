@@ -139,6 +139,9 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       set: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
 
     mockOfferPushService = {
@@ -613,9 +616,10 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       )
 
       // 2. Courier added to skip list for del-add-on only
-      expect(mockCacheService.save).toHaveBeenCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining('del-add-on'),
-        [courierId],
+        courierId,
+        expect.any(Number),
         expect.any(Number)
       )
 

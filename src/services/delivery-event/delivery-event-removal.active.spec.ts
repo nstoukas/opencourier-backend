@@ -173,6 +173,9 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     mockOfferPushService = {
@@ -233,7 +236,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
   describe('AC-9: removeRiderBeforePickup & finishRemovalBeforePickup in DeliveryEventService', () => {
     test('puts rider on skip list first, writes ASSIGNING_COURIER in one conditional updateIfMatches conditioned on { status, courierId } with cleared rider fields and undispatchedAt set', async () => {
       const delivery = makeDelivery({ status: EnumDeliveryStatus.DISPATCHED })
-      const saveSpy = jest.spyOn(mockCacheService, 'save')
+      const addSpy = jest.spyOn(mockCacheService, 'addWithOwnExpiry')
 
       const event = await service.removeRiderBeforePickup(delivery, courierId, 'Restaurant closed')
 
@@ -243,7 +246,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
       expect(event?.message).toBe('Removal approved: Restaurant closed')
 
       // Skip list updated first
-      expect(saveSpy).toHaveBeenCalledWith(`delivery-rejected-couriers:${deliveryId}`, [courierId], 1200)
+      expect(addSpy).toHaveBeenCalledWith(expect.stringContaining(deliveryId), courierId, expect.any(Number), expect.any(Number))
 
       // updateIfMatches condition MUST include courierId and status
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
@@ -278,13 +281,12 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
     test('missed conditional write undoes the skip list and returns null without saving event', async () => {
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
       const delivery = makeDelivery({ status: EnumDeliveryStatus.ACCEPTED })
-      mockCacheService.getOrDefault.mockResolvedValueOnce([]).mockResolvedValueOnce([courierId])
 
       const event = await service.removeRiderBeforePickup(delivery, courierId, 'Broken moped')
 
       expect(event).toBeNull()
       // Skip list entry undone
-      expect(mockCacheService.delete).toHaveBeenCalledWith(`delivery-rejected-couriers:${deliveryId}`)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(expect.stringContaining(deliveryId), courierId)
       // No REMOVAL_APPROVED event saved
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.REMOVAL_APPROVED })

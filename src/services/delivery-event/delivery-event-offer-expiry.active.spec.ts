@@ -130,6 +130,9 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     service = new DeliveryEventService(
@@ -581,10 +584,11 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       )
 
       // 2. Rider added to skip list (setting's 20 min TTL = 1200 s)
-      expect(mockCacheService.save).toHaveBeenCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining(deliveryId),
-        [courierId],
-        1200
+        courierId,
+        expect.any(Number),
+        expect.any(Number)
       )
 
       // 3. Socket OFFER_ENDED sent with reason 'EXPIRED'
@@ -631,8 +635,9 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       })
 
       // Skip list: rider is added before the clear and taken off again when clear matches nothing (not left on list)
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining(deliveryId)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId),
+        courierId
       )
       // No OFFER_ENDED socket notification
       expect(mockWebsocketDispatcher.sendOfferEnded).not.toHaveBeenCalled()
@@ -658,8 +663,8 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         offerExpiresAt,
       } as any)
 
-      // Courier was ALREADY on the skip list
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+      // Courier was ALREADY on the skip list (addWithOwnExpiry returned false)
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(false)
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 
       await service.handleOfferExpiryJob({
@@ -668,12 +673,14 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         offeredAt: offeredAt.toISOString(),
       })
 
-      // addCourierToRejectedList saved [courierId], but since addedToSkipList was false, undoSkipListEntry was not called
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+      // addCourierToRejectedList returned false, so undoSkipListEntry was not called
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining(deliveryId),
-        [courierId],
+        courierId,
+        expect.any(Number),
         expect.any(Number)
       )
+      expect(mockCacheService.removeMember).not.toHaveBeenCalled()
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.OFFER_EXPIRED })
       )

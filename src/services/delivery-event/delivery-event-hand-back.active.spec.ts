@@ -147,6 +147,9 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
     mockOfferPushService = {
       newOffer: jest.fn().mockResolvedValue(undefined),
@@ -444,8 +447,9 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
   describe('DeliveryEventService.handBack (Spec 0020 AC-6, AC-7)', () => {
     it('successful handBack: skip list first, ONE updateIfMatches, HANDED_BACK event, notifies partner and rider, offerOrWait runs, no compensation, no charge', async () => {
       const callOrder: string[] = []
-      mockCacheService.save.mockImplementation(async () => {
-        callOrder.push('cacheService.save')
+      mockCacheService.addWithOwnExpiry.mockImplementation(async () => {
+        callOrder.push('cacheService.addWithOwnExpiry')
+        return true
       })
       mockDeliveryRepository.updateIfMatches.mockImplementation(async () => {
         callOrder.push('updateIfMatches')
@@ -463,7 +467,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       expect(result).toBe(true)
 
       // 1. Rider goes on skip list BEFORE conditional write
-      expect(callOrder[0]).toBe('cacheService.save')
+      expect(callOrder[0]).toBe('cacheService.addWithOwnExpiry')
       expect(callOrder[1]).toBe('updateIfMatches')
 
       // 2. ONE updateIfMatches conditioned on { status: oldStatus, courierId }
@@ -552,7 +556,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
 
     it('skip list cache failure is logged and hand back still proceeds', async () => {
       const errorSpy = jest.spyOn(service['logger'], 'error').mockImplementation()
-      mockCacheService.getOrDefault.mockRejectedValue(new Error('Redis timeout'))
+      mockCacheService.addWithOwnExpiry.mockRejectedValue(new Error('Redis timeout'))
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
 
       const result = await service.handBack(deliveryId, courierId, EnumDeliveryStatus.DISPATCHED)
@@ -575,8 +579,9 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
       expect(result).toBe(false)
 
       // Skip list entry removed
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining(deliveryId)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining(deliveryId),
+        courierId
       )
 
       // Failed HANDED_BACK event saved

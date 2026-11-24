@@ -132,8 +132,9 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.offers).toContain('A rider already on a job gets no second offer.')
       expect(result.offers).toContain('You have 60 seconds to answer an offer; then it goes to the next rider.')
       expect(result.offers).toContain(
-        'If you decline or miss an offer, that order is not offered to you again for at least 20 minutes.'
+        'If you decline or miss an offer, that order is not offered to you again for 20 minutes.'
       )
+      expect(result.offers.some((line) => line.includes('at least'))).toBe(false)
 
       // Pay section
       expect(result.pay[0]).toContain('base of €2.00 plus €1.50 per km')

@@ -103,6 +103,7 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
 
     mockCacheService = {
       getOrDefault: jest.fn().mockResolvedValue([]),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
 
     // 5-point matrix: [rider, jobPickup, newPickup, jobDropoff, newDropoff]
@@ -204,7 +205,7 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
   describe('candidate filtering & queries (cross check 3)', () => {
     it('passes pickupLocation, maxDistanceInKM, skip list, boxUnits, siblingOfDeliveryId, and jobStatuses to candidate query', async () => {
       const delivery = makeDelivery('del-to-match', { boxUnits: 45 })
-      mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-skipped-1'])
+      mockCacheService.membersStillCounting.mockResolvedValueOnce(['courier-skipped-1'])
 
       await service.findAddOn(delivery, false, async () => true)
 

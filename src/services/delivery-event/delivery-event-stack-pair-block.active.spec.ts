@@ -34,7 +34,15 @@ import { stackPairBlockKey } from 'src/domains/delivery/stack'
 describe('Pair block TTL follows stackPairBlockMinutes co-op setting (row 147, Clauses 1 & 6)', () => {
   let service: DeliveryEventService
 
-  let mockCacheService: { get: jest.Mock; getOrDefault: jest.Mock; save: jest.Mock; delete: jest.Mock }
+  let mockCacheService: {
+    get: jest.Mock
+    getOrDefault: jest.Mock
+    save: jest.Mock
+    delete: jest.Mock
+    addWithOwnExpiry: jest.Mock
+    removeMember: jest.Mock
+    membersStillCounting: jest.Mock
+  }
   let mockConfigDomainService: {
     instanceConfig: { getStackPairBlockMinutes: jest.Mock; getOfferSkipMinutes: jest.Mock; [k: string]: any }
   }
@@ -72,6 +80,9 @@ describe('Pair block TTL follows stackPairBlockMinutes co-op setting (row 147, C
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
 
     mockConfigDomainService = {

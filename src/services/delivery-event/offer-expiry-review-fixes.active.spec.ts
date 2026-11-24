@@ -134,6 +134,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     service = new DeliveryEventService(
@@ -772,9 +775,10 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         reason: 'MOVED',
       })
       // Rider A is not put on skip list
-      expect(mockCacheService.save).not.toHaveBeenCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalledWith(
         expect.stringContaining(deliveryId),
-        expect.arrayContaining(['courier-A']),
+        'courier-A',
+        expect.anything(),
         expect.anything()
       )
       // No OFFER_EXPIRED event written
@@ -885,12 +889,12 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       } as any)
 
       const callOrder: string[] = []
-      mockCacheService.getOrDefault.mockImplementation(async () => [])
-      mockCacheService.save.mockImplementation(async (_key, val) => {
-        callOrder.push(`cache.save:${JSON.stringify(val)}`)
+      mockCacheService.addWithOwnExpiry.mockImplementation(async () => {
+        callOrder.push('cache.addWithOwnExpiry')
+        return true
       })
-      mockCacheService.delete.mockImplementation(async () => {
-        callOrder.push('cache.delete')
+      mockCacheService.removeMember.mockImplementation(async () => {
+        callOrder.push('cache.removeMember')
       })
       mockDeliveryRepository.updateIfMatches.mockImplementation(async () => {
         callOrder.push('updateIfMatches')
@@ -905,13 +909,13 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
 
       // Added before update, and undone after miss
       expect(callOrder).toEqual([
-        'cache.save:["courier-skip-1"]',
+        'cache.addWithOwnExpiry',
         'updateIfMatches',
-        'cache.delete',
+        'cache.removeMember',
       ])
     })
 
-    it('rejectDelivery: cache save happens before updateIfMatches, and miss undoes only newly added entry', async () => {
+    it('rejectDelivery: cache addWithOwnExpiry happens before updateIfMatches, and miss undoes only newly added entry', async () => {
       const mockDeliveryRepo: any = {
         findByIdOrThrow: jest.fn().mockResolvedValue({
           id: 'del-reject-order',
@@ -922,12 +926,12 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         updateIfMatches: jest.fn(),
       }
       const callOrder: string[] = []
-      mockCacheService.getOrDefault.mockImplementation(async () => [])
-      mockCacheService.save.mockImplementation(async (_k, val) => {
-        callOrder.push(`cache.save:${JSON.stringify(val)}`)
+      mockCacheService.addWithOwnExpiry.mockImplementation(async () => {
+        callOrder.push('cache.addWithOwnExpiry')
+        return true
       })
-      mockCacheService.delete.mockImplementation(async () => {
-        callOrder.push('cache.delete')
+      mockCacheService.removeMember.mockImplementation(async () => {
+        callOrder.push('cache.removeMember')
       })
       mockDeliveryRepo.updateIfMatches.mockImplementation(async () => {
         callOrder.push('updateIfMatches')
@@ -948,9 +952,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
 
       await expect(domainService.rejectDelivery('del-reject-order', 'courier-1')).rejects.toThrow()
       expect(callOrder).toEqual([
-        'cache.save:["courier-1"]',
+        'cache.addWithOwnExpiry',
         'updateIfMatches',
-        'cache.delete',
+        'cache.removeMember',
       ])
     })
   })

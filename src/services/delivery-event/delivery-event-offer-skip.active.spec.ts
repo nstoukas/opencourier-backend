@@ -35,7 +35,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
   let eventService: DeliveryEventService
   let domainService: DeliveryDomainService
 
-  let mockCacheService: { getOrDefault: jest.Mock; save: jest.Mock; delete: jest.Mock }
+  let mockCacheService: {
+    getOrDefault: jest.Mock
+    save: jest.Mock
+    delete: jest.Mock
+    addWithOwnExpiry: jest.Mock
+    removeMember: jest.Mock
+    membersStillCounting: jest.Mock
+  }
   let mockConfigDomainService: { instanceConfig: { getOfferSkipMinutes: jest.Mock; [k: string]: any } }
   let mockDeliveryRepository: any
   let mockCourierRepository: any
@@ -54,6 +61,9 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
 
     mockConfigDomainService = {
@@ -205,7 +215,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await (eventService as any).endOffer({ deliveryId, courierId, reason: 'EXPIRED' })
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(300 * 1000)
       })
 
       it('saves to skip list with 420 s TTL when offerSkipMinutes is 7', async () => {
@@ -213,17 +230,20 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await (eventService as any).endOffer({ deliveryId, courierId, reason: 'EXPIRED' })
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
 
-      it('undoes skip list entry by deleting key when last courier comes off in undoSkipListEntry', async () => {
-        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
-        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
-
+      it('undoes skip list entry by calling removeMember on key in undoSkipListEntry', async () => {
         await (eventService as any).undoSkipListEntry(deliveryId, courierId)
 
-        expect(mockCacheService.delete).toHaveBeenCalledWith(key)
-        expect(mockCacheService.save).not.toHaveBeenCalled()
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
     })
 
@@ -252,7 +272,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.declineStack(deliveryWithStack, courierId)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(partnerKey, [courierId], 300)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          partnerKey,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const call = mockCacheService.addWithOwnExpiry.mock.calls.find(([k]) => k === partnerKey)
+        expect(call[3] - call[2]).toBe(300 * 1000)
       })
 
       it('saves stack partner delivery with 420 s TTL when offerSkipMinutes is 7', async () => {
@@ -279,7 +306,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.declineStack(deliveryWithStack, courierId)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(partnerKey, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          partnerKey,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const call = mockCacheService.addWithOwnExpiry.mock.calls.find(([k]) => k === partnerKey)
+        expect(call[3] - call[2]).toBe(420 * 1000)
       })
     })
 
@@ -290,8 +324,13 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
-        expect(mockCacheService.delete).toHaveBeenCalledWith(key)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
 
       it('adds with 420 s TTL when setting is 7 min', async () => {
@@ -300,7 +339,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
     })
 
@@ -312,8 +358,13 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
         const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
         await eventService.leaveWait(delivery, courierId, new Date())
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
-        expect(mockCacheService.delete).toHaveBeenCalledWith(key)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
 
       it('adds with 420 s TTL when setting is 7 min', async () => {
@@ -323,7 +374,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
         const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
         await eventService.leaveWait(delivery, courierId, new Date())
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
     })
 
@@ -334,7 +392,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.removeRiderBeforePickup(delivery, courierId, 'Emergency')
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(300 * 1000)
       })
 
       it('adds rider to skip list with 420 s TTL when setting is 7 min', async () => {
@@ -343,7 +408,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await eventService.removeRiderBeforePickup(delivery, courierId, 'Emergency')
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
     })
   })
@@ -370,7 +442,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
         const added = await domainService.addCourierToRejectedList(deliveryId, courierId)
 
         expect(added).toBe(true)
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(300 * 1000)
       })
 
       it('passes 420 s to cache helper when setting is 7 min', async () => {
@@ -379,27 +458,22 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
         const added = await domainService.addCourierToRejectedList(deliveryId, courierId)
 
         expect(added).toBe(true)
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
     })
 
     describe('removeCourierFromRejectedList wrapper', () => {
-      it('passes 300 s to cache helper when setting is 5 min', async () => {
-        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
-        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
-
+      it('calls removeMember on cache helper', async () => {
         await domainService.removeCourierFromRejectedList(deliveryId, courierId)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 300)
-      })
-
-      it('passes 420 s to cache helper when setting is 7 min', async () => {
-        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
-        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
-
-        await domainService.removeCourierFromRejectedList(deliveryId, courierId)
-
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 420)
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
     })
 
@@ -410,8 +484,13 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow()
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
-        expect(mockCacheService.delete).toHaveBeenCalledWith(key)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
 
       it('adds with 420 s when setting is 7 min (not fixed 1200)', async () => {
@@ -420,7 +499,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await domainService.rejectDelivery(deliveryId, courierId)
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
     })
 
@@ -445,7 +531,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await domainService.reassignDelivery(deliveryId, 'courier-new')
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(300 * 1000)
       })
 
       it('puts dropped rider on skip list with 420 s TTL when offerSkipMinutes is 7', async () => {
@@ -468,7 +561,14 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await domainService.reassignDelivery(deliveryId, 'courier-new')
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        const [, , now, ends] = mockCacheService.addWithOwnExpiry.mock.calls[0]
+        expect(ends - now).toBe(420 * 1000)
       })
 
       it('rolls back dropped rider from skip list when reassignment did not take effect', async () => {
@@ -486,8 +586,13 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
         await expect(domainService.reassignDelivery(deliveryId, 'courier-new')).rejects.toThrow()
 
-        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
-        expect(mockCacheService.delete).toHaveBeenCalledWith(key)
+        expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+          key,
+          courierId,
+          expect.any(Number),
+          expect.any(Number)
+        )
+        expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
       })
     })
   })
@@ -496,10 +601,10 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
   // Minor 1: DeliveryDomainService.rejectDelivery undo failure handling
   // --------------------------------------------------------------------------
   describe('Minor 1: DeliveryDomainService.rejectDelivery undo failures never replace original error', () => {
-    it('throws the original database error and logs undo failure when updateIfMatches throws and undo fails (setting read rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
-        .mockResolvedValueOnce(20) // initial addCourierToRejectedList succeeds
-        .mockRejectedValueOnce(new Error('Config service unreachable on undo')) // undo rejects
+    it('throws the original database error and logs undo failure when updateIfMatches throws and undo fails (removeMember rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(true)
+      mockCacheService.removeMember.mockRejectedValueOnce(new Error('Redis connection down on undo'))
       mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(new Error('Postgres connection lost'))
       const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
 
@@ -510,38 +615,10 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
       )
     })
 
-    it('throws the original database error and logs undo failure when updateIfMatches throws and undo fails (cache delete rejects)', async () => {
+    it('throws OfferHasEndedException and logs undo failure when updateIfMatches returns false and undo fails (removeMember rejects)', async () => {
       mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
-      mockCacheService.save.mockResolvedValueOnce(undefined) // add succeeds
-      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis connection down on undo')) // undo delete fails
-      mockDeliveryRepository.updateIfMatches.mockRejectedValueOnce(new Error('Postgres connection lost'))
-      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
-
-      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow('Postgres connection lost')
-
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
-      )
-    })
-
-    it('throws OfferHasEndedException and logs undo failure when updateIfMatches returns false and undo fails (setting read rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
-        .mockResolvedValueOnce(20) // add succeeds
-        .mockRejectedValueOnce(new Error('Config service unreachable on undo')) // undo rejects
-      mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
-      const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
-
-      await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
-
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`Could not take courier ${courierId} back off the skip list of ${deliveryId}`)
-      )
-    })
-
-    it('throws OfferHasEndedException and logs undo failure when updateIfMatches returns false and undo fails (cache delete rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
-      mockCacheService.save.mockResolvedValueOnce(undefined) // add succeeds
-      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis connection down on undo')) // undo delete fails
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(true)
+      mockCacheService.removeMember.mockRejectedValueOnce(new Error('Redis connection down on undo'))
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
       const loggerSpy = jest.spyOn((domainService as any).logger, 'error').mockImplementation()
 
@@ -565,7 +642,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
       await domainService.rejectDelivery(deliveryId, courierId)
 
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not add courier ${courierId} to the skip list of ${deliveryId}`)
       )
@@ -580,7 +657,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
       expect(count).toBe(1)
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not add courier ${courierId} to the skip list of ${deliveryId}`)
       )
@@ -595,7 +672,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
       expect(success).toBe(true)
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
       )
@@ -611,7 +688,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
       expect(success).toBe(true)
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
       )
@@ -627,7 +704,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
 
       expect(result).toBeDefined()
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not put rider ${courierId} on the skip list of delivery ${deliveryId}`)
       )
@@ -658,11 +735,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
       await eventService.declineStack(deliveryWithStack, courierId)
 
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
-      expect(mockCacheService.save).not.toHaveBeenCalledWith(
-        expect.stringContaining('delivery-rejected-couriers'),
-        expect.anything(),
-        expect.anything()
-      )
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(loggerSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Could not add courier ${courierId} to the skip list of ${deliveryId}`)
       )
@@ -695,10 +768,9 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
   // handBack and leaveWait: undo failure resilience with shared helper message
   // --------------------------------------------------------------------------
   describe('handBack and leaveWait: undo failure resilience with shared helper message', () => {
-    it('handBack completes and logs with shared message when undo fails (setting read rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
-        .mockResolvedValueOnce(20)
-        .mockRejectedValueOnce(new Error('Config DB down on undo'))
+    it('handBack completes and logs with shared message when undo fails (removeMember rejects)', async () => {
+      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
+      mockCacheService.removeMember.mockRejectedValueOnce(new Error('Redis delete error on undo'))
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
       const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
 
@@ -716,51 +788,9 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
       )
     })
 
-    it('handBack completes and logs with shared message when undo fails (cache delete rejects)', async () => {
+    it('leaveWait completes and logs with shared message when undo fails (removeMember rejects)', async () => {
       mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
-      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis delete error on undo'))
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
-      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
-
-      const result = await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
-
-      expect(result).toBe(false)
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`Could not take courier ${courierId} off the skip list of ${deliveryId}`)
-      )
-      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: EnumDeliveryEventType.HANDED_BACK,
-          transitionSuccessful: false,
-        })
-      )
-    })
-
-    it('leaveWait completes and logs with shared message when undo fails (setting read rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes
-        .mockResolvedValueOnce(20)
-        .mockRejectedValueOnce(new Error('Config DB down on undo'))
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
-      const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
-
-      const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
-      const result = await eventService.leaveWait(delivery, courierId, new Date())
-
-      expect(result).toBe(false)
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`Could not take courier ${courierId} off the skip list of ${deliveryId}`)
-      )
-      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: EnumDeliveryEventType.WAIT_UNDISPATCHED,
-          transitionSuccessful: false,
-        })
-      )
-    })
-
-    it('leaveWait completes and logs with shared message when undo fails (cache delete rejects)', async () => {
-      mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(20)
-      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis delete error on undo'))
+      mockCacheService.removeMember.mockRejectedValueOnce(new Error('Redis delete error on undo'))
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
       const loggerSpy = jest.spyOn((eventService as any).logger, 'error').mockImplementation()
 

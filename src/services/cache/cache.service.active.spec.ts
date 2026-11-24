@@ -11,6 +11,8 @@ describe('CacheService (Spec 0039 row 17: increment, take, setIfAbsent for passw
     expire: jest.Mock
     getdel: jest.Mock
     eval: jest.Mock
+    zrangebyscore: jest.Mock
+    zrem: jest.Mock
   }
 
   beforeEach(() => {
@@ -22,6 +24,8 @@ describe('CacheService (Spec 0039 row 17: increment, take, setIfAbsent for passw
       expire: jest.fn(),
       getdel: jest.fn(),
       eval: jest.fn(),
+      zrangebyscore: jest.fn(),
+      zrem: jest.fn(),
     }
     cacheService = new CacheService(mockRedisClient as unknown as RedisClient)
   })
@@ -142,6 +146,85 @@ describe('CacheService (Spec 0039 row 17: increment, take, setIfAbsent for passw
 
       mockRedisClient.get.mockResolvedValue('100')
       expect(await cacheService.getOrDefault('key', 42)).toBe(100)
+    })
+  })
+
+  describe('Row 148: Sorted set skip list operations', () => {
+    describe('addWithOwnExpiry', () => {
+      test('calls redisClient.eval with ADD_WITH_OWN_EXPIRY Lua script, 1 key, key, member, nowMs, and endsAtMs', async () => {
+        mockRedisClient.eval.mockResolvedValue(1)
+
+        const result = await cacheService.addWithOwnExpiry('skip-key', 'rider-1', 1000, 5000)
+
+        expect(mockRedisClient.eval).toHaveBeenCalledTimes(1)
+        const [script, numKeys, key, member, nowMs, endsAtMs] = mockRedisClient.eval.mock.calls[0]
+        expect(numKeys).toBe(1)
+        expect(key).toBe('skip-key')
+        expect(member).toBe('rider-1')
+        expect(nowMs).toBe(1000)
+        expect(endsAtMs).toBe(5000)
+
+        // Script content verification: Lua idioms for sorted set with own expiry
+        expect(script).toContain("redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)")
+        expect(script).toContain("redis.call('ZSCORE', KEYS[1], ARGV[1])")
+        expect(script).toContain("redis.call('ZADD', KEYS[1], 'GT', ends, ARGV[1])")
+        expect(script).toContain("redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')")
+        expect(script).toContain("redis.call('PEXPIRE', KEYS[1], math.max(1, tonumber(last[2]) - now))")
+        expect(script).toContain('if before == false then return 1 end')
+
+        expect(result).toBe(true)
+      })
+
+      test('returns true when eval returns 1 or "1" (member newly started counting)', async () => {
+        mockRedisClient.eval.mockResolvedValueOnce(1)
+        expect(await cacheService.addWithOwnExpiry('k', 'm', 100, 200)).toBe(true)
+
+        mockRedisClient.eval.mockResolvedValueOnce('1')
+        expect(await cacheService.addWithOwnExpiry('k', 'm', 100, 200)).toBe(true)
+      })
+
+      test('returns false when eval returns 0 or "0" (member was already counting)', async () => {
+        mockRedisClient.eval.mockResolvedValueOnce(0)
+        expect(await cacheService.addWithOwnExpiry('k', 'm', 100, 200)).toBe(false)
+
+        mockRedisClient.eval.mockResolvedValueOnce('0')
+        expect(await cacheService.addWithOwnExpiry('k', 'm', 100, 200)).toBe(false)
+      })
+    })
+
+    describe('membersStillCounting', () => {
+      test('calls redisClient.zrangebyscore with exclusive lower bound `(${nowMs}` and upper bound `+inf`', async () => {
+        mockRedisClient.zrangebyscore.mockResolvedValue(['rider-1', 'rider-2'])
+
+        const result = await cacheService.membersStillCounting('skip-key', 1732460000000)
+
+        expect(mockRedisClient.zrangebyscore).toHaveBeenCalledTimes(1)
+        expect(mockRedisClient.zrangebyscore).toHaveBeenCalledWith(
+          'skip-key',
+          '(1732460000000',
+          '+inf'
+        )
+        expect(result).toEqual(['rider-1', 'rider-2'])
+      })
+
+      test('returns empty array when zrangebyscore returns empty array', async () => {
+        mockRedisClient.zrangebyscore.mockResolvedValue([])
+
+        const result = await cacheService.membersStillCounting('skip-key', 1732460000000)
+
+        expect(result).toEqual([])
+      })
+    })
+
+    describe('removeMember', () => {
+      test('calls redisClient.zrem with key and member', async () => {
+        mockRedisClient.zrem.mockResolvedValue(1)
+
+        await cacheService.removeMember('skip-key', 'rider-1')
+
+        expect(mockRedisClient.zrem).toHaveBeenCalledTimes(1)
+        expect(mockRedisClient.zrem).toHaveBeenCalledWith('skip-key', 'rider-1')
+      })
     })
   })
 })

@@ -200,6 +200,14 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       delete: jest.fn().mockImplementation(async () => {
         callOrder.push('cacheService.delete')
       }),
+      addWithOwnExpiry: jest.fn().mockImplementation(async () => {
+        callOrder.push('cacheService.addWithOwnExpiry')
+        return true
+      }),
+      removeMember: jest.fn().mockImplementation(async () => {
+        callOrder.push('cacheService.removeMember')
+      }),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     mockOfferPushService = {
@@ -737,7 +745,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       expect(result).toBe(true)
 
       // 1. Skip list first
-      expect(callOrder[0]).toBe('cacheService.save')
+      expect(callOrder[0]).toBe('cacheService.addWithOwnExpiry')
 
       // 2. ONE updateIfMatches with ASSIGNING_COURIER, clearing courierId, arrivedAtPickupAt, etc.
       expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
@@ -881,9 +889,10 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
       expect(result).toBe(false)
 
       // Removed from skip list
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining(delivery.id)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining(delivery.id),
+        COURIER_ID
       )
 
       // Failed event saved with transitionSuccessful: false

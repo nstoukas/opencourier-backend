@@ -50,6 +50,9 @@ describe('DeliveryDomainService', () => {
       getOrDefault: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<CacheService>
 
     mockDeliveryEventService = {
@@ -312,11 +315,12 @@ describe('DeliveryDomainService', () => {
       expect(processEventCallArg.message).toEqual(`${createCallArg.message} (award comp-1)`)
 
       // Assert dropped courier added to rejected list (Redis cache)
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
-      expect(mockCacheService.save).toHaveBeenCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining('del-happy'),
-        ['courier-old'],
-        1200
+        'courier-old',
+        expect.any(Number),
+        expect.any(Number)
       )
 
       // Assert returned delivery is the reloaded entity
@@ -683,13 +687,10 @@ describe('DeliveryDomainService', () => {
 
       expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-1')
 
-      // Second save should remove 'courier-old' and leave 'courier-other'
-      expect(mockCacheService.save).toHaveBeenCalledTimes(2)
-      expect(mockCacheService.save).toHaveBeenNthCalledWith(
-        2,
+      // removeCourierFromRejectedList removes 'courier-old'
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
         expect.stringContaining('del-undo'),
-        ['courier-other'],
-        1200
+        'courier-old'
       )
     })
 
@@ -717,8 +718,8 @@ describe('DeliveryDomainService', () => {
         .mockResolvedValueOnce(initialDelivery as any)
         .mockResolvedValueOnce(unchangedDelivery as any)
 
-      // Courier-old was already in rejected list!
-      mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-old'])
+      // Courier-old was already in rejected list (addWithOwnExpiry returned false)
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(false)
 
       mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
@@ -728,8 +729,9 @@ describe('DeliveryDomainService', () => {
 
       expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-1')
 
-      // save called only once during add attempt (which found already rejected), no second save call for removal
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      // addWithOwnExpiry called once, no removeMember call for rollback because it wasn't added by this call
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.removeMember).not.toHaveBeenCalled()
     })
 
     // Test Plan Item 6: Rejected-list write failure: failed add is not followed by removal attempt
@@ -750,9 +752,9 @@ describe('DeliveryDomainService', () => {
         service.reassignDelivery('del-fail-write', 'courier-new')
       ).rejects.toThrow('DB write failure')
 
-      // processDeliveryEvent and cacheService.save are NEVER called
+      // processDeliveryEvent and cacheService.addWithOwnExpiry are NEVER called
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalled()
       expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
 
       // Case 16: Logged at error level carrying the required fields
@@ -762,8 +764,8 @@ describe('DeliveryDomainService', () => {
       )
     })
 
-    // Test Plan Item 6: Rejected-list write failure (cacheService.save fails)
-    test('rolls back compensation award, refrains from emitting event, and logs at error level when cacheService.save fails', async () => {
+    // Test Plan Item 6: Rejected-list write failure (cacheService.addWithOwnExpiry fails)
+    test('rolls back compensation award, refrains from emitting event, and logs at error level when cacheService.addWithOwnExpiry fails', async () => {
       const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
 
       const initialDelivery = {
@@ -774,7 +776,7 @@ describe('DeliveryDomainService', () => {
         currencyCode: 'EUR',
       }
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(initialDelivery as any)
-      mockCacheService.save.mockRejectedValueOnce(new Error('Redis connection lost'))
+      mockCacheService.addWithOwnExpiry.mockRejectedValueOnce(new Error('Redis connection lost'))
 
       await expect(
         service.reassignDelivery('del-fail-cache', 'courier-new')
@@ -785,8 +787,8 @@ describe('DeliveryDomainService', () => {
       expect(mockCourierCompensationRepository.deleteById).toHaveBeenCalledWith('comp-1')
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
 
-      // Test Plan Item 6: save called exactly once (the failed add, not followed by removal attempt)
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      // Test Plan Item 6: addWithOwnExpiry called exactly once (the failed add, not followed by removal attempt)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
 
       // Case 16: Logged at error level carrying the required fields
       expect(loggerSpy).toHaveBeenCalledWith(
@@ -818,9 +820,9 @@ describe('DeliveryDomainService', () => {
         .mockResolvedValueOnce(initialDelivery as any)
         .mockResolvedValueOnce(unchangedDelivery as any)
 
-      // Save succeeds on add, delete rejects on rollback removal
-      mockCacheService.save.mockResolvedValueOnce(undefined)
-      mockCacheService.delete.mockRejectedValueOnce(new Error('Redis down'))
+      // Add succeeds, removeMember rejects on rollback removal
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(true)
+      mockCacheService.removeMember.mockRejectedValueOnce(new Error('Redis down'))
 
       mockDeliveryEventService.hasSuccessfulReassignedWithMessage.mockResolvedValueOnce(false)
 
@@ -855,7 +857,7 @@ describe('DeliveryDomainService', () => {
       // Outcome unknown: award is KEPT to protect courier income, deleteById is NOT called
       expect(mockCourierCompensationRepository.create).toHaveBeenCalledTimes(1)
       expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
 
       // Case 16: Logged at error level carrying the required fields
       expect(loggerSpy).toHaveBeenCalledWith(
@@ -886,7 +888,7 @@ describe('DeliveryDomainService', () => {
       // Outcome unknown: award is KEPT, deleteById is NOT called
       expect(mockCourierCompensationRepository.create).toHaveBeenCalledTimes(1)
       expect(mockCourierCompensationRepository.deleteById).not.toHaveBeenCalled()
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
 
       // Case 16: Logged at error level carrying the required fields
       expect(loggerSpy).toHaveBeenCalledWith(
@@ -938,9 +940,10 @@ describe('DeliveryDomainService', () => {
       )
 
       // Test Plan Item 9: Rejected-list removal attempt ran despite award deletion failure
-      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining('del-double-fault')
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining('del-double-fault'),
+        'courier-old'
       )
     })
   })
@@ -976,10 +979,11 @@ describe('DeliveryDomainService', () => {
           stopSequence: Prisma.DbNull,
         }
       )
-      expect(mockCacheService.save).toHaveBeenCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining('del-reject'),
-        ['courier-1'],
-        1200
+        'courier-1',
+        expect.any(Number),
+        expect.any(Number)
       )
       expect(mockDeliveryEventService.processDeliveryEvent).toHaveBeenCalledWith({
         deliveryId: 'del-reject',
@@ -1009,8 +1013,9 @@ describe('DeliveryDomainService', () => {
         'This offer has ended'
       )
       // Rider was added before clear and removed when clear matched nothing (not left on list)
-      expect(mockCacheService.delete).toHaveBeenCalledWith(
-        expect.stringContaining('del-reject-stale')
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(
+        expect.stringContaining('del-reject-stale'),
+        'courier-1'
       )
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
@@ -1025,17 +1030,20 @@ describe('DeliveryDomainService', () => {
         courierId: null,
       }
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValueOnce(delivery as any)
-      mockCacheService.getOrDefault.mockResolvedValueOnce(['courier-1'])
+      // courier-1 already counted on the skip list before this call
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(false)
       mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
 
       await expect(service.rejectDelivery('del-reject-stale-2', 'courier-1')).rejects.toThrow(
         'This offer has ended'
       )
-      expect(mockCacheService.save).toHaveBeenLastCalledWith(
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
         expect.stringContaining('del-reject-stale-2'),
-        ['courier-1'],
+        'courier-1',
+        expect.any(Number),
         expect.any(Number)
       )
+      expect(mockCacheService.removeMember).not.toHaveBeenCalled()
       expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
     })
   })

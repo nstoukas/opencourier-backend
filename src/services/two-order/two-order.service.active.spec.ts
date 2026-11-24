@@ -77,6 +77,7 @@ describe('TwoOrderService (spec 0048, row 80)', () => {
     mockCacheService = {
       get: jest.fn().mockResolvedValue(null),
       getOrDefault: jest.fn().mockResolvedValue([]),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
 
     mockOsrmService = {
@@ -199,7 +200,7 @@ describe('TwoOrderService (spec 0048, row 80)', () => {
       const second = makeDelivery('del-2')
       mockDeliveryRepo.findStackPartnerCandidates.mockResolvedValueOnce([second])
       // Courier is on second delivery's rejected list
-      mockCacheService.getOrDefault.mockImplementation((key: string) => {
+      mockCacheService.membersStillCounting.mockImplementation((key: string) => {
         if (key === CacheHelpers.getDeliveryRejectedCouriersKey(second.id)) return Promise.resolve([courierId])
         return Promise.resolve([])
       })

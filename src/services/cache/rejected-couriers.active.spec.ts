@@ -1,15 +1,19 @@
 import { CacheService } from './cache.service'
 import { CacheHelpers } from './cache.helpers'
-import { addCourierToRejectedList, removeCourierFromRejectedList } from './rejected-couriers'
+import {
+  addCourierToRejectedList,
+  removeCourierFromRejectedList,
+  getRejectedCourierIds,
+} from './rejected-couriers'
 
-// Scope row 144: How long a skipped rider waits is a co-op setting.
-// The skip list helpers (addCourierToRejectedList, removeCourierFromRejectedList) take ttlSeconds,
-// which callers provide dynamically from offerSkipMinutes * 60.
-describe('rejected-couriers cache helpers (row 144)', () => {
+// Scope rows 144 & 148: Each rider on a delivery's skip list has their own end time in a Redis sorted set.
+// addCourierToRejectedList calls addWithOwnExpiry, removeCourierFromRejectedList calls removeMember,
+// and getRejectedCourierIds calls membersStillCounting.
+describe('rejected-couriers cache helpers (rows 144 & 148)', () => {
   let mockCacheService: {
-    getOrDefault: jest.Mock
-    save: jest.Mock
-    delete: jest.Mock
+    addWithOwnExpiry: jest.Mock
+    removeMember: jest.Mock
+    membersStillCounting: jest.Mock
   }
 
   const deliveryId = 'del-skip-1'
@@ -18,15 +22,24 @@ describe('rejected-couriers cache helpers (row 144)', () => {
 
   beforeEach(() => {
     mockCacheService = {
-      getOrDefault: jest.fn().mockResolvedValue([]),
-      save: jest.fn().mockResolvedValue(undefined),
-      delete: jest.fn().mockResolvedValue(undefined),
+      addWithOwnExpiry: jest.fn().mockResolvedValue(true),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      membersStillCounting: jest.fn().mockResolvedValue([]),
     }
   })
 
+  describe('key format (row 148)', () => {
+    it('uses delivery-skip-list:<id> sorted set key, not old array key', () => {
+      expect(key).toBe(`delivery-skip-list:${deliveryId}`)
+    })
+  })
+
   describe('addCourierToRejectedList', () => {
-    it('saves courier with the passed ttlSeconds (e.g. 300 s for 5 min setting) and returns true when newly added', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([])
+    it('calls addWithOwnExpiry with key, courierId, nowMs, and endsAtMs = now + ttlSeconds * 1000', async () => {
+      const fixedNow = 1732460000000
+      jest.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(true)
 
       const result = await addCourierToRejectedList(
         mockCacheService as unknown as CacheService,
@@ -36,12 +49,21 @@ describe('rejected-couriers cache helpers (row 144)', () => {
       )
 
       expect(result).toBe(true)
-      expect(mockCacheService.getOrDefault).toHaveBeenCalledWith(key, [])
-      expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+        key,
+        courierId,
+        fixedNow,
+        fixedNow + 300 * 1000
+      )
+
+      jest.restoreAllMocks()
     })
 
-    it('saves with updated ttlSeconds (e.g. 420 s for 7 min setting) when representative changed the setting', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([])
+    it('returns false when addWithOwnExpiry returns false (courier already counted)', async () => {
+      const fixedNow = 1732460000000
+      jest.spyOn(Date, 'now').mockReturnValue(fixedNow)
+
+      mockCacheService.addWithOwnExpiry.mockResolvedValueOnce(false)
 
       const result = await addCourierToRejectedList(
         mockCacheService as unknown as CacheService,
@@ -50,54 +72,57 @@ describe('rejected-couriers cache helpers (row 144)', () => {
         420
       )
 
-      expect(result).toBe(true)
-      expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
-    })
-
-    it('returns false when courier was already on the list, but still refreshes the key with ttlSeconds', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'other-courier'])
-
-      const result = await addCourierToRejectedList(
-        mockCacheService as unknown as CacheService,
-        deliveryId,
+      expect(result).toBe(false)
+      expect(mockCacheService.addWithOwnExpiry).toHaveBeenCalledWith(
+        key,
         courierId,
-        300
+        fixedNow,
+        fixedNow + 420 * 1000
       )
 
-      expect(result).toBe(false)
-      // Array is unchanged, but key expiry is refreshed with the current ttlSeconds
-      expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId, 'other-courier'], 300)
+      jest.restoreAllMocks()
     })
   })
 
   describe('removeCourierFromRejectedList', () => {
-    it('deletes the key (no save) when the last courier comes off (empty list)', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+    it('calls removeMember with key and courierId (no ttlSeconds needed)', async () => {
+      await removeCourierFromRejectedList(
+        mockCacheService as unknown as CacheService,
+        deliveryId,
+        courierId
+      )
 
-      await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 300)
+      expect(mockCacheService.removeMember).toHaveBeenCalledTimes(1)
+      expect(mockCacheService.removeMember).toHaveBeenCalledWith(key, courierId)
+    })
+  })
 
-      expect(mockCacheService.getOrDefault).toHaveBeenCalledWith(key, [])
-      expect(mockCacheService.delete).toHaveBeenCalledWith(key)
-      expect(mockCacheService.save).not.toHaveBeenCalled()
+  describe('getRejectedCourierIds', () => {
+    it('calls membersStillCounting with key and Date.now(), returning unexpired courier IDs', async () => {
+      const fixedNow = 1732460050000
+      jest.spyOn(Date, 'now').mockReturnValue(fixedNow)
+      mockCacheService.membersStillCounting.mockResolvedValueOnce(['courier-1', 'courier-2'])
+
+      const result = await getRejectedCourierIds(
+        mockCacheService as unknown as CacheService,
+        deliveryId
+      )
+
+      expect(mockCacheService.membersStillCounting).toHaveBeenCalledWith(key, fixedNow)
+      expect(result).toEqual(['courier-1', 'courier-2'])
+
+      jest.restoreAllMocks()
     })
 
-    it('removes courier and saves remaining list with the passed ttlSeconds (non-empty remainder, no delete)', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
+    it('returns empty array when membersStillCounting returns empty array', async () => {
+      mockCacheService.membersStillCounting.mockResolvedValueOnce([])
 
-      await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 300)
+      const result = await getRejectedCourierIds(
+        mockCacheService as unknown as CacheService,
+        deliveryId
+      )
 
-      expect(mockCacheService.getOrDefault).toHaveBeenCalledWith(key, [])
-      expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 300)
-      expect(mockCacheService.delete).not.toHaveBeenCalled()
-    })
-
-    it('saves with updated ttlSeconds (e.g. 420 s for 7 min setting) when representative changed the setting', async () => {
-      mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
-
-      await removeCourierFromRejectedList(mockCacheService as unknown as CacheService, deliveryId, courierId, 420)
-
-      expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 420)
-      expect(mockCacheService.delete).not.toHaveBeenCalled()
+      expect(result).toEqual([])
     })
   })
 })
