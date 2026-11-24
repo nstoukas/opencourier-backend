@@ -181,7 +181,7 @@ describe('TwoOrderService (spec 0048, row 80)', () => {
       expect(result).toBeNull()
     })
 
-    it('skips candidates that are blocked as a pair in Redis (cross check 9: 20 min block after decline/expiry)', async () => {
+    it('skips candidates that are blocked as a pair in Redis (cross check 9: stackPairBlockMinutes block after decline/expiry)', async () => {
       const first = makeDelivery('del-1')
       const second = makeDelivery('del-2')
       mockDeliveryRepo.findStackPartnerCandidates.mockResolvedValueOnce([second])
