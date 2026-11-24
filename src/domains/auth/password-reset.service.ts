@@ -14,6 +14,7 @@ import { isRecordNotFoundError } from 'src/prisma.util'
 import { CacheService } from 'src/services/cache/cache.service'
 import { MailService } from 'src/services/mail/mail.service'
 import { describeError } from 'src/utils/errorForLog'
+import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 
 // The sentences a rider reads (spec 0039, AC-11 and AC-12). One sentence for every bad code, so an
 // answer never tells a wrong code from an unknown email.
@@ -52,6 +53,12 @@ export interface ResetRider {
   courier: CourierEntity
 }
 
+// Row 153: a restaurant the reset may act on: a PARTNER login that is not also an ADMIN, with a Partner row.
+export interface ResetRestaurant {
+  user: UserEntity
+  partnerId: string
+}
+
 // Rider password reset by an emailed 6 digit code (row 17, spec 0039): making, mailing and checking
 // codes, and the guards around them. No HTTP and no cut off: the courier auth REST service calls this,
 // then saves the password and cuts the old phones off.
@@ -70,7 +77,10 @@ export class PasswordResetService implements OnModuleInit {
     private readonly userDomainService: UserDomainService,
     private readonly courierDomainService: CourierDomainService,
     private readonly configDomainService: ConfigDomainService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    // Row 153: finds a restaurant's Partner row. Optional only so tests that build this service by hand keep
+    // compiling; Nest injects it, and without it no restaurant is ever found (the rider reset is unchanged).
+    private readonly partnerRepository?: PartnerRepository
   ) {}
 
   onModuleInit() {
@@ -89,12 +99,8 @@ export class PasswordResetService implements OnModuleInit {
   // AC-7: the rider an email belongs to, or null. Looked up as typed first, then trimmed and lower
   // cased, by the same rule as loginWithEmail (the second form only when no account has the first).
   async findRider(email: string): Promise<ResetRider | null> {
-    let user = await this.userDomainService.findUserWithEmail(email)
-    const normalised = email.trim().toLowerCase()
-    if (!user && normalised !== email) {
-      user = await this.userDomainService.findUserWithEmail(normalised)
-    }
-    if (!user || !user.email) return null
+    const user = await this.findUserByEmail(email)
+    if (!user) return null
     // Riders only (decision 17.14): this route never changes an admin's or a restaurant's password.
     if (!user.role.includes(EnumUserRole.COURIER) || user.role.includes(EnumUserRole.ADMIN)) return null
     // getByUserId throws when the login has no Courier row (a dev script account): no rider then.
@@ -110,22 +116,51 @@ export class PasswordResetService implements OnModuleInit {
     return { user, courier }
   }
 
+  // Row 153: the restaurant an email belongs to, or null: a PARTNER login, never an ADMIN's (the reset never
+  // changes an admin's password), with a Partner row. Restaurants have no deactivation.
+  async findRestaurant(email: string): Promise<ResetRestaurant | null> {
+    const user = await this.findUserByEmail(email)
+    if (!user || !this.partnerRepository) return null
+    if (!user.role.includes(EnumUserRole.PARTNER) || user.role.includes(EnumUserRole.ADMIN)) return null
+    const partner = await this.partnerRepository.findByUserId(user.id)
+    return partner ? { user, partnerId: partner.id } : null
+  }
+
+  // The login an email belongs to, looked up as typed first, then trimmed and lower cased, by the same rule as
+  // loginWithEmail (the second form only when no account has the first). Null without a stored email.
+  private async findUserByEmail(email: string): Promise<UserEntity | null> {
+    let user = await this.userDomainService.findUserWithEmail(email)
+    const normalised = email.trim().toLowerCase()
+    if (!user && normalised !== email) {
+      user = await this.userDomainService.findUserWithEmail(normalised)
+    }
+    return user && user.email ? user : null
+  }
+
   // The work behind "forgot password", run after the 202 has been sent (AC-7). Finds the rider, passes
   // the two guards (AC-8), stores a new code and mails it (AC-9). Every refusal is silent: the answer
   // already went out, and it was the same whatever happens here.
   async sendCodeIfRider(email: string): Promise<void> {
-    const rider = await this.findRider(email)
-    if (!rider) return
+    await this.sendCodeTo(await this.findRider(email))
+  }
+
+  // Row 153: the same for a restaurant, from request-web's sign in card. Same limits, same mail.
+  async sendCodeIfRestaurant(email: string): Promise<void> {
+    await this.sendCodeTo(await this.findRestaurant(email))
+  }
+
+  private async sendCodeTo(account: { user: UserEntity } | null): Promise<void> {
+    if (!account) return
     try {
-      await this.makeAndSendCode(rider)
+      await this.makeAndSendCode(account)
     } catch (error) {
       // Redis or the settings failed. The user id and the kind of error, never its message (AC-13).
-      this.logger.error(`Password reset for user ${rider.user.id} failed: ${describeError(error)}`)
+      this.logger.error(`Password reset for user ${account.user.id} failed: ${describeError(error)}`)
     }
   }
 
-  private async makeAndSendCode(rider: ResetRider): Promise<void> {
-    const userId = rider.user.id
+  private async makeAndSendCode(account: { user: UserEntity }): Promise<void> {
+    const userId = account.user.id
     const keys = resetKeys(userId)
 
     // One code a minute: of two requests at once, only the one that sets this key goes on.
@@ -152,8 +187,8 @@ export class PasswordResetService implements OnModuleInit {
     try {
       // Sent to the stored address, never the typed one (they can differ in capitals).
       await this.mailService.send({
-        to: rider.user.email as string,
-        ...buildResetEmail(code, name, rider.user.language),
+        to: account.user.email as string,
+        ...buildResetEmail(code, name, account.user.language),
       })
     } catch (error) {
       // AC-12 and AC-13: the user id and what kind of failure, never the error's message, which can
@@ -168,9 +203,19 @@ export class PasswordResetService implements OnModuleInit {
   // throws the one code sentence. The caller has already refused a malformed email, code or password,
   // so none of those spends a try.
   async claimCode(email: string, code: string): Promise<ResetRider> {
-    const rider = await this.findRider(email)
-    if (!rider) throw new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
-    const userId = rider.user.id
+    return this.claimFor(await this.findRider(email), code)
+  }
+
+  // Row 153: the same check for a restaurant's code.
+  async claimRestaurantCode(email: string, code: string): Promise<ResetRestaurant> {
+    return this.claimFor(await this.findRestaurant(email), code)
+  }
+
+  // `<T extends { user: UserEntity }>`: whichever account type comes in (a rider, a restaurant) goes back out,
+  // and all this needs from it is its login.
+  private async claimFor<T extends { user: UserEntity }>(account: T | null, code: string): Promise<T> {
+    if (!account) throw new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+    const userId = account.user.id
     const keys = resetKeys(userId)
 
     // The try is counted before comparing, against this code (5) and against the day (10, decision
@@ -196,7 +241,7 @@ export class PasswordResetService implements OnModuleInit {
       throw new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
     }
     await this.cacheService.delete(keys.tries)
-    return rider
+    return account
   }
 
   // Six digits from the crypto random source, leading zeros kept ("004219").

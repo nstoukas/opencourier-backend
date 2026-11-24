@@ -15,6 +15,11 @@ import { ApiKeyAuth } from 'src/decorators/api-key-auth.decorator'
 import { Roles } from 'src/decorators/roles.decorator'
 import { UsernameLoginPartnerInput } from './queries/username-login.partner.input'
 import { Public } from 'src/decorators/public.decorator'
+import { Throttle } from '@nestjs/throttler'
+import { PUBLIC_DEFAULT_THROTTLE } from '../../../constants'
+import { ForgotPasswordPartnerInput, ResetPasswordPartnerInput } from './queries/password-reset.partner.input'
+import { PasswordResetPartnerRestApiService } from './password-reset.partner.rest-api.service'
+import { PasswordResetPartnerDto } from './dtos/password-reset.partner.dto'
 
 @swagger.ApiBearerAuth()
 @swagger.ApiTags('auth')
@@ -22,8 +27,41 @@ import { Public } from 'src/decorators/public.decorator'
 export class AuthPartnerRestApiController {
   constructor(
     private readonly authDomainService: AuthDomainService,
-    private readonly partnerRepository: PartnerRepository
+    private readonly partnerRepository: PartnerRepository,
+    private readonly passwordResetPartnerRestApiService: PasswordResetPartnerRestApiService
   ) {}
+
+  // Row 153 (spec 0039's rider flow, for restaurants): asks for a reset code by email. Always 202 with an empty
+  // body, so the answer never says whether the email has an account; 400 for a malformed email and 503 when mail
+  // is off both come before any lookup.
+  @Public()
+  @Post('forgot-password')
+  @common.HttpCode(202)
+  @swagger.ApiBody({ type: ForgotPasswordPartnerInput })
+  @swagger.ApiAcceptedResponse({ description: 'Always, whether or not the email belongs to a restaurant' })
+  @swagger.ApiServiceUnavailableResponse({ description: 'Mail is not set up on this instance' })
+  @Throttle(PUBLIC_DEFAULT_THROTTLE)
+  forgotPassword(@Body() body: ForgotPasswordPartnerInput): void {
+    this.passwordResetPartnerRestApiService.forgotPassword(body.email)
+  }
+
+  // Row 153: sets a new password with the emailed code. Every older session of the restaurant stops working and
+  // its API key, if any, is switched off; it then signs in with the new password.
+  @Public()
+  @Post('reset-password')
+  @common.HttpCode(200)
+  @swagger.ApiBody({ type: ResetPasswordPartnerInput })
+  @swagger.ApiOkResponse({ type: PasswordResetPartnerDto })
+  @swagger.ApiBadRequestResponse({ type: errors.BadRequestException })
+  @Throttle(PUBLIC_DEFAULT_THROTTLE)
+  async resetPassword(@Body() body: ResetPasswordPartnerInput): Promise<PasswordResetPartnerDto> {
+    const { apiKeyRemoved } = await this.passwordResetPartnerRestApiService.resetPassword(
+      body.email,
+      body.code,
+      body.password
+    )
+    return new PasswordResetPartnerDto(apiKeyRemoved)
+  }
 
   @Post('login')
   @Public()

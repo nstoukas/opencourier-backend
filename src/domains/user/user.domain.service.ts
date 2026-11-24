@@ -31,6 +31,11 @@ export class UserDomainService {
     return this.userRepository.removeApiKey(userId)
   }
 
+  // Row 153: a restaurant's own reset; see the repository.
+  async setPasswordAndRemoveApiKey(userId: string, password: string, credentialsChangedAt: Date) {
+    return this.userRepository.setPasswordAndRemoveApiKey(userId, password, credentialsChangedAt)
+  }
+
   async setPasswordAndReplaceApiKey(userId: string, password: string, credentialsChangedAt: Date, apiKeyHash: string) {
     return this.userRepository.setPasswordAndReplaceApiKey(userId, password, credentialsChangedAt, apiKeyHash)
   }

@@ -72,6 +72,29 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     return { removed: result.count > 0 }
   }
 
+  // Row 153: a restaurant's own reset by emailed code. The password, the time older sessions stop
+  // working, and the API key switched off (row 110's rule: whoever had the old password loses the key too).
+  // No new key: only an admin makes one, shown once to them (spec 0037). Answers whether a key was removed.
+  async setPasswordAndRemoveApiKey(
+    userId: string,
+    password: string,
+    credentialsChangedAt: Date
+  ): Promise<{ apiKeyRemoved: boolean }> {
+    // One transaction, like setPasswordAndReplaceApiKey below: the key is switched off only where one exists,
+    // and the count says whether it was.
+    const [, keyWrite] = await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { password, credentialsChangedAt },
+      }),
+      this.prisma.user.updateMany({
+        where: { id: userId, apiKeyHash: { not: null } },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+      }),
+    ])
+    return { apiKeyRemoved: keyWrite.count > 0 }
+  }
+
   // An admin's Set New Password (specs 0013 and 0037). One database transaction (both writes land or
   // neither does): the password and its time, then the key replaced only where one exists. So the new
   // password never works beside the old key, and a Remove made at the same moment is never undone:
