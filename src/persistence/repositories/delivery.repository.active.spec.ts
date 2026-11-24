@@ -12,6 +12,7 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
     delivery: {
       count: jest.Mock
       findUnique: jest.Mock
+      findUniqueOrThrow: jest.Mock
       updateMany: jest.Mock
     }
   }
@@ -22,6 +23,7 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       delivery: {
         count: jest.fn(),
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
         updateMany: jest.fn(),
       },
     }
@@ -216,10 +218,17 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       fakeTx.delivery.updateMany
         .mockResolvedValueOnce({ count: 1 }) // job update
         .mockResolvedValueOnce({ count: 1 }) // addOn update
+      fakeTx.delivery.findUniqueOrThrow.mockResolvedValueOnce({ status: EnumDeliveryStatus.DISPATCHED })
 
       const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
 
-      expect(joined).toBe(true)
+      // Row 146 review: returns job status from inside the transaction, not boolean true
+      expect(joined).toBe(EnumDeliveryStatus.DISPATCHED)
+      expect(joined).not.toBe(true)
+      expect(fakeTx.delivery.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: jobId },
+        select: { status: true },
+      })
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
 
       // 1. Job updated with groupId and stopSequence
@@ -251,7 +260,10 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
 
       const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
 
-      expect(joined).toBe(false)
+      // Returns null on rollback: never a status, never false
+      expect(joined).toBeNull()
+      expect(joined).not.toBe(false)
+      expect(joined).not.toBe(EnumDeliveryStatus.DISPATCHED)
       // addOn update inside transaction was not called because job threw RollBack
       expect(fakeTx.delivery.updateMany).toHaveBeenCalledTimes(1)
       // Outside transaction: addOn's stopSequence is cleared to DbNull so it goes on alone
@@ -269,7 +281,10 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
 
       const joined = await repository.joinAcceptedAddOn(addOnId, jobId, courierId, stops)
 
-      expect(joined).toBe(false)
+      // Returns null on rollback: never a status, never false
+      expect(joined).toBeNull()
+      expect(joined).not.toBe(false)
+      expect(joined).not.toBe(EnumDeliveryStatus.DISPATCHED)
       expect(fakeTx.delivery.updateMany).toHaveBeenCalledTimes(2)
 
       // The transaction threw RollBack, rolling back the job update in the DB.

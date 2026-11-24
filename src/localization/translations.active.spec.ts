@@ -198,7 +198,7 @@ describe('Server translations (spec 0054, AC-8)', () => {
       addOnId: 'del-add-on-42',
     })
     expect(enMsg).toBe(
-      'Delivery del-add-on-42 joined this job as one more order on the way; courier courier-r81 carries both'
+      'Delivery del-add-on-42 was added to this job as one more order on the way; courier courier-r81 has taken both'
     )
     expect(enMsg).toContain('del-add-on-42')
     expect(enMsg).toContain('courier-r81')
@@ -208,7 +208,7 @@ describe('Server translations (spec 0054, AC-8)', () => {
       addOnId: 'del-add-on-42',
     })
     expect(elMsg).toBe(
-      'Η παραγγελία del-add-on-42 μπήκε σε αυτή τη δουλειά ως μία ακόμη παραγγελία στον δρόμο· ο διανομέας courier-r81 μεταφέρει και τις δύο'
+      'Η παραγγελία del-add-on-42 προστέθηκε σε αυτή τη δουλειά ως μία ακόμα παραγγελία στον δρόμο· ο διανομέας courier-r81 έχει αναλάβει και τις δύο'
     )
     expect(elMsg).toContain('del-add-on-42')
     expect(elMsg).toContain('courier-r81')

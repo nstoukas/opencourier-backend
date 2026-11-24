@@ -111,7 +111,9 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       findByIdOrThrowWithLocations: jest.fn(),
       updateIfMatches: jest.fn().mockResolvedValue(true),
       claimAddOnWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
-      joinAcceptedAddOn: jest.fn().mockResolvedValue(true),
+      joinAcceptedAddOn: jest.fn().mockResolvedValue(EnumDeliveryStatus.ACCEPTED),
+      releaseOpenGroupPartners: jest.fn().mockResolvedValue(undefined),
+      settleStopSequence: jest.fn().mockResolvedValue(undefined),
     }
 
     mockDeliveryEventRepo = {
@@ -625,9 +627,12 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         })
       )
 
-      // 4. Job is NEVER touched: no processDeliveryEvent for job-held-1
+      // 4. Job is NEVER touched: no processDeliveryEvent for job-held-1, no ADD_ON_JOINED on repository
       const jobEvents = processSpy.mock.calls.filter((c) => (c[0] as any).deliveryId === 'job-held-1')
       expect(jobEvents).toHaveLength(0)
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
     })
   })
 
@@ -668,7 +673,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       )
     })
 
-    it('when job left courier before accept, joinAcceptedAddOn returns false and clears stopSequence', async () => {
+    it('when job left courier before accept, joinAcceptedAddOn returns null and clears stopSequence', async () => {
       const assigningAddOn = makeDelivery('del-add-on', {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         matchedCourierId: courierId,
@@ -682,7 +687,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       })
       mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(assigningAddOn)
       mockDeliveryRepo.findById.mockResolvedValue(acceptedAddOn)
-      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(false) // Job left courier!
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(null) // Job left courier (returns null)!
 
       await deliveryEventService.processDeliveryEvent({
         deliveryId: 'del-add-on',
@@ -732,7 +737,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         if (id === 'job-held-1') return Promise.resolve(heldJob)
         return Promise.resolve(null)
       })
-      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(true)
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(EnumDeliveryStatus.DISPATCHED)
 
       await deliveryEventService.processDeliveryEvent({
         deliveryId: 'del-add-on',
@@ -760,7 +765,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
           courierId: courierId,
           messageCode: 'ADD_ON_JOINED',
           messageParams: { courierId, addOnId: 'del-add-on' },
-          message: `Delivery del-add-on joined this job as one more order on the way; courier ${courierId} carries both`,
+          message: `Delivery del-add-on was added to this job as one more order on the way; courier ${courierId} has taken both`,
           oldStatus: EnumDeliveryStatus.DISPATCHED,
           newStatus: EnumDeliveryStatus.DISPATCHED,
           transitionSuccessful: true,
@@ -819,14 +824,14 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       )
     })
 
-    it('an add on accepted for another rider records nothing on the job when join returns false (clause 2 & 3)', async () => {
+    it('an add on accepted for another rider records nothing on the job when join returns null (clause 2 & 3)', async () => {
       const delivery = makeDelivery('del-add-on', {
         status: EnumDeliveryStatus.ACCEPTED,
         courierId: 'other-courier-99',
         stopSequence: sampleStops,
       })
-      // In the database transaction, joinAcceptedAddOn returns false when the rider does not hold the job
-      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(false)
+      // In the database transaction, joinAcceptedAddOn returns null when the rider does not hold the job
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(null)
 
       await (deliveryEventService as any).settleAddOnLeavingOffer(delivery)
 
@@ -841,7 +846,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
       )
     })
 
-    it('a join that rolls back leaves no event when joinAcceptedAddOn returns false (clause 3)', async () => {
+    it('a join that rolls back leaves no event when joinAcceptedAddOn returns null (clause 3)', async () => {
       const assigningAddOn = makeDelivery('del-add-on', {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         matchedCourierId: courierId,
@@ -866,7 +871,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
         return Promise.resolve(null)
       })
-      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(false) // Rollback!
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(null) // Rollback!
 
       await deliveryEventService.processDeliveryEvent({
         deliveryId: 'del-add-on',
@@ -912,7 +917,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
         return Promise.resolve(null)
       })
-      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(true)
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(EnumDeliveryStatus.ACCEPTED)
 
       // Make event write fail when ADD_ON_JOINED is saved
       mockDeliveryEventRepo.create.mockImplementation((dto: any) => {
@@ -956,19 +961,226 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
     })
 
     it('recordAddOnJoined never throws when saveDeliveryEvent rejects and logs with both IDs (clause 4)', async () => {
-      mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(
-        makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId })
-      )
       mockDeliveryEventRepo.create.mockRejectedValueOnce(new Error('Simulated event write failure'))
 
       const loggerErrorSpy = jest.spyOn((deliveryEventService as any).logger, 'error')
 
       await expect(
-        (deliveryEventService as any).recordAddOnJoined('job-held-1', 'del-add-on', courierId)
+        (deliveryEventService as any).recordAddOnJoined(
+          'job-held-1',
+          'del-add-on',
+          courierId,
+          EnumDeliveryStatus.ACCEPTED
+        )
       ).resolves.not.toThrow()
 
       expect(loggerErrorSpy).toHaveBeenCalledWith(
         expect.stringMatching(/Could not record that add on del-add-on joined delivery job-held-1/)
+      )
+    })
+
+    // Row 146 review fix: status is read inside join's transaction, never a later read of the job
+    it('ADD_ON_JOINED record uses status returned by joinAcceptedAddOn, not a later read of the job', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+      })
+      const acceptedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+      })
+      // Status inside join transaction was DISPATCHED
+      const statusFromInsideJoin = EnumDeliveryStatus.DISPATCHED
+      // A later read of the job would see PICKED_UP (e.g. food picked up in race)
+      const jobAtLaterRead = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.PICKED_UP,
+        courierId,
+      })
+
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(jobAtLaterRead)
+        return Promise.resolve(assigningAddOn)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
+        if (id === 'job-held-1') return Promise.resolve(jobAtLaterRead)
+        return Promise.resolve(null)
+      })
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(statusFromInsideJoin)
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      // Must record with the status returned from the join (DISPATCHED), NOT the later read (PICKED_UP)
+      expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'job-held-1',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.DISPATCHED,
+        })
+      )
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'job-held-1',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          oldStatus: EnumDeliveryStatus.PICKED_UP,
+        })
+      )
+    })
+
+    // Review minor 2: once an add on has joined, later status steps don't call join again or write second ADD_ON_JOINED
+    it('Review minor 2: once an add on has joined (carrying offerGroupId), a later status step writes no second ADD_ON_JOINED and does not call joinAcceptedAddOn again', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+        offerGroupId: null,
+      })
+      // Before join commits in the transaction, addOn does not have offerGroupId yet
+      const acceptedAddOnBeforeJoin = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+        offerGroupId: null,
+      })
+      // After join commits, addOn carries offerGroupId
+      const acceptedAddOnAfterJoin = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+        offerGroupId: 'stack-group-shared-1',
+      })
+      const dispatchedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId,
+        stopSequence: sampleStops,
+        offerGroupId: 'stack-group-shared-1',
+      })
+      const heldJob = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+      })
+
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        return Promise.resolve(assigningAddOn)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOnBeforeJoin)
+        return Promise.resolve(null)
+      })
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(EnumDeliveryStatus.ACCEPTED)
+
+      // 1. Initial accept of the add on -> joins and records ADD_ON_JOINED once
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledTimes(1)
+      const initialJoinedEvents = mockDeliveryEventRepo.create.mock.calls.filter(
+        (c: any[]) => c[0]?.type === EnumDeliveryEventType.ADD_ON_JOINED
+      )
+      expect(initialJoinedEvents).toHaveLength(1)
+
+      // 2. Next status step of the add on: DISPATCHED (carrying offerGroupId)
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOnAfterJoin)
+        return Promise.resolve(acceptedAddOnAfterJoin)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(dispatchedAddOn)
+        return Promise.resolve(null)
+      })
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.DISPATCHED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      // joinAcceptedAddOn was NOT called a second time
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledTimes(1)
+
+      // Still exactly one ADD_ON_JOINED event exists (no second event written)
+      const afterDispatchedJoinedEvents = mockDeliveryEventRepo.create.mock.calls.filter(
+        (c: any[]) => c[0]?.type === EnumDeliveryEventType.ADD_ON_JOINED
+      )
+      expect(afterDispatchedJoinedEvents).toHaveLength(1)
+    })
+
+    // When an accepted delivery already carries an offerGroupId, leaving offer does not call settleAddOnLeavingOffer
+    it('when an accepted delivery already carries an offerGroupId, leaving offer does not call settleAddOnLeavingOffer or joinAcceptedAddOn', async () => {
+      const assigningStacked = makeDelivery('del-stacked-1', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+        offerGroupId: 'existing-group-99',
+      })
+      const acceptedStacked = makeDelivery('del-stacked-1', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+        offerGroupId: 'existing-group-99',
+      })
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(assigningStacked)
+      mockDeliveryRepo.findById.mockResolvedValue(acceptedStacked)
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-stacked-1',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      // Because offerGroupId is already set, it calls releaseStackPartners, NOT settleAddOnLeavingOffer
+      expect(mockDeliveryRepo.joinAcceptedAddOn).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
+    })
+
+    it('an expired add on offer (via endOffer) leaves stopSequence cleared and records no ADD_ON_JOINED on the job', async () => {
+      const expiringAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerExpiresAt,
+        stopSequence: sampleStops,
+      })
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(expiringAddOn)
+      mockDeliveryRepo.findById.mockResolvedValue(expiringAddOn)
+      mockDeliveryRepo.updateIfMatches.mockResolvedValue(true)
+
+      await (deliveryEventService as any).endOffer({
+        deliveryId: 'del-add-on',
+        courierId,
+        reason: 'EXPIRED',
+        offeredAt,
+      })
+
+      expect(mockDeliveryRepo.joinAcceptedAddOn).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
       )
     })
   })
