@@ -316,7 +316,7 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   handBackSeconds?: number
 
-  // The skip list (row 144). Whole minutes; the 1 to 240 range lives in NUMERIC_SETTING_RULES.
+  // The skip list (row 144). Whole minutes; the 1 to 60 range lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()
   @IsNumber()

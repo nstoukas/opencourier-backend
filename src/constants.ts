@@ -275,7 +275,8 @@ export const HAND_BACK_SECONDS_MAX = 300
 // 0 is refused (decision 144.1): with no skip, a declined offer could come straight back to the same rider.
 export const DEFAULT_OFFER_SKIP_MINUTES = 20
 export const OFFER_SKIP_MINUTES_MIN = 1
-export const OFFER_SKIP_MINUTES_MAX = 240
+// 60 at most (decision 144.3, operator 2026-11-24): a small fleet should not lose a rider for an order longer than an hour.
+export const OFFER_SKIP_MINUTES_MAX = 60
 
 // Shifts (spec 0026, row 77): a co-op switch, off until the assembly decides to run shifts, and how
 // many hours before its start a rider may still drop a booked shift (used from row 78).
