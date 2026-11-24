@@ -100,8 +100,10 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
   @ApiProperty({ type: String, required: false })
   dropoffPhoneNumber?: string
 
-  @ApiProperty({ type: Object, nullable: true })
-  dropoffBusinessName: string | null
+  // Row 140 (decision 140.1): like the customer's name, only once the rider has accepted. For an order
+  // with no business, request-web used to copy the customer's name here, so in an offer it named them.
+  @ApiProperty({ type: String, nullable: true, required: false })
+  dropoffBusinessName?: string | null
 
   // Row 101: `dropoffNotes` holds the composed "Floor: · Doorbell:" line, and both notes are the
   // customer's instructions, so they follow the same rule as the floor and the doorbell.
@@ -318,7 +320,6 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     // has not been given the customer's phone, floor or doorbell.
     const holdsDelivery = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status) && !inHandBackGrace
     this.dropoffPhoneNumber = holdsDelivery ? data.dropoffPhoneNumber : undefined
-    this.dropoffBusinessName = data.dropoffBusinessName
     // Row 101 (decisions 101.1, 101.2): the customer's name, items and notes once the rider has
     // accepted, never in an offer or after the drop off. Unlike the phone, floor and doorbell they are
     // sent during the free hand back too (decision 71.12 keeps the item list there): the app hides the
@@ -326,6 +327,7 @@ export class DeliveryCourierDto implements Partial<DeliveryEntity> {
     // the pickup card without the bag label and the items.
     const accepted = CUSTOMER_PHONE_VISIBLE_STATUSES.includes(data.status)
     this.dropoffName = accepted ? data.dropoffName : undefined
+    this.dropoffBusinessName = accepted ? data.dropoffBusinessName : undefined
     // `dropoffNotes` holds the composed "Floor: · Doorbell:" line, so it follows the floor and the
     // doorbell, hand back window included (decision 101.3); the app shows it at the drop off, which a
     // job step's round trip has fetched by then.

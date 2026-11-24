@@ -618,6 +618,7 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
     // Each value is distinctive and non-empty, so its absence from the JSON text means something.
     const CUSTOMER_DETAILS = {
       dropoffName: 'Kalliopi Offeridou',
+      dropoffBusinessName: 'Acme Corp',
       orderItems: [{ name: 'Bougatsa Thessalonikis', quantity: 2, price: 450 }],
       customerNotes: ['Allergic to sesame, no tahini'],
       dropoffNotes: 'Floor: 4 · Doorbell: Offeridou-K',
@@ -628,6 +629,7 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
     // Text that can only be in the JSON if that field leaked.
     const LEAK_TEXT: Record<CustomerField, string> = {
       dropoffName: 'Kalliopi Offeridou',
+      dropoffBusinessName: 'Acme Corp',
       orderItems: 'Bougatsa Thessalonikis',
       customerNotes: 'Allergic to sesame',
       dropoffNotes: 'Offeridou-K',
@@ -770,12 +772,13 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
         expectFieldPresent(new DeliveryCourierDto(withDetails(status, { handBackUntil: null })), field)
       })
 
-      test('the split in the window: dropoffName, orderItems, customerNotes and dropoffSellerNotes present; dropoffNotes, dropoffPhoneNumber, dropoffFloor and dropoffDoorbell absent', () => {
+      test('the split in the window: dropoffName, dropoffBusinessName, orderItems, customerNotes and dropoffSellerNotes present; dropoffNotes, dropoffPhoneNumber, dropoffFloor and dropoffDoorbell absent', () => {
         const dto = new DeliveryCourierDto(withDetails(status, { handBackUntil: new Date(fixedNow + 60_000) }))
         const json = JSON.stringify(dto)
         const parsed = JSON.parse(json)
 
         expect(parsed.dropoffName).toBe(CUSTOMER_DETAILS.dropoffName)
+        expect(parsed.dropoffBusinessName).toBe(CUSTOMER_DETAILS.dropoffBusinessName)
         expect(parsed.orderItems).toEqual(CUSTOMER_DETAILS.orderItems)
         expect(parsed.customerNotes).toEqual(CUSTOMER_DETAILS.customerNotes)
         expect(parsed.dropoffSellerNotes).toBe(CUSTOMER_DETAILS.dropoffSellerNotes)
@@ -1124,6 +1127,228 @@ describe('DeliveryCourierDto - Customer Phone Number Privacy (Row 33, Decision 3
       noPromise.pickupLocationNotes = []
       noPromise.dropoffLocationNotes = []
       expect(new InProgressDeliveryCourierDto(noPromise, waitRules).leaveFrom).toBeNull()
+    })
+  })
+
+  /**
+   * Scope Row 140 (Decision 140.1): Drop off business name in offers.
+   *
+   * Source of truth:
+   * - Scope Row 140: "the drop off business name reaches a rider only once they accept"
+   * - Decision 140.1: DeliveryCourierDto sets dropoffBusinessName only when status is in
+   *   CUSTOMER_PHONE_VISIBLE_STATUSES ('accepted'), otherwise undefined so the key is absent
+   *   from JSON serialization.
+   *
+   * Done when:
+   * (1) an offered rider's offer carries no drop off business name;
+   * (2) the same rider sees it once they accept;
+   * (3) a test fails if the name reaches an offer not yet accepted.
+   *
+   * Reviewer checklist:
+   * (a) with a NON EMPTY business name, the key is absent from JSON.parse(JSON.stringify(dto))
+   *     in ASSIGNING_COURIER and in every ended status, and present in each held status in CUSTOMER_PHONE_VISIBLE_STATUSES;
+   * (b) the same through NewDeliveryCourierDto and InProgressDeliveryCourierDto;
+   * (c) present during the free hand back window (it follows the customer's name, not the phone);
+   * (d) the dispatch board's customerLabel falls back properly.
+   */
+  describe('Row 140 (Decision 140.1): Drop off business name privacy in offers', () => {
+    const BUSINESS_NAME = 'Alpha Logistics Volos'
+
+    const heldStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.ACCEPTED,
+      EnumDeliveryStatus.DISPATCHED,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      EnumDeliveryStatus.PICKED_UP,
+      EnumDeliveryStatus.ON_THE_WAY,
+      EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+    ]
+
+    const unheldAndEndedStatuses: EnumDeliveryStatus[] = [
+      EnumDeliveryStatus.CREATED,
+      EnumDeliveryStatus.ASSIGNING_COURIER,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.CANCELED,
+      EnumDeliveryStatus.FAILED,
+    ]
+
+    test('(1) an offered rider\'s offer (ASSIGNING_COURIER) carries no drop off business name', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, {
+        dropoffBusinessName: BUSINESS_NAME,
+        matchedCourierId: 'courier-1',
+        offeredAt: new Date(),
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      // Must be undefined, NOT null (undefined leaves the property out of JSON)
+      expect(dto.dropoffBusinessName).toBeUndefined()
+
+      const json = JSON.stringify(dto)
+      expect(json).not.toContain(BUSINESS_NAME)
+      expect(json).not.toContain('"dropoffBusinessName"')
+
+      const parsed = JSON.parse(json)
+      expect('dropoffBusinessName' in parsed).toBe(false)
+      expect(parsed.dropoffBusinessName).toBeUndefined()
+    })
+
+    test('(2) the same rider sees the drop off business name once they accept (ACCEPTED)', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+        dropoffBusinessName: BUSINESS_NAME,
+        courierId: 'courier-1',
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      expect(dto.dropoffBusinessName).toBe(BUSINESS_NAME)
+
+      const json = JSON.stringify(dto)
+      expect(json).toContain(BUSINESS_NAME)
+      expect(json).toContain('"dropoffBusinessName"')
+
+      const parsed = JSON.parse(json)
+      expect('dropoffBusinessName' in parsed).toBe(true)
+      expect(parsed.dropoffBusinessName).toBe(BUSINESS_NAME)
+    })
+
+    test('(3) a test fails if the name reaches an offer not yet accepted (pinning ASSIGNING_COURIER privacy)', () => {
+      const delivery = createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, {
+        dropoffBusinessName: BUSINESS_NAME,
+      })
+      const dto = new DeliveryCourierDto(delivery)
+
+      // This expectation directly catches line 330 reverted to data.dropoffBusinessName
+      expect(dto.dropoffBusinessName).toBeUndefined()
+      expect(JSON.parse(JSON.stringify(dto)).dropoffBusinessName).toBeUndefined()
+      expect('dropoffBusinessName' in JSON.parse(JSON.stringify(dto))).toBe(false)
+    })
+
+    describe.each(heldStatuses)('Held status %s carries dropoffBusinessName (Reviewer item a)', (status) => {
+      test(`carries dropoffBusinessName in ${status} when set`, () => {
+        const delivery = createMockDelivery(status, { dropoffBusinessName: BUSINESS_NAME })
+        const dto = new DeliveryCourierDto(delivery)
+
+        expect(dto.dropoffBusinessName).toBe(BUSINESS_NAME)
+        const parsed = JSON.parse(JSON.stringify(dto))
+        expect('dropoffBusinessName' in parsed).toBe(true)
+        expect(parsed.dropoffBusinessName).toBe(BUSINESS_NAME)
+      })
+
+      test(`carries dropoffBusinessName as null in ${status} when entity has null`, () => {
+        const delivery = createMockDelivery(status, { dropoffBusinessName: null })
+        const dto = new DeliveryCourierDto(delivery)
+
+        expect(dto.dropoffBusinessName).toBeNull()
+        const parsed = JSON.parse(JSON.stringify(dto))
+        expect('dropoffBusinessName' in parsed).toBe(true)
+        expect(parsed.dropoffBusinessName).toBeNull()
+      })
+    })
+
+    describe.each(unheldAndEndedStatuses)(
+      'Unheld / ended status %s withholds dropoffBusinessName (Reviewer item a)',
+      (status) => {
+        test(`leaves dropoffBusinessName undefined and absent from JSON in ${status}`, () => {
+          const delivery = createMockDelivery(status, { dropoffBusinessName: BUSINESS_NAME })
+          const dto = new DeliveryCourierDto(delivery)
+
+          expect(dto.dropoffBusinessName).toBeUndefined()
+
+          const json = JSON.stringify(dto)
+          expect(json).not.toContain(BUSINESS_NAME)
+          expect(json).not.toContain('"dropoffBusinessName"')
+
+          const parsed = JSON.parse(json)
+          expect('dropoffBusinessName' in parsed).toBe(false)
+        })
+      }
+    )
+
+    describe('Free hand back window (Reviewer item c)', () => {
+      const fixedNow = new Date('2026-11-24T12:00:00.000Z').getTime()
+      const futureDate = new Date('2026-11-24T12:01:00.000Z') // +60s
+
+      beforeEach(() => {
+        jest.spyOn(Date, 'now').mockReturnValue(fixedNow)
+      })
+
+      afterEach(() => {
+        jest.restoreAllMocks()
+      })
+
+      test('present during free hand back window (follows dropoffName, not dropoffPhoneNumber)', () => {
+        const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+          handBackUntil: futureDate,
+          dropoffName: 'Giannis Papadopoulos',
+          dropoffBusinessName: BUSINESS_NAME,
+          dropoffPhoneNumber: '+306912345678',
+        })
+        const dto = new DeliveryCourierDto(delivery)
+
+        // Customer's phone, floor, doorbell are withheld during hand back window
+        expect(dto.dropoffPhoneNumber).toBeUndefined()
+        expect('dropoffPhoneNumber' in JSON.parse(JSON.stringify(dto))).toBe(false)
+
+        // Business name follows dropoffName: present during hand back window!
+        expect(dto.dropoffName).toBe('Giannis Papadopoulos')
+        expect(dto.dropoffBusinessName).toBe(BUSINESS_NAME)
+
+        const parsed = JSON.parse(JSON.stringify(dto))
+        expect(parsed.dropoffName).toBe('Giannis Papadopoulos')
+        expect('dropoffBusinessName' in parsed).toBe(true)
+        expect(parsed.dropoffBusinessName).toBe(BUSINESS_NAME)
+      })
+
+      test('present during hand back grace period (OFFER_EXPIRY_GRACE_SECONDS)', () => {
+        const inGraceDate = new Date(fixedNow - 1000) // 1s past handBackUntil, inside 3s grace
+        const delivery = createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+          handBackUntil: inGraceDate,
+          dropoffName: 'Giannis Papadopoulos',
+          dropoffBusinessName: BUSINESS_NAME,
+          dropoffPhoneNumber: '+306912345678',
+        })
+        const dto = new DeliveryCourierDto(delivery)
+
+        // Phone is still withheld in grace
+        expect(dto.dropoffPhoneNumber).toBeUndefined()
+        // Business name is present in grace
+        expect(dto.dropoffBusinessName).toBe(BUSINESS_NAME)
+        const parsed = JSON.parse(JSON.stringify(dto))
+        expect(parsed.dropoffBusinessName).toBe(BUSINESS_NAME)
+      })
+    })
+
+    test('lifecycle for same delivery and rider: unheld (offer) -> held (accepted) -> ended (dropped off)', () => {
+      const offered = new DeliveryCourierDto(
+        createMockDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, {
+          dropoffBusinessName: BUSINESS_NAME,
+          matchedCourierId: 'courier-1',
+          courierId: null,
+        })
+      )
+      const accepted = new DeliveryCourierDto(
+        createMockDelivery(EnumDeliveryStatus.ACCEPTED, {
+          dropoffBusinessName: BUSINESS_NAME,
+          courierId: 'courier-1',
+          matchedCourierId: null,
+        })
+      )
+      const droppedOff = new DeliveryCourierDto(
+        createMockDelivery(EnumDeliveryStatus.DROPPED_OFF, {
+          dropoffBusinessName: BUSINESS_NAME,
+          courierId: 'courier-1',
+        })
+      )
+
+      // Offered: absent
+      expect(offered.dropoffBusinessName).toBeUndefined()
+      expect('dropoffBusinessName' in JSON.parse(JSON.stringify(offered))).toBe(false)
+
+      // Accepted: present
+      expect(accepted.dropoffBusinessName).toBe(BUSINESS_NAME)
+      expect(JSON.parse(JSON.stringify(accepted)).dropoffBusinessName).toBe(BUSINESS_NAME)
+
+      // Dropped off: absent
+      expect(droppedOff.dropoffBusinessName).toBeUndefined()
+      expect('dropoffBusinessName' in JSON.parse(JSON.stringify(droppedOff))).toBe(false)
     })
   })
 })

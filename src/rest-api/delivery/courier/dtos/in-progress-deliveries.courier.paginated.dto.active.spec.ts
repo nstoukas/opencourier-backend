@@ -153,4 +153,56 @@ describe('InProgressDeliveriesCourierPaginatedDto (Spec 0020 AC-3, Spec 0033 AC-
       expect(dto.data[0]?.leaveFrom).toBeNull()
     })
   })
+
+  describe('InProgressDeliveryCourierDto dropoffBusinessName privacy (Row 140, decision 140.1)', () => {
+    it('carries dropoffBusinessName when in progress (ACCEPTED status)', () => {
+      const mockOrder: any = {
+        id: 'del-prog-biz-1',
+        status: EnumDeliveryStatus.ACCEPTED,
+        createdAt: new Date(),
+        pickupBusinessName: 'Test Kitchen',
+        dropoffBusinessName: 'Hellas Freight Ltd',
+        pickupLocation: { id: 'loc-1', street: 'Iasonos 10' },
+        dropoffLocation: { id: 'loc-2', street: 'Dimitriadis 20' },
+        pickupLocationNotes: [],
+        dropoffLocationNotes: [],
+      }
+
+      const dto = new InProgressDeliveriesCourierPaginatedDto(
+        { data: [mockOrder] },
+        defaultWaitRules
+      )
+
+      expect(dto.data[0]?.dropoffBusinessName).toBe('Hellas Freight Ltd')
+      const parsed = JSON.parse(JSON.stringify(dto.data[0]))
+      expect('dropoffBusinessName' in parsed).toBe(true)
+      expect(parsed.dropoffBusinessName).toBe('Hellas Freight Ltd')
+    })
+
+    it('leaves dropoffBusinessName undefined and absent from JSON when ended (DROPPED_OFF status)', () => {
+      const mockOrder: any = {
+        id: 'del-prog-biz-2',
+        status: EnumDeliveryStatus.DROPPED_OFF,
+        createdAt: new Date(),
+        pickupBusinessName: 'Test Kitchen',
+        dropoffBusinessName: 'Hellas Freight Ltd',
+        pickupLocation: { id: 'loc-1', street: 'Iasonos 10' },
+        dropoffLocation: { id: 'loc-2', street: 'Dimitriadis 20' },
+        pickupLocationNotes: [],
+        dropoffLocationNotes: [],
+      }
+
+      const dto = new InProgressDeliveriesCourierPaginatedDto(
+        { data: [mockOrder] },
+        defaultWaitRules
+      )
+
+      expect(dto.data[0]?.dropoffBusinessName).toBeUndefined()
+      const json = JSON.stringify(dto.data[0])
+      expect(json).not.toContain('Hellas Freight Ltd')
+      expect(json).not.toContain('"dropoffBusinessName"')
+      const parsed = JSON.parse(json)
+      expect('dropoffBusinessName' in parsed).toBe(false)
+    })
+  })
 })
