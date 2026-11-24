@@ -9,6 +9,23 @@ if redis.call('TTL', KEYS[1]) == -1 then
 end
 return count`
 
+// Row 148: a sorted set where each member's score is the time (ms) it stops counting. KEYS[1] is the set,
+// ARGV[1] the member, ARGV[2] now and ARGV[3] the member's end, both in ms. It drops members already
+// past their end, gives this member the later of its old and new end, then sets the key's own expiry
+// to its last member's end, so Redis deletes the set once nobody in it counts any more. Returns 1 when
+// the member was not counting before this call, 0 when it already was.
+const ADD_WITH_OWN_EXPIRY = `
+local now = tonumber(ARGV[2])
+local ends = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+local before = redis.call('ZSCORE', KEYS[1], ARGV[1])
+-- GT keeps the later end for a member already there, and still adds a new member.
+redis.call('ZADD', KEYS[1], 'GT', ends, ARGV[1])
+local last = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
+redis.call('PEXPIRE', KEYS[1], math.max(1, tonumber(last[2]) - now))
+if before == false then return 1 end
+return 0`
+
 @Injectable()
 export class CacheService {
   constructor(private readonly redisClient: RedisClient) {}
@@ -53,5 +70,24 @@ export class CacheService {
   public async getOrDefault<T>(key: string, defValue: T): Promise<T> {
     const value = await this.redisClient.get(key)
     return value === null ? defValue : JSON.parse(value) // might throw an exception if not valid JSON
+  }
+
+  // Row 148: sets whose members each count for their own time (a delivery's skip list). Adds the member
+  // until `endsAtMs`, or keeps its later end if it already counts. True when this call is what made
+  // it count; false when it already did.
+  public async addWithOwnExpiry(key: string, member: string, nowMs: number, endsAtMs: number): Promise<boolean> {
+    const added = await this.redisClient.eval(ADD_WITH_OWN_EXPIRY, 1, key, member, nowMs, endsAtMs)
+    return Number(added) === 1
+  }
+
+  // The members whose end is still ahead of `nowMs`. An empty array when the key is missing.
+  public async membersStillCounting(key: string, nowMs: number): Promise<string[]> {
+    // '(' makes the bound exclusive: a member whose end is exactly now no longer counts.
+    return this.redisClient.zrangebyscore(key, `(${nowMs}`, '+inf')
+  }
+
+  // Takes one member out and leaves the rest with their own ends. Redis deletes a set left empty.
+  public async removeMember(key: string, member: string): Promise<void> {
+    await this.redisClient.zrem(key, member)
   }
 }

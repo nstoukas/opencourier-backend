@@ -4,7 +4,7 @@ import { CourierDomainService } from 'src/domains/courier/courier.domain.service
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { CourierMatcherService } from '../courier-matcher/courier-matcher.service'
 import { CacheService } from '../cache/cache.service'
-import { CacheHelpers } from '../cache/cache.helpers'
+import { getRejectedCourierIds } from '../cache/rejected-couriers'
 import { DeliveryNotFoundException, DeliveryOfferAlreadyMatchedException } from 'src/errors'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 
@@ -93,9 +93,7 @@ export class DeliveryMatchingService {
   }
 
   async getRejectedCourierIds(deliveryId: string) {
-    const cacheKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
-    const rejectedCourierIds = await this.cacheService.getOrDefault<Array<string>>(cacheKey, [])
-
-    return rejectedCourierIds
+    // Row 148: only the couriers whose own skip time has not ended yet.
+    return getRejectedCourierIds(this.cacheService, deliveryId)
   }
 }

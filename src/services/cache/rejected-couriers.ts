@@ -3,11 +3,15 @@ import { CacheHelpers } from './cache.helpers'
 
 // How long a courier stays excluded from re-offers of one delivery after declining it, or after
 // letting its offer expire (spec 0002), is the co-op setting offerSkipMinutes (row 144). Callers read it
-// and pass it in seconds as `ttlSeconds`, to the add and the remove alike: re-saving the key resets its
-// expiry, so both must use the setting as it is now.
+// and pass it in seconds as `ttlSeconds`.
+//
+// Row 148: each courier on the list has an end time of their own (a Redis sorted set, scored by that
+// end), so a later courier added to the same delivery never starts anyone else's time again. Before,
+// the list was one JSON array under one expiry, and every add reset it for everybody.
 
 // The one place a courier is put on a delivery's skip list. Returns true only when this call is
 // what put them there; an entry left over from an earlier decline is not the caller's to remove.
+// A courier already on the list keeps the later of their two end times.
 export async function addCourierToRejectedList(
   cacheService: CacheService,
   deliveryId: string,
@@ -15,31 +19,22 @@ export async function addCourierToRejectedList(
   ttlSeconds: number
 ): Promise<boolean> {
   const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
-  const rejectedCouriers = await cacheService.getOrDefault<Array<string>>(rejectedKey, [])
-
-  const alreadyRejected = rejectedCouriers.includes(courierId)
-  if (!alreadyRejected) rejectedCouriers.push(courierId)
-
-  await cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, ttlSeconds)
-
-  return !alreadyRejected
+  const now = Date.now()
+  return cacheService.addWithOwnExpiry(rejectedKey, courierId, now, now + ttlSeconds * 1000)
 }
 
-// Mirror of addCourierToRejectedList: drops one courier from the list and leaves everyone else.
+// Mirror of addCourierToRejectedList: drops one courier from the list and leaves everyone else
+// with their own end times.
 export async function removeCourierFromRejectedList(
   cacheService: CacheService,
   deliveryId: string,
-  courierId: string,
-  ttlSeconds: number
+  courierId: string
 ): Promise<void> {
-  const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
-  const rejectedCouriers = await cacheService.getOrDefault<Array<string>>(rejectedKey, [])
+  await cacheService.removeMember(CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId), courierId)
+}
 
-  const remaining = rejectedCouriers.filter((id) => id !== courierId)
-  // agy review of row 144: an empty list is deleted, not kept in Redis for the whole skip time.
-  if (remaining.length === 0) {
-    await cacheService.delete(rejectedKey)
-    return
-  }
-  await cacheService.save<Array<string>>(rejectedKey, remaining, ttlSeconds)
+// The couriers still skipped for this delivery: those whose own end has not come yet. Every reader of
+// the skip list (matching, stacking, add ons) goes through here.
+export async function getRejectedCourierIds(cacheService: CacheService, deliveryId: string): Promise<string[]> {
+  return cacheService.membersStillCounting(CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId), Date.now())
 }

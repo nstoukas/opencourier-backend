@@ -886,7 +886,7 @@ export class DeliveryDomainService {
   // and leaves everyone else on it. Only used to undo an entry this service added moments
   // earlier for a reassignment that then did not happen.
   async removeCourierFromRejectedList(deliveryId: string, courierId: string): Promise<void> {
-    return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
+    return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
   }
 
   // `box`: spec 0043 (AC-6). The admin's confirm to put the new rider past a full box, and who they are.

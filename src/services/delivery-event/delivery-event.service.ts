@@ -1190,7 +1190,7 @@ export class DeliveryEventService {
   // out this one delivery for the co-op's skip time (offerSkipMinutes).
   private async undoSkipListEntry(deliveryId: string, courierId: string): Promise<void> {
     try {
-      await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
+      await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
     } catch (error) {
       this.logger.error(
         `Could not take courier ${courierId} off the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`

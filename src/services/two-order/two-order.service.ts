@@ -19,7 +19,7 @@ import { CourierRepository } from 'src/persistence/repositories/courier.reposito
 import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { CacheService } from 'src/services/cache/cache.service'
-import { CacheHelpers } from 'src/services/cache/cache.helpers'
+import { getRejectedCourierIds } from 'src/services/cache/rejected-couriers'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { EnumAddOnMoment, EnumTwoOrderPolicy } from 'src/shared-types/stacking'
 import { errorSummaryForLog } from 'src/utils/errorForLog'
@@ -113,10 +113,7 @@ export class TwoOrderService {
         if (await this.cacheService.get<boolean>(stackPairBlockKey(first.id, candidate.id))) continue
         // Cross check 4: the second order's own filters apply to the rider. Its skip list here; its distance
         // from the rider in the candidate query above.
-        const skipped = await this.cacheService.getOrDefault<string[]>(
-          CacheHelpers.getDeliveryRejectedCouriersKey(candidate.id),
-          []
-        )
+        const skipped = await getRejectedCourierIds(this.cacheService, candidate.id)
         if (skipped.includes(courierId)) continue
         if (policy === EnumTwoOrderPolicy.SHORTAGE_ONLY && !(await this.hadNoFreeRider(candidate.id))) continue
         if (!(await isDue(candidate))) continue
@@ -199,7 +196,7 @@ export class TwoOrderService {
       const places = await this.deliveryRepository.findByIdOrThrowWithLocations(delivery.id)
       if (!places.pickupLocation || !places.dropoffLocation) return null
       // The delivery's own filters apply to the rider, as for any offer of it: its skip list, its distance.
-      const skipped = await this.cacheService.getOrDefault<string[]>(CacheHelpers.getDeliveryRejectedCouriersKey(delivery.id), [])
+      const skipped = await getRejectedCourierIds(this.cacheService, delivery.id)
       const candidates = await this.courierRepository.findAddOnCandidates(
         {
           location: places.pickupLocation,
