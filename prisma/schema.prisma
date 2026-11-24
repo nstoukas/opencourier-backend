@@ -551,6 +551,8 @@ model Delivery {
   // A rider's cancelled jobs of the last 24 hours (spec 0015).
   @@index([courierId, cancelledAt])
   @@index([offerGroupId])
+  // Row 157: the once a minute wait pay sweep (findWaitPayToSettle) reads waitPayOwedAt by range.
+  @@index([waitPayOwedAt])
 }
 
 model DeliveryEvent {
