@@ -326,6 +326,8 @@ export class OfferPushService {
         type: NotificationEventType.OFFER_ENDED,
         deliveryId: message.deliveryId,
         reason: message.reason,
+        // Row 155: push data is text only; '' when unknown, as for the other optional fields.
+        offeredAt: message.offeredAt ?? '',
       }
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(message.deliveryId, NotificationEventType.OFFER_ENDED, result)

@@ -804,7 +804,11 @@ export class DeliveryEventService {
       try {
         const replacedCourier = await this.courierRepository.findById(replacedCourierId)
         if (replacedCourier) {
-          await this.sendOfferEndedToRider(replacedCourier, { deliveryId, reason: 'MOVED' })
+          await this.sendOfferEndedToRider(replacedCourier, {
+            deliveryId,
+            reason: 'MOVED',
+            offeredAt: previousOffer.offeredAt?.toISOString() ?? null,
+          })
         }
       } catch (error) {
         this.logger.error(
@@ -1037,7 +1041,7 @@ export class DeliveryEventService {
     if (isStack && reason === 'EXPIRED') await this.blockStackPair(ids)
 
     for (const id of ended) {
-      await this.followUpEndedOffer(id, courierId, reason, isStack ? stackVariantOf(text) : text)
+      await this.followUpEndedOffer(id, courierId, args.offeredAt, reason, isStack ? stackVariantOf(text) : text)
     }
     if (failedWrite) {
       this.logger.error(
@@ -1118,6 +1122,7 @@ export class DeliveryEventService {
   private async followUpEndedOffer(
     deliveryId: string,
     courierId: string,
+    offeredAt: Date | null,
     reason: OfferEndedReason,
     text: EventText
   ): Promise<void> {
@@ -1125,7 +1130,7 @@ export class DeliveryEventService {
     try {
       const courier = await this.courierRepository.findById(courierId)
       if (courier) {
-        await this.sendOfferEndedToRider(courier, { deliveryId, reason })
+        await this.sendOfferEndedToRider(courier, { deliveryId, reason, offeredAt: offeredAt?.toISOString() ?? null })
       }
     } catch (error) {
       this.logger.error(
@@ -2690,7 +2695,11 @@ export class DeliveryEventService {
       try {
         const offeredCourier = await this.courierRepository.findById(dbDelivery.matchedCourierId)
         if (offeredCourier) {
-          await this.sendOfferEndedToRider(offeredCourier, { deliveryId: dbDelivery.id, reason: 'MOVED' })
+          await this.sendOfferEndedToRider(offeredCourier, {
+            deliveryId: dbDelivery.id,
+            reason: 'MOVED',
+            offeredAt: dbDelivery.offeredAt?.toISOString() ?? null,
+          })
         }
       } catch (error) {
         this.logger.error(
@@ -3433,6 +3442,45 @@ export class DeliveryEventService {
       await this.websocketDispatcher.sendOfferToCourier(courier.userId, new DeliveryCourierDto(delivery))
     } finally {
       if (push) this.offerPushService.newOffer(courier.id, delivery.id)
+    }
+  }
+
+  // Row 154: what a rider's answer must reach on their other phones, read BEFORE the answer (a decline clears
+  // the offer's fields): the deliveries this offer covers (a pair is both) and when it was made. Null when
+  // this rider holds no open offer of it, so there is nothing to tell.
+  async offerAnswerTargets(
+    deliveryId: string,
+    courierId: string
+  ): Promise<{ courierId: string; deliveryIds: string[]; offeredAt: Date | null } | null> {
+    const delivery = await this.deliveryRepository.findById(deliveryId)
+    if (
+      !delivery ||
+      delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER ||
+      delivery.matchedCourierId !== courierId
+    ) {
+      return null
+    }
+    const deliveryIds = await this.idsCoveredByOffer(deliveryId, courierId, delivery.offeredAt)
+    return { courierId, deliveryIds, offeredAt: delivery.offeredAt }
+  }
+
+  // Row 154: after a rider's accept or decline went through, every phone of theirs drops the offer and stops
+  // ringing (an OFFER_ENDED with ANSWERED). Never throws: the answer already happened.
+  async tellPhonesOfferAnswered(targets: { courierId: string; deliveryIds: string[]; offeredAt: Date | null }) {
+    try {
+      const courier = await this.courierRepository.findById(targets.courierId)
+      if (!courier) return
+      for (const deliveryId of targets.deliveryIds) {
+        await this.sendOfferEndedToRider(courier, {
+          deliveryId,
+          reason: 'ANSWERED',
+          offeredAt: targets.offeredAt?.toISOString() ?? null,
+        })
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not tell courier ${targets.courierId}'s phones that an offer was answered: ${errorSummaryForLog(error)}`
+      )
     }
   }
 

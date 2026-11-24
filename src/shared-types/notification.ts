@@ -41,11 +41,16 @@ export enum NotificationEventType {
 // Why an offer ended without the rider answering: the deadline passed, or the rider went offline.
 // MOVED: an admin gave the offer to another rider (row 61 review). STOPPED: dispatch was stopped
 // for heat or a storm (spec 0014); not the rider's miss, so no skip list entry.
-export type OfferEndedReason = 'EXPIRED' | 'OFFLINE' | 'MOVED' | 'STOPPED'
+// ANSWERED (row 154): the rider accepted or declined it, on one of their phones; their other phones stop
+// ringing. Sent to every phone of the rider, the one that answered included (it has nothing left to drop).
+export type OfferEndedReason = 'EXPIRED' | 'OFFLINE' | 'MOVED' | 'STOPPED' | 'ANSWERED'
 
 export interface OfferEndedMessage {
   deliveryId: string
   reason: OfferEndedReason
+  // Row 155: when the offer that ended was made, as ISO text, so a phone can drop a late push of exactly that
+  // offer and still ring for a new offer of the same delivery. Null when the server no longer knows it.
+  offeredAt: string | null
 }
 
 // Spec 0023 (AC-6): what a rider holding a job is told when its readiness changes. Ids, the

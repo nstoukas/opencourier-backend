@@ -18,6 +18,7 @@ import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-
 import { DeliveryNotFoundException, PersonalDataWarningException } from 'src/errors'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { DeliveryWhereArgs } from 'src/domains/delivery/types/delivery-where-args.type'
 import { IDeliveryReportIssue } from 'src/domains/delivery/interfaces/IDeliveryReportIssue'
 import { IDeliveryMarkAsDelivered } from 'src/domains/delivery/interfaces/IDeliveryMarkAsDelivered'
@@ -54,7 +55,9 @@ export class DeliveryRestApiCourierService {
     // Spec 0047: optional for the tests that build this service by hand; Nest always injects it.
     private splitRequestRepository?: SplitRequestRepository,
     // Spec 0053: the job step's note needs the delivery's points. Optional for the same reason.
-    private deliveryRepository?: DeliveryRepository
+    private deliveryRepository?: DeliveryRepository,
+    // Row 154: tells the rider's other phones an offer was answered. Optional for the same reason.
+    private deliveryEventService?: DeliveryEventService
   ) {}
 
   async getById(deliveryId: string, otherFilters?: DeliveryWhereArgs) {
@@ -157,14 +160,20 @@ export class DeliveryRestApiCourierService {
     }
   }
 
+  // Row 154: an answer given on one phone silences the rider's other phones. What to tell them is read
+  // before the answer, and sent only once the answer went through (a refused answer changes nothing).
   async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {
+    const targets = await this.deliveryEventService?.offerAnswerTargets(deliveryId, courierId)
     const delivery = await this.deliveryDomainService.acceptDelivery(deliveryId, courierId, automatic)
+    if (targets) await this.deliveryEventService?.tellPhonesOfferAnswered(targets)
 
     return delivery
   }
 
   async rejectDelivery(deliveryId: string, courierId: string) {
+    const targets = await this.deliveryEventService?.offerAnswerTargets(deliveryId, courierId)
     const delivery = await this.deliveryDomainService.rejectDelivery(deliveryId, courierId)
+    if (targets) await this.deliveryEventService?.tellPhonesOfferAnswered(targets)
 
     return delivery
   }
