@@ -8,6 +8,7 @@ import { hashApiKey } from 'src/domains/auth/api-key'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { LocationEntity } from 'src/domains/location/entities/location.entity'
 import { UserEntity } from 'src/domains/user/entities/user.entity'
+import { PickupAddressAdminInput } from './queries/pickup-address.admin.input'
 import * as errors from 'src/errors'
 
 describe('PartnerAdminRestApiService', () => {
@@ -124,7 +125,7 @@ describe('PartnerAdminRestApiService', () => {
       mockPartnerDomainService,
       mockLocationDomainService,
       mockUserDomainService,
-      mockPasswordService,
+      mockPasswordService
     )
 
     loggerLogSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
@@ -223,7 +224,7 @@ describe('PartnerAdminRestApiService', () => {
       expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith(
         expect.objectContaining({
           pickupLocationId: 'loc-new',
-        }),
+        })
       )
 
       // Test without pickupAddress
@@ -242,7 +243,7 @@ describe('PartnerAdminRestApiService', () => {
       expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith(
         expect.objectContaining({
           pickupLocationId: null,
-        }),
+        })
       )
     })
   })
@@ -275,7 +276,7 @@ describe('PartnerAdminRestApiService', () => {
           countryCode: EnumCountryCode.GR,
           latitude: 39.362,
           longitude: 22.944,
-        }),
+        })
       )
       // Row 150: the old location row is NEVER updated in place so shared orders/quotes do not move
       expect(mockLocationDomainService.update).not.toHaveBeenCalled()
@@ -416,7 +417,7 @@ describe('PartnerAdminRestApiService', () => {
           state: 'Magnesia',
           zipCode: '38221',
           countryCode: EnumCountryCode.GR,
-          latitude: 39.370,
+          latitude: 39.37,
           longitude: 22.944,
           formattedAddress: 'Iasonos 12, Volos',
         },
@@ -426,9 +427,9 @@ describe('PartnerAdminRestApiService', () => {
 
       expect(mockLocationDomainService.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          latitude: 39.370,
+          latitude: 39.37,
           longitude: 22.944,
-        }),
+        })
       )
       expect(mockLocationDomainService.update).not.toHaveBeenCalled()
       expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
@@ -496,6 +497,165 @@ describe('PartnerAdminRestApiService', () => {
       expect(mockPartnerDomainService.update).not.toHaveBeenCalled()
     })
 
+    test('6i. keeps existing location row when coordinates differ only by float rounding in the last digits (Row 150)', async () => {
+      // Live check on dev: database returned 39.36020438104467 and input sent 39.360204381044674 (< 1e-9 degrees)
+      const locationWithFloatPrecision = new LocationEntity({
+        ...mockCurrentLocation,
+        latitude: 39.36020438104467,
+        longitude: 22.94400000000001,
+      })
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(locationWithFloatPrecision)
+
+      const updateInputRoundedCoords = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.360204381044674, // differs by ~4e-15 degrees
+          longitude: 22.94400000000003, // differs by ~2e-14 degrees
+          formattedAddress: 'Iasonos 12, Volos',
+        },
+      }
+
+      const result = await service.updateRestaurant('partner-100', updateInputRoundedCoords)
+
+      // Unchanged pickup point within rounding tolerance keeps the row: no create, no update in place, no partner update
+      expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).not.toHaveBeenCalled()
+      expect(result).toBe(mockPartnerEntity)
+    })
+
+    test('6j. creates a new location when point moved by more than SAME_POINT_DEGREES (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      // Moved by 0.0001 degrees (~11 meters), well beyond SAME_POINT_DEGREES (1e-9 degrees)
+      const updateInputMovedPoint = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.3621, // moved by 0.0001 degrees
+          longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
+        },
+      }
+
+      await service.updateRestaurant('partner-100', updateInputMovedPoint)
+
+      // New point gets a new Location row and repoints the partner; old location is never updated
+      expect(mockLocationDomainService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          latitude: 39.3621,
+          longitude: 22.944,
+        })
+      )
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
+    test('6k. creates a new location when latitude or longitude is missing (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      // Missing latitude (undefined)
+      const updateInputMissingLat = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
+        } as unknown as PickupAddressAdminInput,
+      }
+
+      await service.updateRestaurant('partner-100', updateInputMissingLat)
+
+      // A missing coordinate is never 'the same', so a new location row is created
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
+    test('6l. creates a new location when longitude is missing (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      // Missing longitude (undefined)
+      const updateInputMissingLng = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.362,
+          formattedAddress: 'Iasonos 12, Volos',
+        } as unknown as PickupAddressAdminInput,
+      }
+
+      await service.updateRestaurant('partner-100', updateInputMissingLng)
+
+      // A missing coordinate is never 'the same', so a new location row is created
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
+    test('6m. creates a new location when coordinates move just over SAME_POINT_DEGREES threshold (Row 150)', async () => {
+      mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
+      mockLocationDomainService.getById.mockResolvedValue(mockCurrentLocation)
+      mockLocationDomainService.create.mockResolvedValue(mockCreatedLocation)
+      mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
+
+      // Moved by 2e-9 degrees, which exceeds SAME_POINT_DEGREES (1e-9 degrees)
+      const updateInputSlightlyOverThreshold = {
+        pickupAddress: {
+          street: 'Iasonos',
+          houseNumber: '12',
+          city: 'Volos',
+          state: 'Magnesia',
+          zipCode: '38221',
+          countryCode: EnumCountryCode.GR,
+          latitude: 39.362 + 2e-9,
+          longitude: 22.944,
+          formattedAddress: 'Iasonos 12, Volos',
+        },
+      }
+
+      await service.updateRestaurant('partner-100', updateInputSlightlyOverThreshold)
+
+      expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+      expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+      expect(mockPartnerDomainService.update).toHaveBeenCalledWith('partner-100', {
+        pickupLocationId: 'loc-new',
+      })
+    })
+
     test('6d. updates only scalar fields when no pickupAddress is provided and skips location service', async () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(mockPartnerEntity)
       mockPartnerDomainService.update.mockResolvedValue(mockPartnerEntity)
@@ -539,7 +699,9 @@ describe('PartnerAdminRestApiService', () => {
 
       await service.createRestaurant({ ...createInput, usualPrepMinutes: 20 })
 
-      expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith(expect.objectContaining({ usualPrepMinutes: 20 }))
+      expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ usualPrepMinutes: 20 })
+      )
     })
 
     test('create passes 0 as 0 (Now is a real usual time)', async () => {
@@ -583,9 +745,9 @@ describe('PartnerAdminRestApiService', () => {
       mockUserDomainService.findUserWithEmail.mockResolvedValue(undefined)
       mockPartnerDomainService.createWithLogin.mockResolvedValue(mockPartnerEntity)
 
-      await expect(
-        service.createRestaurant({ ...createInput, usualPrepMinutes: null as any })
-      ).resolves.toBe(mockPartnerEntity)
+      await expect(service.createRestaurant({ ...createInput, usualPrepMinutes: null as any })).resolves.toBe(
+        mockPartnerEntity
+      )
 
       expect(mockPartnerDomainService.createWithLogin).toHaveBeenCalledTimes(1)
       expect(mockPartnerDomainService.createWithLogin.mock.calls[0]?.[0].usualPrepMinutes).toBeUndefined()
@@ -675,9 +837,7 @@ describe('PartnerAdminRestApiService', () => {
 
       expect(returnedKey).toBeNull()
       // AC-12: without key replaced suffix
-      expect(loggerLogSpy).toHaveBeenCalledWith(
-        'Admin admin-user-77 set a new password for partner partner-100'
-      )
+      expect(loggerLogSpy).toHaveBeenCalledWith('Admin admin-user-77 set a new password for partner partner-100')
     })
 
     test('throws ForbiddenException "This login also belongs to an admin." when login user has ADMIN role (AC-11)', async () => {
@@ -716,10 +876,10 @@ describe('PartnerAdminRestApiService', () => {
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
 
       await expect(service.rotatePassword('partner-100', 'anotherPassword', 'admin-user-77')).rejects.toThrow(
-        errors.NotFoundException,
+        errors.NotFoundException
       )
       await expect(service.rotatePassword('partner-100', 'anotherPassword', 'admin-user-77')).rejects.toThrow(
-        'This partner has no login user',
+        'This partner has no login user'
       )
       expect(mockUserDomainService.findById).not.toHaveBeenCalled()
       expect(mockUserDomainService.setPasswordAndReplaceApiKey).not.toHaveBeenCalled()
@@ -824,9 +984,7 @@ describe('PartnerAdminRestApiService', () => {
       })
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
 
-      await expect(service.createApiKey('partner-100', 'admin-user-77')).rejects.toThrow(
-        errors.NotFoundException
-      )
+      await expect(service.createApiKey('partner-100', 'admin-user-77')).rejects.toThrow(errors.NotFoundException)
       expect(mockUserDomainService.replaceApiKeyHash).not.toHaveBeenCalled()
     })
   })
@@ -886,9 +1044,7 @@ describe('PartnerAdminRestApiService', () => {
       })
       mockPartnerDomainService.getByIdOrThrow.mockResolvedValue(partnerWithoutUser)
 
-      await expect(service.removeApiKey('partner-100', 'admin-user-77')).rejects.toThrow(
-        errors.NotFoundException
-      )
+      await expect(service.removeApiKey('partner-100', 'admin-user-77')).rejects.toThrow(errors.NotFoundException)
       expect(mockUserDomainService.removeApiKey).not.toHaveBeenCalled()
     })
   })
