@@ -17,7 +17,7 @@ import { TaskBusService } from '../taskBus/taskBus.service'
 import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.service'
 import { DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
 import { DeliveryCalculationService } from '../delivery-calculation/delivery-calculation.service'
-import { DeliveryDispatchedEvent, DeliveryDroppedOffEvent, DeliveryEvent } from 'src/shared-types'
+import { DeliveryDispatchedEvent, DeliveryDroppedOffEvent, DeliveryEvent, DeliveryTipChangedEvent } from 'src/shared-types'
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { CacheService } from '../cache/cache.service'
@@ -932,6 +932,77 @@ describe('DeliveryEventService', () => {
             'Drop off pin moved 141 m by the rider, from 39.36400, 22.94800 to 39.36500, 22.94900; saved customer updated',
         })
       )
+    })
+  })
+
+  describe('recordTipChangedEvent (Row 160, clause 5)', () => {
+    test('saves through saveDeliveryEvent with transitionSuccessful true and oldStatus = newStatus = status, never through processDeliveryEvent', async () => {
+      const processDeliveryEventSpy = jest.spyOn(service, 'processDeliveryEvent')
+      const deliveryId = 'del-tip-1'
+      const status = EnumDeliveryStatus.ASSIGNING_COURIER
+      const event: DeliveryTipChangedEvent = {
+        deliveryId,
+        type: EnumDeliveryEventType.TIP_CHANGED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        message: 'Tip changed by the restaurant from 150 to 0 EUR (cents)',
+        messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+        messageParams: { oldTip: 150, newTip: 0, currency: 'EUR' },
+      }
+
+      await service.recordTipChangedEvent(event, status)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.TIP_CHANGED,
+          actor: EnumEventActor.PARTNER,
+          eventSource: EnumDeliveryEventSource.PARTNER_APP,
+          transitionSuccessful: true,
+          oldStatus: status,
+          newStatus: status,
+          message: 'Tip changed by the restaurant from 150 to 0 EUR (cents)',
+          messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+          messageParams: { oldTip: 150, newTip: 0, currency: 'EUR' },
+        })
+      )
+      // courierId is not present / undefined on a tip change before rider holds
+      const createArg = mockDeliveryEventRepository.create.mock.calls[0]?.[0]
+      expect(createArg?.courierId).toBeUndefined()
+      expect(processDeliveryEventSpy).not.toHaveBeenCalled()
+    })
+
+    test('preserves the given status as both oldStatus and newStatus for CREATED status too', async () => {
+      const processDeliveryEventSpy = jest.spyOn(service, 'processDeliveryEvent')
+      const deliveryId = 'del-tip-2'
+      const status = EnumDeliveryStatus.CREATED
+      const event: DeliveryTipChangedEvent = {
+        deliveryId,
+        type: EnumDeliveryEventType.TIP_CHANGED,
+        actor: EnumEventActor.PARTNER,
+        source: EnumDeliveryEventSource.PARTNER_APP,
+        message: 'Tip changed by the restaurant from 0 to 300 EUR (cents)',
+        messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+        messageParams: { oldTip: 0, newTip: 300, currency: 'EUR' },
+      }
+
+      await service.recordTipChangedEvent(event, status)
+
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.TIP_CHANGED,
+          actor: EnumEventActor.PARTNER,
+          eventSource: EnumDeliveryEventSource.PARTNER_APP,
+          transitionSuccessful: true,
+          oldStatus: EnumDeliveryStatus.CREATED,
+          newStatus: EnumDeliveryStatus.CREATED,
+          message: 'Tip changed by the restaurant from 0 to 300 EUR (cents)',
+          messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+          messageParams: { oldTip: 0, newTip: 300, currency: 'EUR' },
+        })
+      )
+      expect(processDeliveryEventSpy).not.toHaveBeenCalled()
     })
   })
 

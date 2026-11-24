@@ -137,5 +137,53 @@ describe('translate and formatting helpers (Spec 0054, AC-3)', () => {
         'Ο διανομέας c-1 αποδέχτηκε την παραγγελία del-1, που προτάθηκε μαζί με την παραγγελία del-2 (αυτόματη αποδοχή)'
       )
     })
+
+    test('renders TIP_CHANGED_BY_RESTAURANT in English and Greek with real amounts (Row 160, clause 4)', () => {
+      // English shows raw cents and currency code
+      const enMsg = renderEventMessage('en', 'TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 150,
+        newTip: 0,
+        currency: 'EUR',
+      })
+      expect(enMsg).toBe('Tip changed by the restaurant from 150 to 0 EUR (cents)')
+
+      // Greek formats amounts with money format (e.g. 1,50 € and 0,00 €)
+      const elMsg = renderEventMessage('el', 'TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 150,
+        newTip: 0,
+        currency: 'EUR',
+      })
+      expect(elMsg).toBe('Το κατάστημα άλλαξε το φιλοδώρημα από 1,50\u00A0€ σε 0,00\u00A0€')
+
+      // Also verify when raising tip from 0 to 250 cents
+      const enMsgRaised = renderEventMessage('en', 'TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 0,
+        newTip: 250,
+        currency: 'EUR',
+      })
+      expect(enMsgRaised).toBe('Tip changed by the restaurant from 0 to 250 EUR (cents)')
+
+      const elMsgRaised = renderEventMessage('el', 'TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 0,
+        newTip: 250,
+        currency: 'EUR',
+      })
+      expect(elMsgRaised).toBe('Το κατάστημα άλλαξε το φιλοδώρημα από 0,00\u00A0€ σε 2,50\u00A0€')
+
+      // And via translate directly
+      const enDirect = translate('en', 'server.event.TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 100,
+        newTip: 200,
+        currency: 'EUR',
+      })
+      expect(enDirect).toBe('Tip changed by the restaurant from 100 to 200 EUR (cents)')
+
+      const elDirect = translate('el', 'server.event.TIP_CHANGED_BY_RESTAURANT', {
+        oldTip: 100,
+        newTip: 200,
+        currency: 'EUR',
+      })
+      expect(elDirect).toBe('Το κατάστημα άλλαξε το φιλοδώρημα από 1,00\u00A0€ σε 2,00\u00A0€')
+    })
   })
 })

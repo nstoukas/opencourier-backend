@@ -303,7 +303,10 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
         getById: jest.fn().mockResolvedValue({ id: 'loc-1', latitude: 39.36, longitude: 22.94 }),
         create: jest.fn().mockResolvedValue({ id: 'loc-new' }),
       }
-      events = { recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined) }
+      events = {
+        recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined),
+        recordTipChangedEvent: jest.fn().mockResolvedValue(undefined),
+      }
       service = new DeliveryPartnerRestApiService(
         { getByIdOrThrow: jest.fn().mockResolvedValue({ id: 'quote-1', dropoffLocationId: 'loc-1' }) } as any,
         deliveries,

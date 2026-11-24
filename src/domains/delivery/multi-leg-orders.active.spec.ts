@@ -432,7 +432,7 @@ describe('Multi leg orders (spec 0046)', () => {
         {} as any,
         { findOn: jest.fn().mockResolvedValue(null) } as any,
         { instanceConfig: { getRestaurantHistoryDays: async () => 30 } } as any,
-        { recordDropoffPointCorrectedEvent: jest.fn() } as any,
+        { recordDropoffPointCorrectedEvent: jest.fn(), recordTipChangedEvent: jest.fn().mockResolvedValue(undefined) } as any,
         {} as any
       )
     })

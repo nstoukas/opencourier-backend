@@ -62,6 +62,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     }
     mockDeliveryEventService = {
       recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined),
+      recordTipChangedEvent: jest.fn().mockResolvedValue(undefined),
     }
 
     service = new DeliveryPartnerRestApiService(
@@ -922,6 +923,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       dropoffLocationId: 'loc-shared',
       deliveryQuoteId: 'quote-1',
       tips,
+      currencyCode: 'EUR',
       orderReference: 'ORD-152',
     })
 
@@ -956,6 +958,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       mockDeliveryDomainService.changeBoxSize = jest.fn()
       mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(true)
       mockDeliveryEventService.recordDropoffPointCorrectedEvent = jest.fn().mockResolvedValue(undefined)
+      mockDeliveryEventService.recordTipChangedEvent = jest.fn().mockResolvedValue(undefined)
     })
 
     describe('clause 1: POST partner deliveries/:id on an ended delivery (DROPPED_OFF, CANCELED, FAILED) is refused 409', () => {
@@ -1090,6 +1093,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
             'del-152',
             expect.objectContaining({ tips: 250 })
           )
+          expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
         }
       )
 
@@ -1104,6 +1108,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
             'del-152',
             expect.objectContaining({ tips: 150 })
           )
+          expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
         }
       )
 
@@ -1131,6 +1136,156 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-152', expect.objectContaining({ tips: 0 }))
         }
       )
+    })
+
+    describe('Row 160: partner edit tip change event', () => {
+      describe('clause 1: partner edit changing the tip on an unassigned order (CREATED, ASSIGNING_COURIER) writes ONE TIP_CHANGED event', () => {
+        test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+          'status %s: lowering tip to 0 writes ONE event with oldTip, newTip: 0, currency, status, no courierId',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 150))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 0 }))
+
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledTimes(1)
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledWith(
+              {
+                deliveryId: 'del-152',
+                type: EnumDeliveryEventType.TIP_CHANGED,
+                actor: EnumEventActor.PARTNER,
+                source: EnumDeliveryEventSource.PARTNER_APP,
+                message: 'Tip changed by the restaurant from 150 to 0 EUR (cents)',
+                messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+                messageParams: {
+                  oldTip: 150,
+                  newTip: 0,
+                  currency: 'EUR',
+                },
+              },
+              status
+            )
+            const [recordedEvent] = mockDeliveryEventService.recordTipChangedEvent.mock.calls[0]
+            expect(recordedEvent.courierId).toBeUndefined()
+            expect('courierId' in recordedEvent).toBe(false)
+          }
+        )
+
+        test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+          'status %s: raising tip from 0 writes ONE event with oldTip: 0, newTip: 300',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 0))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 300 }))
+
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledTimes(1)
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledWith(
+              {
+                deliveryId: 'del-152',
+                type: EnumDeliveryEventType.TIP_CHANGED,
+                actor: EnumEventActor.PARTNER,
+                source: EnumDeliveryEventSource.PARTNER_APP,
+                message: 'Tip changed by the restaurant from 0 to 300 EUR (cents)',
+                messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+                messageParams: {
+                  oldTip: 0,
+                  newTip: 300,
+                  currency: 'EUR',
+                },
+              },
+              status
+            )
+            const [recordedEvent] = mockDeliveryEventService.recordTipChangedEvent.mock.calls[0]
+            expect(recordedEvent.courierId).toBeUndefined()
+            expect('courierId' in recordedEvent).toBe(false)
+          }
+        )
+
+        test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+          'status %s: changing tip between non-zero amounts (100 to 250) writes ONE event',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 100))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 250 }))
+
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledTimes(1)
+            expect(mockDeliveryEventService.recordTipChangedEvent).toHaveBeenCalledWith(
+              {
+                deliveryId: 'del-152',
+                type: EnumDeliveryEventType.TIP_CHANGED,
+                actor: EnumEventActor.PARTNER,
+                source: EnumDeliveryEventSource.PARTNER_APP,
+                message: 'Tip changed by the restaurant from 100 to 250 EUR (cents)',
+                messageCode: 'TIP_CHANGED_BY_RESTAURANT',
+                messageParams: {
+                  oldTip: 100,
+                  newTip: 250,
+                  currency: 'EUR',
+                },
+              },
+              status
+            )
+            const [recordedEvent] = mockDeliveryEventService.recordTipChangedEvent.mock.calls[0]
+            expect(recordedEvent.courierId).toBeUndefined()
+            expect('courierId' in recordedEvent).toBe(false)
+          }
+        )
+      })
+
+      describe('clause 2: an edit that leaves the tip alone writes no event', () => {
+        test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+          'status %s: sending same non-zero tip (150) writes no tip event',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 150))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 150 }))
+
+            expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+          }
+        )
+
+        test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+          'status %s: sending same zero tip (0) writes no tip event',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 0))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 0 }))
+
+            expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+          }
+        )
+      })
+
+      describe('clause 3: on an order a rider holds (DELIVERY_ONGOING_STATUSES), tip is kept and no event is written even with different tip', () => {
+        test.each(DELIVERY_ONGOING_STATUSES)(
+          'status %s preserves tip and calls no recordTipChangedEvent when restaurant sends 0',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 250))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 0 }))
+
+            expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+              'del-152',
+              expect.objectContaining({ tips: 250 })
+            )
+            expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+          }
+        )
+
+        test.each(DELIVERY_ONGOING_STATUSES)(
+          'status %s preserves tip and calls no recordTipChangedEvent when restaurant sends different tip (500)',
+          async (status) => {
+            mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 150))
+
+            await service.update('del-152', partnerId, updateInput({ tipByCustomer: 500 }))
+
+            expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+              'del-152',
+              expect.objectContaining({ tips: 150 })
+            )
+            expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+          }
+        )
+      })
     })
   })
 })
