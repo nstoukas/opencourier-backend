@@ -32,7 +32,20 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
   const RIDER = { latitude: 39.371111, longitude: 22.931111 }
   const PICKUP = { latitude: 39.362222, longitude: 22.942222 }
   const DROPOFF = { latitude: 39.353333, longitude: 22.953333 }
-  const COORDINATE_FRAGMENTS = ['39.37', '39.36', '39.35', '22.93', '22.94', '22.95', '371111', '931111', '362222', '942222', '353333', '953333']
+  const COORDINATE_FRAGMENTS = [
+    '39.37',
+    '39.36',
+    '39.35',
+    '22.93',
+    '22.94',
+    '22.95',
+    '371111',
+    '931111',
+    '362222',
+    '942222',
+    '353333',
+    '953333',
+  ]
 
   const createSampleOfferCardSource = (overrides?: Partial<any>) => ({
     delivery: {
@@ -122,10 +135,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
   })
 
   test('registers "offer-insist" task handler in constructor', () => {
-    expect(mockTaskBusService.registerTaskHandler).toHaveBeenCalledWith(
-      'offer-insist',
-      expect.any(Function)
-    )
+    expect(mockTaskBusService.registerTaskHandler).toHaveBeenCalledWith('offer-insist', expect.any(Function))
     expect(registeredTaskHandler).toBeDefined()
   })
 
@@ -144,7 +154,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
     test('sendOfferEnded returns immediately without querying database when push is disabled', async () => {
       mockPushNotificationService.isEnabled.mockReturnValue(false)
 
-      await service.sendOfferEnded('courier-1', { deliveryId: 'del-1', reason: 'EXPIRED' })
+      await service.sendOfferEnded('courier-1', { deliveryId: 'del-1', reason: 'EXPIRED', offeredAt: null })
 
       expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
       expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
@@ -314,9 +324,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
             },
           })
         )
-        ;(mockDeliveryRepository.findOpenGroupMembers as jest.Mock).mockResolvedValue([
-          { id: 'del-push-1' },
-        ])
+        ;(mockDeliveryRepository.findOpenGroupMembers as jest.Mock).mockResolvedValue([{ id: 'del-push-1' }])
 
         await service.sendNewOffer('courier-1', 'del-push-1', false)
 
@@ -576,6 +584,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       await service.sendOfferEnded('courier-1', {
         deliveryId: 'del-push-1',
         reason: 'EXPIRED',
+        offeredAt: '2026-10-26T10:00:00.000Z',
       })
 
       expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
@@ -584,6 +593,26 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
           type: NotificationEventType.OFFER_ENDED,
           deliveryId: 'del-push-1',
           reason: 'EXPIRED',
+          offeredAt: '2026-10-26T10:00:00.000Z',
+        },
+        PUSH_DEFAULT_TTL_SECONDS
+      )
+    })
+
+    test('sends OFFER_ENDED data message with empty string offeredAt when offeredAt is null', async () => {
+      await service.sendOfferEnded('courier-1', {
+        deliveryId: 'del-push-1',
+        reason: 'EXPIRED',
+        offeredAt: null,
+      })
+
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+        ['token-device-a', 'token-device-b'],
+        {
+          type: NotificationEventType.OFFER_ENDED,
+          deliveryId: 'del-push-1',
+          reason: 'EXPIRED',
+          offeredAt: '',
         },
         PUSH_DEFAULT_TTL_SECONDS
       )
@@ -598,6 +627,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       await service.sendOfferEnded('courier-1', {
         deliveryId: 'del-push-1',
         reason: 'OFFLINE',
+        offeredAt: null,
       })
 
       expect(mockCourierDeviceRepository.deleteByTokens).toHaveBeenCalledWith(['token-device-b'])
@@ -614,7 +644,9 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
     test('offerEnded swallows rejections without crashing', async () => {
       mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Redis crashed'))
 
-      expect(() => service.offerEnded('courier-1', { deliveryId: 'del-1', reason: 'MOVED' })).not.toThrow()
+      expect(() =>
+        service.offerEnded('courier-1', { deliveryId: 'del-1', reason: 'MOVED', offeredAt: null })
+      ).not.toThrow()
     })
 
     test('jobCancelled swallows rejections without crashing', async () => {
@@ -1126,7 +1158,10 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
           createSampleOfferCardSource({ delivery: { offerExpiresAt: new Date(start.getTime() + 800) } })
         )
         mockOsrmRoutingService.getRoute.mockImplementation(
-          () => new Promise((resolve) => setTimeout(() => resolve({ distanceMetres: 500, durationSeconds: 60, points: [] }), 1000))
+          () =>
+            new Promise((resolve) =>
+              setTimeout(() => resolve({ distanceMetres: 500, durationSeconds: 60, points: [] }), 1000)
+            )
         )
 
         const done = service.sendNewOffer('courier-1', 'del-push-1', false)

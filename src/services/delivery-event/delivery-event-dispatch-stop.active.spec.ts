@@ -216,7 +216,11 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: EnumDeliveryEventType.NO_COURIER_AVAILABLE })
       )
-      expect(mockTaskBusService.scheduleTask).not.toHaveBeenCalledWith('no-courier-retry', expect.anything(), expect.anything())
+      expect(mockTaskBusService.scheduleTask).not.toHaveBeenCalledWith(
+        'no-courier-retry',
+        expect.anything(),
+        expect.anything()
+      )
     })
 
     test('backstop retry job does not reschedule when gate returns STOPPED', async () => {
@@ -259,20 +263,18 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
     test('offerDeliveryToCourierAsAdmin throws 409 CantUpdateDeliveryStatusError naming the end time', async () => {
       mockDispatchStopRepository.findOn.mockResolvedValue(activeStop)
 
-      await expect(
-        service.offerDeliveryToCourierAsAdmin('del-admin-1', 'courier-1')
-      ).rejects.toThrow(CantUpdateDeliveryStatusError)
-      await expect(
-        service.offerDeliveryToCourierAsAdmin('del-admin-1', 'courier-1')
-      ).rejects.toThrow('Dispatch is stopped until 17:00.')
+      await expect(service.offerDeliveryToCourierAsAdmin('del-admin-1', 'courier-1')).rejects.toThrow(
+        CantUpdateDeliveryStatusError
+      )
+      await expect(service.offerDeliveryToCourierAsAdmin('del-admin-1', 'courier-1')).rejects.toThrow(
+        'Dispatch is stopped until 17:00.'
+      )
     })
 
     test('offerToNextCourier checks for a stop again AFTER claiming the delivery, takes claim back, saves no OFFERED event, and returns STOPPED (AC-4)', async () => {
       // Gate check 1 (before matching): null
       // Gate check 2 (after claim): activeStop
-      mockDispatchStopRepository.findOn
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(activeStop)
+      mockDispatchStopRepository.findOn.mockResolvedValueOnce(null).mockResolvedValueOnce(activeStop)
 
       const matchedCourier = { id: 'courier-race', userId: 'user-courier-race' }
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValue({
@@ -382,10 +384,11 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
       // Web socket and push notified of offer ended
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledTimes(2)
       expect(mockOfferPushService.offerEnded).toHaveBeenCalledTimes(2)
-      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith(
-        'user-courier-1',
-        { deliveryId: 'del-open-1', reason: 'STOPPED' }
-      )
+      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-1', {
+        deliveryId: 'del-open-1',
+        reason: 'STOPPED',
+        offeredAt: openOffers[0]!.offeredAt!.toISOString(),
+      })
     })
 
     test('returnToWaitingForDispatchStop writes status ASSIGNING_COURIER and clears courierId, matchedCourierId, offeredAt, offerExpiresAt in ONE updateIfMatches, saves event, notifies, and returns amounts (AC-5)', async () => {
@@ -600,7 +603,11 @@ describe('DeliveryEventService - Dispatch Stop (Spec 0014, AC-4, AC-5)', () => {
   describe('AC-4 end: matchAllWaitingDeliveriesAfterStop', () => {
     test('runs offerOrWait for EVERY waiting delivery (oldest first, not just one)', async () => {
       mockDispatchStopRepository.findOn.mockResolvedValue(null) // Stop has ended
-      mockDeliveryRepository.findIdsWaitingForCourierOldestFirst.mockResolvedValue(['del-wait-1', 'del-wait-2', 'del-wait-3'])
+      mockDeliveryRepository.findIdsWaitingForCourierOldestFirst.mockResolvedValue([
+        'del-wait-1',
+        'del-wait-2',
+        'del-wait-3',
+      ])
 
       mockDeliveryRepository.findByIdOrThrow.mockImplementation(async (id: string) => ({
         id,

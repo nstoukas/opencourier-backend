@@ -707,7 +707,11 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
 
   describe('Decision 32.17: ACCEPTED, DISPATCHED, ON_THE_WAY write courierId inside the conditional write', () => {
     it('ACCEPTED writes courierId and offerExpiresAt: null inside updateIfMatches with NO prior unconditional update', async () => {
-      const delivery = makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null, matchedCourierId: courierId })
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: courierId,
+      })
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
 
@@ -735,7 +739,11 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
     })
 
     it('an ACCEPTED whose conditional write misses leaves NO courierId written', async () => {
-      const delivery = makeDelivery({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null, matchedCourierId: courierId })
+      const delivery = makeDelivery({
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: courierId,
+      })
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
       mockDeliveryRepository.updateIfMatches.mockResolvedValue(false) // lost race (e.g. cancelled)
 
@@ -814,10 +822,12 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       const offeredCourier = { id: offeredCourierId, userId: 'user-offered-1' }
       mockCourierRepository.findById.mockResolvedValueOnce(offeredCourier as any)
 
+      const offeredAt = new Date('2026-10-25T10:00:00.000Z')
       const delivery = makeDelivery({
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
         courierId: null,
         matchedCourierId: offeredCourierId,
+        offeredAt,
       })
       mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(delivery)
       mockDeliveryRepository.findById.mockResolvedValue({
@@ -840,10 +850,12 @@ describe('DeliveryEventService - Cancellation & Payout (Spec 0015)', () => {
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-offered-1', {
         deliveryId,
         reason: 'MOVED',
+        offeredAt: offeredAt.toISOString(),
       })
       expect(mockOfferPushService.offerEnded).toHaveBeenCalledWith(offeredCourierId, {
         deliveryId,
         reason: 'MOVED',
+        offeredAt: offeredAt.toISOString(),
       })
     })
 

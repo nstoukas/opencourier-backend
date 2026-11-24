@@ -101,7 +101,9 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       create: jest.fn().mockResolvedValue({ id: 'evt-1' } as any),
       findLatestOfTypes: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<DeliveryEventRepository>
-    mockTaskScheduler = { scheduleTask: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<TaskBusScheduler>
+    mockTaskScheduler = {
+      scheduleTask: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<TaskBusScheduler>
     mockTaskBusService = { registerTaskHandler: jest.fn() } as unknown as jest.Mocked<TaskBusService>
     mockPartnerWebhookService = {
       sendDeliveryUpdatePartnerWebhook: jest.fn().mockResolvedValue(undefined),
@@ -171,13 +173,16 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
     it('with two deliveries waiting and one rider coming free, matchWaitingDeliveries offers exactly one and stops', async () => {
       mockDeliveryRepository.findIdsWaitingForCourierOldestFirst.mockResolvedValue(['del-wait-1', 'del-wait-2'])
 
-      mockDeliveryRepository.findByIdOrThrow.mockImplementation(async (id: string) => ({
-        id,
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        matchedCourierId: null,
-        courierId: null,
-        partnerId: 'partner-1',
-      } as any))
+      mockDeliveryRepository.findByIdOrThrow.mockImplementation(
+        async (id: string) =>
+          ({
+            id,
+            status: EnumDeliveryStatus.ASSIGNING_COURIER,
+            matchedCourierId: null,
+            courierId: null,
+            partnerId: 'partner-1',
+          } as any)
+      )
 
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce({
         courier: { id: 'courier-free-1', userId: 'user-free-1' } as any,
@@ -255,11 +260,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         })
       )
       // no-courier-retry still scheduled
-      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
-        'no-courier-retry',
-        { deliveryId },
-        expect.anything()
-      )
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith('no-courier-retry', { deliveryId }, expect.anything())
     })
 
     it('endOffer: throw from sendOfferEnded still records OFFER_EXPIRED and schedules no-courier-retry', async () => {
@@ -300,11 +301,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
           courierId,
         })
       )
-      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
-        'no-courier-retry',
-        { deliveryId },
-        expect.anything()
-      )
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith('no-courier-retry', { deliveryId }, expect.anything())
     })
 
     it('endOffer: throw from processDeliveryEvent still schedules no-courier-retry when delivery left waiting', async () => {
@@ -338,11 +335,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         offeredAt: offeredAt.toISOString(),
       })
 
-      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
-        'no-courier-retry',
-        { deliveryId },
-        expect.anything()
-      )
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith('no-courier-retry', { deliveryId }, expect.anything())
     })
 
     it('endOffer: when processDeliveryEvent itself rejects, endOffer resolves true and still schedules no-courier-retry', async () => {
@@ -382,11 +375,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       )
 
       // Backstop retry is still added when delivery is left waiting
-      expect(mockBullMQService.addJob).toHaveBeenCalledWith(
-        'no-courier-retry',
-        { deliveryId },
-        expect.anything()
-      )
+      expect(mockBullMQService.addJob).toHaveBeenCalledWith('no-courier-retry', { deliveryId }, expect.anything())
     })
 
     it('offerToNextCourier: failing saveOfferedEvent still schedules offer-expiry job and still sends offer', async () => {
@@ -417,10 +406,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         expect.objectContaining({ deliveryId: 'del-failing-save-event', courierId: 'courier-1' }),
         expect.anything()
       )
-      expect(mockWebsocketDispatcher.sendOfferToCourier).toHaveBeenCalledWith(
-        'user-1',
-        expect.anything()
-      )
+      expect(mockWebsocketDispatcher.sendOfferToCourier).toHaveBeenCalledWith('user-1', expect.anything())
     })
   })
 
@@ -509,30 +495,25 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       } as any)
       mockDeliveryRepository.claimOfferWithinBox.mockResolvedValueOnce('NOT_WAITING')
 
-      await expect(service.offerWaitingDeliveryNow('del-not-waiting')).rejects.toThrow(
-        CantUpdateDeliveryStatusError
-      )
+      await expect(service.offerWaitingDeliveryNow('del-not-waiting')).rejects.toThrow(CantUpdateDeliveryStatusError)
     })
 
     it('partner test route refuses another partner delivery (404) and calls offerWaitingDeliveryNow', async () => {
       const mockDeliveryPartnerRestApiService: any = {
         getByIdWithRelations: jest.fn().mockRejectedValue(new Error('Not found')),
       }
-      const partnerController = new DeliveryPartnerRestApiController(
-        mockDeliveryPartnerRestApiService,
-        service
-      )
+      const partnerController = new DeliveryPartnerRestApiController(mockDeliveryPartnerRestApiService, service)
       const partner = new PartnerEntity({ id: 'partner-1' } as any)
 
       await expect(partnerController.findCourier('del-other-partner', partner)).rejects.toThrow()
-      expect(mockDeliveryPartnerRestApiService.getByIdWithRelations).toHaveBeenCalledWith('del-other-partner', 'partner-1')
+      expect(mockDeliveryPartnerRestApiService.getByIdWithRelations).toHaveBeenCalledWith(
+        'del-other-partner',
+        'partner-1'
+      )
     })
 
     it('admin test route calls offerWaitingDeliveryNow', async () => {
-      const adminTestingController = new TestingAdminRestApiController(
-        {} as any,
-        service
-      )
+      const adminTestingController = new TestingAdminRestApiController({} as any, service)
       jest.spyOn(service, 'offerWaitingDeliveryNow').mockResolvedValueOnce({
         courier: new CourierEntity({ id: 'c-admin-test' } as any),
         delivery: {} as any,
@@ -752,14 +733,20 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
           offeredAt: new Date(),
         } as any)
 
-      mockCourierRepository.findByIdOrThrow.mockImplementation(async (id: string) => ({
-        id,
-        userId: `user-${id}`,
-      } as any))
-      mockCourierRepository.findById.mockImplementation(async (id: string) => ({
-        id,
-        userId: `user-${id}`,
-      } as any))
+      mockCourierRepository.findByIdOrThrow.mockImplementation(
+        async (id: string) =>
+          ({
+            id,
+            userId: `user-${id}`,
+          } as any)
+      )
+      mockCourierRepository.findById.mockImplementation(
+        async (id: string) =>
+          ({
+            id,
+            userId: `user-${id}`,
+          } as any)
+      )
 
       mockDeliveryRepository.claimForRiderWithinBox.mockResolvedValue({
         outcome: 'CLAIMED',
@@ -773,6 +760,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-A', {
         deliveryId,
         reason: 'MOVED',
+        offeredAt: offeredAt.toISOString(),
       })
       // Rider A is not put on skip list
       expect(mockCacheService.addWithOwnExpiry).not.toHaveBeenCalledWith(
@@ -1003,7 +991,8 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
 
     it('acceptDelivery does not re-arm when offer had no deadline (offerExpiresAt null)', async () => {
       const mockDeliveryRepo: any = {
-        findByIdOrThrow: jest.fn()
+        findByIdOrThrow: jest
+          .fn()
           .mockResolvedValueOnce({
             id: 'del-no-deadline',
             status: EnumDeliveryStatus.ASSIGNING_COURIER,

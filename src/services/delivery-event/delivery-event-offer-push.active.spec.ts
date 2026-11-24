@@ -183,16 +183,16 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
     test('starts push in finally block even when socket offer fails/throws', async () => {
       mockWebsocketDispatcher.sendOfferToCourier.mockRejectedValue(new Error('Socket disconnected'))
 
-      await expect(
-        (service as any).sendOfferToRider(sampleCourier, sampleDelivery)
-      ).rejects.toThrow('Socket disconnected')
+      await expect((service as any).sendOfferToRider(sampleCourier, sampleDelivery)).rejects.toThrow(
+        'Socket disconnected'
+      )
 
       // Push must still start so a rider with a locked phone gets the offer
       expect(mockOfferPushService.newOffer).toHaveBeenCalledWith('courier-rider-1', 'del-offer-1')
     })
 
     test('sends socket offer-ended first, then starts offer-ended push', async () => {
-      const message = { deliveryId: 'del-offer-1', reason: 'EXPIRED' as const }
+      const message = { deliveryId: 'del-offer-1', reason: 'EXPIRED' as const, offeredAt: '2026-10-26T10:00:00.000Z' }
       await (service as any).sendOfferEndedToRider(sampleCourier, message)
 
       expect(callOrder).toEqual(['socket:sendOfferEnded', 'push:offerEnded'])
@@ -203,10 +203,10 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
     test('starts offer-ended push in finally block even when socket send fails/throws', async () => {
       mockWebsocketDispatcher.sendOfferEnded.mockRejectedValue(new Error('Socket network timeout'))
 
-      const message = { deliveryId: 'del-offer-1', reason: 'OFFLINE' as const }
-      await expect(
-        (service as any).sendOfferEndedToRider(sampleCourier, message)
-      ).rejects.toThrow('Socket network timeout')
+      const message = { deliveryId: 'del-offer-1', reason: 'OFFLINE' as const, offeredAt: '2026-10-26T10:00:00.000Z' }
+      await expect((service as any).sendOfferEndedToRider(sampleCourier, message)).rejects.toThrow(
+        'Socket network timeout'
+      )
 
       expect(mockOfferPushService.offerEnded).toHaveBeenCalledWith('courier-rider-1', message)
     })
@@ -282,13 +282,15 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       await service.offerDeliveryToCourierAsAdmin('del-offer-1', 'courier-rider-1', 'Moving offer to rider 1')
 
       // Old courier receives OFFER_ENDED with reason MOVED
-      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith(
-        'user-replaced-old',
-        { deliveryId: 'del-offer-1', reason: 'MOVED' }
-      )
+      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-replaced-old', {
+        deliveryId: 'del-offer-1',
+        reason: 'MOVED',
+        offeredAt: '2026-10-26T10:00:00.000Z',
+      })
       expect(mockOfferPushService.offerEnded).toHaveBeenCalledWith('courier-replaced-old', {
         deliveryId: 'del-offer-1',
         reason: 'MOVED',
+        offeredAt: '2026-10-26T10:00:00.000Z',
       })
 
       // New courier receives new offer push
@@ -299,13 +301,15 @@ describe('DeliveryEventService - Spec 0003 AC-2, AC-6 Socket Before Push & Send 
       // Test when courier goes OFFLINE with open offer
       await service.handleCourierStatusChanged('courier-rider-1', EnumCourierStatus.OFFLINE)
 
-      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith(
-        'user-courier-1',
-        { deliveryId: 'del-offer-1', reason: 'OFFLINE' }
-      )
+      expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-1', {
+        deliveryId: 'del-offer-1',
+        reason: 'OFFLINE',
+        offeredAt: '2026-10-26T10:00:00.000Z',
+      })
       expect(mockOfferPushService.offerEnded).toHaveBeenCalledWith('courier-rider-1', {
         deliveryId: 'del-offer-1',
         reason: 'OFFLINE',
+        offeredAt: '2026-10-26T10:00:00.000Z',
       })
     })
   })

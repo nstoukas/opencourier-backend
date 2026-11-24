@@ -595,6 +595,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-1', {
         deliveryId,
         reason: 'EXPIRED',
+        offeredAt: offeredAt.toISOString(),
       })
 
       // 4. OFFER_EXPIRED event is recorded (SYSTEM actor, courierId, message)
@@ -890,10 +891,12 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-1', {
         deliveryId: 'del-open-1',
         reason: 'OFFLINE',
+        offeredAt: openOffers[0]!.offeredAt.toISOString(),
       })
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith('user-courier-1', {
         deliveryId: 'del-open-admin',
         reason: 'OFFLINE',
+        offeredAt: openOffers[1]!.offeredAt.toISOString(),
       })
 
       // Both record OFFER_EXPIRED with message "Rider went offline"
@@ -1091,7 +1094,11 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
     })
 
     it('matchWaitingDeliveries: matches waiting deliveries oldest first and stops at the first that finds nobody', async () => {
-      mockDeliveryRepository.findIdsWaitingForCourierOldestFirst.mockResolvedValue(['del-oldest', 'del-middle', 'del-newest'])
+      mockDeliveryRepository.findIdsWaitingForCourierOldestFirst.mockResolvedValue([
+        'del-oldest',
+        'del-middle',
+        'del-newest',
+      ])
 
       // del-oldest finds nobody
       mockDeliveryMatchingService.findCourierForDelivery.mockResolvedValueOnce(undefined)

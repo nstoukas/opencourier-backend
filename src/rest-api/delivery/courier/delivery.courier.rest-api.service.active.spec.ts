@@ -2,14 +2,16 @@ import { EnumDeliveryIssueReason, EnumDeliveryStatus, EnumRemovalRequestStatus }
 import { ConflictException } from '@nestjs/common'
 import { DeliveryRestApiCourierService } from './delivery.courier.rest-api.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { DeliveryEventService } from 'src/services/delivery-event/delivery-event.service'
 import { DeliveryIssueDomainService } from 'src/domains/delivery-issue/delivery-issue.domain.service'
 import { LocationNoteDomainService } from 'src/domains/location-note/location-note.domain.service'
-import { DeliveryNotFoundException } from 'src/errors'
+import { DeliveryNotFoundException, OfferHasEndedException } from 'src/errors'
 import { DeliveryIssueWithCourier } from 'src/persistence/repositories/delivery-issue.repository'
 
 describe('DeliveryRestApiCourierService', () => {
   let service: DeliveryRestApiCourierService
   let mockDeliveryDomainService: jest.Mocked<DeliveryDomainService>
+  let mockDeliveryEventService: jest.Mocked<DeliveryEventService>
   let mockLocationNoteDomainService: jest.Mocked<LocationNoteDomainService>
   let mockDeliveryIssueDomainService: jest.Mocked<DeliveryIssueDomainService>
   let mockRemovalRequestRepo: any
@@ -42,7 +44,14 @@ describe('DeliveryRestApiCourierService', () => {
       courierArrivedAtDropOff: jest.fn(),
       markAsDelivered: jest.fn(),
       cancelDelivery: jest.fn(),
+      acceptDelivery: jest.fn(),
+      rejectDelivery: jest.fn(),
     } as unknown as jest.Mocked<DeliveryDomainService>
+
+    mockDeliveryEventService = {
+      offerAnswerTargets: jest.fn(),
+      tellPhonesOfferAnswered: jest.fn(),
+    } as unknown as jest.Mocked<DeliveryEventService>
 
     mockLocationNoteDomainService = {
       notesForJobs: jest.fn().mockResolvedValue(new Map()),
@@ -77,7 +86,8 @@ describe('DeliveryRestApiCourierService', () => {
       {} as any,
       mockRemovalRequestRepo,
       undefined,
-      mockDeliveryRepository
+      mockDeliveryRepository,
+      mockDeliveryEventService
     )
   })
 
@@ -118,9 +128,7 @@ describe('DeliveryRestApiCourierService', () => {
       await expect(service.reportIssue('del-other-courier', courierId, input)).rejects.toThrow(
         DeliveryNotFoundException
       )
-      await expect(service.reportIssue('del-other-courier', courierId, input)).rejects.toThrow(
-        'Delivery not found'
-      )
+      await expect(service.reportIssue('del-other-courier', courierId, input)).rejects.toThrow('Delivery not found')
 
       // Critical: nothing stored when delivery is not found/not assigned to this courier
       expect(mockDeliveryIssueDomainService.report).not.toHaveBeenCalled()
@@ -156,11 +164,26 @@ describe('DeliveryRestApiCourierService', () => {
 
     beforeEach(() => {
       mockDeliveryDomainService.getById.mockResolvedValue(assignedDelivery as any)
-      mockDeliveryDomainService.markAsDispatched.mockResolvedValue({ ...assignedDelivery, status: EnumDeliveryStatus.DISPATCHED } as any)
-      mockDeliveryDomainService.courierArrivedAtPickup.mockResolvedValue({ ...assignedDelivery, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION } as any)
-      mockDeliveryDomainService.markAsPickedUp.mockResolvedValue({ ...assignedDelivery, status: EnumDeliveryStatus.PICKED_UP } as any)
-      mockDeliveryDomainService.courierArrivedAtDropOff.mockResolvedValue({ ...assignedDelivery, status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION } as any)
-      mockDeliveryDomainService.markAsDelivered.mockResolvedValue({ ...assignedDelivery, status: EnumDeliveryStatus.DROPPED_OFF } as any)
+      mockDeliveryDomainService.markAsDispatched.mockResolvedValue({
+        ...assignedDelivery,
+        status: EnumDeliveryStatus.DISPATCHED,
+      } as any)
+      mockDeliveryDomainService.courierArrivedAtPickup.mockResolvedValue({
+        ...assignedDelivery,
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_PICKUP_LOCATION,
+      } as any)
+      mockDeliveryDomainService.markAsPickedUp.mockResolvedValue({
+        ...assignedDelivery,
+        status: EnumDeliveryStatus.PICKED_UP,
+      } as any)
+      mockDeliveryDomainService.courierArrivedAtDropOff.mockResolvedValue({
+        ...assignedDelivery,
+        status: EnumDeliveryStatus.COURIER_ARRIVED_AT_DROPOFF_LOCATION,
+      } as any)
+      mockDeliveryDomainService.markAsDelivered.mockResolvedValue({
+        ...assignedDelivery,
+        status: EnumDeliveryStatus.DROPPED_OFF,
+      } as any)
     })
 
     test('markAsDispatched passes tap when tapAgeMs sent, undefined when absent', async () => {
@@ -195,7 +218,11 @@ describe('DeliveryRestApiCourierService', () => {
       )
 
       await service.courierArrivedAtPickup(deliveryId, courierId, {})
-      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(deliveryId, undefined, undefined)
+      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(
+        deliveryId,
+        undefined,
+        undefined
+      )
     })
 
     test('courierArrivedAtPickup passes detected boolean and tapAgeMs to domain service (Spec 0021 AC-4)', async () => {
@@ -207,11 +234,7 @@ describe('DeliveryRestApiCourierService', () => {
       )
 
       await service.courierArrivedAtPickup(deliveryId, courierId, { detected: false })
-      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(
-        deliveryId,
-        undefined,
-        false
-      )
+      expect(mockDeliveryDomainService.courierArrivedAtPickup).toHaveBeenLastCalledWith(deliveryId, undefined, false)
     })
 
     test('markAsPickedUp passes tap when tapAgeMs sent, undefined when absent', async () => {
@@ -242,7 +265,11 @@ describe('DeliveryRestApiCourierService', () => {
       )
 
       await service.courierArrivedAtDropOff(deliveryId, courierId, {})
-      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(deliveryId, undefined, undefined)
+      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(
+        deliveryId,
+        undefined,
+        undefined
+      )
     })
 
     test('courierArrivedAtDropOff passes detected boolean and tapAgeMs to domain service (Spec 0021 AC-4)', async () => {
@@ -254,11 +281,7 @@ describe('DeliveryRestApiCourierService', () => {
       )
 
       await service.courierArrivedAtDropOff(deliveryId, courierId, { detected: false })
-      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(
-        deliveryId,
-        undefined,
-        false
-      )
+      expect(mockDeliveryDomainService.courierArrivedAtDropOff).toHaveBeenLastCalledWith(deliveryId, undefined, false)
     })
 
     test('markAsDelivered passes tap when tapAgeMs sent, undefined when absent', async () => {
@@ -506,10 +529,13 @@ describe('DeliveryRestApiCourierService', () => {
 
       const result = await service.getMyInProgressDeliveriesWithNotes(courierId)
 
-      expect(mockRemovalRequestRepo.findNewestByCourierForDeliveries).toHaveBeenCalledWith(
-        courierId,
-        ['del-open', 'del-declined', 'del-withdrawn', 'del-approved', 'del-closed']
-      )
+      expect(mockRemovalRequestRepo.findNewestByCourierForDeliveries).toHaveBeenCalledWith(courierId, [
+        'del-open',
+        'del-declined',
+        'del-withdrawn',
+        'del-approved',
+        'del-closed',
+      ])
 
       const delOpen = result.data.find((d) => d.id === 'del-open')
       expect(delOpen?.removalRequest).toEqual(
@@ -594,6 +620,137 @@ describe('DeliveryRestApiCourierService', () => {
       // For delivery 2, newest is WITHDRAWN so removalRequest is null (even though older was OPEN)
       const del2 = result.data.find((d) => d.id === 'del-multi-2')
       expect(del2?.removalRequest).toBeNull()
+    })
+  })
+
+  describe('acceptDelivery and rejectDelivery - silences other phones (Scope row 154)', () => {
+    const fakeTargets = {
+      courierId,
+      deliveryIds: [deliveryId],
+      offeredAt: new Date('2026-11-24T12:00:00.000Z'),
+    }
+
+    test('acceptDelivery reads offerAnswerTargets before answer and tells other phones after accept succeeds', async () => {
+      const callSequence: string[] = []
+      mockDeliveryEventService.offerAnswerTargets.mockImplementation(async () => {
+        callSequence.push('offerAnswerTargets')
+        return fakeTargets
+      })
+      const acceptedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.ACCEPTED } as any
+      mockDeliveryDomainService.acceptDelivery.mockImplementation(async () => {
+        callSequence.push('domain:acceptDelivery')
+        return acceptedDelivery
+      })
+
+      const result = await service.acceptDelivery(deliveryId, courierId, false)
+
+      // Targets read before domain accept
+      expect(callSequence).toEqual(['offerAnswerTargets', 'domain:acceptDelivery'])
+      expect(mockDeliveryEventService.offerAnswerTargets).toHaveBeenCalledWith(deliveryId, courierId)
+      expect(mockDeliveryDomainService.acceptDelivery).toHaveBeenCalledWith(deliveryId, courierId, false)
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).toHaveBeenCalledWith(fakeTargets)
+      expect(result).toBe(acceptedDelivery)
+    })
+
+    test('acceptDelivery refused answer (OfferHasEndedException) sends nothing to phones', async () => {
+      mockDeliveryEventService.offerAnswerTargets.mockResolvedValue(fakeTargets)
+      mockDeliveryDomainService.acceptDelivery.mockRejectedValue(new OfferHasEndedException())
+
+      await expect(service.acceptDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
+
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).not.toHaveBeenCalled()
+    })
+
+    test('acceptDelivery does not tell phones when offerAnswerTargets returns null', async () => {
+      mockDeliveryEventService.offerAnswerTargets.mockResolvedValue(null)
+      const acceptedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.ACCEPTED } as any
+      mockDeliveryDomainService.acceptDelivery.mockResolvedValue(acceptedDelivery)
+
+      const result = await service.acceptDelivery(deliveryId, courierId)
+
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).not.toHaveBeenCalled()
+      expect(result).toBe(acceptedDelivery)
+    })
+
+    test('acceptDelivery does not wait for tellPhonesOfferAnswered (fire-and-forget)', async () => {
+      mockDeliveryEventService.offerAnswerTargets.mockResolvedValue(fakeTargets)
+      let tellPhonesStarted = false
+      let tellPhonesFinished = false
+      mockDeliveryEventService.tellPhonesOfferAnswered.mockImplementation(async () => {
+        tellPhonesStarted = true
+        await new Promise((resolve) => setImmediate(resolve))
+        tellPhonesFinished = true
+      })
+      const acceptedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.ACCEPTED } as any
+      mockDeliveryDomainService.acceptDelivery.mockResolvedValue(acceptedDelivery)
+
+      const result = await service.acceptDelivery(deliveryId, courierId)
+
+      expect(result).toBe(acceptedDelivery)
+      expect(tellPhonesStarted).toBe(true)
+      expect(tellPhonesFinished).toBe(false)
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).toHaveBeenCalledWith(fakeTargets)
+    })
+
+    test('acceptDelivery succeeds when deliveryEventService is undefined', async () => {
+      const serviceWithoutEvents = new DeliveryRestApiCourierService(
+        mockDeliveryDomainService,
+        mockLocationNoteDomainService,
+        mockDeliveryIssueDomainService,
+        {} as any,
+        mockRemovalRequestRepo,
+        undefined,
+        mockDeliveryRepository,
+        undefined
+      )
+      const acceptedDelivery = { id: deliveryId, courierId, status: EnumDeliveryStatus.ACCEPTED } as any
+      mockDeliveryDomainService.acceptDelivery.mockResolvedValue(acceptedDelivery)
+
+      const result = await serviceWithoutEvents.acceptDelivery(deliveryId, courierId)
+
+      expect(result).toBe(acceptedDelivery)
+    })
+
+    test('rejectDelivery reads offerAnswerTargets before answer and tells other phones after decline succeeds', async () => {
+      const callSequence: string[] = []
+      mockDeliveryEventService.offerAnswerTargets.mockImplementation(async () => {
+        callSequence.push('offerAnswerTargets')
+        return fakeTargets
+      })
+      const rejectedDelivery = { id: deliveryId, courierId: null, status: EnumDeliveryStatus.ASSIGNING_COURIER } as any
+      mockDeliveryDomainService.rejectDelivery.mockImplementation(async () => {
+        callSequence.push('domain:rejectDelivery')
+        return rejectedDelivery
+      })
+
+      const result = await service.rejectDelivery(deliveryId, courierId)
+
+      // Targets read before domain reject
+      expect(callSequence).toEqual(['offerAnswerTargets', 'domain:rejectDelivery'])
+      expect(mockDeliveryEventService.offerAnswerTargets).toHaveBeenCalledWith(deliveryId, courierId)
+      expect(mockDeliveryDomainService.rejectDelivery).toHaveBeenCalledWith(deliveryId, courierId)
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).toHaveBeenCalledWith(fakeTargets)
+      expect(result).toBe(rejectedDelivery)
+    })
+
+    test('rejectDelivery refused answer (OfferHasEndedException) sends nothing to phones', async () => {
+      mockDeliveryEventService.offerAnswerTargets.mockResolvedValue(fakeTargets)
+      mockDeliveryDomainService.rejectDelivery.mockRejectedValue(new OfferHasEndedException())
+
+      await expect(service.rejectDelivery(deliveryId, courierId)).rejects.toThrow(OfferHasEndedException)
+
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).not.toHaveBeenCalled()
+    })
+
+    test('rejectDelivery does not tell phones when offerAnswerTargets returns null', async () => {
+      mockDeliveryEventService.offerAnswerTargets.mockResolvedValue(null)
+      const rejectedDelivery = { id: deliveryId, courierId: null, status: EnumDeliveryStatus.ASSIGNING_COURIER } as any
+      mockDeliveryDomainService.rejectDelivery.mockResolvedValue(rejectedDelivery)
+
+      const result = await service.rejectDelivery(deliveryId, courierId)
+
+      expect(mockDeliveryEventService.tellPhonesOfferAnswered).not.toHaveBeenCalled()
+      expect(result).toBe(rejectedDelivery)
     })
   })
 })
