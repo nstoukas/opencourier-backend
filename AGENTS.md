@@ -137,7 +137,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - The admin Dispatch board (spec 0034) is `GET admin/v1/dispatch/board`: one function per row kind in `src/services/dispatch-board/dispatch-board.ts`, listed in `DispatchBoardService.getBoard`; a new kind is one more of each, and its `kind` is a plain string so an older tab draws it as a plain row. Nothing there may time, count or rank a rider. Every write of `Courier.currentLocation` must set `currentLocationAt` in the same statement, or the rider drops off the map after 5 minutes; the entity `declare`s that column so it never leaves the server.
 
-- A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is in Redis for 20 minutes.
+- A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is in Redis for the co-op's `offerSkipMinutes` (1 to 60, default 20, row 144), one key per delivery, so each new skip restarts the time for every rider on it.
 
 - Chat (spec 0034) lives in `src/domains/chat/` and `ChatRepository`. The courier and partner routes take no thread id (the
   session finds it), admins listen on the `admins` Socket.IO namespace (`AdminSocketGateway`), and `disconnectUser` closes a
@@ -243,6 +243,12 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   keep their own expiry job, so `endOffer` throws only when it ended nothing.
 - The drop off business name follows the customer's name (row 140): `DeliveryCourierDto` sends it only once the rider has
   accepted. It is often `''` (request-web sends what the restaurant typed, or nothing), so a label falls back with `||`.
+- A co-op setting read on a hot path (each decline, accept or pair block: `getHandBackSeconds`, `getOfferSkipMinutes`,
+  `getStackPairBlockMinutes`) reads a missing `Config` row quietly as its default; the shared `getWholeNumberInRange` warns on
+  every call. A setting whose 0 means "off" skips the Redis write, since Redis refuses an expiry of 0 (`stackPairBlockMinutes`).
+- Event message templates (`src/localization/en.ts`, `el.ts`) and `src/shared-types/event-messages.ts` are copied word for word
+  into adminweb and the courier app (request-web keeps the templates only): a new or reworded code is copied there in the
+  same row, and both apps' tests compare their copy when the backend is beside them (row 146).
 
 ## Agent skills
 
