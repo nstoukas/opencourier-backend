@@ -69,7 +69,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - A dispatch stop (spec 0014) is a `DispatchStop` row; while one is on, `offerToNextCourier` answers `'STOPPED'` and
   makes no offer, and every other offer path (admin hand offer, reassign, accept, test routes) refuses with 409. A new
   way to start work must check `refuseIfDispatchStopped` too. Start and end work run from a repeatable minute tick
-  (one off jobs here never retry) and are marked done only after they ran. Stop times are entered and shown in
+  (a minute tick is retried like every job, but the next tick redoes a missed one anyway) and are marked done only after they ran. Stop times are entered and shown in
   `INSTANCE_TIMEZONE`, and the sentences riders and restaurants read are built on the server (`dispatch-stop-time.ts`).
 - The customer's phone (`dropoffPhoneNumber`) is in `DeliveryCourierDto` only while the rider holds the delivery
   (`CUSTOMER_PHONE_VISIBLE_STATUSES`, row 33); the socket dispatchers log ids and statuses, never the DTO.
@@ -228,6 +228,21 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   and request-web (`src/i18n/resources/serverEn.ts`, `serverEl.ts`). Nothing checks the copies against these files, so a new
   code or a renamed param must be copied to all three; an app missing a code falls back to the English `message`, which the
   backend therefore always keeps word for word (binding value 1).
+
+- Errors in logs (rows 132, 139): never log an error by `${error}`, its `.stack` or the whole object. Use
+  `errorSummaryForLog(error)` for the line and `describeErrorForLog(error).stack` for the frames (`src/utils/errorForLog.ts`): a
+  Prisma error's message can repeat a recipient's name and phone, so it is named by class and code only. A compiler based guard
+  test over `src/` fails on a new raw use. Text that goes into a record people read, like the `TRANSITION_FAILED` event note,
+  goes through `errorNoteForRecord` (row 143): this codebase's own sentence unchanged, a Prisma error by name and code.
+- BullMQ jobs (row 141): every job is added with `JOB_RETRY_OPTIONS` (`bullMQ.service.ts`: 3 tries, 5 s then 10 s, failed jobs
+  kept 7 days), and callers cannot set their own. So **every handler must be safe to run again** after it threw partway: read
+  first and act through a conditional write, as `endOffer` and the sweeps do. `BullMQProcessor` fails a job with the described
+  error (name kept), so Redis never holds a Prisma message. BullMQ makes each run of a repeating schedule from the run before
+  it, options included, so `addRepeatableJob` replaces a schedule whose waiting run has other retry options (or another time
+  or zone); compare options field by field, never as JSON text (Redis reorders the keys, seen live). A stack's deliveries each
+  keep their own expiry job, so `endOffer` throws only when it ended nothing.
+- The drop off business name follows the customer's name (row 140): `DeliveryCourierDto` sends it only once the rider has
+  accepted. It is often `''` (request-web sends what the restaurant typed, or nothing), so a label falls back with `||`.
 
 ## Agent skills
 
