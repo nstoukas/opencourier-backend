@@ -185,6 +185,9 @@ export class InstanceConfigSettingsDto {
   offerSkipMinutes: number
 
   @ApiProperty({ type: Number })
+  stackPairBlockMinutes: number
+
+  @ApiProperty({ type: Number })
   sosLocationRetentionDays: number
 
   @ApiProperty({ type: Number })
@@ -282,6 +285,7 @@ export class InstanceConfigSettingsDto {
     this.restaurantHistoryDays = data.restaurantHistoryDays
     this.handBackSeconds = data.handBackSeconds
     this.offerSkipMinutes = data.offerSkipMinutes
+    this.stackPairBlockMinutes = data.stackPairBlockMinutes
     this.sosLocationRetentionDays = data.sosLocationRetentionDays
     this.arrivalRadiusMetres = data.arrivalRadiusMetres
     this.shiftsEnabled = data.shiftsEnabled

@@ -94,7 +94,6 @@ import {
   OFFER_EXPIRY_GRACE_SECONDS,
   PICKUP_ORDER_FORCED_FULFILL_DELAY_MINUTES,
   STACK_ACCEPT_GIVE_UP_MS,
-  STACK_PAIR_BLOCK_SECONDS,
 } from '../../constants'
 import { isRecordNotFoundError } from '../../prisma.util'
 import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
@@ -1157,12 +1156,15 @@ export class DeliveryEventService {
   }
 
   // Spec 0048 (cross check 9): the two deliveries of a stack the rider declined or missed are not stacked
-  // together again for 20 minutes. Never throws: without the block they may simply be paired again.
+  // together again for the co-op's stackPairBlockMinutes (row 147); 0 means no block, so nothing is written
+  // (Redis refuses an expiry of 0). Never throws: without the block they may simply be paired again.
   private async blockStackPair(ids: string[]): Promise<void> {
     const [one, other] = ids
     if (!one || !other) return
     try {
-      await this.cacheService.save<boolean>(stackPairBlockKey(one, other), true, STACK_PAIR_BLOCK_SECONDS)
+      const minutes = await this.configDomainService.instanceConfig.getStackPairBlockMinutes()
+      if (minutes === 0) return
+      await this.cacheService.save<boolean>(stackPairBlockKey(one, other), true, minutes * 60)
     } catch (error) {
       this.logger.error(
         `Could not keep deliveries ${one} and ${other} from being stacked again: ${errorSummaryForLog(error)}`

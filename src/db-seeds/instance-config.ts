@@ -45,6 +45,7 @@ import {
   DEFAULT_RESTAURANT_HISTORY_DAYS,
   DEFAULT_HAND_BACK_SECONDS,
   DEFAULT_OFFER_SKIP_MINUTES,
+  DEFAULT_STACK_PAIR_BLOCK_MINUTES,
   DEFAULT_SOS_LOCATION_RETENTION_DAYS,
   DEFAULT_ARRIVAL_RADIUS_METRES,
   DEFAULT_SHIFTS_ENABLED,
@@ -137,6 +138,7 @@ export async function seedInitialInstanceConfig(prisma: PrismaClient) {
     restaurantHistoryDays: DEFAULT_RESTAURANT_HISTORY_DAYS,
     handBackSeconds: DEFAULT_HAND_BACK_SECONDS,
     offerSkipMinutes: DEFAULT_OFFER_SKIP_MINUTES,
+    stackPairBlockMinutes: DEFAULT_STACK_PAIR_BLOCK_MINUTES,
     sosLocationRetentionDays: DEFAULT_SOS_LOCATION_RETENTION_DAYS,
     arrivalRadiusMetres: DEFAULT_ARRIVAL_RADIUS_METRES,
     // Shifts ship off (spec 0026); the assembly decides whether to run them.

@@ -189,10 +189,13 @@ export const TWO_ORDER_DELAY_LIMIT_MINUTES_MAX = 30
 // until the assembly decides, like stacking; the moment defaults to before the first pickup.
 export const DEFAULT_ADD_ON_OFFERS_ENABLED = false
 export const DEFAULT_ADD_ON_MOMENT = 'BEFORE_PICKUP'
-// Spec 0048 (cross check 9): after a stack is declined or missed, the same two orders are not stacked
-// together again for this long (the skip list's default 20 minutes). A network rule, not a co-op number: it
-// stays 20 minutes when a representative changes offerSkipMinutes (review of row 144, left to the operator).
-export const STACK_PAIR_BLOCK_SECONDS = 60 * 20
+// Spec 0048 (cross check 9), row 147: after a stack is declined or missed, the same two orders are not stacked
+// together again for this long. The operative value is the co-op setting stackPairBlockMinutes (its own setting,
+// not offerSkipMinutes: it blocks a pairing, not a rider; operator 2026-11-24). 0 is a real choice: no block, the
+// two may be offered together again at once (each order's skip list still keeps the rider who declined away).
+export const DEFAULT_STACK_PAIR_BLOCK_MINUTES = 20
+export const STACK_PAIR_BLOCK_MINUTES_MIN = 0
+export const STACK_PAIR_BLOCK_MINUTES_MAX = 60
 // Review of row 80: a stack accept whose second ACCEPTED keeps failing is given back to waiting after this
 // long (ten tries of the minute sweep), so the sweep never retries one row for ever. A technical limit, not a
 // co-op number.

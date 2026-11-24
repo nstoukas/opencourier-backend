@@ -86,6 +86,8 @@ export type InstanceConfigSettings = {
   handBackSeconds: number
   // The skip list (row 144): minutes a rider who declined or missed an offer is not offered that delivery again.
   offerSkipMinutes: number
+  // Row 147: minutes a declined or missed pair is not offered together again; 0 means no block.
+  stackPairBlockMinutes: number
   // Arrival detection (spec 0021): metres from a stop that count as arrived; 0 switches it off.
   arrivalRadiusMetres: number
   // Shifts (spec 0026): the co-op switch, and the hours before a shift's start it may still be dropped.
@@ -200,6 +202,7 @@ export enum ConfigKey {
   RESTAURANT_HISTORY_DAYS = 'restaurantHistoryDays',
   HAND_BACK_SECONDS = 'handBackSeconds',
   OFFER_SKIP_MINUTES = 'offerSkipMinutes',
+  STACK_PAIR_BLOCK_MINUTES = 'stackPairBlockMinutes',
   SOS_LOCATION_RETENTION_DAYS = 'sosLocationRetentionDays',
   ARRIVAL_RADIUS_METRES = 'arrivalRadiusMetres',
   SHIFTS_ENABLED = 'shiftsEnabled',

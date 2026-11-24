@@ -68,6 +68,7 @@ export class InstanceConfigSettingsInput {
   restaurantHistoryDays?: number
   handBackSeconds?: number
   offerSkipMinutes?: number
+  stackPairBlockMinutes?: number
   sosLocationRetentionDays?: number
   arrivalRadiusMetres?: number
   shiftsEnabled?: boolean

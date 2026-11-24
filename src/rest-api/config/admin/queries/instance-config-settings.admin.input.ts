@@ -323,6 +323,14 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   offerSkipMinutes?: number
 
+  // Row 147: how long a declined or missed pair stays apart. Whole minutes; the 0 to 60 range lives in
+  // NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  stackPairBlockMinutes?: number
+
   // Arrival detection (spec 0021). Whole metres; "0, or 20 to 300" lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

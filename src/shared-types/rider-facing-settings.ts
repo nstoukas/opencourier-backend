@@ -128,6 +128,12 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     label: 'Most minutes a pair may delay a customer',
     format: withUnit('minutes'),
   },
+  // Row 147: 0 means no block.
+  stackPairBlockMinutes: {
+    label: 'Time before two orders turned down together can be offered together again',
+    format: (value) =>
+      asNumber(value) === 0 ? 'no wait' : asNumber(value) === 1 ? '1 minute' : withUnit('minutes')(value),
+  },
   // Spec 0048 (AC-1, row 81): mid job add ons, as riders read them.
   addOnOffersEnabled: { label: 'One more order offered while on a job', format: onOff },
   addOnMoment: {

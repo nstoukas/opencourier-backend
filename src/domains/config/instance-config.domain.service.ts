@@ -107,6 +107,9 @@ import {
   DEFAULT_OFFER_SKIP_MINUTES,
   OFFER_SKIP_MINUTES_MIN,
   OFFER_SKIP_MINUTES_MAX,
+  DEFAULT_STACK_PAIR_BLOCK_MINUTES,
+  STACK_PAIR_BLOCK_MINUTES_MIN,
+  STACK_PAIR_BLOCK_MINUTES_MAX,
   DEFAULT_SHIFTS_ENABLED,
   DEFAULT_SHIFT_DROP_NOTICE_HOURS,
   SHIFT_DROP_NOTICE_HOURS_MIN,
@@ -419,6 +422,14 @@ export const NUMERIC_SETTING_RULES: {
     min: OFFER_SKIP_MINUTES_MIN,
     max: OFFER_SKIP_MINUTES_MAX,
   },
+  // Row 147: minutes a declined or missed pair stays apart. 0 is a real choice (no block).
+  {
+    key: 'stackPairBlockMinutes',
+    whyZeroIsRefused: null,
+    mustBeInteger: true,
+    min: STACK_PAIR_BLOCK_MINUTES_MIN,
+    max: STACK_PAIR_BLOCK_MINUTES_MAX,
+  },
   // Arrival detection (spec 0021): 0 switches it off; otherwise 20 to 300 metres.
   {
     key: 'arrivalRadiusMetres',
@@ -548,6 +559,7 @@ export class InstanceConfigDomainService {
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
     const offerSkipMinutes = await this.getOfferSkipMinutes()
+    const stackPairBlockMinutes = await this.getStackPairBlockMinutes()
     const sosLocationRetentionDays = await this.getSosLocationRetentionDays()
     const arrivalRadiusMetres = await this.getArrivalRadiusMetres()
     const shiftsEnabled = await this.getShiftsEnabled()
@@ -621,6 +633,7 @@ export class InstanceConfigDomainService {
       restaurantHistoryDays,
       handBackSeconds,
       offerSkipMinutes,
+      stackPairBlockMinutes,
       sosLocationRetentionDays,
       arrivalRadiusMetres,
       shiftsEnabled,
@@ -1034,6 +1047,9 @@ export class InstanceConfigDomainService {
     }
     if (data.offerSkipMinutes !== undefined) {
       save(ConfigKey.OFFER_SKIP_MINUTES, data.offerSkipMinutes)
+    }
+    if (data.stackPairBlockMinutes !== undefined) {
+      save(ConfigKey.STACK_PAIR_BLOCK_MINUTES, data.stackPairBlockMinutes)
     }
     if (data.arrivalRadiusMetres !== undefined) {
       save(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
@@ -1759,6 +1775,33 @@ export class InstanceConfigDomainService {
       `Invalid ${ConfigKey.OFFER_SKIP_MINUTES} in config (${String(value)}), using the default ${DEFAULT_OFFER_SKIP_MINUTES}`
     )
     return DEFAULT_OFFER_SKIP_MINUTES
+  }
+
+  // Row 147: minutes a declined or missed pair is not stacked together again (0 = no block). Read at every stack
+  // decline or miss, so a missing row (an instance seeded before row 147) is read quietly as the default, the 20
+  // minutes it always was; a bad stored value still warns.
+  async getStackPairBlockMinutes(): Promise<number> {
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.STACK_PAIR_BLOCK_MINUTES)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_STACK_PAIR_BLOCK_MINUTES
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= STACK_PAIR_BLOCK_MINUTES_MIN &&
+      value <= STACK_PAIR_BLOCK_MINUTES_MAX
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.STACK_PAIR_BLOCK_MINUTES} in config (${String(value)}), using the default ${DEFAULT_STACK_PAIR_BLOCK_MINUTES}`
+    )
+    return DEFAULT_STACK_PAIR_BLOCK_MINUTES
   }
 
   // Spec 0021: metres from a stop that the rider's app counts as arrived (0 = detection off). Read by

@@ -138,6 +138,11 @@ export const RIDER_FACING_SETTINGS_EL: Record<string, RiderFacingSetting> = {
     label: 'Μέγιστα λεπτά καθυστέρησης για έναν πελάτη από ένα ζευγάρι',
     format: withUnit('λεπτά'),
   },
+  stackPairBlockMinutes: {
+    label: 'Χρόνος πριν μπορέσουν δύο παραγγελίες που απορρίφθηκαν μαζί να ξαναπροταθούν μαζί',
+    format: (value) =>
+      asNumber(value) === 0 ? 'χωρίς αναμονή' : asNumber(value) === 1 ? '1 λεπτό' : withUnit('λεπτά')(value),
+  },
   addOnOffersEnabled: { label: 'Μία ακόμη παραγγελία προτείνεται ενώ έχετε δουλειά', format: onOff },
   addOnMoment: {
     label: 'Πότε μπορεί να προταθεί μία ακόμη παραγγελία',
