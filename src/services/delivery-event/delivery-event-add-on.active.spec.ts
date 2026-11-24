@@ -167,6 +167,7 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
         getAddOnMoment: jest.fn().mockResolvedValue(EnumAddOnMoment.BEFORE_PICKUP),
         getMaxAssignmentDistanceInKM: jest.fn().mockResolvedValue(5),
         getCourierMatcherTypeSetting: jest.fn().mockResolvedValue(EnumCourierMatcherType.FAIRNESS),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
 

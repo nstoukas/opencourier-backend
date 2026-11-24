@@ -92,6 +92,7 @@ describe('DeliveryDomainService', () => {
         getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
         getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
         getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     } as unknown as jest.Mocked<ConfigDomainService>
 

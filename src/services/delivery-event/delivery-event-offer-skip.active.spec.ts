@@ -1,0 +1,490 @@
+import { ConfigService } from '@nestjs/config'
+import { EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
+import { EventEmitter2 } from '@nestjs/event-emitter'
+import { DeliveryEventService } from './delivery-event.service'
+import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { CacheService } from '../cache/cache.service'
+import { CacheHelpers } from '../cache/cache.helpers'
+import { WebsocketDispatcher } from '../websocket/models/WebsocketDispatcher'
+import { CourierRepository } from 'src/persistence/repositories/courier.repository'
+import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
+import { DeliveryEventRepository } from 'src/persistence/repositories/delivery-event.repository'
+import { TaskBusScheduler } from '../taskBus/models/TaskBusScheduler'
+import { TaskBusService } from '../taskBus/taskBus.service'
+import { PartnerWebhookService } from '../partner-webhooks/partner-webhooks.service'
+import { DeliveryMatchingService } from '../delivery-matching/delivery-matching.service'
+import { DeliveryCalculationService } from '../delivery-calculation/delivery-calculation.service'
+import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
+import { OfferPushService } from '../pushNotification/offer-push.service'
+import { CourierCompensationRepository } from 'src/persistence/repositories/courier-compensation.repository'
+import { PartnerChargeRepository } from 'src/persistence/repositories/partner-charge.repository'
+import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
+import { DispatchStopRepository } from 'src/persistence/repositories/dispatch-stop.repository'
+import { OsrmRoutingService } from '../osrm/osrm-routing.service'
+
+// Scope row 144, Clause 1:
+// A representative edits the skip time on Instance configuration and the next decline uses it, with no deploy:
+// the skip list Redis key (delivery-rejected-couriers:<id>) must be saved with the CURRENT offerSkipMinutes * 60
+// as its TTL, read at the moment of each add and remove.
+// Covers both helpers in rejected-couriers.ts and callers:
+// - DeliveryEventService: a rider's decline/reject, an offer that runs out, a stack partner, an add on, hand back, leaveWait, private offerSkipSeconds()
+// - DeliveryDomainService: addCourierToRejectedList/removeCourierFromRejectedList wrappers used by admin reassignment and rejectDelivery.
+// Tests fail if any of them goes back to a fixed 20 minutes (1200 s) or ignores a changed setting (5 -> 300, 7 -> 420).
+describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 1)', () => {
+  let eventService: DeliveryEventService
+  let domainService: DeliveryDomainService
+
+  let mockCacheService: { getOrDefault: jest.Mock; save: jest.Mock }
+  let mockConfigDomainService: { instanceConfig: { getOfferSkipMinutes: jest.Mock; [k: string]: any } }
+  let mockDeliveryRepository: any
+  let mockCourierRepository: any
+  let mockCourierCompensationRepository: any
+  let mockPartnerChargeRepository: any
+  let mockRemovalRequestRepository: any
+  let mockDeliveryEventRepository: any
+  let mockWebsocketDispatcher: any
+
+  const deliveryId = 'del-skip-1'
+  const courierId = 'courier-1'
+  const key = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
+
+  beforeEach(() => {
+    mockCacheService = {
+      getOrDefault: jest.fn().mockResolvedValue([]),
+      save: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockConfigDomainService = {
+      instanceConfig: {
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
+        getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
+        getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
+        getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
+        getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+        getHandBackSeconds: jest.fn().mockResolvedValue(60),
+        getWaitPayEnabled: jest.fn().mockResolvedValue(false),
+        getWaitLimitMinutes: jest.fn().mockResolvedValue(10),
+        getWaitPayFreeMinutes: jest.fn().mockResolvedValue(5),
+        getWaitPayCentsPerMinute: jest.fn().mockResolvedValue(10),
+        getCancellationPayoutPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getReassignmentPayoutPolicies: jest.fn().mockResolvedValue({ FULL_COMPENSATION: 100 }),
+        getReassignmentPayoutDefaultPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
+        getBoxUnitsSmall: jest.fn().mockResolvedValue(30),
+        getBoxUnitsMedium: jest.fn().mockResolvedValue(50),
+        getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
+      },
+    }
+
+    mockDeliveryRepository = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByIdOrThrow: jest.fn().mockResolvedValue({
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt: new Date(),
+        offerExpiresAt: new Date(Date.now() + 60000),
+        offerGroupId: null,
+        stopSequence: null,
+        totalCompensation: 500,
+        currencyCode: 'EUR',
+        pickupReadyAt: new Date(),
+      }),
+      update: jest.fn().mockImplementation((id, data) => Promise.resolve({ id, ...data })),
+      updateIfMatches: jest.fn().mockResolvedValue(true),
+      claimOfferWithinBox: jest.fn().mockResolvedValue('CLAIMED'),
+      claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
+      findOpenOffersForCourier: jest.fn().mockResolvedValue([]),
+      findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
+      findLatestNoCourierAvailableAt: jest.fn().mockResolvedValue(new Map()),
+      holdsSiblingLeg: jest.fn().mockResolvedValue(false),
+      findOpenGroupMembers: jest.fn().mockResolvedValue([]),
+    }
+
+    mockCourierRepository = {
+      findById: jest.fn().mockResolvedValue({ id: courierId, userId: 'user-courier-1' }),
+      findByIdOrThrow: jest.fn().mockResolvedValue({ id: courierId, userId: 'user-courier-1' }),
+      updateById: jest.fn().mockResolvedValue({}),
+      changeStatus: jest.fn().mockResolvedValue({}),
+      findNamesByIds: jest.fn().mockResolvedValue(new Map()),
+      hasActiveSos: jest.fn().mockResolvedValue(false),
+      heldBoxUnits: jest.fn().mockResolvedValue(0),
+      liveDeliveryCount: jest.fn().mockResolvedValue(0),
+      clearLocationIfOfflineAndFree: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockCourierCompensationRepository = {
+      create: jest.fn().mockResolvedValue({ id: 'comp-1' }),
+      deleteById: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockPartnerChargeRepository = {
+      create: jest.fn().mockResolvedValue({ id: 'charge-1' }),
+    }
+
+    mockRemovalRequestRepository = {
+      closeOpenForDelivery: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockDeliveryEventRepository = {
+      create: jest.fn().mockResolvedValue({ id: 'evt-1' }),
+      findLatestOfTypes: jest.fn().mockResolvedValue(null),
+      hasSuccessfulReassignedWithMessage: jest.fn().mockResolvedValue(true),
+    }
+
+    mockWebsocketDispatcher = {
+      sendOfferToCourier: jest.fn().mockResolvedValue(undefined),
+      sendOfferEnded: jest.fn().mockResolvedValue(undefined),
+      dispatchDeliveryStatusUpdated: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const mockBullMQService = {
+      addJob: jest.fn().mockResolvedValue(undefined),
+      removeDelayedJobsWithIdPrefix: jest.fn().mockResolvedValue([]),
+    }
+
+    eventService = new DeliveryEventService(
+      { get: jest.fn() } as unknown as ConfigService,
+      mockWebsocketDispatcher as unknown as WebsocketDispatcher,
+      mockCourierRepository as unknown as CourierRepository,
+      mockDeliveryRepository as unknown as DeliveryRepository,
+      mockDeliveryEventRepository as unknown as DeliveryEventRepository,
+      { scheduleTask: jest.fn() } as unknown as TaskBusScheduler,
+      { registerTaskHandler: jest.fn() } as unknown as TaskBusService,
+      { sendDeliveryUpdatePartnerWebhook: jest.fn() } as unknown as PartnerWebhookService,
+      { findCourierForDelivery: jest.fn(), matchDeliveryToCourier: jest.fn() } as unknown as DeliveryMatchingService,
+      {
+        calculateDeliveryAmountsForMatchedCourier: jest
+          .fn()
+          .mockResolvedValue({ totalCost: 600, totalCompensation: 500, fee: 100, feePercentage: 20 }),
+      } as unknown as DeliveryCalculationService,
+      mockBullMQService as unknown as BullMQService,
+      mockConfigDomainService as any,
+      mockCacheService as unknown as CacheService,
+      { newOffer: jest.fn(), offerEnded: jest.fn(), jobCancelled: jest.fn() } as unknown as OfferPushService,
+      { findOn: jest.fn().mockResolvedValue(null) } as unknown as DispatchStopRepository,
+      { getRoute: jest.fn() } as unknown as OsrmRoutingService,
+      mockCourierCompensationRepository as unknown as CourierCompensationRepository,
+      mockPartnerChargeRepository as unknown as PartnerChargeRepository,
+      mockRemovalRequestRepository as unknown as RemovalRequestRepository
+    )
+
+    domainService = new DeliveryDomainService(
+      mockDeliveryRepository as unknown as DeliveryRepository,
+      { emit: jest.fn() } as unknown as EventEmitter2,
+      mockCacheService as unknown as CacheService,
+      eventService,
+      mockCourierRepository as unknown as CourierRepository,
+      mockCourierCompensationRepository as unknown as CourierCompensationRepository,
+      mockConfigDomainService as any,
+      { findById: jest.fn().mockResolvedValue(null) } as any
+    )
+  })
+
+  describe('DeliveryEventService', () => {
+    describe('private offerSkipSeconds()', () => {
+      it('returns 300 s when offerSkipMinutes is 5', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        const seconds = await (eventService as any).offerSkipSeconds()
+        expect(seconds).toBe(300)
+      })
+
+      it('returns 420 s when offerSkipMinutes is 7', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        const seconds = await (eventService as any).offerSkipSeconds()
+        expect(seconds).toBe(420)
+      })
+    })
+
+    describe('an offer that runs out (endOffer)', () => {
+      it('saves to skip list with 300 s TTL when offerSkipMinutes is 5 (not fixed 1200)', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+
+        await (eventService as any).endOffer({ deliveryId, courierId, reason: 'EXPIRED' })
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+      })
+
+      it('saves to skip list with 420 s TTL when offerSkipMinutes is 7', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+
+        await (eventService as any).endOffer({ deliveryId, courierId, reason: 'EXPIRED' })
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+
+      it('undoes skip list entry with current TTL (300 s) in undoSkipListEntry', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId])
+
+        await (eventService as any).undoSkipListEntry(deliveryId, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [], 300)
+      })
+    })
+
+    describe('a stack partner decline (declineStack)', () => {
+      it('saves stack partner delivery with 300 s TTL when offerSkipMinutes is 5', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+
+        const partnerDeliveryId = 'del-stack-partner'
+        const partnerKey = CacheHelpers.getDeliveryRejectedCouriersKey(partnerDeliveryId)
+
+        const offeredAt = new Date()
+        const deliveryWithStack: any = {
+          id: deliveryId,
+          offerGroupId: 'group-1',
+          offeredAt,
+        }
+        const partnerDelivery: any = {
+          id: partnerDeliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offerGroupId: 'group-1',
+          offeredAt,
+        }
+
+        mockDeliveryRepository.findOpenGroupMembers.mockResolvedValueOnce([deliveryWithStack, partnerDelivery])
+
+        await eventService.declineStack(deliveryWithStack, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(partnerKey, [courierId], 300)
+      })
+
+      it('saves stack partner delivery with 420 s TTL when offerSkipMinutes is 7', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+
+        const partnerDeliveryId = 'del-stack-partner'
+        const partnerKey = CacheHelpers.getDeliveryRejectedCouriersKey(partnerDeliveryId)
+
+        const offeredAt = new Date()
+        const deliveryWithStack: any = {
+          id: deliveryId,
+          offerGroupId: 'group-1',
+          offeredAt,
+        }
+        const partnerDelivery: any = {
+          id: partnerDeliveryId,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: courierId,
+          offerGroupId: 'group-1',
+          offeredAt,
+        }
+
+        mockDeliveryRepository.findOpenGroupMembers.mockResolvedValueOnce([deliveryWithStack, partnerDelivery])
+
+        await eventService.declineStack(deliveryWithStack, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(partnerKey, [courierId], 420)
+      })
+    })
+
+    describe('handBack', () => {
+      it('adds to skip list with 300 s TTL when setting is 5 min, and undoes with 300 s on update miss', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+        await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
+
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(1, key, [courierId], 300)
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(2, key, [], 300)
+      })
+
+      it('adds with 420 s TTL when setting is 7 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+        await eventService.handBack(deliveryId, courierId, EnumDeliveryStatus.ACCEPTED)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+    })
+
+    describe('leaveWait', () => {
+      it('adds to skip list with 300 s TTL when setting is 5 min, and undoes with 300 s on update miss', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+        const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
+        await eventService.leaveWait(delivery, courierId, new Date())
+
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(1, key, [courierId], 300)
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(2, key, [], 300)
+      })
+
+      it('adds with 420 s TTL when setting is 7 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+        const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ON_THE_WAY }
+        await eventService.leaveWait(delivery, courierId, new Date())
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+    })
+
+    describe('removeRiderBeforePickup', () => {
+      it('adds rider to skip list with 300 s TTL when setting is 5 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ACCEPTED }
+
+        await eventService.removeRiderBeforePickup(delivery, courierId, 'Emergency')
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+      })
+
+      it('adds rider to skip list with 420 s TTL when setting is 7 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        const delivery: any = { id: deliveryId, status: EnumDeliveryStatus.ACCEPTED }
+
+        await eventService.removeRiderBeforePickup(delivery, courierId, 'Emergency')
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+    })
+  })
+
+  describe('DeliveryDomainService', () => {
+    describe('private offerSkipSeconds()', () => {
+      it('returns 300 s when offerSkipMinutes is 5', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        const seconds = await (domainService as any).offerSkipSeconds()
+        expect(seconds).toBe(300)
+      })
+
+      it('returns 420 s when offerSkipMinutes is 7', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        const seconds = await (domainService as any).offerSkipSeconds()
+        expect(seconds).toBe(420)
+      })
+    })
+
+    describe('addCourierToRejectedList wrapper', () => {
+      it('passes 300 s to cache helper when setting is 5 min (not fixed 1200)', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+
+        const added = await domainService.addCourierToRejectedList(deliveryId, courierId)
+
+        expect(added).toBe(true)
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+      })
+
+      it('passes 420 s to cache helper when setting is 7 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+
+        const added = await domainService.addCourierToRejectedList(deliveryId, courierId)
+
+        expect(added).toBe(true)
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+    })
+
+    describe('removeCourierFromRejectedList wrapper', () => {
+      it('passes 300 s to cache helper when setting is 5 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
+
+        await domainService.removeCourierFromRejectedList(deliveryId, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 300)
+      })
+
+      it('passes 420 s to cache helper when setting is 7 min', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        mockCacheService.getOrDefault.mockResolvedValueOnce([courierId, 'courier-2'])
+
+        await domainService.removeCourierFromRejectedList(deliveryId, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, ['courier-2'], 420)
+      })
+    })
+
+    describe('a rider decline/reject (rejectDelivery)', () => {
+      it('adds with 300 s when setting is 5 min, and undoes with 300 s on update miss', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
+
+        await expect(domainService.rejectDelivery(deliveryId, courierId)).rejects.toThrow()
+
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(1, key, [courierId], 300)
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(2, key, [], 300)
+      })
+
+      it('adds with 420 s when setting is 7 min (not fixed 1200)', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+        mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+
+        await domainService.rejectDelivery(deliveryId, courierId)
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+    })
+
+    describe('admin reassignment (reassignDelivery)', () => {
+      it('puts dropped rider on skip list with 300 s TTL when offerSkipMinutes is 5', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+
+        const initialDelivery = {
+          id: deliveryId,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: courierId,
+          totalCompensation: 500,
+          currencyCode: 'EUR',
+        }
+        const updatedDelivery = {
+          ...initialDelivery,
+          courierId: 'courier-new',
+        }
+        mockDeliveryRepository.findByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(updatedDelivery)
+
+        await domainService.reassignDelivery(deliveryId, 'courier-new')
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 300)
+      })
+
+      it('puts dropped rider on skip list with 420 s TTL when offerSkipMinutes is 7', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(7)
+
+        const initialDelivery = {
+          id: deliveryId,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: courierId,
+          totalCompensation: 500,
+          currencyCode: 'EUR',
+        }
+        const updatedDelivery = {
+          ...initialDelivery,
+          courierId: 'courier-new',
+        }
+        mockDeliveryRepository.findByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(updatedDelivery)
+
+        await domainService.reassignDelivery(deliveryId, 'courier-new')
+
+        expect(mockCacheService.save).toHaveBeenCalledWith(key, [courierId], 420)
+      })
+
+      it('rolls back dropped rider from skip list with current TTL (300 s) when reassignment did not take effect', async () => {
+        mockConfigDomainService.instanceConfig.getOfferSkipMinutes.mockResolvedValue(5)
+        mockDeliveryEventRepository.hasSuccessfulReassignedWithMessage.mockResolvedValue(false)
+
+        const initialDelivery = {
+          id: deliveryId,
+          status: EnumDeliveryStatus.PICKED_UP,
+          courierId: courierId,
+          totalCompensation: 500,
+          currencyCode: 'EUR',
+        }
+        mockDeliveryRepository.findByIdOrThrow.mockResolvedValue(initialDelivery)
+
+        await expect(domainService.reassignDelivery(deliveryId, 'courier-new')).rejects.toThrow()
+
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(1, key, [courierId], 300)
+        expect(mockCacheService.save).toHaveBeenNthCalledWith(2, key, [], 300)
+      })
+    })
+  })
+})

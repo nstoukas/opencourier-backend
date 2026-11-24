@@ -27,7 +27,6 @@ import {
   DeliveryReassignedEvent,
   DeliveryRejectedEvent,
 } from 'src/shared-types'
-import { REJECTED_LIST_TTL_SECONDS } from '../cache/rejected-couriers'
 import { OfferPushService } from '../pushNotification/offer-push.service'
 
 describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
@@ -123,6 +122,7 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
 
@@ -579,11 +579,11 @@ describe('DeliveryEventService - Offer Expiry (Spec 0002)', () => {
         }
       )
 
-      // 2. Rider added to skip list (20 min TTL)
+      // 2. Rider added to skip list (setting's 20 min TTL = 1200 s)
       expect(mockCacheService.save).toHaveBeenCalledWith(
         expect.stringContaining(deliveryId),
         [courierId],
-        REJECTED_LIST_TTL_SECONDS
+        1200
       )
 
       // 3. Socket OFFER_ENDED sent with reason 'EXPIRED'

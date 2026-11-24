@@ -127,6 +127,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
     mockCacheService = {
@@ -933,7 +934,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         service,
         mockCourierRepository,
         {} as any,
-        {} as any,
+        mockConfigDomainService,
         // PartnerRepository (spec 0023): only create() reads it, which these tests do not call.
         {} as any
       )
@@ -1029,7 +1030,7 @@ describe('Offer Expiry - Review Fixes Regressions (Scope row 61 review)', () => 
         service,
         mockCourierRepository,
         {} as any,
-        {} as any,
+        mockConfigDomainService,
         // PartnerRepository (spec 0023): only create() reads it, which these tests do not call.
         {} as any
       )

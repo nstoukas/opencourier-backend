@@ -140,6 +140,7 @@ describe('DeliveryEventService - Hand Back & Auto Accept (Spec 0020 AC-2, AC-6, 
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(60),
         getCancellationPayoutPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
     mockCacheService = {

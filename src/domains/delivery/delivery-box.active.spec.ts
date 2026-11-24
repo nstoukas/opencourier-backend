@@ -93,6 +93,7 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
           NO_COMPENSATION: 0,
         }),
         getReassignmentPayoutDefaultPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
 

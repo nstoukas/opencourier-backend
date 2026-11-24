@@ -66,6 +66,7 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    offerSkipMinutes: 20,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     shiftsEnabled: true,

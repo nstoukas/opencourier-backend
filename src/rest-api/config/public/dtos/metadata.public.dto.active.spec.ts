@@ -51,6 +51,7 @@ describe('MetadataPublicDto (AC-5 & AC-6)', () => {
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    offerSkipMinutes: 20,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     shiftsEnabled: false,

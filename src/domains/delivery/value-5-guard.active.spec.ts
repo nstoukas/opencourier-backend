@@ -298,6 +298,7 @@ describe('Value 5 Guard (AC-12: Never count or score missed offers against couri
             getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
             getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
             getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+            getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
           },
         } as any,
         mockCacheService,

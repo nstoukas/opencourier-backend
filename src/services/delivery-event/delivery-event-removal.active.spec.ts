@@ -165,6 +165,7 @@ describe('DeliveryEventService - Removal & Payout (Spec 0035 AC-9, AC-10, AC-14,
         getReturnTripPayPercent: jest.fn().mockResolvedValue(100),
         getCancellationPayoutPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
         getReassignmentPayoutPolicies: jest.fn().mockResolvedValue({ FULL_COMPENSATION: 100 }),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
 

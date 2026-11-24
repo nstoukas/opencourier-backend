@@ -63,7 +63,11 @@ describe('DeliveryDomainService - Offer Expiry (AC-5, AC-11)', () => {
       deleteById: jest.fn(),
     } as unknown as jest.Mocked<CourierCompensationRepository>
 
-    mockConfigDomainService = {} as any
+    mockConfigDomainService = {
+      instanceConfig: {
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
+      },
+    } as any
 
     service = new DeliveryDomainService(
       mockDeliveryRepository,

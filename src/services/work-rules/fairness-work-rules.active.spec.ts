@@ -59,6 +59,7 @@ describe('WorkRulesService with FAIRNESS Matcher (Spec 0044: AC-5, decision 12.4
     savedCustomerRetentionMonths: 12,
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
+    offerSkipMinutes: 20,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     shiftsEnabled: true,

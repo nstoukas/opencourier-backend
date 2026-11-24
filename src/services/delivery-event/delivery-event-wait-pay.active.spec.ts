@@ -188,6 +188,7 @@ describe('DeliveryEventService - Wait Pay and Leaving (Spec 0033 AC-1 to AC-8)',
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
         getHandBackSeconds: jest.fn().mockResolvedValue(60),
         getCancellationPayoutPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
       },
     }
 
