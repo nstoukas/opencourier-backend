@@ -5,7 +5,7 @@ import { hashApiKey, makeApiKey } from 'src/domains/auth/api-key'
 import { PasswordService } from 'src/domains/auth/password.service'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { ILocationCreate } from 'src/domains/location/interfaces/ILocationCreate'
-import { ILocationUpdate } from 'src/domains/location/interfaces/ILocationUpdate'
+import { LocationEntity } from 'src/domains/location/entities/location.entity'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { IPartnerUpdate } from 'src/domains/partner/interfaces/IPartnerRepository'
 import { PartnerDomainService } from 'src/domains/partner/partner.domain.service'
@@ -58,10 +58,15 @@ export class PartnerAdminRestApiService {
     const partner = await this.partnerDomainService.getByIdOrThrow(partnerId)
     let pickupLocationId = partner.pickupLocationId
 
+    // Row 150: a changed pickup address gets a Location row of its own, and the restaurant points at it. The
+    // old row is never written: a Location can be shared (quotes and deliveries find or create one by address
+    // and point), so an update in place would move every quote and delivery on it too, as row 102 found for
+    // drop offs. An edit that changes nothing keeps the row.
     if (input.pickupAddress) {
-      if (partner.pickupLocationId) {
-        await this.locationDomainService.update(partner.pickupLocationId, this.toLocationUpdate(input.pickupAddress))
-      } else {
+      const current = partner.pickupLocationId
+        ? await this.locationDomainService.getById(partner.pickupLocationId)
+        : null
+      if (!current || !this.isSamePickup(current, input.pickupAddress)) {
         const newLocation = await this.locationDomainService.create(this.toLocationCreate(input.pickupAddress))
         pickupLocationId = newLocation.id
       }
@@ -174,17 +179,21 @@ export class PartnerAdminRestApiService {
     }
   }
 
-  private toLocationUpdate(input: PickupAddressAdminInput): ILocationUpdate {
-    return {
-      street: input.street,
-      houseNumber: input.houseNumber,
-      city: input.city,
-      state: input.state,
-      countryCode: input.countryCode,
-      latitude: input.latitude,
-      longitude: input.longitude,
-      zipCode: input.zipCode,
-      formattedAddress: this.buildFormattedAddress(input),
-    }
+  // Row 150: whether the saved row already holds this address and point, every field the edit writes.
+  private isSamePickup(current: LocationEntity, input: PickupAddressAdminInput): boolean {
+    const wanted = this.toLocationCreate(input)
+    // `?? null` on both sides: a field left out of the input (undefined) and an empty column (null) match.
+    const same = (saved: unknown, sent: unknown) => (saved ?? null) === (sent ?? null)
+    return (
+      same(current.street, wanted.street) &&
+      same(current.houseNumber, wanted.houseNumber) &&
+      same(current.city, wanted.city) &&
+      same(current.state, wanted.state) &&
+      same(current.zipCode, wanted.zipCode) &&
+      same(current.countryCode, wanted.countryCode) &&
+      same(current.latitude, wanted.latitude) &&
+      same(current.longitude, wanted.longitude) &&
+      same(current.formattedAddress, wanted.formattedAddress)
+    )
   }
 }
