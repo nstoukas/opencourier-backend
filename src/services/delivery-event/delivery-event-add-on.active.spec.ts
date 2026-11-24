@@ -702,6 +702,278 @@ describe('Mid job add on assignment, pay safety & lifecycle (spec 0048, row 81)'
   })
 
   // =========================================================================
+  // Row 146: The job records when an add on joins it (ADD_ON_JOINED)
+  // =========================================================================
+  describe('Row 146: the job records when an add on joins it (ADD_ON_JOINED)', () => {
+    it('accepting an add on records an ADD_ON_JOINED event on the job it joined with all required fields (clause 1 & 6)', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+      })
+      const acceptedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+      })
+      const heldJob = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.DISPATCHED,
+        courierId,
+      })
+
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        throw new Error(`Unexpected findByIdOrThrow id: ${id}`)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        return Promise.resolve(null)
+      })
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(true)
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      // 1. Exactly one ADD_ON_JOINED event is recorded across all created events
+      const addOnJoinedCalls = mockDeliveryEventRepo.create.mock.calls.filter(
+        (call: any[]) => call[0]?.type === EnumDeliveryEventType.ADD_ON_JOINED
+      )
+      expect(addOnJoinedCalls).toHaveLength(1)
+
+      // 2. The event is recorded on the JOB's id (not the add on's), actor SYSTEM, source OPENCOURIER,
+      // courierId the rider, messageCode ADD_ON_JOINED with { courierId, addOnId }, transitionSuccessful true,
+      // oldStatus and newStatus both the job's current status (DISPATCHED), and stored courierId column keeps rider.
+      expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'job-held-1',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          actor: EnumEventActor.SYSTEM,
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          courierId: courierId,
+          messageCode: 'ADD_ON_JOINED',
+          messageParams: { courierId, addOnId: 'del-add-on' },
+          message: `Delivery del-add-on joined this job as one more order on the way; courier ${courierId} carries both`,
+          oldStatus: EnumDeliveryStatus.DISPATCHED,
+          newStatus: EnumDeliveryStatus.DISPATCHED,
+          transitionSuccessful: true,
+        })
+      )
+
+      // 3. Verifies no ADD_ON_JOINED event is written with the add-on's id
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-add-on',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+        })
+      )
+    })
+
+    it('saveDeliveryEvent stores courierId in the courierId column for ADD_ON_JOINED (riderId list)', async () => {
+      const job = makeDelivery('job-held-1', { status: EnumDeliveryStatus.DISPATCHED, courierId })
+      await (deliveryEventService as any).saveDeliveryEvent(
+        {
+          deliveryId: 'job-held-1',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          messageCode: 'ADD_ON_JOINED',
+          messageParams: { courierId, addOnId: 'del-add-on' },
+        },
+        {
+          transitionSuccessful: true,
+          oldStatus: job.status,
+          newStatus: job.status,
+        }
+      )
+
+      expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          courierId: courierId,
+        })
+      )
+    })
+
+    it.each([
+      ['declined', makeDelivery('del-add-on', { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null, stopSequence: sampleStops })],
+      ['expired', makeDelivery('del-add-on', { status: EnumDeliveryStatus.ASSIGNING_COURIER, matchedCourierId: null, courierId: null, stopSequence: sampleStops })],
+      ['cancelled', makeDelivery('del-add-on', { status: EnumDeliveryStatus.CANCELED, courierId: null, stopSequence: sampleStops })],
+    ])('a %s add on records nothing on the job (clause 2)', async (_scenario, delivery) => {
+      mockDeliveryRepo.updateIfMatches.mockResolvedValue(true)
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValue(makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED }))
+
+      await (deliveryEventService as any).settleAddOnLeavingOffer(delivery)
+
+      expect(mockDeliveryRepo.joinAcceptedAddOn).not.toHaveBeenCalled()
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
+    })
+
+    it('an add on accepted for another rider records nothing on the job when join returns false (clause 2 & 3)', async () => {
+      const delivery = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId: 'other-courier-99',
+        stopSequence: sampleStops,
+      })
+      // In the database transaction, joinAcceptedAddOn returns false when the rider does not hold the job
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(false)
+
+      await (deliveryEventService as any).settleAddOnLeavingOffer(delivery)
+
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledWith(
+        'del-add-on',
+        'job-held-1',
+        'other-courier-99',
+        sampleStops
+      )
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
+    })
+
+    it('a join that rolls back leaves no event when joinAcceptedAddOn returns false (clause 3)', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+      })
+      const acceptedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+      })
+      const heldJob = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+      })
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        return Promise.resolve(assigningAddOn)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
+        return Promise.resolve(null)
+      })
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(false) // Rollback!
+
+      await deliveryEventService.processDeliveryEvent({
+        deliveryId: 'del-add-on',
+        type: EnumDeliveryEventType.ACCEPTED,
+        actor: EnumEventActor.COURIER,
+        courierId,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+      })
+
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledWith(
+        'del-add-on',
+        'job-held-1',
+        courierId,
+        sampleStops
+      )
+      expect(mockDeliveryEventRepo.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: EnumDeliveryEventType.ADD_ON_JOINED })
+      )
+    })
+
+    it('a failed write of the event never undoes the join, never throws out of accept, and logs both IDs (clause 4)', async () => {
+      const assigningAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        stopSequence: sampleStops,
+      })
+      const acceptedAddOn = makeDelivery('del-add-on', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+        stopSequence: sampleStops,
+      })
+      const heldJob = makeDelivery('job-held-1', {
+        status: EnumDeliveryStatus.ACCEPTED,
+        courierId,
+      })
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(assigningAddOn)
+        if (id === 'job-held-1') return Promise.resolve(heldJob)
+        return Promise.resolve(assigningAddOn)
+      })
+      mockDeliveryRepo.findById.mockImplementation((id: string) => {
+        if (id === 'del-add-on') return Promise.resolve(acceptedAddOn)
+        return Promise.resolve(null)
+      })
+      mockDeliveryRepo.joinAcceptedAddOn.mockResolvedValueOnce(true)
+
+      // Make event write fail when ADD_ON_JOINED is saved
+      mockDeliveryEventRepo.create.mockImplementation((dto: any) => {
+        if (dto.type === EnumDeliveryEventType.ADD_ON_JOINED) {
+          return Promise.reject(new Error('Simulated event repository database error'))
+        }
+        return Promise.resolve({ id: 'evt-accepted' })
+      })
+
+      const loggerErrorSpy = jest.spyOn((deliveryEventService as any).logger, 'error')
+
+      // Process event that transitions add-on to ACCEPTED: must NOT throw
+      await expect(
+        deliveryEventService.processDeliveryEvent({
+          deliveryId: 'del-add-on',
+          type: EnumDeliveryEventType.ACCEPTED,
+          actor: EnumEventActor.COURIER,
+          courierId,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+        })
+      ).resolves.not.toThrow()
+
+      // The join was called and stands (never undone)
+      expect(mockDeliveryRepo.joinAcceptedAddOn).toHaveBeenCalledWith(
+        'del-add-on',
+        'job-held-1',
+        courierId,
+        sampleStops
+      )
+      // Never called updateIfMatches to undo the offerGroupId or stopSequence
+      expect(mockDeliveryRepo.updateIfMatches).not.toHaveBeenCalledWith(
+        'del-add-on',
+        { offerGroupId: null },
+        { stopSequence: Prisma.DbNull }
+      )
+
+      // Logs with both addOnId and jobId
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Could not record that add on del-add-on joined delivery job-held-1/)
+      )
+    })
+
+    it('recordAddOnJoined never throws when saveDeliveryEvent rejects and logs with both IDs (clause 4)', async () => {
+      mockDeliveryRepo.findByIdOrThrow.mockResolvedValueOnce(
+        makeDelivery('job-held-1', { status: EnumDeliveryStatus.ACCEPTED, courierId })
+      )
+      mockDeliveryEventRepo.create.mockRejectedValueOnce(new Error('Simulated event write failure'))
+
+      const loggerErrorSpy = jest.spyOn((deliveryEventService as any).logger, 'error')
+
+      await expect(
+        (deliveryEventService as any).recordAddOnJoined('job-held-1', 'del-add-on', courierId)
+      ).resolves.not.toThrow()
+
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Could not record that add on del-add-on joined delivery job-held-1/)
+      )
+    })
+  })
+
+  // =========================================================================
   // Decision 81.7: Claim safety & race condition (JOB_CHANGED)
   // =========================================================================
   describe('Decision 81.7: claim safety with JOB_CHANGED check', () => {

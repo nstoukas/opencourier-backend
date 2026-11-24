@@ -188,4 +188,29 @@ describe('Server translations (spec 0054, AC-8)', () => {
     })
     expect(reassignedMsg).toContain('(award award-claim-55)')
   })
+
+  // Row 146: ADD_ON_JOINED template pins both IDs and renders in English and Greek
+  test('ADD_ON_JOINED event message renders with addOnId and courierId in both languages (row 146)', () => {
+    expect(EVENT_MESSAGE_CODES.ADD_ON_JOINED).toEqual(['courierId', 'addOnId'])
+
+    const enMsg = renderEventMessage('en', 'ADD_ON_JOINED', {
+      courierId: 'courier-r81',
+      addOnId: 'del-add-on-42',
+    })
+    expect(enMsg).toBe(
+      'Delivery del-add-on-42 joined this job as one more order on the way; courier courier-r81 carries both'
+    )
+    expect(enMsg).toContain('del-add-on-42')
+    expect(enMsg).toContain('courier-r81')
+
+    const elMsg = renderEventMessage('el', 'ADD_ON_JOINED', {
+      courierId: 'courier-r81',
+      addOnId: 'del-add-on-42',
+    })
+    expect(elMsg).toBe(
+      'Η παραγγελία del-add-on-42 μπήκε σε αυτή τη δουλειά ως μία ακόμη παραγγελία στον δρόμο· ο διανομέας courier-r81 μεταφέρει και τις δύο'
+    )
+    expect(elMsg).toContain('del-add-on-42')
+    expect(elMsg).toContain('courier-r81')
+  })
 })
