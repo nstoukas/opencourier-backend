@@ -24,6 +24,7 @@ import {
   resetKeys,
 } from './password-reset.service'
 import { describeError } from 'src/utils/errorForLog'
+import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 
 jest.mock('crypto', () => {
   const actual = jest.requireActual('crypto')
@@ -61,6 +62,9 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
   let mockConfigService: {
     get: jest.Mock
   }
+  let mockPartnerRepository: {
+    findByUserId: jest.Mock
+  }
   let loggerSpies: {
     log: jest.SpyInstance
     error: jest.SpyInstance
@@ -77,6 +81,20 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
     username: null,
     apiKeyHash: null,
     apiKeyCreatedAt: null,
+    credentialsChangedAt: null,
+    language: 'el',
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+  })
+
+  const mockPartnerUser = new UserEntity({
+    id: 'user-partner-1',
+    email: 'taverna@volos.coop',
+    password: 'hashed-old-password',
+    role: [EnumUserRole.PARTNER],
+    username: 'tavernavolos',
+    apiKeyHash: 'partner-key-hash',
+    apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
     credentialsChangedAt: null,
     language: 'el',
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -123,6 +141,9 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
     mockCourierDomainService = {
       getByUserId: jest.fn(),
     }
+    mockPartnerRepository = {
+      findByUserId: jest.fn().mockResolvedValue({ id: 'partner-1' }),
+    }
     mockConfigDomainService = {
       instanceConfig: {
         getDetails: jest.fn().mockResolvedValue({ name: 'Volos Couriers Co-op' }),
@@ -141,7 +162,8 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       mockUserDomainService as unknown as UserDomainService,
       mockCourierDomainService as unknown as CourierDomainService,
       mockConfigDomainService as unknown as ConfigDomainService,
-      mockConfigService as unknown as ConfigService
+      mockConfigService as unknown as ConfigService,
+      mockPartnerRepository as unknown as PartnerRepository
     )
 
     const logger = (service as any).logger as Logger
@@ -737,6 +759,414 @@ describe('PasswordResetService (Spec 0039 AC-7, AC-8, AC-9, AC-10, AC-11, AC-12,
       expect(describeError('some string')).toBe('Error')
       expect(describeError(null)).toBe('Error')
       expect(describeError(undefined)).toBe('Error')
+    })
+  })
+
+  describe('Row 153: findRestaurant (Clause 1, Clause 3)', () => {
+    test('matches email exactly as typed', async () => {
+      mockUserDomainService.findUserWithEmail.mockImplementation(async (email: string) => {
+        if (email === 'Taverna@Volos.Coop') return mockPartnerUser
+        return null
+      })
+      mockPartnerRepository.findByUserId.mockResolvedValue({ id: 'partner-1' })
+
+      const result = await service.findRestaurant('Taverna@Volos.Coop')
+
+      expect(result).not.toBeNull()
+      expect(result?.user.id).toBe('user-partner-1')
+      expect(result?.partnerId).toBe('partner-1')
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenCalledWith('Taverna@Volos.Coop')
+    })
+
+    test('matches trimmed and lower-cased email if exact typed does not match', async () => {
+      mockUserDomainService.findUserWithEmail.mockImplementation(async (email: string) => {
+        if (email === 'taverna@volos.coop') return mockPartnerUser
+        return null
+      })
+      mockPartnerRepository.findByUserId.mockResolvedValue({ id: 'partner-1' })
+
+      const result = await service.findRestaurant('  Taverna@Volos.Coop  ')
+
+      expect(result).not.toBeNull()
+      expect(result?.user.id).toBe('user-partner-1')
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenNthCalledWith(1, '  Taverna@Volos.Coop  ')
+      expect(mockUserDomainService.findUserWithEmail).toHaveBeenNthCalledWith(2, 'taverna@volos.coop')
+    })
+
+    test('returns null when user does not exist', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(null)
+
+      const result = await service.findRestaurant('unknown@volos.coop')
+
+      expect(result).toBeNull()
+      expect(mockPartnerRepository.findByUserId).not.toHaveBeenCalled()
+    })
+
+    test('returns null when user has no email', async () => {
+      const userWithoutEmail = new UserEntity({
+        ...mockPartnerUser,
+        email: null,
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(userWithoutEmail)
+
+      const result = await service.findRestaurant('noemail@volos.coop')
+
+      expect(result).toBeNull()
+    })
+
+    test('returns null for courier/rider user (no PARTNER role) (Clause 3)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockCourierUser)
+
+      const result = await service.findRestaurant('rider@volos.coop')
+
+      expect(result).toBeNull()
+      expect(mockPartnerRepository.findByUserId).not.toHaveBeenCalled()
+    })
+
+    test('returns null for admin user even if they also have PARTNER role (Clause 3)', async () => {
+      const adminPartnerUser = new UserEntity({
+        ...mockPartnerUser,
+        role: [EnumUserRole.PARTNER, EnumUserRole.ADMIN],
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(adminPartnerUser)
+
+      const result = await service.findRestaurant('adminpartner@volos.coop')
+
+      expect(result).toBeNull()
+      expect(mockPartnerRepository.findByUserId).not.toHaveBeenCalled()
+    })
+
+    test('returns null when partnerRepository is not injected / undefined (Clause 3)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockPartnerUser)
+
+      const serviceWithoutRepo = new PasswordResetService(
+        mockCacheService as unknown as CacheService,
+        mockMailService as unknown as MailService,
+        mockUserDomainService as unknown as UserDomainService,
+        mockCourierDomainService as unknown as CourierDomainService,
+        mockConfigDomainService as unknown as ConfigDomainService,
+        mockConfigService as unknown as ConfigService
+      )
+
+      const result = await serviceWithoutRepo.findRestaurant('taverna@volos.coop')
+
+      expect(result).toBeNull()
+    })
+
+    test('returns null when user has PARTNER role but no Partner row in database (Clause 3)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockPartnerUser)
+      mockPartnerRepository.findByUserId.mockResolvedValue(null)
+
+      const result = await service.findRestaurant('nopartner@volos.coop')
+
+      expect(result).toBeNull()
+      expect(mockPartnerRepository.findByUserId).toHaveBeenCalledWith('user-partner-1')
+    })
+  })
+
+  describe('Row 153: Cross-Route Isolation (Clause 3)', () => {
+    test('findRider rejects restaurant user (PARTNER role) even with valid email', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockPartnerUser)
+
+      const rider = await service.findRider('taverna@volos.coop')
+
+      expect(rider).toBeNull()
+      expect(mockCourierDomainService.getByUserId).not.toHaveBeenCalled()
+    })
+
+    test('findRestaurant rejects rider user (COURIER role)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockCourierUser)
+
+      const restaurant = await service.findRestaurant('rider@volos.coop')
+
+      expect(restaurant).toBeNull()
+      expect(mockPartnerRepository.findByUserId).not.toHaveBeenCalled()
+    })
+
+    test('neither findRider nor findRestaurant allows an ADMIN user', async () => {
+      const fullAdmin = new UserEntity({
+        ...mockCourierUser,
+        role: [EnumUserRole.ADMIN, EnumUserRole.COURIER, EnumUserRole.PARTNER],
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(fullAdmin)
+
+      expect(await service.findRider('admin@volos.coop')).toBeNull()
+      expect(await service.findRestaurant('admin@volos.coop')).toBeNull()
+    })
+  })
+
+  describe('Row 153: sendCodeIfRestaurant (Clause 1, Clause 4)', () => {
+    beforeEach(() => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockPartnerUser)
+      mockPartnerRepository.findByUserId.mockResolvedValue({ id: 'partner-1' })
+      mockCacheService.setIfAbsent.mockResolvedValue(true) // 60s wait passed
+      mockCacheService.increment.mockResolvedValue(1) // hourly count = 1
+      mockCacheService.save.mockResolvedValue(undefined)
+      mockCacheService.delete.mockResolvedValue(undefined)
+    })
+
+    test('silently returns and creates no code or mail when restaurant is null (Clause 1)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(null)
+
+      await service.sendCodeIfRestaurant('unknown@volos.coop')
+
+      expect(mockCacheService.setIfAbsent).not.toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockMailService.send).not.toHaveBeenCalled()
+    })
+
+    test('stores HMAC SHA-256 in Redis, sends mail, and logs user id (Clause 1, Clause 4)', async () => {
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+
+      const keys = resetKeys('user-partner-1')
+      // 1. Wait key set for 60s
+      expect(mockCacheService.setIfAbsent).toHaveBeenCalledWith(keys.wait, 1, RESET_RESEND_WAIT_SECONDS)
+      // 2. Count incremented for 3600s
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.count, 3600)
+
+      // 3. Code hashed with HMAC SHA-256 of "<userId>:<code>" keyed with JWT_SECRET_KEY
+      const expectedHash = crypto.createHmac('sha256', testSecretKey).update('user-partner-1:004219').digest('hex')
+
+      expect(mockCacheService.save).toHaveBeenCalledWith(keys.code, { codeHash: expectedHash }, RESET_CODE_TTL_SECONDS)
+      // Never stores the raw code
+      const savedPayload = mockCacheService.save.mock.calls[0]?.[1]
+      expect(JSON.stringify(savedPayload)).not.toContain('004219')
+
+      // 4. Tries key deleted to reset attempts for the new code
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.tries)
+
+      // 5. Mail sent with 6-digit code to the stored user.email
+      expect(mockMailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'taverna@volos.coop',
+          text: expect.stringContaining('004219'),
+          html: expect.stringContaining('004219'),
+        })
+      )
+
+      // 6. Log line with userId (AC-13, Clause 4)
+      expect(loggerSpies.log).toHaveBeenCalledWith('Password reset code sent to user user-partner-1')
+    })
+
+    test('sends mail to stored user.email, not the typed email (Clause 1)', async () => {
+      const typedEmail = '  TAVERNA@VOLOS.COOP  '
+      mockUserDomainService.findUserWithEmail.mockImplementation(async (e: string) => {
+        if (e === 'taverna@volos.coop') return mockPartnerUser
+        return null
+      })
+
+      await service.sendCodeIfRestaurant(typedEmail)
+
+      expect(mockMailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'taverna@volos.coop',
+        })
+      )
+    })
+
+    test('refuses to make a code when 60s wait key already exists (Clause 1)', async () => {
+      mockCacheService.setIfAbsent.mockResolvedValue(false)
+
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+
+      expect(mockCacheService.increment).not.toHaveBeenCalled()
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockMailService.send).not.toHaveBeenCalled()
+    })
+
+    test('allows up to 5 codes per hour: 5th code is created, 6th is refused (Clause 1)', async () => {
+      mockCacheService.increment.mockResolvedValue(5)
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+      expect(mockCacheService.save).toHaveBeenCalledTimes(1)
+      expect(mockMailService.send).toHaveBeenCalledTimes(1)
+
+      mockCacheService.save.mockClear()
+      mockMailService.send.mockClear()
+
+      mockCacheService.increment.mockResolvedValue(6)
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+      expect(mockCacheService.save).not.toHaveBeenCalled()
+      expect(mockMailService.send).not.toHaveBeenCalled()
+    })
+
+    test('when mail sending fails, logs error with userId and describeError, never email (Clause 4)', async () => {
+      const mailError = new Error('SMTP connection refused to taverna@volos.coop')
+      ;(mailError as any).code = 'ECONNREFUSED'
+      ;(mailError as any).responseCode = 550
+      mockMailService.send.mockRejectedValue(mailError)
+
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+
+      expect(loggerSpies.error).toHaveBeenCalledWith(
+        'Could not send a password reset code to user user-partner-1: Error ECONNREFUSED 550'
+      )
+      const loggedText = loggerSpies.error.mock.calls.map((c) => c.join(' ')).join(' ')
+      expect(loggedText).not.toContain('taverna@volos.coop')
+      expect(loggedText).not.toContain('SMTP connection refused')
+    })
+
+    test('when cacheService fails, catches and logs error with userId and describeError, never email (Clause 4)', async () => {
+      mockCacheService.setIfAbsent.mockRejectedValue(new Error('Redis connection lost for taverna@volos.coop'))
+
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+
+      expect(loggerSpies.error).toHaveBeenCalledWith('Password reset for user user-partner-1 failed: Error')
+      const loggedText = loggerSpies.error.mock.calls.map((c) => c.join(' ')).join(' ')
+      expect(loggedText).not.toContain('taverna@volos.coop')
+    })
+
+    test('sends mail in the partner user language when English', async () => {
+      const enPartnerUser = new UserEntity({
+        ...mockPartnerUser,
+        language: 'en',
+      })
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(enPartnerUser)
+      ;(crypto.randomInt as jest.Mock).mockReturnValue(4219)
+
+      await service.sendCodeIfRestaurant('taverna@volos.coop')
+
+      expect(mockMailService.send).toHaveBeenCalledTimes(1)
+      const sent = mockMailService.send.mock.calls[0][0]
+      expect(sent.to).toBe('taverna@volos.coop')
+      expect(sent.subject).toMatch(/^Password reset code/)
+    })
+  })
+
+  describe('Row 153: claimRestaurantCode (Clause 2, Clause 4)', () => {
+    const validCode = '004219'
+    let validHash: string
+
+    beforeEach(() => {
+      validHash = crypto.createHmac('sha256', testSecretKey).update(`user-partner-1:${validCode}`).digest('hex')
+
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(mockPartnerUser)
+      mockPartnerRepository.findByUserId.mockResolvedValue({ id: 'partner-1' })
+      mockCacheService.increment.mockResolvedValue(1) // tries = 1
+      mockCacheService.get.mockResolvedValue({ codeHash: validHash })
+      mockCacheService.take.mockResolvedValue({ codeHash: validHash })
+      mockCacheService.delete.mockResolvedValue(undefined)
+    })
+
+    test('successfully claims code with take (GETDEL), deletes tries, and returns restaurant (Clause 2)', async () => {
+      const result = await service.claimRestaurantCode('taverna@volos.coop', validCode)
+
+      expect(result.user.id).toBe('user-partner-1')
+      expect(result.partnerId).toBe('partner-1')
+
+      const keys = resetKeys('user-partner-1')
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.tries, RESET_CODE_TTL_SECONDS)
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.dayTries, 86400)
+      expect(mockCacheService.get).toHaveBeenCalledWith(keys.code)
+      expect(mockCacheService.take).toHaveBeenCalledWith(keys.code)
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.tries)
+    })
+
+    test('throws 400 when restaurant is not found (unknown email, rider email, admin email)', async () => {
+      mockUserDomainService.findUserWithEmail.mockResolvedValue(null)
+
+      await expect(service.claimRestaurantCode('unknown@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+      expect(mockCacheService.increment).not.toHaveBeenCalled()
+    })
+
+    test('per-code limit boundary: at exactly 5 tries with the right code succeeds (Clause 2)', async () => {
+      const keys = resetKeys('user-partner-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.tries) return 5
+        if (key === keys.dayTries) return 5
+        return 1
+      })
+
+      const result = await service.claimRestaurantCode('taverna@volos.coop', validCode)
+
+      expect(result.user.id).toBe('user-partner-1')
+      expect(mockCacheService.take).toHaveBeenCalledWith(keys.code)
+    })
+
+    test('per-code limit boundary: at 6 tries (> 5), code is deleted and refused without comparing (Clause 2)', async () => {
+      const keys = resetKeys('user-partner-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.tries) return 6
+        if (key === keys.dayTries) return 6
+        return 1
+      })
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.code)
+      expect(mockCacheService.get).not.toHaveBeenCalled()
+      expect(mockCacheService.take).not.toHaveBeenCalled()
+    })
+
+    test('day tries limit boundary: at exactly 10 day tries the right code works (Clause 2)', async () => {
+      const keys = resetKeys('user-partner-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.dayTries) return 10
+        if (key === keys.tries) return 1
+        return 1
+      })
+
+      const result = await service.claimRestaurantCode('taverna@volos.coop', validCode)
+
+      expect(result.user.id).toBe('user-partner-1')
+      expect(mockCacheService.increment).toHaveBeenCalledWith(keys.dayTries, 86400)
+      expect(mockCacheService.take).toHaveBeenCalledWith(keys.code)
+    })
+
+    test('day tries limit boundary: above 10 day tries (> 10), code is deleted and refused without comparing (Clause 2)', async () => {
+      const keys = resetKeys('user-partner-1')
+      mockCacheService.increment.mockImplementation(async (key: string) => {
+        if (key === keys.dayTries) return 11
+        if (key === keys.tries) return 1
+        return 1
+      })
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+
+      expect(mockCacheService.delete).toHaveBeenCalledWith(keys.code)
+      expect(mockCacheService.get).not.toHaveBeenCalled()
+      expect(mockCacheService.take).not.toHaveBeenCalled()
+    })
+
+    test('throws 400 when no pending code exists in cache (null) (Clause 2)', async () => {
+      mockCacheService.get.mockResolvedValue(null)
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+      expect(mockCacheService.take).not.toHaveBeenCalled()
+    })
+
+    test('throws 400 when code hash does not match (Clause 2)', async () => {
+      const wrongCode = '999999'
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', wrongCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+      expect(mockCacheService.take).not.toHaveBeenCalled()
+    })
+
+    test('single use: throws 400 when take returns null (already claimed) (Clause 2)', async () => {
+      mockCacheService.take.mockResolvedValue(null)
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
+    })
+
+    test('throws 400 when take returns a different hash (replaced code during race) (Clause 2)', async () => {
+      mockCacheService.take.mockResolvedValue({ codeHash: 'different-hash' })
+
+      await expect(service.claimRestaurantCode('taverna@volos.coop', validCode)).rejects.toThrow(
+        new errors.BadRequestException(RESET_CODE_REFUSED_MESSAGE)
+      )
     })
   })
 })

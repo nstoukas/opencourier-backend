@@ -9,14 +9,20 @@ import { ROLES_KEY } from 'src/decorators/roles.decorator'
 import { ForbiddenException } from 'src/errors'
 import { PartnerRepository } from 'src/persistence/repositories/partner.repository'
 import { LanguageDto } from 'src/rest-api/common/dtos/language.dto'
-import { PATH_METADATA } from '@nestjs/common/constants'
-import { METHOD_METADATA } from '@nestjs/common/constants'
+import { PATH_METADATA, METHOD_METADATA, HTTP_CODE_METADATA } from '@nestjs/common/constants'
 import { RequestMethod } from '@nestjs/common'
+import { PasswordResetPartnerRestApiService } from './password-reset.partner.rest-api.service'
+import { ForgotPasswordPartnerInput, ResetPasswordPartnerInput } from './queries/password-reset.partner.input'
+import { PasswordResetPartnerDto } from './dtos/password-reset.partner.dto'
 
 describe('AuthPartnerRestApiController', () => {
   let controller: AuthPartnerRestApiController
   let mockAuthDomainService: jest.Mocked<AuthDomainService>
   let mockPartnerRepository: jest.Mocked<PartnerRepository>
+  let mockPasswordResetPartnerRestApiService: {
+    forgotPassword: jest.Mock
+    resetPassword: jest.Mock
+  }
 
   const mockPartnerUser = new UserEntity({
     id: 'user-partner-100',
@@ -46,13 +52,7 @@ describe('AuthPartnerRestApiController', () => {
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   })
 
-  const mockSession = new UserSessionEntity(
-    'access-token-123',
-    'refresh-token-456',
-    'Bearer',
-    3600,
-    86400
-  )
+  const mockSession = new UserSessionEntity('access-token-123', 'refresh-token-456', 'Bearer', 3600, 86400)
 
   beforeEach(() => {
     mockAuthDomainService = {
@@ -66,7 +66,16 @@ describe('AuthPartnerRestApiController', () => {
       findByUserId: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<PartnerRepository>
 
-    controller = new AuthPartnerRestApiController(mockAuthDomainService, mockPartnerRepository)
+    mockPasswordResetPartnerRestApiService = {
+      forgotPassword: jest.fn(),
+      resetPassword: jest.fn().mockResolvedValue({ apiKeyRemoved: false }),
+    }
+
+    controller = new AuthPartnerRestApiController(
+      mockAuthDomainService,
+      mockPartnerRepository,
+      mockPasswordResetPartnerRestApiService as unknown as PasswordResetPartnerRestApiService
+    )
   })
 
   describe('Structural & Metadata Assertions', () => {
@@ -210,6 +219,91 @@ describe('AuthPartnerRestApiController', () => {
       expect(Reflect.getMetadata(PATH_METADATA, fn)).toBe('language')
       expect(Reflect.getMetadata(METHOD_METADATA, fn)).toBe(RequestMethod.PUT)
       expect(Reflect.getMetadata(ROLES_KEY, fn)).toEqual([EnumUserRole.PARTNER])
+    })
+  })
+
+  describe('Password Reset routes (Row 153, spec 0039 AC-7, AC-10)', () => {
+    describe('POST forgot-password', () => {
+      test('has path "forgot-password" and POST method', () => {
+        expect(Reflect.getMetadata(PATH_METADATA, controller.forgotPassword)).toBe('forgot-password')
+        expect(Reflect.getMetadata(METHOD_METADATA, controller.forgotPassword)).toBe(RequestMethod.POST)
+      })
+
+      test('is marked @Public()', () => {
+        expect(Reflect.getMetadata(IS_PUBLIC_KEY, controller.forgotPassword)).toBe(true)
+      })
+
+      test('answers with @HttpCode(202) Accepted (clause 1)', () => {
+        expect(Reflect.getMetadata(HTTP_CODE_METADATA, controller.forgotPassword)).toBe(202)
+      })
+
+      test('uses PUBLIC_DEFAULT_THROTTLE (limit 3, ttl 60000)', () => {
+        expect(Reflect.getMetadata('THROTTLER:LIMITdefault', controller.forgotPassword)).toBe(3)
+        expect(Reflect.getMetadata('THROTTLER:TTLdefault', controller.forgotPassword)).toBe(60000)
+      })
+
+      test('calls passwordResetPartnerRestApiService.forgotPassword and returns undefined (empty body)', () => {
+        const input = new ForgotPasswordPartnerInput()
+        input.email = 'taverna@volos.gr'
+
+        const result = controller.forgotPassword(input)
+
+        expect(mockPasswordResetPartnerRestApiService.forgotPassword).toHaveBeenCalledWith('taverna@volos.gr')
+        expect(result).toBeUndefined()
+      })
+    })
+
+    describe('POST reset-password', () => {
+      test('has path "reset-password" and POST method', () => {
+        expect(Reflect.getMetadata(PATH_METADATA, controller.resetPassword)).toBe('reset-password')
+        expect(Reflect.getMetadata(METHOD_METADATA, controller.resetPassword)).toBe(RequestMethod.POST)
+      })
+
+      test('is marked @Public()', () => {
+        expect(Reflect.getMetadata(IS_PUBLIC_KEY, controller.resetPassword)).toBe(true)
+      })
+
+      test('answers with @HttpCode(200) OK (clause 2)', () => {
+        expect(Reflect.getMetadata(HTTP_CODE_METADATA, controller.resetPassword)).toBe(200)
+      })
+
+      test('uses PUBLIC_DEFAULT_THROTTLE (limit 3, ttl 60000)', () => {
+        expect(Reflect.getMetadata('THROTTLER:LIMITdefault', controller.resetPassword)).toBe(3)
+        expect(Reflect.getMetadata('THROTTLER:TTLdefault', controller.resetPassword)).toBe(60000)
+      })
+
+      test('calls passwordResetPartnerRestApiService.resetPassword and returns PasswordResetPartnerDto with apiKeyRemoved', async () => {
+        mockPasswordResetPartnerRestApiService.resetPassword.mockResolvedValue({ apiKeyRemoved: true })
+
+        const input = new ResetPasswordPartnerInput()
+        input.email = 'taverna@volos.gr'
+        input.code = '123456'
+        input.password = 'newSecretPassword123'
+
+        const result = await controller.resetPassword(input)
+
+        expect(mockPasswordResetPartnerRestApiService.resetPassword).toHaveBeenCalledWith(
+          'taverna@volos.gr',
+          '123456',
+          'newSecretPassword123'
+        )
+        expect(result).toBeInstanceOf(PasswordResetPartnerDto)
+        expect(result.apiKeyRemoved).toBe(true)
+      })
+
+      test('returns PasswordResetPartnerDto with apiKeyRemoved: false when no key existed', async () => {
+        mockPasswordResetPartnerRestApiService.resetPassword.mockResolvedValue({ apiKeyRemoved: false })
+
+        const input = new ResetPasswordPartnerInput()
+        input.email = 'taverna@volos.gr'
+        input.code = '123456'
+        input.password = 'newSecretPassword123'
+
+        const result = await controller.resetPassword(input)
+
+        expect(result).toBeInstanceOf(PasswordResetPartnerDto)
+        expect(result.apiKeyRemoved).toBe(false)
+      })
     })
   })
 })

@@ -156,17 +156,9 @@ describe('UserRepository', () => {
       const updateManyPromise = Promise.resolve({ count: 1 })
       mockPrisma.user.update.mockReturnValue(updatePromise)
       mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
-      mockPrisma.$transaction.mockResolvedValue([
-        { id: 'user-1' },
-        { count: 1 },
-      ])
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-1' }, { count: 1 }])
 
-      const result = await repository.setPasswordAndReplaceApiKey(
-        'user-1',
-        'hashed-new-pw',
-        now,
-        'new-api-key-hash'
-      )
+      const result = await repository.setPasswordAndReplaceApiKey('user-1', 'hashed-new-pw', now, 'new-api-key-hash')
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
@@ -176,10 +168,7 @@ describe('UserRepository', () => {
         where: { id: 'user-1', apiKeyHash: { not: null } },
         data: { apiKeyHash: 'new-api-key-hash', apiKeyCreatedAt: now },
       })
-      expect(mockPrisma.$transaction).toHaveBeenCalledWith([
-        updatePromise,
-        updateManyPromise,
-      ])
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
       expect(result).toEqual({ apiKeyReplaced: true })
     })
 
@@ -189,19 +178,49 @@ describe('UserRepository', () => {
       const updateManyPromise = Promise.resolve({ count: 0 })
       mockPrisma.user.update.mockReturnValue(updatePromise)
       mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
-      mockPrisma.$transaction.mockResolvedValue([
-        { id: 'user-1' },
-        { count: 0 },
-      ])
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-1' }, { count: 0 }])
 
-      const result = await repository.setPasswordAndReplaceApiKey(
-        'user-1',
-        'hashed-new-pw',
-        now,
-        'new-api-key-hash'
-      )
+      const result = await repository.setPasswordAndReplaceApiKey('user-1', 'hashed-new-pw', now, 'new-api-key-hash')
 
       expect(result).toEqual({ apiKeyReplaced: false })
+    })
+  })
+
+  describe('Row 153: setPasswordAndRemoveApiKey (Clause 2, spec 0039)', () => {
+    test('executes in a single transaction: updates password and credentialsChangedAt and removes existing API key', async () => {
+      const now = new Date('2026-11-24T12:00:00Z')
+      const updatePromise = Promise.resolve({ id: 'user-1' })
+      const updateManyPromise = Promise.resolve({ count: 1 })
+      mockPrisma.user.update.mockReturnValue(updatePromise)
+      mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-1' }, { count: 1 }])
+
+      const result = await repository.setPasswordAndRemoveApiKey('user-1', 'hashed-new-pw', now)
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { password: 'hashed-new-pw', credentialsChangedAt: now },
+      })
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', apiKeyHash: { not: null } },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+      })
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
+      expect(result).toEqual({ apiKeyRemoved: true })
+    })
+
+    test('returns apiKeyRemoved: false when user had no API key (updateMany count: 0)', async () => {
+      const now = new Date('2026-11-24T12:00:00Z')
+      const updatePromise = Promise.resolve({ id: 'user-1' })
+      const updateManyPromise = Promise.resolve({ count: 0 })
+      mockPrisma.user.update.mockReturnValue(updatePromise)
+      mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-1' }, { count: 0 }])
+
+      const result = await repository.setPasswordAndRemoveApiKey('user-1', 'hashed-new-pw', now)
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
+      expect(result).toEqual({ apiKeyRemoved: false })
     })
   })
 
