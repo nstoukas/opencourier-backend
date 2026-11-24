@@ -165,7 +165,8 @@ export class DeliveryRestApiCourierService {
   async acceptDelivery(deliveryId: string, courierId: string, automatic = false) {
     const targets = await this.deliveryEventService?.offerAnswerTargets(deliveryId, courierId)
     const delivery = await this.deliveryDomainService.acceptDelivery(deliveryId, courierId, automatic)
-    if (targets) await this.deliveryEventService?.tellPhonesOfferAnswered(targets)
+    // Not awaited (review): the rider's answer goes back at once; this never throws.
+    if (targets) void this.deliveryEventService?.tellPhonesOfferAnswered(targets)
 
     return delivery
   }
@@ -173,7 +174,8 @@ export class DeliveryRestApiCourierService {
   async rejectDelivery(deliveryId: string, courierId: string) {
     const targets = await this.deliveryEventService?.offerAnswerTargets(deliveryId, courierId)
     const delivery = await this.deliveryDomainService.rejectDelivery(deliveryId, courierId)
-    if (targets) await this.deliveryEventService?.tellPhonesOfferAnswered(targets)
+    // Not awaited (review): the rider's answer goes back at once; this never throws.
+    if (targets) void this.deliveryEventService?.tellPhonesOfferAnswered(targets)
 
     return delivery
   }

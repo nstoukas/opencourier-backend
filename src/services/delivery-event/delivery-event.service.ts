@@ -3452,7 +3452,14 @@ export class DeliveryEventService {
     deliveryId: string,
     courierId: string
   ): Promise<{ courierId: string; deliveryIds: string[]; offeredAt: Date | null } | null> {
-    const delivery = await this.deliveryRepository.findById(deliveryId)
+    // Review of rows 154 and 155: never throws, so a failed read can only skip the message, never the answer.
+    let delivery: Awaited<ReturnType<DeliveryRepository['findById']>>
+    try {
+      delivery = await this.deliveryRepository.findById(deliveryId)
+    } catch (error) {
+      this.logger.error(`Could not read delivery ${deliveryId} before its answer: ${errorSummaryForLog(error)}`)
+      return null
+    }
     if (
       !delivery ||
       delivery.status !== EnumDeliveryStatus.ASSIGNING_COURIER ||
