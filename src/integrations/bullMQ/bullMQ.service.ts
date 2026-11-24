@@ -48,9 +48,8 @@ export class BullMQService {
     for (const schedule of schedules) {
       if (savedWithOtherRetries || schedule.pattern !== pattern || (schedule.tz ?? undefined) !== tz) {
         await this.queue.removeRepeatableByKey(schedule.key)
-        if (savedWithOtherRetries) {
-          this.logger.log(`Replaced the ${name} schedule, saved with other retry options`)
-        }
+        const why = savedWithOtherRetries ? 'saved with other retry options' : 'its time or zone changed'
+        this.logger.log(`Replaced the ${name} schedule: ${why}`)
       }
     }
     await this.queue.add(name, data, {
@@ -61,13 +60,14 @@ export class BullMQService {
     })
   }
 
-  // Whether the next run of a schedule with this name waits in the queue with retry options other than
+  // Whether the next run of a schedule with this name waits in the queue (delayed, or waiting at the very moment it
+  // falls due; agy's review) with retry options other than
   // today's (none at all, before row 141). All three are compared, so a later change to any of them
   // reaches the saved schedules too. `job &&`: a job removed while the list is read comes back undefined.
   private async hasRunWithOtherRetryOptions(name: string): Promise<boolean> {
     // BullMQ's type says Job, but its source can return undefined there (job.js, fromId).
-    const delayed: Array<Job | undefined> = await this.queue.getJobs('delayed')
-    return delayed.some((job) => job && job.name === name && Boolean(job.repeatJobKey) && !sameRetryOptions(job.opts))
+    const pending: Array<Job | undefined> = await this.queue.getJobs(['delayed', 'waiting'])
+    return pending.some((job) => job && job.name === name && Boolean(job.repeatJobKey) && !sameRetryOptions(job.opts))
   }
 
   async getAllJobs() {
