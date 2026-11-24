@@ -221,6 +221,9 @@ export const en = {
       OFFLINE_POSITION_REFUSED: 'You are Offline, so no position is stored',
       ADD_ON_NOT_AUTOMATIC: 'One more order on the way is never accepted automatically. Open it and choose.',
       LEG_LABELS_LOCKED: 'This delivery is one leg of an order: its order reference and leg numbers cannot change.',
+      PARTNER_EDIT_ORDER_ENDED: 'This order has ended, so it can no longer be changed.',
+      PARTNER_EDIT_POINT_HELD:
+        "A rider is already on this order, so its drop off point can't move. Message dispatch to change it.",
       LEG_REFERENCE_REQUIRED: 'A leg needs an orderReference: it is what ties the legs of an order together.',
       SIBLING_LEG_HELD: 'This rider already carries another leg of the same order. Each leg goes to a different rider.',
       READY_ALREADY_READY: 'The food is already marked ready.',

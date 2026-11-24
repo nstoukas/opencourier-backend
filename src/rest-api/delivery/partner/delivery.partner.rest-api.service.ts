@@ -1,3 +1,4 @@
+import { partnerEditRefusal } from 'src/domains/delivery/partner-edit'
 import {
   BadRequestException,
   ConflictException,
@@ -319,6 +320,10 @@ export class DeliveryPartnerRestApiService {
     const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
     await this.assertVisibleToPartner(delivery, partnerId)
 
+    // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind.
+    const endedRefusal = partnerEditRefusal(delivery.status, false)
+    if (endedRefusal) throw new ConflictException(endedRefusal)
+
     // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg. First,
     // so a refusal leaves nothing behind (row 10 review: a moved point had already made its Location row).
     if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
@@ -336,6 +341,10 @@ export class DeliveryPartnerRestApiService {
     // edit instead, many small moves would walk the door far from what the rider is paid for.
     const pointMoved =
       dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
+    // Row 152: once a rider holds the order its drop off point stays where they accepted it. Before any
+    // write, like the checks above.
+    const heldRefusal = partnerEditRefusal(delivery.status, pointMoved)
+    if (heldRefusal) throw new ConflictException(heldRefusal)
     if (pointMoved) {
       const quote = await this.deliveryQuoteDomainService.getByIdOrThrow(delivery.deliveryQuoteId)
       const quotedDropoff = await this.locationDomainService.getById(quote.dropoffLocationId)
