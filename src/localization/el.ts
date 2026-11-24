@@ -144,6 +144,7 @@ export const el: Translations = {
       ADD_ON_JOINED:
         'Η παραγγελία {{addOnId}} προστέθηκε σε αυτή τη δουλειά ως μία ακόμα παραγγελία στον δρόμο· ο διανομέας {{courierId}} έχει αναλάβει και τις δύο',
       ADD_ON_LEFT: 'Η παραγγελία {{addOnId}} βγήκε από αυτή τη δουλειά· ο διανομέας {{courierId}} δεν την έχει πια',
+      TIP_CHANGED_BY_RESTAURANT: 'Το κατάστημα άλλαξε το φιλοδώρημα από {{oldTip, money}} σε {{newTip, money}}',
 
       SEEDED_COMPLETED: 'Ολοκληρωμένη παραγγελία δοκιμής',
       SEEDED_REASSIGNMENT: 'Δοκιμαστική μεταφορά παραγγελίας',

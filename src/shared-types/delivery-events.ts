@@ -256,6 +256,11 @@ export interface DeliveryAddOnLeftEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ADD_ON_LEFT
   courierId: string
 }
+// Row 160: a restaurant's edit changed the tip, which is rider pay. Before a rider holds the order, so no
+// courierId. No status change.
+export interface DeliveryTipChangedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.TIP_CHANGED
+}
 export type DeliverySplitEvent =
   | DeliverySplitRequestedEvent
   | DeliverySplitConfirmedEvent
@@ -332,6 +337,7 @@ export type DeliveryEvent =
   | DeliverySplitEvent
   | DeliveryAddOnJoinedEvent
   | DeliveryAddOnLeftEvent
+  | DeliveryTipChangedEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

@@ -73,6 +73,7 @@ import {
   DeliveryFoodReturnedEvent,
   DeliveryAddOnJoinedEvent,
   DeliveryAddOnLeftEvent,
+  DeliveryTipChangedEvent,
   DeliveryDropoffPointCorrectedEvent,
   DeliveryBoxEvent,
   DeliveryFoodNotReturnedEvent,
@@ -2904,6 +2905,12 @@ export class DeliveryEventService {
     event: DeliveryDropoffPointCorrectedEvent,
     status: EnumDeliveryStatus
   ): Promise<void> {
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
+  }
+
+  // Row 160: a restaurant's edit changed the tip (rider pay). No status change, so never through
+  // processDeliveryEvent; saved with the delivery's status as both old and new, like a moved drop off point.
+  async recordTipChangedEvent(event: DeliveryTipChangedEvent, status: EnumDeliveryStatus): Promise<void> {
     await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: status, newStatus: status })
   }
 

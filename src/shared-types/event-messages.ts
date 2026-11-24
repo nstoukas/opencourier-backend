@@ -136,6 +136,8 @@ export const EVENT_MESSAGE_CODES = {
   // Row 146: written on the job an accepted add on joined; `addOnId` is the added delivery.
   ADD_ON_JOINED: ['courierId', 'addOnId'],
   ADD_ON_LEFT: ['courierId', 'addOnId'],
+  // Row 160: a restaurant's edit changed the tip; both amounts in cents, with the delivery's currency.
+  TIP_CHANGED_BY_RESTAURANT: ['oldTip', 'newTip', 'currency'],
 
   // Dev seed scripts
   SEEDED_COMPLETED: [],

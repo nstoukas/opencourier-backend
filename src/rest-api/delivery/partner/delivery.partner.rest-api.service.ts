@@ -396,6 +396,9 @@ export class DeliveryPartnerRestApiService {
       await this.deliveryDomainService.changeBoxSize(delivery, input.boxSize)
     }
 
+    // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
+    const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
+
     const updatedDelivery = await this.deliveryDomainService.update(delivery.id, {
       dropoffLocationId,
       // Spec 0053 (row 82 review): the newest move wins. A restaurant's move after a rider's clears the
@@ -414,9 +417,27 @@ export class DeliveryPartnerRestApiService {
 
       orderReference: input.orderReference,
 
-      // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
-      tips: tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer),
+      tips: newTips,
     })
+
+    // Row 160 (value 1): the tip is rider pay, so a change is on the record, with both amounts. An edit that
+    // leaves it as it was writes nothing. No status change, so never through processDeliveryEvent.
+    if (newTips !== delivery.tips) {
+      await this.deliveryEventService.recordTipChangedEvent(
+        {
+          deliveryId: delivery.id,
+          type: EnumDeliveryEventType.TIP_CHANGED,
+          actor: EnumEventActor.PARTNER,
+          source: EnumDeliveryEventSource.PARTNER_APP,
+          ...eventText('TIP_CHANGED_BY_RESTAURANT', {
+            oldTip: delivery.tips,
+            newTip: newTips,
+            currency: delivery.currencyCode,
+          }),
+        },
+        delivery.status
+      )
+    }
 
     // Row 102 (agy review, value 1): the point feeds the matcher and the rider's route, so a move is
     // on the record, like a rider's own. No status changes, so it never goes through

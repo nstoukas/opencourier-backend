@@ -928,6 +928,9 @@ enum EnumDeliveryEventType {
   // Row 149: that add on later left the job before its drop off (cancelled, handed back, reassigned,
   // removed); written on the job, naming the add on. No status change, never in STATE_MACHINE.
   ADD_ON_LEFT
+  // Row 160: a restaurant's edit changed the tip (rider pay), with the old and new amounts. Only before a
+  // rider holds the order (decision 152.4). No status change, never in STATE_MACHINE.
+  TIP_CHANGED
 }
 
 // Spec 0043: the size of an order's bag, picked by the restaurant. Co-op settings map each size to
