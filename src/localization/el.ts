@@ -141,6 +141,8 @@ export const el: Translations = {
       PRODUCT_REPORTED_ITEM:
         'Αναφορά για $t(server.enum.productReportKind.{{kind}}): {{itemName}} ($t(server.enum.productReportSource.{{source}}))',
       PRODUCT_REPORT_RESOLVED: 'Η αναφορά επιλύθηκε ($t(server.enum.productReportKind.{{kind}}))',
+      ADD_ON_JOINED:
+        'Η παραγγελία {{addOnId}} μπήκε σε αυτή τη δουλειά ως μία ακόμη παραγγελία στον δρόμο· ο διανομέας {{courierId}} μεταφέρει και τις δύο',
 
       SEEDED_COMPLETED: 'Ολοκληρωμένη παραγγελία δοκιμής',
       SEEDED_REASSIGNMENT: 'Δοκιμαστική μεταφορά παραγγελίας',

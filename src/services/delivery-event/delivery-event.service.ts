@@ -71,6 +71,7 @@ import {
   DeliveryPartnerChargedForRemovalEvent,
   DeliveryCourierPaidForReturnTripEvent,
   DeliveryFoodReturnedEvent,
+  DeliveryAddOnJoinedEvent,
   DeliveryDropoffPointCorrectedEvent,
   DeliveryBoxEvent,
   DeliveryFoodNotReturnedEvent,
@@ -2385,11 +2386,36 @@ export class DeliveryEventService {
             ? `Add on ${delivery.id} accepted; it rides with delivery ${jobId}`
             : `Add on ${delivery.id} accepted after delivery ${jobId} left its rider; it goes on alone`
         )
+        // Row 146 (value 1): the job's own trail says a second order joined it, which changes when its food
+        // arrives. Only after the join committed: a join that rolled back returns false and records nothing.
+        if (joined) await this.recordAddOnJoined(jobId, delivery.id, delivery.courierId)
         return
       }
       await this.deliveryRepository.updateIfMatches(delivery.id, { offerGroupId: null }, { stopSequence: Prisma.DbNull })
     } catch (error) {
       this.logger.error(`Could not settle the stop list of add on ${delivery.id}: ${errorSummaryForLog(error)}`)
+    }
+  }
+
+  // Row 146: ADD_ON_JOINED on the job, naming the added delivery. No status change, so it is saved with the
+  // job's status as both old and new, never through processDeliveryEvent. Never throws: the join already
+  // happened, and a failed record is logged with both ids so it can be written by hand.
+  private async recordAddOnJoined(jobId: string, addOnId: string, courierId: string): Promise<void> {
+    try {
+      const job = await this.deliveryRepository.findByIdOrThrow(jobId)
+      const event: DeliveryAddOnJoinedEvent = {
+        deliveryId: jobId,
+        type: EnumDeliveryEventType.ADD_ON_JOINED,
+        actor: EnumEventActor.SYSTEM,
+        source: EnumDeliveryEventSource.OPENCOURIER,
+        courierId,
+        ...eventText('ADD_ON_JOINED', { courierId, addOnId }),
+      }
+      await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: job.status, newStatus: job.status })
+    } catch (error) {
+      this.logger.error(
+        `Could not record that add on ${addOnId} joined delivery ${jobId}: ${errorSummaryForLog(error)}`
+      )
     }
   }
 
@@ -3567,6 +3593,8 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_CONFIRMED ||
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_REFUSED ||
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_CLOSED ||
+      // Row 146: the rider who now carries the job and its add on.
+      deliveryEvent.type === EnumDeliveryEventType.ADD_ON_JOINED ||
       // Spec 0040 (AC-2): the accepting rider, automatic, manual or admin, so time worked can find
       // each rider's jobs (Delivery.courierId only holds the latest rider).
       deliveryEvent.type === EnumDeliveryEventType.ACCEPTED

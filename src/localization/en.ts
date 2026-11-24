@@ -131,6 +131,7 @@ export const en = {
       PRODUCT_REPORTED: 'Reported {{kind}} ({{source}})',
       PRODUCT_REPORTED_ITEM: 'Reported {{kind}}: {{itemName}} ({{source}})',
       PRODUCT_REPORT_RESOLVED: 'Report resolved ({{kind}})',
+      ADD_ON_JOINED: 'Delivery {{addOnId}} joined this job as one more order on the way; courier {{courierId}} carries both',
 
       SEEDED_COMPLETED: 'Seeded completed delivery',
       SEEDED_REASSIGNMENT: 'Seeded reassignment fixture',

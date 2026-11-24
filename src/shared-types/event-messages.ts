@@ -133,6 +133,8 @@ export const EVENT_MESSAGE_CODES = {
   PRODUCT_REPORTED: ['kind', 'source'],
   PRODUCT_REPORTED_ITEM: ['kind', 'itemName', 'source'],
   PRODUCT_REPORT_RESOLVED: ['kind'],
+  // Row 146: written on the job an accepted add on joined; `addOnId` is the added delivery.
+  ADD_ON_JOINED: ['courierId', 'addOnId'],
 
   // Dev seed scripts
   SEEDED_COMPLETED: [],

@@ -244,6 +244,12 @@ export interface DeliveryPartnerChargedForSplitEvent extends BaseDeliveryEvent {
 export interface DeliveryPartnerSplitChargeVoidedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.PARTNER_SPLIT_CHARGE_VOIDED
 }
+// Row 146: an accepted add on joined its rider's job. Written on the job (deliveryId is the job), naming
+// the added delivery in its message; courierId is the rider who now carries both. No status change.
+export interface DeliveryAddOnJoinedEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.ADD_ON_JOINED
+  courierId: string
+}
 export type DeliverySplitEvent =
   | DeliverySplitRequestedEvent
   | DeliverySplitConfirmedEvent
@@ -318,6 +324,7 @@ export type DeliveryEvent =
   | DeliveryReviewEvent
   | DeliveryBoxEvent
   | DeliverySplitEvent
+  | DeliveryAddOnJoinedEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []

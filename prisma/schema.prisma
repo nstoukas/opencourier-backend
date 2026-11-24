@@ -920,6 +920,9 @@ enum EnumDeliveryEventType {
   SPLIT_CLOSED
   PARTNER_CHARGED_FOR_SPLIT
   PARTNER_SPLIT_CHARGE_VOIDED
+  // Row 146: an accepted add on joined its rider's job; written on the job, naming the added delivery.
+  // No status change, never in STATE_MACHINE.
+  ADD_ON_JOINED
 }
 
 // Spec 0043: the size of an order's bag, picked by the restaurant. Co-op settings map each size to
