@@ -213,4 +213,25 @@ describe('Server translations (spec 0054, AC-8)', () => {
     expect(elMsg).toContain('del-add-on-42')
     expect(elMsg).toContain('courier-r81')
   })
+
+  // Row 149: ADD_ON_LEFT template pins both IDs and renders in English and Greek
+  test('ADD_ON_LEFT event message renders with addOnId and courierId in both languages (row 149)', () => {
+    expect(EVENT_MESSAGE_CODES.ADD_ON_LEFT).toEqual(['courierId', 'addOnId'])
+
+    const enMsg = renderEventMessage('en', 'ADD_ON_LEFT', {
+      courierId: 'courier-r81',
+      addOnId: 'del-add-on-42',
+    })
+    expect(enMsg).toBe('Delivery del-add-on-42 was taken off this job; courier courier-r81 no longer has it')
+    expect(enMsg).toContain('del-add-on-42')
+    expect(enMsg).toContain('courier-r81')
+
+    const elMsg = renderEventMessage('el', 'ADD_ON_LEFT', {
+      courierId: 'courier-r81',
+      addOnId: 'del-add-on-42',
+    })
+    expect(elMsg).toBe('Η παραγγελία del-add-on-42 βγήκε από αυτή τη δουλειά· ο διανομέας courier-r81 δεν την έχει πια')
+    expect(elMsg).toContain('del-add-on-42')
+    expect(elMsg).toContain('courier-r81')
+  })
 })

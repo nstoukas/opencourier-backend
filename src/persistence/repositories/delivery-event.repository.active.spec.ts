@@ -4,12 +4,7 @@ import { DeliveryEventRepository } from './delivery-event.repository'
 import { PrismaService } from '../../services/prisma/prisma.service'
 import { DeliveryEventEntity } from 'src/domains/delivery-event/entities/delivery-event.entity'
 import { TAP_FLOOR_EVENT_TYPES } from 'src/domains/delivery-event/utils/occurred-at.util'
-import {
-  EnumDeliveryEventSource,
-  EnumDeliveryEventType,
-  EnumDeliveryStatus,
-  EnumEventActor,
-} from '@prisma/types'
+import { EnumDeliveryEventSource, EnumDeliveryEventType, EnumDeliveryStatus, EnumEventActor } from '@prisma/types'
 
 describe('DeliveryEventRepository', () => {
   let repository: DeliveryEventRepository
@@ -200,6 +195,98 @@ describe('DeliveryEventRepository', () => {
     })
   })
 
+  describe('Row 149: Add on left queries (findLatestAddOnJoinOf, hasAddOnLeftSince)', () => {
+    describe('findLatestAddOnJoinOf', () => {
+      test('queries findFirst with type ADD_ON_JOINED and messageParams addOnId, ordered newest first', async () => {
+        const rawRow = {
+          id: 'evt-join-1',
+          deliveryId: 'job-1',
+          type: EnumDeliveryEventType.ADD_ON_JOINED,
+          courierId: 'courier-1',
+          actor: EnumEventActor.SYSTEM,
+          eventSource: EnumDeliveryEventSource.OPENCOURIER,
+          oldStatus: EnumDeliveryStatus.ACCEPTED,
+          newStatus: EnumDeliveryStatus.ACCEPTED,
+          transitionSuccessful: true,
+          message: 'Delivery del-addon-1 was added to this job',
+          messageCode: 'ADD_ON_JOINED',
+          messageParams: { courierId: 'courier-1', addOnId: 'del-addon-1' },
+          occurredAt: new Date('2026-11-24T10:00:00.000Z'),
+          createdAt: new Date('2026-11-24T10:00:00.000Z'),
+          updatedAt: new Date('2026-11-24T10:00:00.000Z'),
+        }
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue(rawRow)
+
+        const result = await repository.findLatestAddOnJoinOf('del-addon-1')
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            type: EnumDeliveryEventType.ADD_ON_JOINED,
+            messageParams: { path: ['addOnId'], equals: 'del-addon-1' },
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        })
+        expect(result).toBeInstanceOf(DeliveryEventEntity)
+        expect(result?.id).toBe('evt-join-1')
+        expect(result?.deliveryId).toBe('job-1')
+        expect(result?.courierId).toBe('courier-1')
+      })
+
+      test('returns null when no matching ADD_ON_JOINED event exists', async () => {
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue(null)
+
+        const result = await repository.findLatestAddOnJoinOf('del-never-joined')
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            type: EnumDeliveryEventType.ADD_ON_JOINED,
+            messageParams: { path: ['addOnId'], equals: 'del-never-joined' },
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        })
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('hasAddOnLeftSince', () => {
+      test('queries findFirst with deliveryId, type ADD_ON_LEFT, addOnId path, and createdAt gte since', async () => {
+        const since = new Date('2026-11-24T10:00:00.000Z')
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue({ id: 'evt-left-1' })
+
+        const result = await repository.hasAddOnLeftSince('job-1', 'del-addon-1', since)
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            deliveryId: 'job-1',
+            type: EnumDeliveryEventType.ADD_ON_LEFT,
+            messageParams: { path: ['addOnId'], equals: 'del-addon-1' },
+            createdAt: { gte: since },
+          },
+          select: { id: true },
+        })
+        expect(result).toBe(true)
+      })
+
+      test('returns false when no ADD_ON_LEFT event exists since that time', async () => {
+        const since = new Date('2026-11-24T10:00:00.000Z')
+        mockPrisma.deliveryEvent.findFirst.mockResolvedValue(null)
+
+        const result = await repository.hasAddOnLeftSince('job-1', 'del-addon-1', since)
+
+        expect(mockPrisma.deliveryEvent.findFirst).toHaveBeenCalledWith({
+          where: {
+            deliveryId: 'job-1',
+            type: EnumDeliveryEventType.ADD_ON_LEFT,
+            messageParams: { path: ['addOnId'], equals: 'del-addon-1' },
+            createdAt: { gte: since },
+          },
+          select: { id: true },
+        })
+        expect(result).toBe(false)
+      })
+    })
+  })
+
   describe('Migration 20261031200000_add_delivery_event_occurred_at (Spec 0009, AC-4, AC-9)', () => {
     test('backfills occurredAt from createdAt and creates index on (newStatus, occurredAt)', () => {
       const migrationFilePath = path.resolve(
@@ -209,11 +296,15 @@ describe('DeliveryEventRepository', () => {
       const sql = fs.readFileSync(migrationFilePath, 'utf8')
 
       // Assert column added with default
-      expect(sql).toMatch(/ALTER TABLE "DeliveryEvent" ADD COLUMN "occurredAt" TIMESTAMP\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP;/i)
+      expect(sql).toMatch(
+        /ALTER TABLE "DeliveryEvent" ADD COLUMN "occurredAt" TIMESTAMP\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP;/i
+      )
       // Assert backfill copies createdAt so old events stay on their day
       expect(sql).toMatch(/UPDATE "DeliveryEvent" SET "occurredAt" = "createdAt";/i)
       // Assert index for earnings queries
-      expect(sql).toMatch(/CREATE INDEX "DeliveryEvent_newStatus_occurredAt_idx" ON "DeliveryEvent"\("newStatus", "occurredAt"\);/i)
+      expect(sql).toMatch(
+        /CREATE INDEX "DeliveryEvent_newStatus_occurredAt_idx" ON "DeliveryEvent"\("newStatus", "occurredAt"\);/i
+      )
     })
   })
 })
