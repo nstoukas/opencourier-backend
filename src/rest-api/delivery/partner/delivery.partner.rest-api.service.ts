@@ -1,4 +1,4 @@
-import { partnerEditRefusal } from 'src/domains/delivery/partner-edit'
+import { partnerEditRefusal, tipAfterPartnerEdit } from 'src/domains/delivery/partner-edit'
 import {
   BadRequestException,
   ConflictException,
@@ -414,7 +414,8 @@ export class DeliveryPartnerRestApiService {
 
       orderReference: input.orderReference,
 
-      tips: input.tipByCustomer,
+      // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
+      tips: tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer),
     })
 
     // Row 102 (agy review, value 1): the point feeds the matcher and the rider's route, so a move is
