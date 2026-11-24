@@ -92,6 +92,8 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
         getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(20),
         getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
+        getStackPairBlockMinutes: jest.fn().mockResolvedValue(20),
       },
     }
     mockCacheService = {

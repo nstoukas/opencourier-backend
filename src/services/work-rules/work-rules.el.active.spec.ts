@@ -64,6 +64,7 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
     offerSkipMinutes: 20,
+    stackPairBlockMinutes: 20,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     shiftsEnabled: true,

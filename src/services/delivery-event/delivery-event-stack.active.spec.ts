@@ -134,6 +134,8 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       instanceConfig: {
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
+        getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
+        getStackPairBlockMinutes: jest.fn().mockResolvedValue(20),
         getStackingEnabled: jest.fn().mockResolvedValue(true),
         getBoxDefaultSize: jest.fn().mockResolvedValue('MEDIUM'),
         getBoxUnitsSmall: jest.fn().mockResolvedValue(30),

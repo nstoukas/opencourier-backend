@@ -62,6 +62,7 @@ describe('How offers and pay work shows offerSkipMinutes setting (row 144, Claus
     restaurantHistoryDays: 30,
     handBackSeconds: 60,
     offerSkipMinutes: 20,
+    stackPairBlockMinutes: 20,
     sosLocationRetentionDays: 30,
     arrivalRadiusMetres: 50,
     shiftsEnabled: false,

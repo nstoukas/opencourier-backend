@@ -59,6 +59,7 @@ describe('Skip list TTL follows offerSkipMinutes co-op setting (row 144, Clause 
     mockConfigDomainService = {
       instanceConfig: {
         getOfferSkipMinutes: jest.fn().mockResolvedValue(20),
+        getStackPairBlockMinutes: jest.fn().mockResolvedValue(20),
         getOfferExpiryEnabled: jest.fn().mockResolvedValue(true),
         getOfferTimingEnabled: jest.fn().mockResolvedValue(false),
         getOfferExpirySeconds: jest.fn().mockResolvedValue(60),
