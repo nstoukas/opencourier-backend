@@ -2392,7 +2392,12 @@ export class DeliveryEventService {
         )
         // Row 146 (value 1): the job's own trail says a second order joined it, which changes when its food
         // arrives. Only after the join committed: a join that rolled back returns null and records nothing.
-        if (jobStatus) await this.recordAddOnJoined(jobId, delivery.id, delivery.courierId, jobStatus)
+        if (jobStatus) {
+          await this.recordAddOnJoined(jobId, delivery.id, delivery.courierId, jobStatus)
+          // Review of row 149: the add on may have left between the join's commit and its record (a cancel in
+          // that moment saw no join yet). Read it again; if it is no longer being worked, the job says so now.
+          await this.recheckAddOnAfterJoin(delivery.id)
+        }
         return
       }
       await this.deliveryRepository.updateIfMatches(delivery.id, { offerGroupId: null }, { stopSequence: Prisma.DbNull })
@@ -2425,6 +2430,22 @@ export class DeliveryEventService {
       this.logger.error(
         `Could not record that add on ${addOnId} joined delivery ${jobId}: ${errorSummaryForLog(error)}`
       )
+    }
+  }
+
+  // Review of row 149: the join's record and a leaving that raced it. Never throws: the join already happened.
+  private async recheckAddOnAfterJoin(addOnId: string): Promise<void> {
+    try {
+      const addOn = await this.deliveryRepository.findById(addOnId)
+      if (
+        addOn &&
+        !DELIVERY_ONGOING_STATUSES.includes(addOn.status) &&
+        addOn.status !== EnumDeliveryStatus.DROPPED_OFF
+      ) {
+        await this.recordAddOnLeftIfJoined(addOnId)
+      }
+    } catch (error) {
+      this.logger.error(`Could not check add on ${addOnId} again after its join: ${errorSummaryForLog(error)}`)
     }
   }
 
@@ -3669,9 +3690,15 @@ export class DeliveryEventService {
         )
       }
       // Row 149: an add on that leaves its job before its drop off (cancelled, failed, handed back, reassigned,
-      // removed: every way off goes through a status outside the ongoing ones) puts ADD_ON_LEFT on the job.
+      // removed: every way off moves it from an ongoing status to one outside them) puts ADD_ON_LEFT on the job.
       // One rule, here, like the removal request's close above. A delivery never joined writes nothing.
-      if (outcome.newStatus !== EnumDeliveryStatus.DROPPED_OFF) {
+      // Review of row 149: only a move OUT of an ongoing status counts. Offers, expiries, "nobody found" and
+      // records on an ended delivery start outside the ongoing statuses and never part anything.
+      if (
+        outcome.newStatus !== EnumDeliveryStatus.DROPPED_OFF &&
+        outcome.oldStatus !== undefined &&
+        DELIVERY_ONGOING_STATUSES.includes(outcome.oldStatus)
+      ) {
         try {
           await this.recordAddOnLeftIfJoined(deliveryEvent.deliveryId)
         } catch (error) {
