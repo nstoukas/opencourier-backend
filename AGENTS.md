@@ -248,7 +248,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   every call. A setting whose 0 means "off" skips the Redis write, since Redis refuses an expiry of 0 (`stackPairBlockMinutes`).
 - Event message templates (`src/localization/en.ts`, `el.ts`) and `src/shared-types/event-messages.ts` are copied word for word
   into adminweb and the courier app (request-web keeps the templates only): a new or reworded code is copied there in the
-  same row, and both apps' tests compare their copy when the backend is beside them (row 146).
+  same row. adminweb's test compares only `ADD_ON_JOINED` with these files and the courier app's counts the codes, so a reworded
+  copy passes both: compare a new copy by hand (night run of 2026-11-24).
 
 - An event that moves a delivery out of an ongoing status (other than its drop off) may write `ADD_ON_LEFT` on the job it joined as an
   add on (row 149): the rule lives in `saveDeliveryEvent`, beside the removal request's close, so a new way off needs no extra code.
