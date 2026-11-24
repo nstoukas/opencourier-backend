@@ -14,6 +14,9 @@ import { PartnerCreateAdminInput } from './queries/partner-create.admin.input'
 import { PartnerUpdateAdminInput } from './queries/partner-update.admin.input'
 import { PickupAddressAdminInput } from './queries/pickup-address.admin.input'
 
+// Row 150 (live check): two coordinates closer than this, in degrees (about 0.1 mm), are the same point.
+const SAME_POINT_DEGREES = 1e-9
+
 @Injectable()
 export class PartnerAdminRestApiService {
   private readonly logger = new Logger(PartnerAdminRestApiService.name)
@@ -184,6 +187,8 @@ export class PartnerAdminRestApiService {
     const wanted = this.toLocationCreate(input)
     // `?? null` on both sides: a field left out of the input (undefined) and an empty column (null) match.
     const same = (saved: unknown, sent: unknown) => (saved ?? null) === (sent ?? null)
+    const samePoint = (saved: number, sent: number | undefined) =>
+      typeof sent === 'number' && Math.abs(saved - sent) < SAME_POINT_DEGREES
     return (
       same(current.street, wanted.street) &&
       same(current.houseNumber, wanted.houseNumber) &&
@@ -191,8 +196,11 @@ export class PartnerAdminRestApiService {
       same(current.state, wanted.state) &&
       same(current.zipCode, wanted.zipCode) &&
       same(current.countryCode, wanted.countryCode) &&
-      same(current.latitude, wanted.latitude) &&
-      same(current.longitude, wanted.longitude) &&
+      // Live check of row 150: a coordinate comes back from the database slightly rounded (39.360204381044674 is
+      // stored as 39.36020438104467), so an exact comparison never matched and every save made a new row.
+      // Within a billionth of a degree (about 0.1 mm) counts as the same point.
+      samePoint(current.latitude, wanted.latitude) &&
+      samePoint(current.longitude, wanted.longitude) &&
       same(current.formattedAddress, wanted.formattedAddress)
     )
   }
