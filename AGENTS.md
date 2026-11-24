@@ -137,7 +137,7 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 
 - The admin Dispatch board (spec 0034) is `GET admin/v1/dispatch/board`: one function per row kind in `src/services/dispatch-board/dispatch-board.ts`, listed in `DispatchBoardService.getBoard`; a new kind is one more of each, and its `kind` is a plain string so an older tab draws it as a plain row. Nothing there may time, count or rank a rider. Every write of `Courier.currentLocation` must set `currentLocationAt` in the same statement, or the rider drops off the map after 5 minutes; the entity `declare`s that column so it never leaves the server.
 
-- A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is in Redis for the co-op's `offerSkipMinutes` (1 to 60, default 20, row 144), one key per delivery, so each new skip restarts the time for every rider on it.
+- A removal request (spec 0035) holds its own copy of the reason's label and flags, and its `payAmount` is fixed at the approve, so editing a reason never changes a sent request. An open request closes by itself on any successful event whose `newStatus` is outside `DELIVERY_ONGOING_STATUSES`, so a new way to take a rider off needs no extra code for that. The seven removal events are refused by `processDeliveryEvent`; only their own paths write them. A `REASSIGNED` event's message ends with `(award <id>)` so each attempt is unique. The skip list is a Redis sorted set per delivery (`delivery-skip-list:<id>`), each rider scored by their own end, `offerSkipMinutes` (1 to 60, default 20, row 144) after they were added (row 148): add through `addCourierToRejectedList` (one Lua script with `ZADD GT`, which needs Redis 6.2 or newer), read only through `getRejectedCourierIds`.
 
 - Chat (spec 0034) lives in `src/domains/chat/` and `ChatRepository`. The courier and partner routes take no thread id (the
   session finds it), admins listen on the `admins` Socket.IO namespace (`AdminSocketGateway`), and `disconnectUser` closes a
@@ -249,6 +249,18 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - Event message templates (`src/localization/en.ts`, `el.ts`) and `src/shared-types/event-messages.ts` are copied word for word
   into adminweb and the courier app (request-web keeps the templates only): a new or reworded code is copied there in the
   same row, and both apps' tests compare their copy when the backend is beside them (row 146).
+
+- An event that moves a delivery out of an ongoing status (other than its drop off) may write `ADD_ON_LEFT` on the job it joined as an
+  add on (row 149): the rule lives in `saveDeliveryEvent`, beside the removal request's close, so a new way off needs no extra code.
+- A partner edit (`POST partner deliveries/:id`, row 152) goes through `partnerEditRefusal` and `tipAfterPartnerEdit`
+  (`src/domains/delivery/partner-edit.ts`): an ended order is refused, a held order's point never moves and its tip stays. Tips are rider
+  pay and never negative (`@Min(0)` on create and edit).
+- Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
+  never an ADMIN login; the reset switches the API key off (`setPasswordAndRemoveApiKey`) and issues no session.
+- `OfferEndedMessage` carries `offeredAt` (null when unknown), and a rider's accept or decline sends `OFFER_ENDED` with `ANSWERED` to all
+  their phones (rows 154, 155); a new place that ends an offer passes the offer's `offeredAt`.
+- An admin pickup edit makes a new Location row (row 150), never updates one: Locations are shared. Coordinates come back from the
+  database rounded in their last digits, so compare points within a tolerance, never with `===`.
 
 ## Agent skills
 
