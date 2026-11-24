@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common'
 import { DeliveryLocationDoesntMatchQuoteException, DeliveryNotFoundException, NotFoundException } from 'src/errors'
 import {
   BoxSize,
@@ -11,6 +12,9 @@ import { haversineDistanceInMetres } from 'src/core/utils/distance'
 import { DeliveryPartnerRestApiService } from './delivery.partner.rest-api.service'
 import { partnerHistoryCutoff } from './partner-history'
 import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.input'
+import { PARTNER_EDIT_SENTENCES } from 'src/domains/delivery/partner-edit'
+import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
+import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
 
 describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
   let service: DeliveryPartnerRestApiService
@@ -94,11 +98,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       expect(calledWhere.OR[0]).toHaveProperty('createdAt.gte')
       expect(calledWhere.OR[1]).toEqual({
         status: {
-          notIn: [
-            EnumDeliveryStatus.DROPPED_OFF,
-            EnumDeliveryStatus.CANCELED,
-            EnumDeliveryStatus.FAILED,
-          ],
+          notIn: [EnumDeliveryStatus.DROPPED_OFF, EnumDeliveryStatus.CANCELED, EnumDeliveryStatus.FAILED],
         },
       })
       expect(callArgs[1]).toBe(1)
@@ -248,9 +248,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           createdAt: new Date(),
         })
 
-        await expect(
-          service.update('del-other', partnerId, {} as any)
-        ).rejects.toThrow(new DeliveryNotFoundException('Delivery not found'))
+        await expect(service.update('del-other', partnerId, {} as any)).rejects.toThrow(
+          new DeliveryNotFoundException('Delivery not found')
+        )
 
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
@@ -265,9 +265,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           dropoffLocationId: 'loc-dropoff',
         })
 
-        await expect(
-          service.update('del-own-old', partnerId, {} as any)
-        ).rejects.toThrow(
+        await expect(service.update('del-own-old', partnerId, {} as any)).rejects.toThrow(
           new DeliveryNotFoundException('This order is older than 30 days. The co-op can look it up for you.')
         )
 
@@ -299,10 +297,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         } as any)
 
         expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
-        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
-          'del-update-null-size',
-          expect.anything()
-        )
+        expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-update-null-size', expect.anything())
       })
 
       it('the size change runs after the drift check, so an update refused by the drift check leaves the size unchanged (changeBoxSize not called)', async () => {
@@ -419,7 +414,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     const ownDelivery = () => ({
       id: 'del-own',
       partnerId,
-      status: EnumDeliveryStatus.ACCEPTED,
+      status: EnumDeliveryStatus.ASSIGNING_COURIER,
       createdAt: new Date(),
       dropoffLocationId: 'loc-shared',
       deliveryQuoteId: 'quote-1',
@@ -589,7 +584,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
               to: '39.36250, 22.94300',
             },
           },
-          EnumDeliveryStatus.ACCEPTED
+          EnumDeliveryStatus.ASSIGNING_COURIER
         )
         const [recordedEvent] = mockDeliveryEventService.recordDropoffPointCorrectedEvent.mock.calls[0]
         expect(recordedEvent.courierId).toBeUndefined()
@@ -899,6 +894,243 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect.objectContaining({ ...sharedAddress, latitude: 39.3625, longitude: 22.943 })
         )
       })
+    })
+  })
+
+  describe('partner edit status checks and tips (Row 152)', () => {
+    const sharedLocation = {
+      id: 'loc-shared',
+      addressLine1: 'Iasonos 12',
+      addressLine2: '3rd floor',
+      city: 'Volos',
+      state: 'Thessaly',
+      street: 'Iasonos',
+      zipCode: '38221',
+      countryCode: 'GR',
+      stateCode: 'TH',
+      houseNumber: '12',
+      formattedAddress: 'Iasonos 12, Volos 38221, Greece',
+      latitude: 39.3621,
+      longitude: 22.9425,
+    }
+
+    const testDelivery = (status: EnumDeliveryStatus, tips = 150) => ({
+      id: 'del-152',
+      partnerId,
+      status,
+      createdAt: new Date(),
+      dropoffLocationId: 'loc-shared',
+      deliveryQuoteId: 'quote-1',
+      tips,
+      orderReference: 'ORD-152',
+    })
+
+    const updateInput = (opts?: {
+      dropoffLatitude?: number
+      dropoffLongitude?: number
+      tipByCustomer?: number
+      notes?: string
+      pickupReadyAt?: Date
+    }) =>
+      ({
+        dropoffLatitude: opts?.dropoffLatitude ?? sharedLocation.latitude,
+        dropoffLongitude: opts?.dropoffLongitude ?? sharedLocation.longitude,
+        pickupNotes: opts?.notes ?? 'Pickup notes',
+        dropoffNotes: opts?.notes ?? 'Dropoff notes',
+        orderReference: 'ORD-152',
+        tipByCustomer: opts?.tipByCustomer ?? 0,
+        pickupReadyAt: opts?.pickupReadyAt,
+      } as unknown as DeliveryUpdatePartnerInput)
+
+    beforeEach(() => {
+      mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+        id: 'quote-1',
+        dropoffLocationId: 'loc-shared',
+      })
+      mockLocationDomainService.getById = jest.fn().mockResolvedValue({ ...sharedLocation })
+      mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new' })
+      mockLocationDomainService.update = jest.fn()
+      mockDeliveryDomainService.update.mockImplementation((id: string, data: Record<string, unknown>) =>
+        Promise.resolve({ id, ...data })
+      )
+      mockDeliveryDomainService.changeBoxSize = jest.fn()
+      mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(true)
+      mockDeliveryEventService.recordDropoffPointCorrectedEvent = jest.fn().mockResolvedValue(undefined)
+    })
+
+    describe('clause 1: POST partner deliveries/:id on an ended delivery (DROPPED_OFF, CANCELED, FAILED) is refused 409', () => {
+      test.each(PARTNER_ENDED_STATUSES)(
+        'refuses edit on ended status %s with 409 ConflictException and PARTNER_EDIT_SENTENCES.ended',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status))
+
+          // Test with point unmoved
+          await expect(service.update('del-152', partnerId, updateInput({ notes: 'New notes' }))).rejects.toThrow(
+            new ConflictException(PARTNER_EDIT_SENTENCES.ended)
+          )
+
+          // Test with point moved
+          await expect(
+            service.update('del-152', partnerId, updateInput({ dropoffLatitude: 39.3625, dropoffLongitude: 22.943 }))
+          ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+
+          // Nothing is written or read: no location lookup or create, no delivery update, no event
+          expect(mockLocationDomainService.getById).not.toHaveBeenCalled()
+          expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+          expect(mockLocationDomainService.update).not.toHaveBeenCalled()
+          expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+          expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
+          expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        }
+      )
+    })
+
+    describe('clause 2: while a rider holds the order (every status in DELIVERY_ONGOING_STATUSES)', () => {
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'status %s refuses dropoff point move with 409 ConflictException and PARTNER_EDIT_SENTENCES.pointHeld',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status))
+
+          await expect(
+            service.update('del-152', partnerId, updateInput({ dropoffLatitude: 39.3625, dropoffLongitude: 22.943 }))
+          ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.pointHeld))
+
+          // Refused before quote read or any write
+          expect(mockDeliveryQuoteDomainService.getByIdOrThrow).not.toHaveBeenCalled()
+          expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+          expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+          expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
+          expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        }
+      )
+
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'status %s allows notes and times to change when dropoff point does not move',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 200))
+
+          const newTime = new Date('2026-11-24T20:00:00Z')
+          const result = await service.update(
+            'del-152',
+            partnerId,
+            updateInput({ notes: 'Updated notes', pickupReadyAt: newTime, tipByCustomer: 0 })
+          )
+
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledTimes(1)
+          expect(result.pickupNotes).toBe('Updated notes')
+          expect(result.dropoffNotes).toBe('Updated notes')
+          expect(result.pickupReadyAt).toEqual(newTime)
+          // No new location created for unmoved point
+          expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        }
+      )
+    })
+
+    describe('clause 3: an order with no rider yet (CREATED, ASSIGNING_COURIER) is edited as before', () => {
+      test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+        'status %s allows moving dropoff point, creating new Location and emitting event',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status))
+
+          await service.update(
+            'del-152',
+            partnerId,
+            updateInput({ dropoffLatitude: 39.3625, dropoffLongitude: 22.943, notes: 'New notes' })
+          )
+
+          expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+            'del-152',
+            expect.objectContaining({
+              dropoffLocationId: 'loc-new',
+              pickupNotes: 'New notes',
+            })
+          )
+          expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledTimes(1)
+          expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+              actor: EnumEventActor.PARTNER,
+              source: EnumDeliveryEventSource.PARTNER_APP,
+            }),
+            status
+          )
+        }
+      )
+
+      test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+        'status %s allows editing notes without moving dropoff point',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status))
+
+          await service.update('del-152', partnerId, updateInput({ notes: 'Only note edit' }))
+
+          expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+            'del-152',
+            expect.objectContaining({
+              dropoffLocationId: 'loc-shared',
+              pickupNotes: 'Only note edit',
+            })
+          )
+          expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        }
+      )
+    })
+
+    describe('clause 4 (decision 152.4): tips behavior', () => {
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'held status %s preserves delivery tips even when restaurant sends tipByCustomer: 0',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 250))
+
+          await service.update('del-152', partnerId, updateInput({ tipByCustomer: 0 }))
+
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+            'del-152',
+            expect.objectContaining({ tips: 250 })
+          )
+        }
+      )
+
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'held status %s preserves delivery tips even when restaurant sends different tipByCustomer',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 150))
+
+          await service.update('del-152', partnerId, updateInput({ tipByCustomer: 500 }))
+
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+            'del-152',
+            expect.objectContaining({ tips: 150 })
+          )
+        }
+      )
+
+      test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+        'unassigned status %s applies sent tipByCustomer',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 0))
+
+          await service.update('del-152', partnerId, updateInput({ tipByCustomer: 300 }))
+
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith(
+            'del-152',
+            expect.objectContaining({ tips: 300 })
+          )
+        }
+      )
+
+      test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+        'unassigned status %s allows resetting tips to 0',
+        async (status) => {
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(testDelivery(status, 200))
+
+          await service.update('del-152', partnerId, updateInput({ tipByCustomer: 0 }))
+
+          expect(mockDeliveryDomainService.update).toHaveBeenCalledWith('del-152', expect.objectContaining({ tips: 0 }))
+        }
+      )
     })
   })
 })

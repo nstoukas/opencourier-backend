@@ -23,6 +23,7 @@ import {
 } from '../errors'
 import { Prisma } from '@prisma/types'
 import { refusalBody } from 'src/localization/coded-sentence'
+import { PARTNER_EDIT_SENTENCES } from 'src/domains/delivery/partner-edit'
 
 // Test controller throwing real errors to verify Nest exception filter pipeline end-to-end
 @Controller('test-errors')
@@ -252,6 +253,32 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
           error: 'Conflict',
           message: OFFER_HAS_ENDED_MESSAGE,
           code: 'OFFER_HAS_ENDED',
+        })
+      })
+
+      it('adds PARTNER_EDIT_ORDER_ENDED code for ConflictException with ended order sentence (Row 152, clause 1)', () => {
+        const error = new ConflictException(PARTNER_EDIT_SENTENCES.ended)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 409,
+          error: 'Conflict',
+          message: PARTNER_EDIT_SENTENCES.ended,
+          code: 'PARTNER_EDIT_ORDER_ENDED',
+        })
+      })
+
+      it('adds PARTNER_EDIT_POINT_HELD code for ConflictException with held point sentence (Row 152, clause 2)', () => {
+        const error = new ConflictException(PARTNER_EDIT_SENTENCES.pointHeld)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 409,
+          error: 'Conflict',
+          message: PARTNER_EDIT_SENTENCES.pointHeld,
+          code: 'PARTNER_EDIT_POINT_HELD',
         })
       })
 
