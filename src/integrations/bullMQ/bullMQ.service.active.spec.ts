@@ -173,8 +173,8 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
           { name: 'cancellation-award-sweep', key: 'repeat:key-1', pattern: '* * * * *' },
         ])
         // Delayed job has repeatJobKey but old opts without attempts
-        mockQueue.getJobs.mockImplementation(async (type) => {
-          if (type === 'delayed') {
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types) && types.includes('delayed')) {
             return [
               {
                 name: 'cancellation-award-sweep',
@@ -188,9 +188,10 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
 
         await service.addRepeatableJob('cancellation-award-sweep', {}, '* * * * *')
 
+        expect(mockQueue.getJobs).toHaveBeenCalledWith(['delayed', 'waiting'])
         expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('repeat:key-1')
         expect(loggerLogSpy).toHaveBeenCalledWith(
-          'Replaced the cancellation-award-sweep schedule, saved with other retry options'
+          'Replaced the cancellation-award-sweep schedule: saved with other retry options'
         )
         expect(mockQueue.add).toHaveBeenCalledWith(
           'cancellation-award-sweep',
@@ -199,13 +200,40 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
         )
       })
 
+      it('replaces schedule whose next run is in waiting (e.g. caught at boundary) saved with other retry options', async () => {
+        mockQueue.getRepeatableJobs.mockResolvedValueOnce([
+          { name: 'cancellation-award-sweep', key: 'repeat:key-waiting', pattern: '* * * * *' },
+        ])
+        // Stale run exists in 'waiting' list only
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types) && types.includes('waiting')) {
+            return [
+              {
+                name: 'cancellation-award-sweep',
+                repeatJobKey: 'repeat:key-waiting',
+                opts: {},
+              },
+            ]
+          }
+          return []
+        })
+
+        await service.addRepeatableJob('cancellation-award-sweep', {}, '* * * * *')
+
+        expect(mockQueue.getJobs).toHaveBeenCalledWith(['delayed', 'waiting'])
+        expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('repeat:key-waiting')
+        expect(loggerLogSpy).toHaveBeenCalledWith(
+          'Replaced the cancellation-award-sweep schedule: saved with other retry options'
+        )
+      })
+
       it('does NOT replace schedule saved with today options, INCLUDING when Redis returns keys in another order', async () => {
         mockQueue.getRepeatableJobs.mockResolvedValueOnce([
           { name: 'cancellation-award-sweep', key: 'repeat:key-1', pattern: '* * * * *' },
         ])
         // Keys returned in reversed order as seen in Redis
-        mockQueue.getJobs.mockImplementation(async (type) => {
-          if (type === 'delayed') {
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types) && types.includes('delayed')) {
             return [
               {
                 name: 'cancellation-award-sweep',
@@ -233,8 +261,8 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
         mockQueue.getRepeatableJobs.mockResolvedValueOnce([
           { name: 'saved-customer-retention', key: 'repeat:key-old', pattern: '0 3 * * *', tz: 'Europe/Athens' },
         ])
-        mockQueue.getJobs.mockImplementation(async (type) => {
-          if (type === 'delayed') {
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types) && types.includes('delayed')) {
             return [
               {
                 name: 'saved-customer-retention',
@@ -254,8 +282,9 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
         await service.addRepeatableJob('saved-customer-retention', {}, '0 4 * * *', 'Europe/Athens')
 
         expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('repeat:key-old')
-        // Retries were same, so the retry log message is NOT logged
-        expect(loggerLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('saved with other retry options'))
+        expect(loggerLogSpy).toHaveBeenCalledWith(
+          'Replaced the saved-customer-retention schedule: its time or zone changed'
+        )
         expect(mockQueue.add).toHaveBeenCalledWith(
           'saved-customer-retention',
           {},
@@ -267,8 +296,8 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
         mockQueue.getRepeatableJobs.mockResolvedValueOnce([
           { name: 'cancellation-award-sweep', key: 'repeat:key-1', pattern: '* * * * *' },
         ])
-        mockQueue.getJobs.mockImplementation(async (type) => {
-          if (type === 'delayed') {
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types) && types.includes('delayed')) {
             return [
               // Another job name
               { name: 'other-job', repeatJobKey: 'repeat:other:1', opts: {} },
@@ -285,13 +314,13 @@ describe('BullMQService (Row 141, Spec 0003 R3, Spec 0005 AC-7)', () => {
         expect(loggerLogSpy).not.toHaveBeenCalled()
       })
 
-      it('an undefined entry in getJobs("delayed") does not throw (Minor 1)', async () => {
+      it('an undefined entry in getJobs(["delayed", "waiting"]) does not throw (Minor 1)', async () => {
         mockQueue.getRepeatableJobs.mockResolvedValueOnce([
           { name: 'daily-job', key: 'repeat:key-1', pattern: '0 0 * * *' },
         ])
         // Array contains undefined entries (Job.fromId returned undefined for removed job)
-        mockQueue.getJobs.mockImplementation(async (type) => {
-          if (type === 'delayed') {
+        mockQueue.getJobs.mockImplementation(async (types) => {
+          if (Array.isArray(types)) {
             return [undefined, { name: 'other', repeatJobKey: 'k', opts: {} }]
           }
           return []

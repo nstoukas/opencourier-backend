@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config'
 import {
   EnumDeliveryEventType,
   EnumDeliveryStatus,
+  EnumDispatchStopReason,
   EnumEventActor,
 } from '@prisma/types'
 import { DeliveryEventService } from './delivery-event.service'
@@ -17,6 +18,7 @@ import { DeliveryCalculationService } from '../delivery-calculation/delivery-cal
 import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CacheService } from '../cache/cache.service'
 import { OfferPushService } from '../pushNotification/offer-push.service'
+import { eventText } from 'src/domains/delivery-event/event-text'
 
 describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => {
   let service: DeliveryEventService
@@ -58,6 +60,7 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
       claimForRiderWithinBox: jest.fn().mockResolvedValue({ outcome: 'CLAIMED', heldUnits: 0, deliveryUnits: 50 }),
       findIdsWaitingForCourierOldestFirst: jest.fn().mockResolvedValue([]),
       findOpenGroupMembers: jest.fn().mockResolvedValue([]),
+      findAllOpenOffers: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<DeliveryRepository>
     mockDeliveryEventRepository = {
       create: jest.fn().mockResolvedValue({ id: 'evt-1' } as any),
@@ -247,8 +250,8 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
     })
   })
 
-  describe('endOffer stack partial failure and retry (Row 141 review, Minor 2)', () => {
-    it('when first write succeeds and second throws, follows up the first (event and backstop), rejects with error, and retry ends second only', async () => {
+  describe('endOffer stack partial failure, total failure and retries (Row 141 review, Minor 2)', () => {
+    it('partial stack failure: when first write succeeds and second throws, payload1 job resolves, del1 followed up once, del2 untouched, error logged, and del2 own job ends del2', async () => {
       const del1Id = 'del-stack-1'
       const del2Id = 'del-stack-2'
       const courierId = 'courier-stack'
@@ -302,17 +305,19 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
         return false
       })
 
+      const loggerErrorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+
       const payload1 = {
         deliveryId: del1Id,
         courierId,
         offeredAt: offeredAt.toISOString(),
       }
 
-      // First run: must reject with transientDbError so BullMQ retries the job
-      await expect(service.handleOfferExpiryJob(payload1)).rejects.toThrow(transientDbError)
+      // First run: ends del1, del2 throws. Because del1 ended (ended.length > 0), handleOfferExpiryJob RESOLVES
+      await expect(service.handleOfferExpiryJob(payload1)).resolves.toBeUndefined()
 
-      // CRITICAL: The first delivery's write succeeded, so it MUST be followed up!
-      // 1. OFFER_EXPIRED event was created for del1Id
+      // 1. del1 was followed up once:
+      // OFFER_EXPIRED event was created for del1Id
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           deliveryId: del1Id,
@@ -321,37 +326,39 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
           courierId,
         })
       )
-      // 2. Rider was told offer ended for del1Id
+      // Rider was told offer ended for del1Id
       expect(mockWebsocketDispatcher.sendOfferEnded).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ deliveryId: del1Id, reason: 'EXPIRED' })
       )
-      // 3. Backstop retry was armed for del1Id
+      // Backstop retry was armed for del1Id
       expect(mockBullMQService.addJob).toHaveBeenCalledWith(
         'no-courier-retry',
         { deliveryId: del1Id },
         expect.anything()
       )
 
-      // del2Id was NOT followed up in the first run because its write threw
+      // 2. del2 was untouched in run 1: still matched to courier, no OFFER_EXPIRED event
+      expect(stackDel2.matchedCourierId).toBe(courierId)
       expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
         expect.objectContaining({ deliveryId: del2Id })
       )
 
-      // --- RETRY (SECOND RUN) ---
-      // Database recovered: del2Id write succeeds on retry
-      shouldDel2Throw = false
+      // 3. Error was logged describing the partial stack clear failure
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Ended 1 of the 2 offers of delivery ${del1Id}'s stack; the rest are left to their own expiry: Error: Database connection failed on del-stack-2 write`)
+      )
 
+      // 4. del2's OWN job runs on its own timer (payload2) and ends del2 with one event
+      shouldDel2Throw = false
       const payload2 = {
         deliveryId: del2Id,
         courierId,
         offeredAt: offeredAt.toISOString(),
       }
 
-      // Retry ends the second delivery cleanly
       await expect(service.handleOfferExpiryJob(payload2)).resolves.toBeUndefined()
 
-      // Now del2Id also has its OFFER_EXPIRED event created
       expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           deliveryId: del2Id,
@@ -361,7 +368,7 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
         })
       )
 
-      // In total across both runs: exactly 1 OFFER_EXPIRED event for del1Id and 1 for del2Id
+      // Exactly 1 OFFER_EXPIRED event for each delivery across both jobs
       const del1Events = mockDeliveryEventRepository.create.mock.calls.filter(
         (call) => call[0].deliveryId === del1Id && call[0].type === EnumDeliveryEventType.OFFER_EXPIRED
       )
@@ -370,6 +377,134 @@ describe('DeliveryEventService - BullMQ Retries & Idempotence (Row 141)', () => 
       )
       expect(del1Events).toHaveLength(1)
       expect(del2Events).toHaveLength(1)
+    })
+
+    it('total failure: when no write succeeds, handleOfferExpiryJob rejects so BullMQ retries, and retry with the SAME payload ends it once write succeeds', async () => {
+      const deliveryId = 'del-total-fail'
+      const courierId = 'courier-total'
+      const offeredAt = new Date('2026-11-24T00:00:00.000Z')
+      const offerExpiresAt = new Date('2026-11-24T00:00:20.000Z')
+
+      const deliveryState: any = {
+        id: deliveryId,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        courierId: null,
+        offeredAt,
+        offerExpiresAt,
+        offerGroupId: null,
+      }
+
+      mockDeliveryRepository.findById.mockImplementation(async (id: string) => {
+        if (id === deliveryId) return deliveryState
+        return null
+      })
+
+      const transientDbError = new Error('Database write failed on single offer clear')
+      let shouldThrow = true
+      mockDeliveryRepository.updateIfMatches.mockImplementation(async (id: string, where: any, data: any) => {
+        if (id === deliveryId) {
+          if (shouldThrow) {
+            throw transientDbError
+          }
+          Object.assign(deliveryState, data)
+          return true
+        }
+        return false
+      })
+
+      const payload = {
+        deliveryId,
+        courierId,
+        offeredAt: offeredAt.toISOString(),
+      }
+
+      // Run 1: single write throws -> ended.length === 0, so endOffer rethrows failedWrite.error
+      // handleOfferExpiryJob rejects so BullMQ will retry this job
+      await expect(service.handleOfferExpiryJob(payload)).rejects.toThrow(transientDbError)
+
+      // No event recorded on failure
+      expect(mockDeliveryEventRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ deliveryId, type: EnumDeliveryEventType.OFFER_EXPIRED })
+      )
+
+      // Run 2: BullMQ retries with the SAME payload; DB connection recovered
+      shouldThrow = false
+      await expect(service.handleOfferExpiryJob(payload)).resolves.toBeUndefined()
+
+      // Exactly 1 OFFER_EXPIRED event was created across both runs
+      const expiredEvents = mockDeliveryEventRepository.create.mock.calls.filter(
+        (call) => call[0].deliveryId === deliveryId && call[0].type === EnumDeliveryEventType.OFFER_EXPIRED
+      )
+      expect(expiredEvents).toHaveLength(1)
+      expect(expiredEvents[0]![0]).toEqual(
+        expect.objectContaining({
+          deliveryId,
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          courierId,
+        })
+      )
+    })
+
+    it('dispatch stop: endAllOpenOffersForDispatchStop counts the ended delivery of a half failed stack instead of losing it', async () => {
+      const del1Id = 'del-stop-stack-1'
+      const del2Id = 'del-stop-stack-2'
+      const courierId = 'courier-stop-stack'
+      const offeredAt = new Date('2026-11-24T00:00:00.000Z')
+
+      const stackDel1: any = {
+        id: del1Id,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerGroupId: 'grp-stop-stack',
+      }
+      const stackDel2: any = {
+        id: del2Id,
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerGroupId: 'grp-stop-stack',
+      }
+
+      mockDeliveryRepository.findAllOpenOffers.mockResolvedValue([stackDel1])
+      mockDeliveryRepository.findOpenGroupMembers.mockImplementation(async (groupId: string, cid: string) => {
+        return [stackDel1, stackDel2].filter((d) => d.offerGroupId === groupId && d.matchedCourierId === cid) as any
+      })
+
+      mockDeliveryRepository.findById.mockImplementation(async (id: string) => {
+        if (id === del1Id) return stackDel1
+        if (id === del2Id) return stackDel2
+        return null
+      })
+
+      const transientError = new Error('Database error on del2 write')
+      mockDeliveryRepository.updateIfMatches.mockImplementation(async (id: string, where: any, data: any) => {
+        if (id === del1Id) {
+          Object.assign(stackDel1, data)
+          return true
+        }
+        if (id === del2Id) {
+          throw transientError
+        }
+        return false
+      })
+
+      // In endAllOpenOffersForDispatchStop, endOffer resolves with 1 (does not throw), so ended count is 1
+      const count = await service.endAllOpenOffersForDispatchStop(
+        eventText('DISPATCH_STOP_OFFER_ENDED', { reason: EnumDispatchStopReason.HEAT })
+      )
+
+      expect(count).toBe(1)
+      expect(mockDeliveryEventRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: del1Id,
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          courierId,
+        })
+      )
     })
   })
 })
