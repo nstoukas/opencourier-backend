@@ -28,9 +28,9 @@ export function partnerEditRefusal(status: EnumDeliveryStatus, pointMoved: boole
   return null
 }
 
-// Review of row 152: the tip is rider pay (spec 0042's earnings count it), and an edit writes no DeliveryEvent. So
-// while a rider holds the order the edit keeps the tip it had, and only before a rider holds it does the restaurant's
-// value apply. request-web always sends 0 for it (it has no tip field), which this also stops from zeroing a tip
+// Review of row 152: the tip is rider pay (spec 0042's earnings count it). So while a rider holds the order the edit
+// keeps the tip it had, and only before a rider holds it does the restaurant's value apply (row 160 records that
+// change as a TIP_CHANGED event). request-web always sends 0 for it (it has no tip field), which this also stops from zeroing a tip
 // set through the API on a held order.
 export function tipAfterPartnerEdit(status: EnumDeliveryStatus, currentTips: number, sentTips: number): number {
   return DELIVERY_ONGOING_STATUSES.includes(status) ? currentTips : sentTips
