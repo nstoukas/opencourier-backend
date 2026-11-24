@@ -971,6 +971,11 @@ export class DeliveryEventService {
     }
   }
 
+  // Row 144: the co-op's skip time (offerSkipMinutes) in seconds, the unit the skip list's Redis key expires in.
+  private async offerSkipSeconds(): Promise<number> {
+    return (await this.configDomainService.instanceConfig.getOfferSkipMinutes()) * 60
+  }
+
   // Ends one open offer with OFFER_EXPIRED (the deadline passed, or the rider went offline). The
   // conditional update is the race rule: it clears the offer only if the delivery is still offered
   // to this rider, by this very offer, and nobody has taken it. Returns how many offers it ended: 0 or
@@ -1074,7 +1079,7 @@ export class DeliveryEventService {
     let addedToSkipList = false
     if (reason !== 'STOPPED') {
       try {
-        addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+        addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
       } catch (error) {
         this.logger.error(
           `Could not add courier ${courierId} to the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
@@ -1182,7 +1187,7 @@ export class DeliveryEventService {
   // out this one delivery for up to 20 minutes.
   private async undoSkipListEntry(deliveryId: string, courierId: string): Promise<void> {
     try {
-      await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+      await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
     } catch (error) {
       this.logger.error(
         `Could not take courier ${courierId} off the skip list of ${deliveryId}: ${errorSummaryForLog(error)}`
@@ -1283,7 +1288,7 @@ export class DeliveryEventService {
       // it straight back to this rider. A failed write is logged: the decline must still go through.
       let addedToSkipList = false
       try {
-        addedToSkipList = await addCourierToRejectedList(this.cacheService, member.id, courierId)
+        addedToSkipList = await addCourierToRejectedList(this.cacheService, member.id, courierId, await this.offerSkipSeconds())
       } catch (error) {
         this.logger.error(
           `Could not add courier ${courierId} to the skip list of ${member.id}: ${errorSummaryForLog(error)}`
@@ -1541,7 +1546,7 @@ export class DeliveryEventService {
   async handBack(deliveryId: string, courierId: string, oldStatus: EnumDeliveryStatus): Promise<boolean> {
     let addedToSkipList = false
     try {
-      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
     } catch (error) {
       this.logger.error(
         `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`
@@ -1576,7 +1581,7 @@ export class DeliveryEventService {
     if (!written) {
       if (addedToSkipList) {
         try {
-          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
         } catch (error) {
           this.logger.error(
             `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
@@ -1643,7 +1648,7 @@ export class DeliveryEventService {
 
     let addedToSkipList = false
     try {
-      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
     } catch (error) {
       this.logger.error(
         `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`
@@ -1680,7 +1685,7 @@ export class DeliveryEventService {
     if (!written) {
       if (addedToSkipList) {
         try {
-          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+          await removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
         } catch (error) {
           this.logger.error(
             `Could not take rider ${courierId} off the skip list of delivery ${deliveryId}: ${errorSummaryForLog(
@@ -3048,7 +3053,7 @@ export class DeliveryEventService {
 
     let addedToSkipList = false
     try {
-      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+      addedToSkipList = await addCourierToRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
     } catch (error) {
       this.logger.error(
         `Could not put rider ${courierId} on the skip list of delivery ${deliveryId}: ${errorSummaryForLog(error)}`

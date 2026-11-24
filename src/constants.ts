@@ -269,6 +269,12 @@ export const RESTAURANT_HISTORY_DAYS_MAX = 365
 export const DEFAULT_HAND_BACK_SECONDS = 60
 export const HAND_BACK_SECONDS_MIN = 0
 export const HAND_BACK_SECONDS_MAX = 300
+// The skip list (spec 0002, row 144): a rider who declined or missed an offer is not offered that
+// delivery again for this many minutes. The operative value is the co-op setting offerSkipMinutes.
+// 0 is refused (decision 144.1): with no skip, a declined offer could come straight back to the same rider.
+export const DEFAULT_OFFER_SKIP_MINUTES = 20
+export const OFFER_SKIP_MINUTES_MIN = 1
+export const OFFER_SKIP_MINUTES_MAX = 240
 
 // Shifts (spec 0026, row 77): a co-op switch, off until the assembly decides to run shifts, and how
 // many hours before its start a rider may still drop a booked shift (used from row 78).

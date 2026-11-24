@@ -2,16 +2,17 @@ import { CacheService } from './cache.service'
 import { CacheHelpers } from './cache.helpers'
 
 // How long a courier stays excluded from re-offers of one delivery after declining it, or after
-// letting its offer expire (spec 0002). Both the add and the remove must use the same value,
-// because re-saving the key resets its expiry. Hard coded for now; see spec 0002 Follow-up.
-export const REJECTED_LIST_TTL_SECONDS = 60 * 20
+// letting its offer expire (spec 0002), is the co-op setting offerSkipMinutes (row 144). Callers read it
+// and pass it in seconds as `ttlSeconds`, to the add and the remove alike: re-saving the key resets its
+// expiry, so both must use the setting as it is now.
 
 // The one place a courier is put on a delivery's skip list. Returns true only when this call is
 // what put them there; an entry left over from an earlier decline is not the caller's to remove.
 export async function addCourierToRejectedList(
   cacheService: CacheService,
   deliveryId: string,
-  courierId: string
+  courierId: string,
+  ttlSeconds: number
 ): Promise<boolean> {
   const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
   const rejectedCouriers = await cacheService.getOrDefault<Array<string>>(rejectedKey, [])
@@ -19,7 +20,7 @@ export async function addCourierToRejectedList(
   const alreadyRejected = rejectedCouriers.includes(courierId)
   if (!alreadyRejected) rejectedCouriers.push(courierId)
 
-  await cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, REJECTED_LIST_TTL_SECONDS)
+  await cacheService.save<Array<string>>(rejectedKey, rejectedCouriers, ttlSeconds)
 
   return !alreadyRejected
 }
@@ -28,7 +29,8 @@ export async function addCourierToRejectedList(
 export async function removeCourierFromRejectedList(
   cacheService: CacheService,
   deliveryId: string,
-  courierId: string
+  courierId: string,
+  ttlSeconds: number
 ): Promise<void> {
   const rejectedKey = CacheHelpers.getDeliveryRejectedCouriersKey(deliveryId)
   const rejectedCouriers = await cacheService.getOrDefault<Array<string>>(rejectedKey, [])
@@ -36,6 +38,6 @@ export async function removeCourierFromRejectedList(
   await cacheService.save<Array<string>>(
     rejectedKey,
     rejectedCouriers.filter((id) => id !== courierId),
-    REJECTED_LIST_TTL_SECONDS
+    ttlSeconds
   )
 }

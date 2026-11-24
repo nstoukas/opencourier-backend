@@ -5,7 +5,6 @@ import { PaginatedResult } from 'src/core/models/Pagination'
 import { ConfigDomainService } from 'src/domains/config/config.domain.service'
 import { RemovalRequestRepository } from 'src/persistence/repositories/removal-request.repository'
 import { SettingChangeRepository, SettingChangeWithAdmin } from 'src/persistence/repositories/setting-change.repository'
-import { REJECTED_LIST_TTL_SECONDS } from 'src/services/cache/rejected-couriers'
 import { InstanceConfigSettings } from 'src/shared-types/config'
 import {
   RIDER_FACING_SETTINGS,
@@ -295,7 +294,7 @@ export class WorkRulesService {
           [matcher(distance), words.seeWhy]),
       words.noSecondOffer,
       settings.offerExpiryEnabled ? words.offerExpiry(settings.offerExpirySeconds) : words.offerWaits,
-      words.notOfferedAgain(Math.round(REJECTED_LIST_TTL_SECONDS / 60)),
+      words.notOfferedAgain(settings.offerSkipMinutes),
     ]
     if (settings.offerTimingEnabled) {
       offers.push(words.offerLead(settings.offerLeadMinutes))

@@ -316,6 +316,13 @@ export class InstanceConfigSettingsAdminInput implements InstanceConfigSettingsI
   @RefuseIfNotSentAsNumber()
   handBackSeconds?: number
 
+  // The skip list (row 144). Whole minutes; the 1 to 240 range lives in NUMERIC_SETTING_RULES.
+  @ApiProperty({ type: Number, required: false })
+  @IsOptional()
+  @IsNumber()
+  @RefuseIfNotSentAsNumber()
+  offerSkipMinutes?: number
+
   // Arrival detection (spec 0021). Whole metres; "0, or 20 to 300" lives in NUMERIC_SETTING_RULES.
   @ApiProperty({ type: Number, required: false })
   @IsOptional()

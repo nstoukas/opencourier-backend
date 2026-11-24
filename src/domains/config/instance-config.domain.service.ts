@@ -104,6 +104,9 @@ import {
   DEFAULT_HAND_BACK_SECONDS,
   HAND_BACK_SECONDS_MIN,
   HAND_BACK_SECONDS_MAX,
+  DEFAULT_OFFER_SKIP_MINUTES,
+  OFFER_SKIP_MINUTES_MIN,
+  OFFER_SKIP_MINUTES_MAX,
   DEFAULT_SHIFTS_ENABLED,
   DEFAULT_SHIFT_DROP_NOTICE_HOURS,
   SHIFT_DROP_NOTICE_HOURS_MIN,
@@ -408,6 +411,14 @@ export const NUMERIC_SETTING_RULES: {
     min: HAND_BACK_SECONDS_MIN,
     max: HAND_BACK_SECONDS_MAX,
   },
+  // The skip list (row 144): minutes before a rider who declined or missed an offer can be offered it again.
+  {
+    key: 'offerSkipMinutes',
+    whyZeroIsRefused: 'a rider who declined an offer could be offered the same delivery again at once',
+    mustBeInteger: true,
+    min: OFFER_SKIP_MINUTES_MIN,
+    max: OFFER_SKIP_MINUTES_MAX,
+  },
   // Arrival detection (spec 0021): 0 switches it off; otherwise 20 to 300 metres.
   {
     key: 'arrivalRadiusMetres',
@@ -536,6 +547,7 @@ export class InstanceConfigDomainService {
     const savedCustomerRetentionMonths = await this.getSavedCustomerRetentionMonths()
     const restaurantHistoryDays = await this.getRestaurantHistoryDays()
     const handBackSeconds = await this.getHandBackSeconds()
+    const offerSkipMinutes = await this.getOfferSkipMinutes()
     const sosLocationRetentionDays = await this.getSosLocationRetentionDays()
     const arrivalRadiusMetres = await this.getArrivalRadiusMetres()
     const shiftsEnabled = await this.getShiftsEnabled()
@@ -608,6 +620,7 @@ export class InstanceConfigDomainService {
       savedCustomerRetentionMonths,
       restaurantHistoryDays,
       handBackSeconds,
+      offerSkipMinutes,
       sosLocationRetentionDays,
       arrivalRadiusMetres,
       shiftsEnabled,
@@ -1018,6 +1031,9 @@ export class InstanceConfigDomainService {
     }
     if (data.handBackSeconds !== undefined) {
       save(ConfigKey.HAND_BACK_SECONDS, data.handBackSeconds)
+    }
+    if (data.offerSkipMinutes !== undefined) {
+      save(ConfigKey.OFFER_SKIP_MINUTES, data.offerSkipMinutes)
     }
     if (data.arrivalRadiusMetres !== undefined) {
       save(ConfigKey.ARRIVAL_RADIUS_METRES, data.arrivalRadiusMetres)
@@ -1716,6 +1732,33 @@ export class InstanceConfigDomainService {
       `Invalid ${ConfigKey.HAND_BACK_SECONDS} in config (${String(value)}), using the default ${DEFAULT_HAND_BACK_SECONDS}`
     )
     return DEFAULT_HAND_BACK_SECONDS
+  }
+
+  // Row 144: minutes a rider who declined or missed an offer is skipped for that delivery. Read at every
+  // decline and missed offer, so a missing row (an instance seeded before row 144, until a representative
+  // saves it) is read quietly as the default, the 20 minutes it always was; a bad stored value still warns.
+  async getOfferSkipMinutes(): Promise<number> {
+    let value: string | number | boolean | null
+    try {
+      value = (await this.configRepository.getByKey(ConfigKey.OFFER_SKIP_MINUTES)).normalizedValue
+    } catch (error) {
+      if (error instanceof Error && isRecordNotFoundError(error)) {
+        return DEFAULT_OFFER_SKIP_MINUTES
+      }
+      throw error
+    }
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= OFFER_SKIP_MINUTES_MIN &&
+      value <= OFFER_SKIP_MINUTES_MAX
+    ) {
+      return value
+    }
+    this.logger.warn(
+      `Invalid ${ConfigKey.OFFER_SKIP_MINUTES} in config (${String(value)}), using the default ${DEFAULT_OFFER_SKIP_MINUTES}`
+    )
+    return DEFAULT_OFFER_SKIP_MINUTES
   }
 
   // Spec 0021: metres from a stop that the rider's app counts as arrived (0 = detection off). Read by

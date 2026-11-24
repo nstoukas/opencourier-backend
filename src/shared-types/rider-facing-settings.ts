@@ -197,6 +197,10 @@ export const RIDER_FACING_SETTINGS: Record<string, RiderFacingSetting> = {
     format: withUnit('minutes'),
   },
   handBackSeconds: { label: 'Time to give an accepted order back for free', format: withUnit('seconds') },
+  offerSkipMinutes: {
+    label: 'Time before an order you declined or missed is offered to you again',
+    format: withUnit('minutes'),
+  },
   arrivalRadiusMetres: {
     label: 'Distance at which the app marks you arrived',
     format: (value) => (asNumber(value) === 0 ? 'off' : withUnit('metres')(value)),

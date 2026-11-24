@@ -857,18 +857,23 @@ export class DeliveryDomainService {
     return updatedDelivery
   }
 
+  // Row 144: the co-op's skip time (offerSkipMinutes) in seconds, the unit the skip list's Redis key expires in.
+  private async offerSkipSeconds(): Promise<number> {
+    return (await this.configDomainService.instanceConfig.getOfferSkipMinutes()) * 60
+  }
+
   // Returns true only when this call is what put the courier on the list. The caller needs
   // that: an entry left over from an earlier genuine rejection is not ours to remove.
   // The list itself lives in src/services/cache/rejected-couriers.ts, shared with the offer expiry.
   async addCourierToRejectedList(deliveryId: string, courierId: string): Promise<boolean> {
-    return addCourierToRejectedList(this.cacheService, deliveryId, courierId)
+    return addCourierToRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
   }
 
   // Mirror of addCourierToRejectedList: drops one courier from this delivery's exclusion list
   // and leaves everyone else on it. Only used to undo an entry this service added moments
   // earlier for a reassignment that then did not happen.
   async removeCourierFromRejectedList(deliveryId: string, courierId: string): Promise<void> {
-    return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId)
+    return removeCourierFromRejectedList(this.cacheService, deliveryId, courierId, await this.offerSkipSeconds())
   }
 
   // `box`: spec 0043 (AC-6). The admin's confirm to put the new rider past a full box, and who they are.

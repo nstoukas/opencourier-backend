@@ -225,6 +225,10 @@ export const RIDER_FACING_SETTINGS_EL: Record<string, RiderFacingSetting> = {
     label: 'Χρόνος για να επιστρέψετε χωρίς κόστος μια παραγγελία που αποδεχτήκατε',
     format: withUnit('δευτερόλεπτα'),
   },
+  offerSkipMinutes: {
+    label: 'Χρόνος πριν σας ξαναπροταθεί μια παραγγελία που απορρίψατε ή χάσατε',
+    format: withUnit('λεπτά'),
+  },
   arrivalRadiusMetres: {
     label: 'Απόσταση στην οποία η εφαρμογή σας σημειώνει ότι φτάσατε',
     format: (value) => (asNumber(value) === 0 ? 'ανενεργό' : withUnit('μέτρα')(value)),
