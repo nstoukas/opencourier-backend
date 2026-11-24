@@ -248,4 +248,42 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       expect(mockDeliveryEventService.settleReturnTrip).not.toHaveBeenCalled()
     })
   })
+
+  describe('safe to run twice (row 141, pay and assignment)', () => {
+    it('running sweep twice settles each cancellation, wait, removal, and return trip once', async () => {
+      const fixedNow = new Date('2026-11-01T12:00:00.000Z')
+
+      // First run finds unsettled items
+      mockDeliveryRepository.findCancellationsToSettle.mockResolvedValueOnce(['del-cancel-1'])
+      mockDeliveryRepository.findWaitPayToSettle.mockResolvedValueOnce(['del-wait-1'])
+      const mockReq = { id: 'req-1' } as any
+      mockRemovalRequestRepository.findApprovedUnsettled.mockResolvedValueOnce([mockReq])
+      mockDeliveryRepository.findReturnTripsToSettle.mockResolvedValueOnce(['del-ret-1'])
+
+      // Second run finds nothing (items were settled in the first run)
+      mockDeliveryRepository.findCancellationsToSettle.mockResolvedValueOnce([])
+      mockDeliveryRepository.findWaitPayToSettle.mockResolvedValueOnce([])
+      mockRemovalRequestRepository.findApprovedUnsettled.mockResolvedValueOnce([])
+      mockDeliveryRepository.findReturnTripsToSettle.mockResolvedValueOnce([])
+
+      // Run 1
+      await service.sweep(fixedNow)
+
+      // Run 2
+      await service.sweep(fixedNow)
+
+      // Settle calls were invoked exactly once across both runs
+      expect(mockDeliveryEventService.settleCancellation).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.settleCancellation).toHaveBeenCalledWith('del-cancel-1')
+
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.settleWaitPay).toHaveBeenCalledWith('del-wait-1')
+
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenCalledTimes(1)
+      expect(mockRemovalRequestService.sweepApprovedUnsettled).toHaveBeenCalledWith(mockReq, fixedNow)
+
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith('del-ret-1')
+    })
+  })
 })

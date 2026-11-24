@@ -25,7 +25,7 @@ describe('AddressNoteRetentionService (Spec 0053 AC-6, AC-9, cross check 10)', (
     }
 
     mockBullMQService = {
-      replaceRepeatableJob: jest.fn().mockResolvedValue(undefined),
+      addRepeatableJob: jest.fn().mockResolvedValue(undefined as any),
     } as unknown as jest.Mocked<BullMQService>
 
     mockTaskBusService = {
@@ -55,7 +55,7 @@ describe('AddressNoteRetentionService (Spec 0053 AC-6, AC-9, cross check 10)', (
   it('schedules repeatable job at 03:30 Athens time idempotently (cross check 10)', async () => {
     await service.schedule()
 
-    expect(mockBullMQService.replaceRepeatableJob).toHaveBeenCalledWith(
+    expect(mockBullMQService.addRepeatableJob).toHaveBeenCalledWith(
       'address-note-retention',
       {},
       '30 3 * * *',

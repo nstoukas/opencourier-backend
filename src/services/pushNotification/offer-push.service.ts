@@ -344,14 +344,10 @@ export class OfferPushService {
       return
     }
 
-    // A failed lookup (the database briefly unreachable) is logged and the re-send skipped: the
-    // alert keeps ringing on its first channel. Only the error's name is logged, never its message,
-    // which can quote the query; nothing here may write a token or customer data to the log.
-    const delivery = await this.deliveryRepository.findById(payload.deliveryId).catch((error: unknown) => {
-      const errorName = error instanceof Error ? error.name : 'unknown error'
-      this.logger.error(`offer-insist lookup failed for delivery ${payload.deliveryId}: ${errorName}`)
-      return null
-    })
+    // A failed lookup (the database briefly unreachable) fails the job, and BullMQ tries it again a few
+    // seconds later (row 141); the processor logs the error's summary, never a Prisma message. Until the
+    // last try, the alert keeps ringing on its first channel.
+    const delivery = await this.deliveryRepository.findById(payload.deliveryId)
     const stillThisOffer =
       delivery?.status === EnumDeliveryStatus.ASSIGNING_COURIER &&
       delivery.matchedCourierId === payload.courierId &&
@@ -441,13 +437,8 @@ export class OfferPushService {
       await this.bullMQService.addJob<OfferInsistJobPayload>(
         'offer-insist',
         { deliveryId, courierId, offeredAt: offeredAt.toISOString() },
-        // removeOnFail: a job that throws is dropped from Redis instead of kept as a failed job, since
-        // it is never retried and only holds a delivery id.
-        {
-          delay: OFFER_INSIST_AFTER_SECONDS * 1000,
-          jobId: offerInsistJobId(deliveryId, offeredAt),
-          removeOnFail: true,
-        }
+        // Retried and then kept in the failed list like every job (row 141); it holds only ids.
+        { delay: OFFER_INSIST_AFTER_SECONDS * 1000, jobId: offerInsistJobId(deliveryId, offeredAt) }
       )
     } catch (error) {
       // Without the timer the alert just keeps ringing on its first channel.

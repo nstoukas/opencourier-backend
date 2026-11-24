@@ -236,7 +236,6 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
         {
           delay: OFFER_INSIST_AFTER_SECONDS * 1000, // 120,000 ms
           jobId: `offer-insist-del-push-1-${sampleOfferedAt.getTime()}`,
-          removeOnFail: true,
         }
       )
     })
@@ -537,35 +536,37 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
         expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
       })
 
-      test('a failing lookup logs delivery id and error name without error message and sends nothing', async () => {
+      test('a failing lookup rejects so BullMQ can retry the insist job', async () => {
         const sensitiveError = new Error('FATAL: connection timeout on SELECT * FROM "Delivery"')
         sensitiveError.name = 'PrismaClientKnownRequestError'
         mockDeliveryRepository.findById.mockRejectedValue(sensitiveError)
 
-        const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
-
-        await registeredTaskHandler(validPayload)
-
-        // Error name is logged with delivery id, never query/details from error message
-        expect(loggerSpy).toHaveBeenCalledWith(
-          `offer-insist lookup failed for delivery ${validPayload.deliveryId}: PrismaClientKnownRequestError`
-        )
-        expect(loggerSpy.mock.calls[0]![0]).not.toContain('SELECT * FROM')
-        // Does not throw and sends no push
+        await expect(registeredTaskHandler(validPayload)).rejects.toThrow(sensitiveError)
+        // Does not send push
         expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
       })
 
-      test('a failing lookup with non-Error logs "unknown error" and sends nothing', async () => {
+      test('a failing lookup with non-Error rejects and sends nothing', async () => {
         mockDeliveryRepository.findById.mockRejectedValue('network timeout string')
 
-        const loggerSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {})
+        await expect(registeredTaskHandler(validPayload)).rejects.toBe('network timeout string')
+        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+      })
+
+      test('handleOfferInsistJob run twice while offer remains open re-sends offer without error', async () => {
+        mockDeliveryRepository.findById.mockResolvedValue({
+          id: 'del-push-1',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          matchedCourierId: 'courier-1',
+          courierId: null,
+          offeredAt: sampleOfferedAt,
+          offerExpiresAt: null,
+        } as any)
 
         await registeredTaskHandler(validPayload)
+        await registeredTaskHandler(validPayload)
 
-        expect(loggerSpy).toHaveBeenCalledWith(
-          `offer-insist lookup failed for delivery ${validPayload.deliveryId}: unknown error`
-        )
-        expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+        expect(mockPushNotificationService.sendData).toHaveBeenCalledTimes(2)
       })
     })
   })

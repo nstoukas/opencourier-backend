@@ -1006,11 +1006,24 @@ export class DeliveryEventService {
 
     // Every write first, then the follow ups, so neither delivery of a stack is matched again while the
     // other still holds the rider.
+    // Row 141 reviews: a write that throws does not stop the others, and what did end is still followed up,
+    // so a stack whose second write failed never leaves the first cleared with no OFFER_EXPIRED row. Only a
+    // call that ended nothing throws (the expiry job then retries). When one of a stack ended, the other's own
+    // expiry job ends it (each delivery keeps its own timer), so the error is logged, not thrown: a throw would
+    // only retry a job that now finds nothing to end, and make a dispatch stop miscount what it ended.
     const ended: string[] = []
+    let failedWrite: { error: unknown } | null = null
     for (const id of ids) {
-      if (await this.endOneOffer(id, courierId, reason, stillThisOffer)) ended.push(id)
+      try {
+        if (await this.endOneOffer(id, courierId, reason, stillThisOffer)) ended.push(id)
+      } catch (error) {
+        failedWrite ??= { error }
+      }
     }
-    if (ended.length === 0) return 0
+    if (ended.length === 0) {
+      if (failedWrite) throw failedWrite.error
+      return 0
+    }
 
     // Cross check 9: a stack declined or missed is not offered as the same pair again for 20 minutes. Not
     // after Offline or a dispatch stop: the rider never judged the pair. Keyed on the pair, not on what this
@@ -1019,6 +1032,11 @@ export class DeliveryEventService {
 
     for (const id of ended) {
       await this.followUpEndedOffer(id, courierId, reason, isStack ? stackVariantOf(text) : text)
+    }
+    if (failedWrite) {
+      this.logger.error(
+        `Ended ${ended.length} of the ${ids.length} offers of delivery ${deliveryId}'s stack; the rest are left to their own expiry: ${errorSummaryForLog(failedWrite.error)}`
+      )
     }
     return ended.length
   }
@@ -1089,8 +1107,8 @@ export class DeliveryEventService {
 
   // The follow up half, once the offer is gone. Every step is guarded on its own, so a failure in one
   // (the rider lookup, the socket, the event pipeline) cannot leave the delivery with no OFFER_EXPIRED
-  // row and nobody looking for a rider. The expiry job is added without `attempts`, so BullMQ never retries it
-  // and nothing else would.
+  // row and nobody looking for a rider. The expiry job's retry (row 141) could not help: by then the offer is
+  // gone, so the retry finds nothing to end and never reaches this.
   private async followUpEndedOffer(
     deliveryId: string,
     courierId: string,

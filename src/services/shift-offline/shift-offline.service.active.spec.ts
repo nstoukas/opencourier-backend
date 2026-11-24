@@ -497,6 +497,23 @@ describe('ShiftOfflineService (spec 0049)', () => {
         new Date('2026-11-20T19:35:00.000Z')
       )
     })
+
+    test('safe to run twice (Row 141): a second sweep over the same window writes no second event because of the watermark and offlineChangesWithoutEvent', async () => {
+      // First run: finds change(), processes it, writes event, and saves watermark
+      const written1 = await service.sweep(now)
+      expect(written1).toBe(1)
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledTimes(1)
+      expect(bookings.createOfflineEvent).toHaveBeenCalledTimes(1)
+
+      // Second run over the SAME window (now):
+      // Watermark advances `from` past `upTo`, returning 0 immediately without calling offlineChangesWithoutEvent
+      const written2 = await service.sweep(now)
+      expect(written2).toBe(0)
+
+      // Neither offlineChangesWithoutEvent nor createOfflineEvent is called a second time
+      expect(bookings.offlineChangesWithoutEvent).toHaveBeenCalledTimes(1)
+      expect(bookings.createOfflineEvent).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('the minute job (decision 79.3)', () => {

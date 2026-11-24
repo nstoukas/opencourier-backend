@@ -950,5 +950,92 @@ describe('DispatchStopService (Spec 0014, AC-1, AC-2, AC-3, AC-5, AC-10, AC-11)'
         expect.any(Date)
       )
     })
+
+    test('run twice (Row 141, pay and assignment): when tick runs twice over a stop due to start and one due to end, the second tick finds them done and returns nothing, ends no offer and writes no compensation twice', async () => {
+      const now = new Date('2026-07-15T12:00:00.000Z')
+
+      const dueToStart: DispatchStop = {
+        id: 'stop-start-run-twice',
+        reason: EnumDispatchStopReason.HEAT,
+        startsAt: new Date(now.getTime() - 60000),
+        endsAt: null,
+        startedAt: null,
+        endedAt: null,
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date(now.getTime() - 120000),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      const dueToEnd: DispatchStop = {
+        id: 'stop-end-run-twice',
+        reason: EnumDispatchStopReason.STORM,
+        startsAt: new Date(now.getTime() - 120000),
+        endsAt: new Date(now.getTime() - 60000),
+        startedAt: new Date(now.getTime() - 120000),
+        endedAt: new Date(now.getTime() - 60000),
+        cancelledAt: null,
+        createdByUserId: adminUserId,
+        createdAt: new Date(now.getTime() - 180000),
+        endedByUserId: null,
+        cancelledByUserId: null,
+        endWorkDoneAt: null,
+      }
+
+      mockDispatchStopRepository.markStarted.mockImplementation(async (id: string, date: Date) => {
+        if (id === dueToStart.id) dueToStart.startedAt = date
+        return true
+      })
+      mockDispatchStopRepository.markEndWorkDone.mockImplementation(async (id: string, date: Date) => {
+        if (id === dueToEnd.id) dueToEnd.endWorkDoneAt = date
+        return true
+      })
+
+      mockDispatchStopRepository.findDueToStart.mockImplementation(async () =>
+        dueToStart.startedAt ? [] : [dueToStart]
+      )
+      mockDispatchStopRepository.findDueToEnd.mockImplementation(async () =>
+        dueToEnd.endWorkDoneAt ? [] : [dueToEnd]
+      )
+      mockDispatchStopRepository.findOn.mockResolvedValue(null)
+
+      mockDeliveryEventService.endAllOpenOffersForDispatchStop.mockResolvedValue(1)
+      mockDeliveryRepository.findAllHeldBeforePickup.mockResolvedValue([
+        { id: 'del-held-twice', courierId: 'c-twice' },
+      ])
+      mockDeliveryEventService.returnToWaitingForDispatchStop.mockResolvedValue({
+        returned: true,
+        totalCompensation: 800,
+        currencyCode: 'EUR',
+      })
+      mockCourierCompensationRepository.create.mockResolvedValue({ id: 'comp-twice' })
+      mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop.mockResolvedValue(undefined)
+
+      // Tick 1: starts dueToStart (ends offers, returns held delivery, pays compensation, marks startedAt)
+      // and ends dueToEnd (matches waiting deliveries, marks endWorkDoneAt)
+      await service.tick(now)
+
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledTimes(1)
+      expect(mockCourierCompensationRepository.create).toHaveBeenCalledTimes(1)
+      expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledWith(dueToStart.id, expect.any(Date))
+
+      expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).toHaveBeenCalledTimes(1)
+      expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledWith(dueToEnd.id, expect.any(Date))
+
+      // Tick 2: second run finds them done (empty arrays returned by findDueToStart/findDueToEnd)
+      await service.tick(now)
+
+      // Nothing ran again: no additional offer ended, no second compensation, no match again
+      expect(mockDeliveryEventService.endAllOpenOffersForDispatchStop).toHaveBeenCalledTimes(1)
+      expect(mockDeliveryEventService.returnToWaitingForDispatchStop).toHaveBeenCalledTimes(1)
+      expect(mockCourierCompensationRepository.create).toHaveBeenCalledTimes(1)
+      expect(mockDispatchStopRepository.markStarted).toHaveBeenCalledTimes(1)
+
+      expect(mockDeliveryEventService.matchAllWaitingDeliveriesAfterStop).toHaveBeenCalledTimes(1)
+      expect(mockDispatchStopRepository.markEndWorkDone).toHaveBeenCalledTimes(1)
+    })
   })
 })
