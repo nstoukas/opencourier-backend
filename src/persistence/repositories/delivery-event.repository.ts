@@ -125,6 +125,35 @@ export class DeliveryEventRepository extends EntityRepository implements IDelive
     return row ? this.toDomain(row) : null
   }
 
+  // Row 149: the newest ADD_ON_JOINED that named this delivery as the add on (written on the job, so the
+  // add on's id is only in the event's values), or null when it never joined a job.
+  async findLatestAddOnJoinOf(addOnId: string): Promise<DeliveryEventEntity | null> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: {
+        type: EnumDeliveryEventType.ADD_ON_JOINED,
+        // Prisma's JSON filter: the `addOnId` value inside messageParams equals this id.
+        messageParams: { path: ['addOnId'], equals: addOnId },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
+    return row ? this.toDomain(row) : null
+  }
+
+  // Row 149: whether the job already records this add on leaving at or after `since` (its join), so one
+  // parting is written once however many events follow it.
+  async hasAddOnLeftSince(jobId: string, addOnId: string, since: Date): Promise<boolean> {
+    const row = await this.prisma.deliveryEvent.findFirst({
+      where: {
+        deliveryId: jobId,
+        type: EnumDeliveryEventType.ADD_ON_LEFT,
+        messageParams: { path: ['addOnId'], equals: addOnId },
+        createdAt: { gte: since },
+      },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
   private toDomain(data: DeliveryEvent) {
     return new DeliveryEventEntity(data)
   }

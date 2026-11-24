@@ -72,6 +72,7 @@ import {
   DeliveryCourierPaidForReturnTripEvent,
   DeliveryFoodReturnedEvent,
   DeliveryAddOnJoinedEvent,
+  DeliveryAddOnLeftEvent,
   DeliveryDropoffPointCorrectedEvent,
   DeliveryBoxEvent,
   DeliveryFoodNotReturnedEvent,
@@ -2427,6 +2428,27 @@ export class DeliveryEventService {
     }
   }
 
+  // Row 149: ADD_ON_LEFT on the job this delivery last joined as an add on, if the pair has not already parted
+  // on the record. Written only while the job is still being worked by the rider who took both, so a job that
+  // ended, or went to another rider (the pair parted then, on the job's own trail), gets no line. Like the join,
+  // no status change: saved with the job's status as both old and new, through saveDeliveryEvent.
+  private async recordAddOnLeftIfJoined(addOnId: string): Promise<void> {
+    const join = await this.deliveryEventRepository.findLatestAddOnJoinOf(addOnId)
+    if (!join?.courierId) return
+    if (await this.deliveryEventRepository.hasAddOnLeftSince(join.deliveryId, addOnId, join.createdAt)) return
+    const job = await this.deliveryRepository.findById(join.deliveryId)
+    if (!job || job.courierId !== join.courierId || !DELIVERY_ONGOING_STATUSES.includes(job.status)) return
+    const event: DeliveryAddOnLeftEvent = {
+      deliveryId: job.id,
+      type: EnumDeliveryEventType.ADD_ON_LEFT,
+      actor: EnumEventActor.SYSTEM,
+      source: EnumDeliveryEventSource.OPENCOURIER,
+      courierId: join.courierId,
+      ...eventText('ADD_ON_LEFT', { courierId: join.courierId, addOnId }),
+    }
+    await this.saveDeliveryEvent(event, { transitionSuccessful: true, oldStatus: job.status, newStatus: job.status })
+  }
+
   // Matching found nobody (flow 4): one NO_COURIER_AVAILABLE per waiting spell, then the backstop.
   // A spell starts when nobody is found and ends when an offer goes out, so a new
   // NO_COURIER_AVAILABLE is written unless the newer of the two is already NO_COURIER_AVAILABLE.
@@ -3601,8 +3623,9 @@ export class DeliveryEventService {
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_CONFIRMED ||
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_REFUSED ||
       deliveryEvent.type === EnumDeliveryEventType.SPLIT_CLOSED ||
-      // Row 146: the rider who now carries the job and its add on.
+      // Row 146: the rider who now carries the job and its add on; row 149, the rider who had both.
       deliveryEvent.type === EnumDeliveryEventType.ADD_ON_JOINED ||
+      deliveryEvent.type === EnumDeliveryEventType.ADD_ON_LEFT ||
       // Spec 0040 (AC-2): the accepting rider, automatic, manual or admin, so time worked can find
       // each rider's jobs (Delivery.courierId only holds the latest rider).
       deliveryEvent.type === EnumDeliveryEventType.ACCEPTED
@@ -3644,6 +3667,18 @@ export class DeliveryEventService {
             error
           )}`
         )
+      }
+      // Row 149: an add on that leaves its job before its drop off (cancelled, failed, handed back, reassigned,
+      // removed: every way off goes through a status outside the ongoing ones) puts ADD_ON_LEFT on the job.
+      // One rule, here, like the removal request's close above. A delivery never joined writes nothing.
+      if (outcome.newStatus !== EnumDeliveryStatus.DROPPED_OFF) {
+        try {
+          await this.recordAddOnLeftIfJoined(deliveryEvent.deliveryId)
+        } catch (error) {
+          this.logger.error(
+            `Could not record that delivery ${deliveryEvent.deliveryId} left its job: ${errorSummaryForLog(error)}`
+          )
+        }
       }
       // Spec 0047 (cross check 5): a split leg that ended without a rider ever taking it.
       if (

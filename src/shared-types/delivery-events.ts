@@ -250,6 +250,12 @@ export interface DeliveryAddOnJoinedEvent extends BaseDeliveryEvent {
   type: typeof EnumDeliveryEventType.ADD_ON_JOINED
   courierId: string
 }
+// Row 149: that add on left the job before its drop off. Written on the job, naming the add on; courierId is
+// the rider who carried both until then. No status change.
+export interface DeliveryAddOnLeftEvent extends BaseDeliveryEvent {
+  type: typeof EnumDeliveryEventType.ADD_ON_LEFT
+  courierId: string
+}
 export type DeliverySplitEvent =
   | DeliverySplitRequestedEvent
   | DeliverySplitConfirmedEvent
@@ -325,6 +331,7 @@ export type DeliveryEvent =
   | DeliveryBoxEvent
   | DeliverySplitEvent
   | DeliveryAddOnJoinedEvent
+  | DeliveryAddOnLeftEvent
 
 export interface ResolvedPendingKeyRotation {
   accountKeys: []
