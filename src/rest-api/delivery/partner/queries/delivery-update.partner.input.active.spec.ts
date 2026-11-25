@@ -85,24 +85,34 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('pins current behaviour (deferred): empty string "" for tipByCustomer is implicitly converted to 0', async () => {
-      const result = (await pipe.transform(
-        { ...validBody, tipByCustomer: '' },
-        { type: 'body', metatype: DeliveryUpdatePartnerInput }
-      )) as DeliveryUpdatePartnerInput
-
-      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
-      expect(result.tipByCustomer).toBe(0)
+    it('refuses empty string "" for tipByCustomer with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: '' }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
     })
 
-    it('pins current behaviour (deferred): boolean false for tipByCustomer is implicitly converted to 0', async () => {
-      const result = (await pipe.transform(
-        { ...validBody, tipByCustomer: false },
-        { type: 'body', metatype: DeliveryUpdatePartnerInput }
-      )) as DeliveryUpdatePartnerInput
+    it('refuses boolean false for tipByCustomer with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: false }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
 
-      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
-      expect(result.tipByCustomer).toBe(0)
+    it('refuses boolean true for tipByCustomer with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: true }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('refuses numeric string "250" for tipByCustomer with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: '250' }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('refuses fractional number 2.5 for tipByCustomer with 400 BadRequestException (@IsInt)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: 2.5 }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
     })
   })
 

@@ -1,7 +1,13 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
-import { PARTNER_EDIT_SENTENCES, partnerEditRefusal, riderVisibleEdits, tipAfterPartnerEdit } from './partner-edit'
+import {
+  PARTNER_EDIT_SENTENCES,
+  partnerEditRefusal,
+  riderHoldsOrder,
+  riderVisibleEdits,
+  tipAfterPartnerEdit,
+} from './partner-edit'
 import { ERROR_SENTENCE_CODES } from 'src/localization/error-sentences'
 import { en } from 'src/localization/en'
 import { el } from 'src/localization/el'
@@ -22,6 +28,45 @@ describe('partner-edit rules (Row 152)', () => {
     EnumDeliveryStatus.CANCELED,
     EnumDeliveryStatus.FAILED,
   ].filter(Boolean)
+
+  describe('riderHoldsOrder (Row 169 review)', () => {
+    test.each(DELIVERY_ONGOING_STATUSES)('true for every ongoing status (%s) with courierId set', (status) => {
+      expect(riderHoldsOrder({ status, courierId: 'courier-1' })).toBe(true)
+    })
+
+    test.each(DELIVERY_ONGOING_STATUSES)('true for every ongoing status (%s) even with courierId null', (status) => {
+      expect(riderHoldsOrder({ status, courierId: null })).toBe(true)
+    })
+
+    test('true for ASSIGNING_COURIER with courierId set (the accept claim window)', () => {
+      expect(riderHoldsOrder({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: 'courier-claim-1' })).toBe(true)
+    })
+
+    test('true for CREATED with courierId set (the accept claim window)', () => {
+      expect(riderHoldsOrder({ status: EnumDeliveryStatus.CREATED, courierId: 'courier-claim-1' })).toBe(true)
+    })
+
+    test('false for CREATED with courierId null', () => {
+      expect(riderHoldsOrder({ status: EnumDeliveryStatus.CREATED, courierId: null })).toBe(false)
+    })
+
+    test('false for ASSIGNING_COURIER with courierId null', () => {
+      expect(riderHoldsOrder({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: null })).toBe(false)
+    })
+
+    test('false for ASSIGNING_COURIER with courierId null and matchedCourierId set (an offer is NOT held)', () => {
+      const offerOrder = {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId: null,
+        matchedCourierId: 'courier-offered-1',
+      }
+      expect(riderHoldsOrder(offerOrder)).toBe(false)
+    })
+
+    test.each(PARTNER_ENDED_STATUSES)('false for ended status %s with courierId null', (status) => {
+      expect(riderHoldsOrder({ status, courierId: null })).toBe(false)
+    })
+  })
 
   describe('partnerEditRefusal - exhaustively testing all 11 statuses', () => {
     test('covers all 11 statuses from EnumDeliveryStatus', () => {
@@ -48,19 +93,19 @@ describe('partner-edit rules (Row 152)', () => {
       test.each([EnumDeliveryStatus.DROPPED_OFF, EnumDeliveryStatus.CANCELED, EnumDeliveryStatus.FAILED])(
         'ended status %s refuses with ended sentence',
         (status) => {
-          expect(partnerEditRefusal(status, false)).toBe(PARTNER_EDIT_SENTENCES.ended)
+          expect(partnerEditRefusal({ status, courierId: null }, false)).toBe(PARTNER_EDIT_SENTENCES.ended)
         }
       )
 
       test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
         'unassigned status %s allows edit (returns null)',
         (status) => {
-          expect(partnerEditRefusal(status, false)).toBeNull()
+          expect(partnerEditRefusal({ status, courierId: null }, false)).toBeNull()
         }
       )
 
       test.each(DELIVERY_ONGOING_STATUSES)('held status %s allows non-point edit (returns null)', (status) => {
-        expect(partnerEditRefusal(status, false)).toBeNull()
+        expect(partnerEditRefusal({ status, courierId: 'courier-1' }, false)).toBeNull()
       })
     })
 
@@ -68,20 +113,32 @@ describe('partner-edit rules (Row 152)', () => {
       test.each([EnumDeliveryStatus.DROPPED_OFF, EnumDeliveryStatus.CANCELED, EnumDeliveryStatus.FAILED])(
         'ended status %s prioritises ended refusal over held check',
         (status) => {
-          expect(partnerEditRefusal(status, true)).toBe(PARTNER_EDIT_SENTENCES.ended)
+          expect(partnerEditRefusal({ status, courierId: null }, true)).toBe(PARTNER_EDIT_SENTENCES.ended)
         }
       )
 
       test.each(DELIVERY_ONGOING_STATUSES)('held status %s refuses point move with pointHeld sentence', (status) => {
-        expect(partnerEditRefusal(status, true)).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
+        expect(partnerEditRefusal({ status, courierId: 'courier-1' }, true)).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
       })
 
       test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
         'unassigned status %s allows point move (returns null)',
         (status) => {
-          expect(partnerEditRefusal(status, true)).toBeNull()
+          expect(partnerEditRefusal({ status, courierId: null }, true)).toBeNull()
         }
       )
+    })
+
+    describe("accept's claim window (ASSIGNING_COURIER with courierId set, Row 169 review)", () => {
+      test('ASSIGNING_COURIER with courierId set refuses point move with pointHeld sentence', () => {
+        const order = { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: 'courier-claim-1' }
+        expect(partnerEditRefusal(order, true)).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
+      })
+
+      test('ASSIGNING_COURIER with courierId set allows edit that does not move point', () => {
+        const order = { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: 'courier-claim-1' }
+        expect(partnerEditRefusal(order, false)).toBeNull()
+      })
     })
 
     test('ended statuses match PARTNER_ENDED_STATUSES exactly', () => {
@@ -106,22 +163,28 @@ describe('partner-edit rules (Row 152)', () => {
 
   describe('tipAfterPartnerEdit (decision 152.4)', () => {
     test.each(DELIVERY_ONGOING_STATUSES)('held status %s preserves current tips and ignores sent tips', (status) => {
-      expect(tipAfterPartnerEdit(status, 250, 0)).toBe(250)
-      expect(tipAfterPartnerEdit(status, 150, 500)).toBe(150)
-      expect(tipAfterPartnerEdit(status, 0, 300)).toBe(0)
+      expect(tipAfterPartnerEdit({ status, courierId: 'courier-1' }, 250, 0)).toBe(250)
+      expect(tipAfterPartnerEdit({ status, courierId: 'courier-1' }, 150, 500)).toBe(150)
+      expect(tipAfterPartnerEdit({ status, courierId: 'courier-1' }, 0, 300)).toBe(0)
     })
 
     test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
       'unassigned status %s adopts sent tips',
       (status) => {
-        expect(tipAfterPartnerEdit(status, 0, 300)).toBe(300)
-        expect(tipAfterPartnerEdit(status, 200, 0)).toBe(0)
-        expect(tipAfterPartnerEdit(status, 150, 500)).toBe(500)
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 0, 300)).toBe(300)
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 200, 0)).toBe(0)
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 150, 500)).toBe(500)
       }
     )
 
     test.each(PARTNER_ENDED_STATUSES)('ended status %s evaluates to sent tips if called directly', (status) => {
-      expect(tipAfterPartnerEdit(status, 100, 200)).toBe(200)
+      expect(tipAfterPartnerEdit({ status, courierId: null }, 100, 200)).toBe(200)
+    })
+
+    test("ASSIGNING_COURIER with courierId set keeps stored tip when tip is sent (accept's claim window)", () => {
+      const order = { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: 'courier-claim-1' }
+      expect(tipAfterPartnerEdit(order, 250, 500)).toBe(250)
+      expect(tipAfterPartnerEdit(order, 250, 0)).toBe(250)
     })
   })
 
@@ -131,14 +194,14 @@ describe('partner-edit rules (Row 152)', () => {
     test.each(Object.values(EnumDeliveryStatus))(
       'status %s: undefined sent tip preserves current tips (250) for every status, held and not held',
       (status) => {
-        expect(tipAfterPartnerEdit(status, 250, undefined)).toBe(250)
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 250, undefined)).toBe(250)
       }
     )
 
     test.each(Object.values(EnumDeliveryStatus))(
       'status %s: undefined sent tip preserves current tips of 0',
       (status) => {
-        expect(tipAfterPartnerEdit(status, 0, undefined)).toBe(0)
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 0, undefined)).toBe(0)
       }
     )
   })
