@@ -234,4 +234,27 @@ describe('Server translations (spec 0054, AC-8)', () => {
     expect(elMsg).toContain('del-add-on-42')
     expect(elMsg).toContain('courier-r81')
   })
+
+  // Row 172: ACCEPTED_ALONE_BY_SWEEP template pins courierId and deliveryId and renders in English and Greek
+  test('ACCEPTED_ALONE_BY_SWEEP event message renders with courierId and deliveryId in both languages (row 172)', () => {
+    expect(EVENT_MESSAGE_CODES.ACCEPTED_ALONE_BY_SWEEP).toEqual(['courierId', 'deliveryId'])
+
+    const enMsg = renderEventMessage('en', 'ACCEPTED_ALONE_BY_SWEEP', {
+      courierId: 'courier-r172',
+      deliveryId: 'del-single-42',
+    })
+    expect(enMsg).toBe('Courier courier-r172 accepted delivery del-single-42; completed by the minute sweep')
+    expect(enMsg).toContain('courier-r172')
+    expect(enMsg).toContain('del-single-42')
+
+    const elMsg = renderEventMessage('el', 'ACCEPTED_ALONE_BY_SWEEP', {
+      courierId: 'courier-r172',
+      deliveryId: 'del-single-42',
+    })
+    expect(elMsg).toBe(
+      'Ο διανομέας courier-r172 αποδέχτηκε την παραγγελία del-single-42· ολοκληρώθηκε από τον έλεγχο του λεπτού'
+    )
+    expect(elMsg).toContain('courier-r172')
+    expect(elMsg).toContain('del-single-42')
+  })
 })

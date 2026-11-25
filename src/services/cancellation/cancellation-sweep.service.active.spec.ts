@@ -27,8 +27,8 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
       settleCancellation: jest.fn().mockResolvedValue(undefined),
       settleWaitPay: jest.fn().mockResolvedValue(undefined),
       settleReturnTrip: jest.fn().mockResolvedValue(undefined),
-      // Spec 0048 (cross check 8): the minute sweep completes second accepts of taken stacks.
-      completeTakenStackAccepts: jest.fn().mockResolvedValue(0),
+      // Spec 0048 (cross check 8), row 172: the minute sweep completes accepts of taken orders.
+      completeTakenAccepts: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<DeliveryEventService>
 
     mockBullMQService = {
@@ -284,6 +284,17 @@ describe('CancellationSweepService (Spec 0015 AC-10)', () => {
 
       expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledTimes(1)
       expect(mockDeliveryEventService.settleReturnTrip).toHaveBeenCalledWith('del-ret-1')
+    })
+  })
+
+  describe('completeTakenAccepts sweep (spec 0048 cross check 8, widened by row 172)', () => {
+    it('calls completeTakenAccepts with now minus LEAVE_THE_INLINE_STEP_MS (1 minute)', async () => {
+      const fixedNow = new Date('2026-11-01T12:00:00.000Z')
+      const expectedBefore = new Date(fixedNow.getTime() - 60 * 1000)
+
+      await service.sweep(fixedNow)
+
+      expect(mockDeliveryEventService.completeTakenAccepts).toHaveBeenCalledWith(expectedBefore)
     })
   })
 })

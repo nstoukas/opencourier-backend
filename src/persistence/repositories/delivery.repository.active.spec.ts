@@ -407,4 +407,61 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       expect(result[1]?.id).toBe('del-2')
     })
   })
+
+  describe('findTakenNotAccepted (spec 0048, widened by row 172)', () => {
+    test("findTakenNotAccepted's where has status ASSIGNING_COURIER, courierId not null, updatedAt lt before, and NO offerGroupId condition; returns only rows whose matchedCourierId equals courierId", async () => {
+      const before = new Date('2026-11-26T01:00:00.000Z')
+      const mockRows = [
+        {
+          id: 'del-single-matched',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-1',
+          matchedCourierId: 'courier-1',
+          offerGroupId: null,
+          updatedAt: new Date('2026-11-26T00:58:00.000Z'),
+        },
+        {
+          id: 'del-pair-matched',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-2',
+          matchedCourierId: 'courier-2',
+          offerGroupId: 'grp-pair-1',
+          updatedAt: new Date('2026-11-26T00:57:00.000Z'),
+        },
+        {
+          id: 'del-unmatched-courier',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-3',
+          matchedCourierId: 'courier-4',
+          offerGroupId: null,
+          updatedAt: new Date('2026-11-26T00:56:00.000Z'),
+        },
+      ]
+      mockPrisma.delivery.findMany = jest.fn().mockResolvedValueOnce(mockRows)
+
+      const result = await repository.findTakenNotAccepted(before)
+
+      expect(mockPrisma.delivery.findMany).toHaveBeenCalledWith({
+        where: {
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: { not: null },
+          updatedAt: { lt: before },
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 50,
+      })
+
+      // Pin that there is NO offerGroupId condition in where
+      const findManyCall = mockPrisma.delivery.findMany.mock.calls[0][0]
+      expect(findManyCall.where).not.toHaveProperty('offerGroupId')
+      expect(findManyCall.where.offerGroupId).toBeUndefined()
+
+      // Returns only rows whose matchedCourierId equals courierId
+      expect(result).toHaveLength(2)
+      expect(result.map((r) => r.id)).toEqual(['del-single-matched', 'del-pair-matched'])
+      for (const entity of result) {
+        expect(entity.matchedCourierId).toBe(entity.courierId)
+      }
+    })
+  })
 })
