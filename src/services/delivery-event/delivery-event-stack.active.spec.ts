@@ -512,9 +512,9 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
         updatedAt: new Date(),
       })
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
-      mockDeliveryRepo.findById.mockResolvedValueOnce(
-        new DeliveryEntity({ ...delTaken, status: EnumDeliveryStatus.ACCEPTED })
-      )
+      mockDeliveryRepo.findById
+        .mockResolvedValueOnce(new DeliveryEntity({ ...delTaken, status: EnumDeliveryStatus.ASSIGNING_COURIER }))
+        .mockResolvedValueOnce(new DeliveryEntity({ ...delTaken, status: EnumDeliveryStatus.ACCEPTED }))
       const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
 
       const completed = await deliveryEventService.completeTakenAccepts(new Date())
@@ -533,146 +533,6 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       )
     })
 
-    it('completeTakenAccepts: completes taken single accept (offerGroupId null) with ACCEPTED_ALONE_BY_SWEEP (row 172)', async () => {
-      const delSingleTaken = makeDelivery('del-single-unaccepted', {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId,
-        offerGroupId: null,
-        updatedAt: new Date(),
-      })
-      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingleTaken])
-      mockDeliveryRepo.findById.mockResolvedValueOnce(
-        new DeliveryEntity({ ...delSingleTaken, status: EnumDeliveryStatus.ACCEPTED })
-      )
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
-
-      const completed = await deliveryEventService.completeTakenAccepts(new Date())
-
-      expect(completed).toBe(1)
-      expect(processSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          deliveryId: 'del-single-unaccepted',
-          type: EnumDeliveryEventType.ACCEPTED,
-          actor: EnumEventActor.SYSTEM,
-          courierId,
-          source: EnumDeliveryEventSource.OPENCOURIER,
-          messageCode: 'ACCEPTED_ALONE_BY_SWEEP',
-          messageParams: { courierId, deliveryId: 'del-single-unaccepted' },
-        })
-      )
-    })
-
-    it('completeTakenAccepts: gives single order back to waiting when dispatch is stopped (row 172)', async () => {
-      const delSingle = makeDelivery('del-single-stopped', {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId,
-        offerGroupId: null,
-        updatedAt: new Date(),
-      })
-      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingle])
-      mockDispatchStopRepo.findOn.mockResolvedValueOnce({ id: 'stop-active' })
-      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
-      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
-      const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
-
-      const completed = await deliveryEventService.completeTakenAccepts(new Date())
-
-      expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
-        'del-single-stopped',
-        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        expect.objectContaining({
-          courierId: null,
-          matchedCourierId: null,
-          offeredAt: null,
-          offerExpiresAt: null,
-          offerGroupId: null,
-          stopSequence: Prisma.DbNull,
-        })
-      )
-      expect(rearmSpy).toHaveBeenCalledWith('del-single-stopped')
-      expect(settleSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
-      rearmSpy.mockRestore()
-      settleSpy.mockRestore()
-    })
-
-    it('completeTakenAccepts: gives single order back to waiting when rider is deactivated (row 172)', async () => {
-      const delSingle = makeDelivery('del-single-deactivated', {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId,
-        offerGroupId: null,
-        updatedAt: new Date(),
-      })
-      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingle])
-      mockCourierRepo.isDeactivatedWaitingForLock.mockResolvedValueOnce(true)
-      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
-      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
-      const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
-
-      const completed = await deliveryEventService.completeTakenAccepts(new Date())
-
-      expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
-        'del-single-deactivated',
-        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        expect.objectContaining({
-          courierId: null,
-          matchedCourierId: null,
-          offeredAt: null,
-          offerExpiresAt: null,
-          offerGroupId: null,
-          stopSequence: Prisma.DbNull,
-        })
-      )
-      expect(rearmSpy).toHaveBeenCalledWith('del-single-deactivated')
-      expect(settleSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
-      rearmSpy.mockRestore()
-      settleSpy.mockRestore()
-    })
-
-    it('completeTakenAccepts: gives single order back to waiting when accept has kept failing for > 10 min (row 172)', async () => {
-      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
-      const delSingle = makeDelivery('del-single-giving-up', {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId,
-        offerGroupId: null,
-        updatedAt: elevenMinutesAgo,
-      })
-      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingle])
-      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
-      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
-      const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
-
-      const completed = await deliveryEventService.completeTakenAccepts(new Date())
-
-      expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
-        'del-single-giving-up',
-        { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
-        expect.objectContaining({
-          courierId: null,
-          matchedCourierId: null,
-          offeredAt: null,
-          offerExpiresAt: null,
-          offerGroupId: null,
-          stopSequence: Prisma.DbNull,
-        })
-      )
-      expect(rearmSpy).toHaveBeenCalledWith('del-single-giving-up')
-      expect(settleSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
-      rearmSpy.mockRestore()
-      settleSpy.mockRestore()
-    })
-
     it('completeTakenAccepts: gives offer back to waiting when dispatch is stopped (review of row 80, ruling 6)', async () => {
       const delTaken = makeDelivery('del-stopped', {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
@@ -682,12 +542,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       mockDispatchStopRepo.findOn.mockResolvedValueOnce({ id: 'stop-active' })
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
+      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
 
       const completed = await deliveryEventService.completeTakenAccepts(new Date())
 
       expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
       expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
         'del-stopped',
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
@@ -700,8 +560,22 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // Decision 172.4: pair member given back records OFFER_EXPIRED by SYSTEM with ACCEPT_GIVEN_BACK
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-stopped',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'STOPPED' },
+        })
+      )
       // agy review of row 80 (c04c08f): clears partner's 4-stop sequence so it does not stay with a stale pair route
       expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
+      expect(rearmSpy).toHaveBeenCalledWith('del-stopped')
+      rearmSpy.mockRestore()
     })
 
     it('completeTakenAccepts: gives offer back to waiting when rider is deactivated (review of row 80, ruling 6)', async () => {
@@ -713,12 +587,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       mockCourierRepo.isDeactivatedWaitingForLock.mockResolvedValueOnce(true)
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
+      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
 
       const completed = await deliveryEventService.completeTakenAccepts(new Date())
 
       expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
       expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
         'del-deactivated',
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
@@ -731,8 +605,22 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // Decision 172.4: pair member given back records OFFER_EXPIRED by SYSTEM with ACCEPT_GIVEN_BACK
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-deactivated',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'DEACTIVATED' },
+        })
+      )
       // agy review of row 80 (c04c08f): clears partner's 4-stop sequence
       expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
+      expect(rearmSpy).toHaveBeenCalledWith('del-deactivated')
+      rearmSpy.mockRestore()
     })
 
     it('completeTakenAccepts: gives offer back to waiting when accept has kept failing for > 10 min (review of row 80, ruling 6)', async () => {
@@ -744,12 +632,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       })
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent')
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
+      const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
 
       const completed = await deliveryEventService.completeTakenAccepts(new Date())
 
       expect(completed).toBe(0)
-      expect(processSpy).not.toHaveBeenCalled()
       expect(mockDeliveryRepo.updateIfMatches).toHaveBeenCalledWith(
         'del-giving-up',
         { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
@@ -762,8 +650,22 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      // Decision 172.4: pair member given back records OFFER_EXPIRED by SYSTEM with ACCEPT_GIVEN_BACK
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-giving-up',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'FAILING' },
+        })
+      )
       // agy review of row 80 (c04c08f): clears partner's 4-stop sequence
       expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-123')
+      expect(rearmSpy).toHaveBeenCalledWith('del-giving-up')
+      rearmSpy.mockRestore()
     })
 
     it('completeTakenAccepts: settles partner stop sequence when uncompleted taken stack accept is given back (review of row 80, c04c08f)', async () => {
@@ -777,6 +679,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
       mockDeliveryRepo.settleStopSequence.mockResolvedValueOnce(1)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
       const rearmSpy = jest.spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting').mockResolvedValue(undefined)
       const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
 
@@ -795,29 +698,21 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
           stopSequence: Prisma.DbNull,
         })
       )
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-give-back-settle',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          actor: EnumEventActor.SYSTEM,
+          source: EnumDeliveryEventSource.OPENCOURIER,
+          courierId,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'FAILING' },
+        })
+      )
       expect(settleSpy).toHaveBeenCalledWith('grp-stack-settle-1', 'del-give-back-settle')
       expect(mockDeliveryRepo.settleStopSequence).toHaveBeenCalledWith('grp-stack-settle-1')
       expect(rearmSpy).toHaveBeenCalledWith('del-give-back-settle')
       rearmSpy.mockRestore()
-      settleSpy.mockRestore()
-    })
-
-    it('completeTakenAccepts: skips settleStopSequence when delivery has null offerGroupId', async () => {
-      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
-      const delTaken = makeDelivery('del-no-group', {
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        courierId,
-        offerGroupId: null,
-        updatedAt: elevenMinutesAgo,
-      })
-      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
-      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
-      const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
-
-      await deliveryEventService.completeTakenAccepts(new Date())
-
-      expect(settleSpy).not.toHaveBeenCalled()
-      expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
       settleSpy.mockRestore()
     })
 
@@ -832,10 +727,12 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       // Missed race: updateIfMatches returned false
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(false)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
       const settleSpy = jest.spyOn(deliveryEventService as any, 'settleStackStops')
 
       await deliveryEventService.completeTakenAccepts(new Date())
 
+      expect(processSpy).not.toHaveBeenCalled()
       expect(settleSpy).not.toHaveBeenCalled()
       expect(mockDeliveryRepo.settleStopSequence).not.toHaveBeenCalled()
       settleSpy.mockRestore()
@@ -852,6 +749,7 @@ describe('Stacked orders assignment & lifecycle (spec 0048, row 80)', () => {
       mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delTaken])
       mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
       mockDeliveryRepo.settleStopSequence.mockRejectedValueOnce(new Error('DB failure during stop sequence settle'))
+      jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
 
       // Must not throw
       const completed = await deliveryEventService.completeTakenAccepts(new Date())

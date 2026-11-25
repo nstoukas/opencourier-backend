@@ -408,8 +408,8 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
     })
   })
 
-  describe('findTakenNotAccepted (spec 0048, widened by row 172)', () => {
-    test("findTakenNotAccepted's where has status ASSIGNING_COURIER, courierId not null, updatedAt lt before, and NO offerGroupId condition; returns only rows whose matchedCourierId equals courierId", async () => {
+  describe('findTakenNotAccepted (spec 0048, widened by row 172 & reviews)', () => {
+    test("findTakenNotAccepted's where has status ASSIGNING_COURIER, courierId not null, updatedAt lt before, and NO offerGroupId condition; returns only rows whose matchedCourierId equals courierId and logs mismatched rows (row 172)", async () => {
       const before = new Date('2026-11-26T01:00:00.000Z')
       const mockRows = [
         {
@@ -438,6 +438,7 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
         },
       ]
       mockPrisma.delivery.findMany = jest.fn().mockResolvedValueOnce(mockRows)
+      const warnSpy = jest.spyOn((repository as any).logger, 'warn')
 
       const result = await repository.findTakenNotAccepted(before)
 
@@ -455,6 +456,7 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       const findManyCall = mockPrisma.delivery.findMany.mock.calls[0][0]
       expect(findManyCall.where).not.toHaveProperty('offerGroupId')
       expect(findManyCall.where.offerGroupId).toBeUndefined()
+      expect(findManyCall.where.updatedAt).toEqual({ lt: before })
 
       // Returns only rows whose matchedCourierId equals courierId
       expect(result).toHaveLength(2)
@@ -462,6 +464,58 @@ describe('DeliveryRepository - mid-job add-ons (spec 0048 row 81, rulings & deci
       for (const entity of result) {
         expect(entity.matchedCourierId).toBe(entity.courierId)
       }
+
+      // Pin that mismatched rows are logged (Fable review & ruling 3)
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Taken deliveries whose rider is not the one offered, left to an admin: del-unmatched-courier'
+      )
+    })
+
+    test('findTakenNotAccepted excludes fresh claims (updatedAt >= before) via where.updatedAt.lt', async () => {
+      const before = new Date('2026-11-26T01:00:00.000Z')
+      const mockDatabase = [
+        {
+          id: 'del-claimed-fresh',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-fresh',
+          matchedCourierId: 'courier-fresh',
+          offerGroupId: null,
+          updatedAt: new Date('2026-11-26T01:00:30.000Z'), // >= before (claimed 30s ago)
+        },
+        {
+          id: 'del-claimed-exact-boundary',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-boundary',
+          matchedCourierId: 'courier-boundary',
+          offerGroupId: null,
+          updatedAt: new Date('2026-11-26T01:00:00.000Z'), // == before
+        },
+        {
+          id: 'del-claimed-old-enough',
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+          courierId: 'courier-old',
+          matchedCourierId: 'courier-old',
+          offerGroupId: null,
+          updatedAt: new Date('2026-11-26T00:58:30.000Z'), // < before (claimed 1.5 min ago)
+        },
+      ]
+
+      // Simulate Prisma filtering with where: { updatedAt: { lt: before } }
+      mockPrisma.delivery.findMany = jest.fn().mockImplementation(({ where }: any) => {
+        return mockDatabase.filter(
+          (row) =>
+            row.status === where.status &&
+            row.courierId !== null &&
+            row.updatedAt.getTime() < where.updatedAt.lt.getTime()
+        )
+      })
+
+      const result = await repository.findTakenNotAccepted(before)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.id).toBe('del-claimed-old-enough')
+      expect(result.map((r) => r.id)).not.toContain('del-claimed-fresh')
+      expect(result.map((r) => r.id)).not.toContain('del-claimed-exact-boundary')
     })
   })
 })

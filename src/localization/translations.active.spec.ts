@@ -257,4 +257,60 @@ describe('Server translations (spec 0054, AC-8)', () => {
     expect(elMsg).toContain('courier-r172')
     expect(elMsg).toContain('del-single-42')
   })
+
+  // Row 172 reviews (decision 172.4): ACCEPT_GIVEN_BACK template pins courierId and reason, and renders with each reason
+  test('ACCEPT_GIVEN_BACK event message renders in English and Greek with each reason (row 172 reviews)', () => {
+    expect(EVENT_MESSAGE_CODES.ACCEPT_GIVEN_BACK).toEqual(['courierId', 'reason'])
+
+    const reasons: Array<{
+      reason: 'STOPPED' | 'FAILING' | 'SOS' | 'DEACTIVATED'
+      enExpected: string
+      elExpected: string
+    }> = [
+      {
+        reason: 'STOPPED',
+        enExpected:
+          'Courier courier-r172 accepted, but the accept was not completed (dispatch stopped); the order waits for a rider again',
+        elExpected:
+          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (παύση διανομών)· η παραγγελία περιμένει ξανά διανομέα',
+      },
+      {
+        reason: 'FAILING',
+        enExpected:
+          'Courier courier-r172 accepted, but the accept was not completed (it kept failing); the order waits for a rider again',
+        elExpected:
+          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (απέτυχε επανειλημμένα)· η παραγγελία περιμένει ξανά διανομέα',
+      },
+      {
+        reason: 'SOS',
+        enExpected:
+          'Courier courier-r172 accepted, but the accept was not completed (the rider is in SOS); the order waits for a rider again',
+        elExpected:
+          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (ο διανομέας είναι σε SOS)· η παραγγελία περιμένει ξανά διανομέα',
+      },
+      {
+        reason: 'DEACTIVATED',
+        enExpected:
+          'Courier courier-r172 accepted, but the accept was not completed (the rider was deactivated); the order waits for a rider again',
+        elExpected:
+          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (ο διανομέας απενεργοποιήθηκε)· η παραγγελία περιμένει ξανά διανομέα',
+      },
+    ]
+
+    for (const { reason, enExpected, elExpected } of reasons) {
+      const enMsg = renderEventMessage('en', 'ACCEPT_GIVEN_BACK', {
+        courierId: 'courier-r172',
+        reason,
+      })
+      expect(enMsg).toBe(enExpected)
+      expect(enMsg).toContain('courier-r172')
+
+      const elMsg = renderEventMessage('el', 'ACCEPT_GIVEN_BACK', {
+        courierId: 'courier-r172',
+        reason,
+      })
+      expect(elMsg).toBe(elExpected)
+      expect(elMsg).toContain('courier-r172')
+    }
+  })
 })
