@@ -1,6 +1,7 @@
 import { AblyDispatcher } from './ably.dispatcher'
 import { AblyService } from './ably.service'
 import { describeErrorForLog, errorForConsole, errorSummaryForLog } from 'src/utils/errorForLog'
+import { NotificationEventType, JobEditedMessage, courierNotificationChannel } from 'src/shared-types/index'
 
 describe('AblyDispatcher (Row 139)', () => {
   let dispatcher: AblyDispatcher
@@ -60,5 +61,30 @@ describe('AblyDispatcher (Row 139)', () => {
     const lines = stack.split('\n')
     expect(lines.length).toBeGreaterThan(0)
     lines.forEach((l: string) => expect(l).toMatch(/^\s+at\s/))
+  })
+
+  test('sendJobEdited emits JOB_EDITED on courierNotificationChannel and logs delivery id only (Row 164)', async () => {
+    const loggerLogSpy = jest.spyOn((dispatcher as any).logger, 'log').mockImplementation(() => {})
+    const publishSpy = jest.spyOn(dispatcher as any, 'publishMessage').mockResolvedValue(undefined)
+
+    const message: JobEditedMessage = {
+      deliveryId: 'del-164',
+      restaurantName: 'Secret Business Name',
+      changed: ['NOTES', 'TIMES'],
+      editedAt: '2026-11-25T14:00:00.000Z',
+    }
+
+    await dispatcher.sendJobEdited('courier-user-1', message)
+
+    expect(publishSpy).toHaveBeenCalledWith(
+      courierNotificationChannel('courier-user-1'),
+      NotificationEventType.JOB_EDITED,
+      message
+    )
+
+    expect(loggerLogSpy).toHaveBeenCalledWith('emitting JOB_EDITED for delivery del-164')
+    const logged = loggerLogSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('del-164')
+    expect(logged).not.toContain('Secret Business Name')
   })
 })

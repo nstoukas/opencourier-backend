@@ -92,6 +92,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined),
       recordTipChangedEvent: jest.fn().mockResolvedValue(undefined),
       recordBoxEvent: jest.fn().mockResolvedValue(undefined),
+      notifyJobEdited: jest.fn().mockResolvedValue(undefined),
     }
 
     service = new DeliveryPartnerRestApiService(
@@ -2868,6 +2869,210 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+      })
+    })
+  })
+
+  // Row 164: the rider sees a restaurant's edit to a held order
+  describe('Row 164: the rider sees a restaurant\'s edit to a held order', () => {
+    const sharedDropoffLocation = {
+      id: 'loc-shared',
+      formattedAddress: 'Iasonos 12, Volos 38221, Greece',
+      latitude: 39.3621,
+      longitude: 22.9425,
+    }
+
+    const row164Delivery = (opts?: Record<string, unknown>) => ({
+      id: 'del-164',
+      partnerId,
+      pickupBusinessName: 'Nosh Tavern',
+      status: (opts?.status as EnumDeliveryStatus) ?? EnumDeliveryStatus.DISPATCHED,
+      createdAt: new Date(),
+      dropoffLocationId: 'loc-shared',
+      deliveryQuoteId: 'quote-1',
+      tips: 150,
+      currencyCode: 'EUR',
+      orderReference: 'ORD-164',
+      matchedCourierId: null,
+      courierId: (opts?.courierId as string | null) !== undefined ? (opts?.courierId as string | null) : 'courier-1',
+      pickupNotes: (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
+      dropoffNotes: (opts?.dropoffNotes as string | null) !== undefined ? (opts?.dropoffNotes as string | null) : 'Old dropoff notes',
+      pickupReadyAt: (opts?.pickupReadyAt as Date | null) !== undefined ? (opts?.pickupReadyAt as Date | null) : new Date('2026-11-25T12:00:00.000Z'),
+      pickupDeadlineAt: (opts?.pickupDeadlineAt as Date | null) !== undefined ? (opts?.pickupDeadlineAt as Date | null) : new Date('2026-11-25T12:30:00.000Z'),
+      dropoffReadyAt: (opts?.dropoffReadyAt as Date | null) !== undefined ? (opts?.dropoffReadyAt as Date | null) : new Date('2026-11-25T12:35:00.000Z'),
+      dropoffDeadlineAt: (opts?.dropoffDeadlineAt as Date | null) !== undefined ? (opts?.dropoffDeadlineAt as Date | null) : new Date('2026-11-25T13:00:00.000Z'),
+      boxSize: BoxSize.SMALL,
+      boxUnits: 30,
+      boxSizeAssumed: false,
+    })
+
+    const updateInput = (overrides: Record<string, unknown> = {}) => ({
+      dropoffLatitude: 39.3621,
+      dropoffLongitude: 22.9425,
+      ...overrides,
+    })
+
+    beforeEach(() => {
+      mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+        id: 'quote-1',
+        pickupLocationId: 'loc-pickup',
+        dropoffLocationId: 'loc-shared',
+      })
+      mockLocationDomainService.getById = jest.fn().mockResolvedValue(sharedDropoffLocation)
+      mockDeliveryDomainService.updateIfMatches = jest.fn().mockResolvedValue(true)
+      mockDeliveryEventService.notifyJobEdited = jest.fn().mockResolvedValue(undefined)
+    })
+
+    describe('clause 1: partner edit that lands and changes held order\'s notes or times calls notifyJobEdited at once', () => {
+      it('calls notifyJobEdited with NOTES when pickup notes change', async () => {
+        const initial = row164Delivery({ pickupNotes: 'Old pickup notes' })
+        const saved = { ...initial, pickupNotes: 'New pickup notes' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New pickup notes' }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['NOTES'])
+      })
+
+      it('calls notifyJobEdited with NOTES when dropoff notes change', async () => {
+        const initial = row164Delivery({ dropoffNotes: 'Old dropoff notes' })
+        const saved = { ...initial, dropoffNotes: 'New dropoff notes' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ dropoffNotes: 'New dropoff notes' }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['NOTES'])
+      })
+
+      it('calls notifyJobEdited with TIMES when any window time changes', async () => {
+        const initial = row164Delivery()
+        const newTime = new Date('2026-11-25T12:45:00.000Z')
+        const saved = { ...initial, pickupDeadlineAt: newTime }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ pickupDeadlineAt: newTime }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['TIMES'])
+      })
+
+      it('calls notifyJobEdited with NOTES and TIMES in order when both notes and times change', async () => {
+        const initial = row164Delivery({ pickupNotes: 'Old pickup notes' })
+        const newTime = new Date('2026-11-25T12:45:00.000Z')
+        const saved = { ...initial, pickupNotes: 'New pickup notes', pickupReadyAt: newTime }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update(
+          'del-164',
+          partnerId,
+          updateInput({
+            pickupNotes: 'New pickup notes',
+            pickupReadyAt: newTime,
+          }) as any
+        )
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['NOTES', 'TIMES'])
+      })
+    })
+
+    describe('clause 2: edit before any rider holds the order sends nothing', () => {
+      it('calls notifyJobEdited with empty changed list when courierId is null', async () => {
+        const initial = row164Delivery({ courierId: null, status: EnumDeliveryStatus.ASSIGNING_COURIER })
+        const saved = { ...initial, pickupNotes: 'New pickup notes' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New pickup notes' }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
+      })
+
+      it('calls notifyJobEdited with empty changed list when notes and times are unchanged', async () => {
+        const initial = row164Delivery({ orderReference: 'REF-1' })
+        const saved = { ...initial, orderReference: 'REF-2' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ orderReference: 'REF-2' }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
+      })
+    })
+
+    describe('clause 3: no read or seen record is kept', () => {
+      it('writes no DeliveryEvent and no repository change for the edit message itself', async () => {
+        const initial = row164Delivery({ pickupNotes: 'Old' })
+        const saved = { ...initial, pickupNotes: 'New' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+
+        // Only notifyJobEdited is called; no ready/tip/box/dropoff events are recorded
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('clause 4: lost write sends nothing for that try; only landed write sends once', () => {
+      it('calls notifyJobEdited only once when first try loses conditional write and second try lands', async () => {
+        const initial = row164Delivery({ pickupNotes: 'Old' })
+        const retryDelivery = row164Delivery({ pickupNotes: 'Old' })
+        const saved = { ...initial, pickupNotes: 'New' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(retryDelivery)
+          .mockResolvedValueOnce(saved)
+
+        // First attempt loses race (returns false), second attempt lands (returns true)
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(retryDelivery, ['NOTES'])
+      })
+
+      it('never calls notifyJobEdited when all updateIfMatches attempts fail', async () => {
+        const initial = row164Delivery({ pickupNotes: 'Old' })
+
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValue(false)
+
+        await expect(
+          service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.changed))
+
+        expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
       })
     })
   })

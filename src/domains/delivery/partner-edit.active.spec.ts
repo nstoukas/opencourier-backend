@@ -1,7 +1,7 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
-import { PARTNER_EDIT_SENTENCES, partnerEditRefusal, tipAfterPartnerEdit } from './partner-edit'
+import { PARTNER_EDIT_SENTENCES, partnerEditRefusal, riderVisibleEdits, tipAfterPartnerEdit } from './partner-edit'
 import { ERROR_SENTENCE_CODES } from 'src/localization/error-sentences'
 import { en } from 'src/localization/en'
 import { el } from 'src/localization/el'
@@ -158,6 +158,182 @@ describe('partner-edit rules (Row 152)', () => {
         'Ένας διανομέας έχει ήδη αναλάβει αυτή την παραγγελία, οπότε το σημείο παράδοσης δεν μετακινείται. Στείλτε μήνυμα στη διανομή για να το αλλάξετε.'
       )
       expect(el.server.error.PARTNER_EDIT_CHANGED).toBe('Η παραγγελία μόλις άλλαξε. Δείτε την ξανά πριν αποθηκεύσετε.')
+    })
+  })
+})
+
+describe('riderVisibleEdits (Row 164)', () => {
+  const baseDelivery = {
+    status: EnumDeliveryStatus.DISPATCHED,
+    courierId: 'courier-1',
+    pickupNotes: 'Pickup note',
+    dropoffNotes: 'Dropoff note',
+    pickupReadyAt: new Date('2026-11-25T12:00:00.000Z'),
+    pickupDeadlineAt: new Date('2026-11-25T12:30:00.000Z'),
+    dropoffReadyAt: new Date('2026-11-25T12:35:00.000Z'),
+    dropoffDeadlineAt: new Date('2026-11-25T13:00:00.000Z'),
+  }
+
+  describe('unheld or non-ongoing deliveries answer empty list', () => {
+    test('returns [] when courierId is null, even with ongoing status', () => {
+      for (const status of DELIVERY_ONGOING_STATUSES) {
+        const result = riderVisibleEdits(
+          { ...baseDelivery, status, courierId: null },
+          { pickupNotes: 'Changed note' }
+        )
+        expect(result).toEqual([])
+      }
+    })
+
+    test.each([
+      EnumDeliveryStatus.CREATED,
+      EnumDeliveryStatus.ASSIGNING_COURIER,
+      EnumDeliveryStatus.DROPPED_OFF,
+      EnumDeliveryStatus.CANCELED,
+      EnumDeliveryStatus.FAILED,
+    ])('returns [] for non-ongoing status %s even when courierId is present', (status) => {
+      const result = riderVisibleEdits(
+        { ...baseDelivery, status, courierId: 'courier-1' },
+        { pickupNotes: 'Changed note', pickupReadyAt: new Date('2026-11-25T12:15:00.000Z') }
+      )
+      expect(result).toEqual([])
+    })
+
+    test.each(DELIVERY_ONGOING_STATUSES)(
+      'answers changed fields for held delivery in ongoing status %s',
+      (status) => {
+        const result = riderVisibleEdits(
+          { ...baseDelivery, status, courierId: 'courier-1' },
+          { pickupNotes: 'New note' }
+        )
+        expect(result).toEqual(['NOTES'])
+      }
+    )
+  })
+
+  describe('notes changes', () => {
+    test('pickupNotes changed answers [NOTES]', () => {
+      const result = riderVisibleEdits(baseDelivery, { pickupNotes: 'Different pickup note' })
+      expect(result).toEqual(['NOTES'])
+    })
+
+    test('dropoffNotes changed answers [NOTES]', () => {
+      const result = riderVisibleEdits(baseDelivery, { dropoffNotes: 'Different dropoff note' })
+      expect(result).toEqual(['NOTES'])
+    })
+
+    test('both pickupNotes and dropoffNotes changed answers [NOTES] only once', () => {
+      const result = riderVisibleEdits(baseDelivery, {
+        pickupNotes: 'New pickup note',
+        dropoffNotes: 'New dropoff note',
+      })
+      expect(result).toEqual(['NOTES'])
+    })
+
+    test('empty notes and null notes are the same (no change)', () => {
+      // delivery has null, input has empty string
+      expect(
+        riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: '' })
+      ).toEqual([])
+
+      // delivery has empty string, input has null
+      expect(
+        riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: null })
+      ).toEqual([])
+
+      // both null
+      expect(
+        riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: null })
+      ).toEqual([])
+
+      // both empty string
+      expect(
+        riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: '' })
+      ).toEqual([])
+
+      // same for dropoffNotes
+      expect(
+        riderVisibleEdits({ ...baseDelivery, dropoffNotes: null }, { dropoffNotes: '' })
+      ).toEqual([])
+      expect(
+        riderVisibleEdits({ ...baseDelivery, dropoffNotes: '' }, { dropoffNotes: null })
+      ).toEqual([])
+    })
+
+    test('field left undefined is no change', () => {
+      const result = riderVisibleEdits(baseDelivery, { pickupNotes: undefined, dropoffNotes: undefined })
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('times changes', () => {
+    test.each([
+      ['pickupReadyAt', { pickupReadyAt: new Date('2026-11-25T12:05:00.000Z') }],
+      ['pickupDeadlineAt', { pickupDeadlineAt: new Date('2026-11-25T12:35:00.000Z') }],
+      ['dropoffReadyAt', { dropoffReadyAt: new Date('2026-11-25T12:40:00.000Z') }],
+      ['dropoffDeadlineAt', { dropoffDeadlineAt: new Date('2026-11-25T13:05:00.000Z') }],
+    ])('%s changed answers [TIMES]', (_field, input) => {
+      const result = riderVisibleEdits(baseDelivery, input)
+      expect(result).toEqual(['TIMES'])
+    })
+
+    test('multiple times changed answers [TIMES] only once', () => {
+      const result = riderVisibleEdits(baseDelivery, {
+        pickupReadyAt: new Date('2026-11-25T12:05:00.000Z'),
+        pickupDeadlineAt: new Date('2026-11-25T12:35:00.000Z'),
+        dropoffReadyAt: new Date('2026-11-25T12:40:00.000Z'),
+        dropoffDeadlineAt: new Date('2026-11-25T13:05:00.000Z'),
+      })
+      expect(result).toEqual(['TIMES'])
+    })
+
+    test('the same moment as a Date and as ISO text is no change', () => {
+      const isoText = '2026-11-25T12:00:00.000Z'
+      const sameDate = new Date(isoText)
+      const deliveryWithDate = { ...baseDelivery, pickupReadyAt: sameDate }
+
+      expect(riderVisibleEdits(deliveryWithDate, { pickupReadyAt: isoText })).toEqual([])
+      expect(riderVisibleEdits(deliveryWithDate, { pickupReadyAt: sameDate })).toEqual([])
+    })
+
+    test('null time and null input is no change', () => {
+      const deliveryWithNull = { ...baseDelivery, pickupReadyAt: null }
+      expect(riderVisibleEdits(deliveryWithNull, { pickupReadyAt: null })).toEqual([])
+    })
+
+    test('time changed from null to Date answers [TIMES]', () => {
+      const deliveryWithNull = { ...baseDelivery, pickupReadyAt: null }
+      expect(
+        riderVisibleEdits(deliveryWithNull, { pickupReadyAt: new Date('2026-11-25T12:00:00.000Z') })
+      ).toEqual(['TIMES'])
+    })
+
+    test('time changed from Date to null answers [TIMES]', () => {
+      expect(riderVisibleEdits(baseDelivery, { pickupReadyAt: null })).toEqual(['TIMES'])
+    })
+
+    test('times left undefined is no change', () => {
+      const result = riderVisibleEdits(baseDelivery, {
+        pickupReadyAt: undefined,
+        pickupDeadlineAt: undefined,
+        dropoffReadyAt: undefined,
+        dropoffDeadlineAt: undefined,
+      })
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('both notes and times changed', () => {
+    test('answers [NOTES, TIMES] in that exact order', () => {
+      const result = riderVisibleEdits(baseDelivery, {
+        pickupNotes: 'Brand new note',
+        pickupReadyAt: new Date('2026-11-25T12:15:00.000Z'),
+      })
+      expect(result).toEqual(['NOTES', 'TIMES'])
+    })
+
+    test('empty input object answers [] (no change)', () => {
+      expect(riderVisibleEdits(baseDelivery, {})).toEqual([])
     })
   })
 })

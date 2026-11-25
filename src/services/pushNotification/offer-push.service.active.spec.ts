@@ -9,7 +9,7 @@ import { TaskBusService } from '../taskBus/taskBus.service'
 import { CourierRepository } from 'src/persistence/repositories/courier.repository'
 import { OsrmRoutingService } from 'src/services/osrm/osrm-routing.service'
 import { IOsrmRouteInput } from 'src/services/osrm/interfaces/IOsrmRouteInput'
-import { NotificationEventType } from 'src/shared-types/notification'
+import { NotificationEventType, JobEditedMessage } from 'src/shared-types/notification'
 import { OFFER_CARD_PAYLOAD_KEYS } from 'src/domains/delivery/offer-card-payload'
 import { PUSH_DEFAULT_TTL_SECONDS, OFFER_INSIST_AFTER_SECONDS, CHAT_PUSH_TTL_SECONDS } from '../../constants'
 
@@ -794,6 +794,96 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       await service.sendJobReadyUpdated('courier-1', delayMessage)
 
       expect(mockCourierDeviceRepository.deleteByTokens).toHaveBeenCalledWith(['token-device-b'])
+    })
+  })
+
+  describe('jobEdited / sendJobEdited (Row 164)', () => {
+    const editedMessage: JobEditedMessage = {
+      deliveryId: 'del-push-164',
+      restaurantName: 'Nosh Tavern',
+      changed: ['NOTES', 'TIMES'],
+      editedAt: '2026-11-25T14:00:00.000Z',
+    }
+
+    test('sends JOB_EDITED with changed joined by comma and editedAt as string with default TTL', async () => {
+      await service.sendJobEdited('courier-1', editedMessage)
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).toHaveBeenCalledWith('courier-1')
+      expect(mockPushNotificationService.sendData).toHaveBeenCalledWith(
+        ['token-device-a', 'token-device-b'],
+        {
+          type: NotificationEventType.JOB_EDITED,
+          deliveryId: 'del-push-164',
+          restaurantName: 'Nosh Tavern',
+          changed: 'NOTES,TIMES',
+          editedAt: '2026-11-25T14:00:00.000Z',
+        },
+        PUSH_DEFAULT_TTL_SECONDS
+      )
+
+      const payload = mockPushNotificationService.sendData.mock.calls[0]![1]
+      for (const val of Object.values(payload)) {
+        expect(typeof val).toBe('string')
+      }
+    })
+
+    test('sends single changed field without comma', async () => {
+      await service.sendJobEdited('courier-1', {
+        ...editedMessage,
+        changed: ['NOTES'],
+      })
+
+      const payload = mockPushNotificationService.sendData.mock.calls[0]![1]
+      expect(payload.changed).toBe('NOTES')
+    })
+
+    test('push disabled: returns immediately without reading tokens or sending', async () => {
+      mockPushNotificationService.isEnabled.mockReturnValue(false)
+
+      service.jobEdited('courier-1', editedMessage)
+      await service.sendJobEdited('courier-1', editedMessage)
+
+      expect(mockCourierDeviceRepository.findTokensForCourier).not.toHaveBeenCalled()
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('no registered tokens: returns without sending', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockResolvedValueOnce([])
+
+      await service.sendJobEdited('courier-1', editedMessage)
+
+      expect(mockPushNotificationService.sendData).not.toHaveBeenCalled()
+    })
+
+    test('jobEdited starts send and swallows rejections without throwing', async () => {
+      mockCourierDeviceRepository.findTokensForCourier.mockRejectedValue(new Error('Device repo timeout'))
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined)
+
+      expect(() => service.jobEdited('courier-1', editedMessage)).not.toThrow()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(mockCourierDeviceRepository.findTokensForCourier).toHaveBeenCalledWith('courier-1')
+    })
+
+    test('failed send is logged by delivery id, never whole restaurant name or notes', async () => {
+      mockPushNotificationService.sendData.mockRejectedValue(new Error('FCM unreachable'))
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined)
+
+      await expect(service.sendJobEdited('courier-1', editedMessage)).resolves.toBeUndefined()
+
+      const logged = errorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(logged).toContain('del-push-164')
+      expect(logged).toContain('FCM unreachable')
+    })
+
+    test('dead tokens returned by sendData are pruned', async () => {
+      mockPushNotificationService.sendData.mockResolvedValue({
+        deadTokens: ['token-device-a'],
+        failureCodes: [],
+      })
+
+      await service.sendJobEdited('courier-1', editedMessage)
+
+      expect(mockCourierDeviceRepository.deleteByTokens).toHaveBeenCalledWith(['token-device-a'])
     })
   })
 
