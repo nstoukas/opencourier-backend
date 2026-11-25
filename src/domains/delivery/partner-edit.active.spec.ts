@@ -42,7 +42,7 @@ describe('partner-edit rules (Row 152)', () => {
       expect(riderHoldsOrder({ status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId: 'courier-claim-1' })).toBe(true)
     })
 
-    test('true for CREATED with courierId set (the accept claim window)', () => {
+    test('true for CREATED with courierId set (any rider id set reads as held)', () => {
       expect(riderHoldsOrder({ status: EnumDeliveryStatus.CREATED, courierId: 'courier-claim-1' })).toBe(true)
     })
 
@@ -121,6 +121,13 @@ describe('partner-edit rules (Row 152)', () => {
         expect(partnerEditRefusal({ status, courierId: 'courier-1' }, true)).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
       })
 
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'ongoing status %s with courierId null refuses point move with pointHeld sentence (admin reassignment window)',
+        (status) => {
+          expect(partnerEditRefusal({ status, courierId: null }, true)).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
+        }
+      )
+
       test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
         'unassigned status %s allows point move (returns null)',
         (status) => {
@@ -167,6 +174,13 @@ describe('partner-edit rules (Row 152)', () => {
       expect(tipAfterPartnerEdit({ status, courierId: 'courier-1' }, 150, 500)).toBe(150)
       expect(tipAfterPartnerEdit({ status, courierId: 'courier-1' }, 0, 300)).toBe(0)
     })
+
+    test.each(DELIVERY_ONGOING_STATUSES)(
+      'ongoing status %s with courierId null preserves current tips (admin reassignment window)',
+      (status) => {
+        expect(tipAfterPartnerEdit({ status, courierId: null }, 250, 500)).toBe(250)
+      }
+    )
 
     test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
       'unassigned status %s adopts sent tips',
