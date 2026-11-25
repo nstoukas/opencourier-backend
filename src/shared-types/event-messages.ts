@@ -57,6 +57,8 @@ export const EVENT_MESSAGE_CODES = {
   ACCEPTED_TOGETHER: ['courierId', 'deliveryId', 'otherDeliveryId'],
   ACCEPTED_TOGETHER_AUTOMATICALLY: ['courierId', 'deliveryId', 'otherDeliveryId'],
   ACCEPTED_BY_SWEEP: ['courierId', 'deliveryId'],
+  // Row 172: a single order's accept completed by the minute sweep.
+  ACCEPTED_ALONE_BY_SWEEP: ['courierId', 'deliveryId'],
   REJECTED: ['courierId', 'deliveryId'],
   REJECTED_TOGETHER: ['courierId', 'deliveryId', 'otherDeliveryId'],
 

@@ -60,16 +60,16 @@ export class CancellationSweepService implements OnModuleInit {
     await this.settleRemovals(now)
     await this.settleReturnTrips(now)
     await this.startSplitLegs(now)
-    await this.completeStackAccepts(now)
+    await this.completeTakenAccepts(now)
   }
 
-  // Spec 0048 (cross check 8): a stack the rider accepted whose second ACCEPTED did not land is completed
-  // here. The newest minute is left alone, so the sweep never races the accept that is still running.
-  private async completeStackAccepts(now: Date): Promise<void> {
-    const completed = await this.deliveryEventService.completeTakenStackAccepts(
+  // Spec 0048 (cross check 8), and row 172 for a single order: an accept whose ACCEPTED did not land is
+  // completed here. The newest minute is left alone, so the sweep never races the accept that is still running.
+  private async completeTakenAccepts(now: Date): Promise<void> {
+    const completed = await this.deliveryEventService.completeTakenAccepts(
       new Date(now.getTime() - LEAVE_THE_INLINE_STEP_MS)
     )
-    if (completed > 0) this.logger.warn(`Completed ${completed} stack accept(s) whose ACCEPTED had not landed`)
+    if (completed > 0) this.logger.warn(`Completed ${completed} accept(s) whose ACCEPTED had not landed`)
   }
 
   // Spec 0047 (cross check 7): split legs left in CREATED a minute after a confirm (the process stopped

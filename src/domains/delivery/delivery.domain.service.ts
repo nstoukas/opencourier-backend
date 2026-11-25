@@ -549,7 +549,7 @@ export class DeliveryDomainService {
   // (still offered to this rider by this offer, nobody has taken them, exactly two rows), else 409 and
   // nothing changes. Then the same checks as a single accept, and an ACCEPTED event for each, the tapped
   // one first. If the first ACCEPTED does not take, both offers are given back as they were. If only the
-  // second does not, the first stands and the minute sweep completes the second (completeTakenStackAccepts).
+  // second does not, the first stands and the minute sweep completes the second (completeTakenAccepts).
   // Each delivery keeps its own pay, fixed at the offer from its own quote (AC-9).
   // `automatic` (decision 128.0): the phone's auto accept took the pair; both ACCEPTED messages say so,
   // the only place it is recorded (value 5), exactly as for a single order.

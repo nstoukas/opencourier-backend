@@ -452,14 +452,13 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       .map(({ row }) => row)
   }
 
-  // Spec 0048 (cross check 8): stack deliveries the rider took (courierId written by the group take) whose
-  // ACCEPTED never landed, older than `before`, for the minute sweep to complete. Only offers still
-  // standing (matchedCourierId is the taker), so an offer given back is never accepted by the sweep.
-  async findTakenGroupMembersNotAccepted(before: Date): Promise<DeliveryEntity[]> {
+  // Spec 0048 (cross check 8), widened by row 172: deliveries a rider took (courierId written by the take, of a
+  // pair or of a single order) whose ACCEPTED never landed, older than `before`, for the minute sweep to complete.
+  // Only offers still standing (matchedCourierId is the taker), so an offer given back is never accepted by the sweep.
+  async findTakenNotAccepted(before: Date): Promise<DeliveryEntity[]> {
     const rows = await this.prisma.delivery.findMany({
       where: {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        offerGroupId: { not: null },
         courierId: { not: null },
         updatedAt: { lt: before },
       },

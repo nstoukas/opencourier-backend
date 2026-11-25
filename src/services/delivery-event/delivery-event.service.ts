@@ -1345,13 +1345,16 @@ export class DeliveryEventService {
   // Spec 0048 (cross check 8): the minute sweep's step. A stack the rider accepted whose second ACCEPTED did
   // not land (the process stopped, or the write lost a race and the first one stood) is completed here, a
   // minute later, so the rider who tapped accept is never left with half a pair (value 4: trust the rider).
+  // Row 172: a single order too. `acceptDelivery` writes the rider's id, then checks the dispatch stop and the
+  // rider's deactivation before ACCEPTED; a process that stopped in between left the order taken by nobody's
+  // phone and skipped by matching. The same rule applies: completed, or given back to waiting.
   // Returns how many it completed. Never throws.
-  async completeTakenStackAccepts(before: Date): Promise<number> {
+  async completeTakenAccepts(before: Date): Promise<number> {
     let taken: DeliveryEntity[]
     try {
-      taken = await this.deliveryRepository.findTakenGroupMembersNotAccepted(before)
+      taken = await this.deliveryRepository.findTakenNotAccepted(before)
     } catch (error) {
-      this.logger.error(`Could not look up stack accepts to complete: ${errorSummaryForLog(error)}`)
+      this.logger.error(`Could not look up accepts to complete: ${errorSummaryForLog(error)}`)
       return 0
     }
     let completed = 0
@@ -1379,8 +1382,10 @@ export class DeliveryEventService {
             }
           )
           if (givenBack) {
+            // Decision 172.1: like every give back of a take (the accept's own two, and a pair's here), this writes
+            // no DeliveryEvent: the status never moved, and the order returns to what it was before the take.
             this.logger.warn(
-              `Stack accept of delivery ${delivery.id} by courier ${courierId} not completed (${
+              `Accept of delivery ${delivery.id} by courier ${courierId} not completed (${
                 stopped ? 'dispatch stopped' : givingUp ? 'it kept failing' : 'rider deactivated'
               }); the order waits for a rider again`
             )
@@ -1398,15 +1403,17 @@ export class DeliveryEventService {
           actor: EnumEventActor.SYSTEM,
           courierId,
           source: EnumDeliveryEventSource.OPENCOURIER,
-          ...eventText('ACCEPTED_BY_SWEEP', { courierId, deliveryId: delivery.id }),
+          // Row 172: a single order has its own sentence; ACCEPTED_BY_SWEEP says "as part of two orders".
+          ...eventText(delivery.offerGroupId ? 'ACCEPTED_BY_SWEEP' : 'ACCEPTED_ALONE_BY_SWEEP', {
+            courierId,
+            deliveryId: delivery.id,
+          }),
         }
         await this.processDeliveryEvent(accepted)
         const after = await this.deliveryRepository.findById(delivery.id)
         if (after && after.status !== EnumDeliveryStatus.ASSIGNING_COURIER) completed += 1
       } catch (error) {
-        this.logger.error(
-          `Could not complete the stack accept of delivery ${delivery.id}: ${errorSummaryForLog(error)}`
-        )
+        this.logger.error(`Could not complete the accept of delivery ${delivery.id}: ${errorSummaryForLog(error)}`)
       }
     }
     return completed

@@ -48,6 +48,8 @@ export const el: Translations = {
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}}, που προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}} (αυτόματη αποδοχή)',
       ACCEPTED_BY_SWEEP:
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}} ως μία από δύο παραγγελίες που προτάθηκαν μαζί· ολοκληρώθηκε από τον έλεγχο του λεπτού',
+      ACCEPTED_ALONE_BY_SWEEP:
+        'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}}· ολοκληρώθηκε από τον έλεγχο του λεπτού',
       REJECTED: 'Ο διανομέας {{courierId}} απέρριψε την παραγγελία {{deliveryId}}',
       REJECTED_TOGETHER:
         'Ο διανομέας {{courierId}} απέρριψε την παραγγελία {{deliveryId}}, που προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}}',
