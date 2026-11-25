@@ -93,6 +93,13 @@ const DEFAULT_USUAL_PREP_MINUTES = 15
 // Spec 0043: the admin who acted, as much as a record needs to name them (adminLabel).
 export type AdminRef = { id: string; email: string | null; username: string | null }
 
+// Row 167: a restaurant's new size as part of its edit: the extra conditions for the edit's conditional write, and
+// the fields it writes. `BoxSize` is the Prisma enum, so `data` can go into the write as it is.
+export type BoxSizeChange = {
+  where: { matchedCourierId: null; courierId: null; boxSize: BoxSize }
+  data: { boxSize: BoxSize; boxUnits: number; boxSizeAssumed: false }
+}
+
 @Injectable()
 export class DeliveryDomainService {
   private readonly logger = new Logger(DeliveryDomainService.name)
@@ -295,25 +302,30 @@ export class DeliveryDomainService {
     return delivery
   }
 
-  // Spec 0043 (AC-3, cross check 4): the restaurant changes the size. Only while no rider has been
-  // offered or holds the order (an open offer has already shown the size): one conditional write on
-  // that and on the size read, so a size never changes under an offer that goes out at the same
-  // moment. The units are copied again from the setting in force, and the size is no longer assumed.
-  async changeBoxSize(delivery: DeliveryEntity, newSize: BoxSize): Promise<void> {
+  // Spec 0043 (AC-3, cross check 4) and row 167: what a restaurant's new size means for its edit. Refused while a
+  // rider has been offered or holds the order (an open offer has already shown the size). The units are copied
+  // again from the setting in force, and the size is no longer assumed. Nothing is written here: the partner edit
+  // adds `where` and `data` to its own one conditional write, so the size lands with the rest of the edit or not
+  // at all. `where` also keeps a size from changing under an offer that goes out at the same moment.
+  async boxSizeChangeFor(delivery: DeliveryEntity, newSize: BoxSize): Promise<BoxSizeChange> {
+    if (delivery.matchedCourierId !== null || delivery.courierId !== null) {
+      throw new ConflictException(BOX_SIZE_LOCKED_MESSAGE)
+    }
     const instanceConfig = this.configDomainService.instanceConfig
     const boxUnits = boxUnitsFor(newSize, {
       boxUnitsSmall: await instanceConfig.getBoxUnitsSmall(),
       boxUnitsMedium: await instanceConfig.getBoxUnitsMedium(),
       boxUnitsLarge: await instanceConfig.getBoxUnitsLarge(),
     })
-    const changed = await this.deliveryRepository.updateIfMatches(
-      delivery.id,
-      { matchedCourierId: null, courierId: null, boxSize: delivery.boxSize, status: delivery.status },
-      { boxSize: newSize, boxUnits, boxSizeAssumed: false }
-    )
-    if (!changed) {
-      throw new ConflictException(BOX_SIZE_LOCKED_MESSAGE)
+    return {
+      // `null` is a real condition in Prisma ("is null"); only `undefined` would drop it. boxSize is never null.
+      where: { matchedCourierId: null, courierId: null, boxSize: delivery.boxSize },
+      data: { boxSize: newSize, boxUnits, boxSizeAssumed: false },
     }
+  }
+
+  // Row 167 (value 1): the size change on the record, written only after the edit's write has landed.
+  async recordBoxSizeChanged(delivery: DeliveryEntity, change: BoxSizeChange): Promise<void> {
     const changedEvent: DeliveryBoxSizeChangedEvent = {
       deliveryId: delivery.id,
       type: EnumDeliveryEventType.BOX_SIZE_CHANGED,
@@ -322,8 +334,8 @@ export class DeliveryDomainService {
       ...eventText('BOX_SIZE_CHANGED_BY_RESTAURANT', {
         fromSize: delivery.boxSize,
         fromUnits: delivery.boxUnits,
-        toSize: newSize,
-        toUnits: boxUnits,
+        toSize: change.data.boxSize,
+        toUnits: change.data.boxUnits,
       }),
     }
     await this.deliveryEventService.recordBoxEvent(changedEvent, delivery.status)

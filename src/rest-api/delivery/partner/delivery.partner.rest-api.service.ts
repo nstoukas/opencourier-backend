@@ -330,10 +330,9 @@ export class DeliveryPartnerRestApiService {
   // Row 161: the edit decides from what it read: the status (row 152's refusals and the tip rule), the tip (row
   // 160's event) and the drop off point (the move and its event). It then writes only if those three are still
   // what it read. If another write landed in between (a rider's accept, a second edit of the same order), the
-  // delivery's fields are not written; the edit reads the order again and decides again. (A size change made in a
-  // lost try stays, and is on the record. See docs/explain/2026-11-25-backend-partner-edit-conditional-write.md.)
-  // So the answer is the one for the order as it is now: row 152's refusal for the new status, or the edit with a
-  // held order's tip kept.
+  // delivery's fields, its size among them (row 167), are not written; the edit reads the order again and decides
+  // again. So the answer is the one for the order as it is now: row 152's refusal for the new status, or the edit
+  // with a held order's tip kept.
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
     // Row 166: a point move makes one Location row for the whole edit, reused by every try, and removed at the end
     // unless a landed write points the delivery at it. So a lost race leaves no address row pointing at nothing.
@@ -412,6 +411,15 @@ export class DeliveryPartnerRestApiService {
       }
     }
 
+    // Spec 0043 (AC-3, cross check 4) and row 167: a new size is decided here, after the update's own checks and
+    // before anything is made, so a refused size leaves nothing behind in this try. It is not written here: its
+    // fields join the one conditional write below, so the size lands with the edit or not at all. The same size, or
+    // none, changes nothing; a JSON null is read as none (review fix: it reached Prisma and answered 500).
+    const sizeChange =
+      input.boxSize != null && input.boxSize !== delivery.boxSize
+        ? await this.deliveryDomainService.boxSizeChangeFor(delivery, input.boxSize)
+        : null
+
     // Row 102: a Location row is shared (`findOrCreate` reuses one for the same address and point),
     // so moving it in place would move every other delivery and quote on it too. A moved point gets a
     // row of its own: the old address with the new coordinates. An unmoved point changes nothing.
@@ -443,14 +451,6 @@ export class DeliveryPartnerRestApiService {
     }
     const dropoffLocationId = pointMoved && madePoint.id ? madePoint.id : delivery.dropoffLocationId
 
-    // Spec 0043 (AC-3, cross check 4): a new size, after the update's own checks (review fix: a refused
-    // update must not leave the size changed) and before the rest is written, so a refused size change
-    // leaves the delivery's fields unwritten. The same size, or none, changes nothing; a JSON null is
-    // read as none (review fix: it reached Prisma and answered 500).
-    if (input.boxSize != null && input.boxSize !== delivery.boxSize) {
-      await this.deliveryDomainService.changeBoxSize(delivery, input.boxSize)
-    }
-
     // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
     const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
 
@@ -459,8 +459,15 @@ export class DeliveryPartnerRestApiService {
     // non null columns; never put a value here that can be undefined, or Prisma drops that condition silently.
     const written = await this.deliveryDomainService.updateIfMatches(
       delivery.id,
-      { status: delivery.status, tips: delivery.tips, dropoffLocationId: delivery.dropoffLocationId },
+      // Row 167: with a new size, also still no rider offered or holding, and the size as read.
       {
+        status: delivery.status,
+        tips: delivery.tips,
+        dropoffLocationId: delivery.dropoffLocationId,
+        ...sizeChange?.where,
+      },
+      {
+        ...sizeChange?.data,
         dropoffLocationId,
         // Spec 0053 (row 82 review): the newest move wins. A restaurant's move after a rider's clears the
         // rider's corrected point, so the notes and the route both follow the restaurant's new point.
@@ -502,6 +509,11 @@ export class DeliveryPartnerRestApiService {
         },
         delivery.status
       )
+    }
+
+    // Row 167 (value 1): the size is capacity the matcher reads, so its change is on the record, once it has landed.
+    if (sizeChange) {
+      await this.deliveryDomainService.recordBoxSizeChanged(delivery, sizeChange)
     }
 
     // Row 102 (agy review, value 1): the point feeds the matcher and the rider's route, so a move is
