@@ -3,6 +3,7 @@ import { DeliveryCreatePartnerInput } from './delivery-create.partner.input'
 import { DeliveryPartnerRestApiService } from '../delivery.partner.rest-api.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { EnumDeliverableAction } from '@prisma/types'
+import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 
 describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () => {
   const pipe = new ValidationPipe({
@@ -76,6 +77,81 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
       await expect(
         pipe.transform({ ...validBody, tip }, { type: 'body', metatype: DeliveryCreatePartnerInput })
       ).rejects.toThrow(BadRequestException)
+    })
+
+    // Row 171: the create route's tip is whole cents sent as a number, with ceiling (decision 171.1)
+    describe('Row 171: tip whole cents sent as a number and ceiling', () => {
+      it('accepts tip of 0', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, tip: 0 },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.tip).toBe(0)
+      })
+
+      it('accepts tip of 250', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, tip: 250 },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.tip).toBe(250)
+      })
+
+      it('accepts tip equal to TIP_CENTS_CEILING (2147483647)', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, tip: TIP_CENTS_CEILING },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.tip).toBe(TIP_CENTS_CEILING)
+      })
+
+      it('refuses empty string "" for tip with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: '' }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses boolean false for tip with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: false }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses boolean true for tip with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: true }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses numeric string "250" for tip with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: '250' }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses fractional number 2.5 for tip with 400 BadRequestException (@IsInt)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: 2.5 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses negative tip -1 with 400 BadRequestException (@Min)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: -1 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses tip above TIP_CENTS_CEILING (2147483648) with 400 BadRequestException (@Max)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: 2147483648 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses tip: null with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform({ ...validBody, tip: null }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
     })
 
     it('accepts omitted, undefined or null dropoffFloor and dropoffDoorbell', async () => {

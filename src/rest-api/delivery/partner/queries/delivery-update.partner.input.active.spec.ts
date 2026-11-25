@@ -1,5 +1,6 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { DeliveryUpdatePartnerInput } from './delivery-update.partner.input'
+import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 
 describe('DeliveryUpdatePartnerInput class-validator validation', () => {
   // The same options as main.ts's global ValidationPipe.
@@ -112,6 +113,27 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
     it('refuses fractional number 2.5 for tipByCustomer with 400 BadRequestException (@IsInt)', async () => {
       await expect(
         pipe.transform({ ...validBody, tipByCustomer: 2.5 }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  // Row 171: the tips column's ceiling (decision 171.1)
+  describe('Row 171: tipByCustomer ceiling (decision 171.1)', () => {
+    it('accepts tipByCustomer equal to TIP_CENTS_CEILING (2147483647)', async () => {
+      const result = (await pipe.transform(
+        { ...validBody, tipByCustomer: TIP_CENTS_CEILING },
+        { type: 'body', metatype: DeliveryUpdatePartnerInput }
+      )) as DeliveryUpdatePartnerInput
+
+      expect(result.tipByCustomer).toBe(TIP_CENTS_CEILING)
+    })
+
+    it('refuses tipByCustomer above TIP_CENTS_CEILING (2147483648) with 400 BadRequestException (@Max)', async () => {
+      await expect(
+        pipe.transform(
+          { ...validBody, tipByCustomer: 2147483648 },
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )
       ).rejects.toThrow(BadRequestException)
     })
   })
