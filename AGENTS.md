@@ -168,6 +168,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `summarisePeriod` (`src/domains/time-worked/`); money counts on the accept day in Athens time. A new figure goes there,
   never into a separate sum, or the screens disagree about the same day. The rider's timeline (`delivery-timeline.ts`) never
   selects an event's `message`, and a job's area is worked out in the repository so the house number never leaves it.
+  It shows an event with no `courierId` only inside that rider's hold, so a line written before anyone holds the order
+  (`TIP_CHANGED`, row 160) never reaches the rider who later takes it.
 - There are two `NotFoundException` classes: Nest's and the project's (`src/errors.ts`, imported as `errors`).
   `ErrorLoggingInterceptor` skips any project `ApiException` answering 404 (row 121), but Nest's is not one, so an expected
   404 thrown with Nest's is still logged as an error with a stack.
@@ -249,13 +251,15 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
 - Event message templates (`src/localization/en.ts`, `el.ts`) and `src/shared-types/event-messages.ts` are copied word for word
   into adminweb and the courier app (request-web keeps the templates only): a new or reworded code is copied there in the
   same row. adminweb's test compares only `ADD_ON_JOINED` with these files and the courier app's counts the codes, so a reworded
-  copy passes both: compare a new copy by hand (night run of 2026-11-24).
+  copy passes both: compare a new copy by hand (night run of 2026-11-24). request-web's copy has no check at all: it missed
+  rows 146 and 149's codes until row 160.
 
 - An event that moves a delivery out of an ongoing status (other than its drop off) may write `ADD_ON_LEFT` on the job it joined as an
   add on (row 149): the rule lives in `saveDeliveryEvent`, beside the removal request's close, so a new way off needs no extra code.
 - A partner edit (`POST partner deliveries/:id`, row 152) goes through `partnerEditRefusal` and `tipAfterPartnerEdit`
   (`src/domains/delivery/partner-edit.ts`): an ended order is refused, a held order's point never moves and its tip stays. Tips are rider
-  pay and never negative (`@Min(0)` on create and edit).
+  pay and never negative (`@Min(0)` on create and edit). An edit that changes the tip writes `TIP_CHANGED` with both amounts
+  (row 160); any new code that writes `tips` must record it the same way.
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
   never an ADMIN login; the reset switches the API key off (`setPasswordAndRemoveApiKey`) and issues no session.
 - `OfferEndedMessage` carries `offeredAt` (null when unknown), and a rider's accept or decline sends `OFFER_ENDED` with `ANSWERED` to all
