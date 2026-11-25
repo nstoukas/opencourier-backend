@@ -48,6 +48,7 @@ import { DeliveryCreatePartnerInput } from './queries/delivery-create.partner.in
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
 import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
+import { describeError } from 'src/utils/errorForLog'
 import { EnumDeliverableAction, EnumUndeliverableAction } from '@prisma/types'
 import { JsonValue } from 'src/shared-types/index'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
@@ -59,6 +60,11 @@ function optionalText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? ''
   return trimmed === '' ? null : trimmed
 }
+
+// Row 166: the Location row an edit's point move made, kept across its tries. `id` is null until a try makes one;
+// `copiedFrom` is the drop off row whose address it copied; `used` turns true when a write pointing the delivery at
+// it lands.
+type MadePoint = { id: string | null; copiedFrom: string | null; used: boolean }
 
 // Row 161: how many times an edit is tried when the order changes between its read and its write. A second try
 // covers a rider's accept landing mid edit; a third loss in a row means the order is changing too fast to edit.
@@ -324,24 +330,41 @@ export class DeliveryPartnerRestApiService {
   // Row 161: the edit decides from what it read: the status (row 152's refusals and the tip rule), the tip (row
   // 160's event) and the drop off point (the move and its event). It then writes only if those three are still
   // what it read. If another write landed in between (a rider's accept, a second edit of the same order), the
-  // delivery's fields are not written; the edit reads the order again and decides again. (Two things a try may
-  // already have done stay: a moved point's new Location row and a size change, which is on the record. See
-  // docs/explain/2026-11-25-backend-partner-edit-conditional-write.md.) So the answer is the one for the order as it is
-  // now: row 152's refusal for the new status, or the edit with a held order's tip kept.
+  // delivery's fields are not written; the edit reads the order again and decides again. (A size change made in a
+  // lost try stays, and is on the record. See docs/explain/2026-11-25-backend-partner-edit-conditional-write.md.)
+  // So the answer is the one for the order as it is now: row 152's refusal for the new status, or the edit with a
+  // held order's tip kept.
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
-    for (let attempt = 1; attempt <= PARTNER_EDIT_ATTEMPTS; attempt++) {
-      const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
-      await this.assertVisibleToPartner(delivery, partnerId)
-      const updated = await this.tryPartnerEdit(delivery, input)
-      if (updated) return updated
+    // Row 166: a point move makes one Location row for the whole edit, reused by every try, and removed at the end
+    // unless a landed write points the delivery at it. So a lost race leaves no address row pointing at nothing.
+    const madePoint: MadePoint = { id: null, copiedFrom: null, used: false }
+    try {
+      for (let attempt = 1; attempt <= PARTNER_EDIT_ATTEMPTS; attempt++) {
+        const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+        await this.assertVisibleToPartner(delivery, partnerId)
+        const updated = await this.tryPartnerEdit(delivery, input, madePoint)
+        if (updated) return updated
+      }
+      // The order changed under the edit every time. Stop and ask the restaurant to look again, rather than loop.
+      throw new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+    } finally {
+      // `finally` runs on every way out: the saved delivery returned, a refusal thrown, or any other error.
+      if (madePoint.id && !madePoint.used) await this.removeUnusedPoint(madePoint.id)
     }
-    // The order changed under the edit every time. Stop and ask the restaurant to look again, rather than loop.
-    throw new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+  }
+
+  // Row 166: removing the unused row is tidying, so its failure is logged and never changes the restaurant's answer.
+  private async removeUnusedPoint(locationId: string) {
+    try {
+      await this.locationDomainService.delete(locationId)
+    } catch (error) {
+      this.logger.warn(`Could not remove the unused drop off point ${locationId}: ${describeError(error)}`)
+    }
   }
 
   // One try of the restaurant's edit, decided from `delivery` as read. Answers the delivery as saved, or null
   // when the order changed before the write (then its fields and events are not written; see `update`).
-  private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput) {
+  private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput, madePoint: MadePoint) {
     // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind in this try.
     const endedRefusal = partnerEditRefusal(delivery.status, false)
     if (endedRefusal) throw new ConflictException(endedRefusal)
@@ -390,24 +413,33 @@ export class DeliveryPartnerRestApiService {
     // Row 102: a Location row is shared (`findOrCreate` reuses one for the same address and point),
     // so moving it in place would move every other delivery and quote on it too. A moved point gets a
     // row of its own: the old address with the new coordinates. An unmoved point changes nothing.
-    const dropoffLocationId = pointMoved
-      ? (
-          await this.locationDomainService.create({
-            addressLine1: dropoffLocation.addressLine1,
-            addressLine2: dropoffLocation.addressLine2,
-            city: dropoffLocation.city,
-            state: dropoffLocation.state,
-            street: dropoffLocation.street,
-            zipCode: dropoffLocation.zipCode,
-            countryCode: dropoffLocation.countryCode,
-            stateCode: dropoffLocation.stateCode,
-            houseNumber: dropoffLocation.houseNumber,
-            formattedAddress: dropoffLocation.formattedAddress,
-            latitude: input.dropoffLatitude,
-            longitude: input.dropoffLongitude,
-          })
-        ).id
-      : delivery.dropoffLocationId
+    // Row 166: made once per edit. A later try reuses it while the order still has the drop off row it was copied
+    // from: the input's point is the same in every try, so the row it would make is the same row. If that row was
+    // replaced in between (another move, an admin's edit), the copy may carry an old address: remove it, make anew.
+    if (pointMoved && madePoint.id && madePoint.copiedFrom !== delivery.dropoffLocationId) {
+      await this.removeUnusedPoint(madePoint.id)
+      madePoint.id = null
+    }
+    if (pointMoved && !madePoint.id) {
+      madePoint.copiedFrom = delivery.dropoffLocationId
+      madePoint.id = (
+        await this.locationDomainService.create({
+          addressLine1: dropoffLocation.addressLine1,
+          addressLine2: dropoffLocation.addressLine2,
+          city: dropoffLocation.city,
+          state: dropoffLocation.state,
+          street: dropoffLocation.street,
+          zipCode: dropoffLocation.zipCode,
+          countryCode: dropoffLocation.countryCode,
+          stateCode: dropoffLocation.stateCode,
+          houseNumber: dropoffLocation.houseNumber,
+          formattedAddress: dropoffLocation.formattedAddress,
+          latitude: input.dropoffLatitude,
+          longitude: input.dropoffLongitude,
+        })
+      ).id
+    }
+    const dropoffLocationId = pointMoved && madePoint.id ? madePoint.id : delivery.dropoffLocationId
 
     // Spec 0043 (AC-3, cross check 4): a new size, after the update's own checks (review fix: a refused
     // update must not leave the size changed) and before the rest is written, so a refused size change
@@ -448,6 +480,8 @@ export class DeliveryPartnerRestApiService {
       }
     )
     if (!written) return null
+    // Row 166: the delivery now points at the row this edit made, so it stays.
+    if (pointMoved) madePoint.used = true
 
     // Row 160 (value 1): the tip is rider pay, so a change is on the record, with both amounts. An edit that
     // leaves it as it was writes nothing. No status change, so never through processDeliveryEvent.

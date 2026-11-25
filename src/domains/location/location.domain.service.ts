@@ -26,6 +26,11 @@ export class LocationDomainService {
     return this.locationRepository.create(input)
   }
 
+  // Row 166: only for a row this request made and never used (see the partner edit's `update`).
+  async delete(locationId: string): Promise<void> {
+    await this.locationRepository.delete(locationId)
+  }
+
   async findOrCreate(input: ILocationFindOrCreate) {
     const location = await this.locationRepository.findByAddress({
       street: input.streetAddress[0] ? input.streetAddress[0] : null,

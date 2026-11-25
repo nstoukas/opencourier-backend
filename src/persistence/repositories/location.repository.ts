@@ -119,6 +119,12 @@ export class LocationRepository extends EntityRepository implements ILocationRep
     return this.toDomain(location)
   }
 
+  // Row 166: removes a Location row nothing points at, the one a partner edit made for a point move whose write
+  // never landed. A row in use cannot be removed: the delivery's foreign key refuses it, and Prisma throws.
+  async delete(locationId: string): Promise<void> {
+    await this.prisma.location.delete({ where: { id: locationId } })
+  }
+
   async update(locationId: string, data: Exact<ILocationUpdate>) {
     const location = await this.prisma.location.update({
       where: {
