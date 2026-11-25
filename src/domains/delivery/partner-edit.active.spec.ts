@@ -125,6 +125,24 @@ describe('partner-edit rules (Row 152)', () => {
     })
   })
 
+  describe('Row 169: tipAfterPartnerEdit with undefined tip (left out in portal edit)', () => {
+    // Row 169: an edit that leaves the tip out (sentTips === undefined) keeps the stored tip
+    // for EVERY DeliveryStatus value (held, unassigned, and ended).
+    test.each(Object.values(EnumDeliveryStatus))(
+      'status %s: undefined sent tip preserves current tips (250) for every status, held and not held',
+      (status) => {
+        expect(tipAfterPartnerEdit(status, 250, undefined)).toBe(250)
+      }
+    )
+
+    test.each(Object.values(EnumDeliveryStatus))(
+      'status %s: undefined sent tip preserves current tips of 0',
+      (status) => {
+        expect(tipAfterPartnerEdit(status, 0, undefined)).toBe(0)
+      }
+    )
+  })
+
   describe('localization and sentence mappings', () => {
     test('ERROR_SENTENCE_CODES maps PARTNER_EDIT_SENTENCES.ended to PARTNER_EDIT_ORDER_ENDED', () => {
       const entry = ERROR_SENTENCE_CODES.find(([sentence]) => sentence === PARTNER_EDIT_SENTENCES.ended)
@@ -177,10 +195,7 @@ describe('riderVisibleEdits (Row 164)', () => {
   describe('unheld or non-ongoing deliveries answer empty list', () => {
     test('returns [] when courierId is null, even with ongoing status', () => {
       for (const status of DELIVERY_ONGOING_STATUSES) {
-        const result = riderVisibleEdits(
-          { ...baseDelivery, status, courierId: null },
-          { pickupNotes: 'Changed note' }
-        )
+        const result = riderVisibleEdits({ ...baseDelivery, status, courierId: null }, { pickupNotes: 'Changed note' })
         expect(result).toEqual([])
       }
     })
@@ -199,16 +214,10 @@ describe('riderVisibleEdits (Row 164)', () => {
       expect(result).toEqual([])
     })
 
-    test.each(DELIVERY_ONGOING_STATUSES)(
-      'answers changed fields for held delivery in ongoing status %s',
-      (status) => {
-        const result = riderVisibleEdits(
-          { ...baseDelivery, status, courierId: 'courier-1' },
-          { pickupNotes: 'New note' }
-        )
-        expect(result).toEqual(['NOTES'])
-      }
-    )
+    test.each(DELIVERY_ONGOING_STATUSES)('answers changed fields for held delivery in ongoing status %s', (status) => {
+      const result = riderVisibleEdits({ ...baseDelivery, status, courierId: 'courier-1' }, { pickupNotes: 'New note' })
+      expect(result).toEqual(['NOTES'])
+    })
   })
 
   describe('notes changes', () => {
@@ -232,32 +241,20 @@ describe('riderVisibleEdits (Row 164)', () => {
 
     test('empty notes and null notes are the same (no change)', () => {
       // delivery has null, input has empty string
-      expect(
-        riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: '' })
-      ).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: '' })).toEqual([])
 
       // delivery has empty string, input has null
-      expect(
-        riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: null })
-      ).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: null })).toEqual([])
 
       // both null
-      expect(
-        riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: null })
-      ).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, pickupNotes: null }, { pickupNotes: null })).toEqual([])
 
       // both empty string
-      expect(
-        riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: '' })
-      ).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, pickupNotes: '' }, { pickupNotes: '' })).toEqual([])
 
       // same for dropoffNotes
-      expect(
-        riderVisibleEdits({ ...baseDelivery, dropoffNotes: null }, { dropoffNotes: '' })
-      ).toEqual([])
-      expect(
-        riderVisibleEdits({ ...baseDelivery, dropoffNotes: '' }, { dropoffNotes: null })
-      ).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, dropoffNotes: null }, { dropoffNotes: '' })).toEqual([])
+      expect(riderVisibleEdits({ ...baseDelivery, dropoffNotes: '' }, { dropoffNotes: null })).toEqual([])
     })
 
     test('field left undefined is no change', () => {
@@ -303,9 +300,9 @@ describe('riderVisibleEdits (Row 164)', () => {
 
     test('time changed from null to Date answers [TIMES]', () => {
       const deliveryWithNull = { ...baseDelivery, pickupReadyAt: null }
-      expect(
-        riderVisibleEdits(deliveryWithNull, { pickupReadyAt: new Date('2026-11-25T12:00:00.000Z') })
-      ).toEqual(['TIMES'])
+      expect(riderVisibleEdits(deliveryWithNull, { pickupReadyAt: new Date('2026-11-25T12:00:00.000Z') })).toEqual([
+        'TIMES',
+      ])
     })
 
     test('time changed from Date to null answers [TIMES]', () => {

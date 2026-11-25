@@ -700,14 +700,10 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
         expect(mockLocationDomainService.create).not.toHaveBeenCalled()
         expect(mockLocationDomainService.update).not.toHaveBeenCalled()
-        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
-          'del-own',
-          expect.anything(),
-          {
-            dropoffLocationId: 'loc-current-far',
-            ...otherUpdateFields,
-          }
-        )
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith('del-own', expect.anything(), {
+          dropoffLocationId: 'loc-current-far',
+          ...otherUpdateFields,
+        })
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
     })
@@ -917,13 +913,11 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         mockDeliveryDomainService.getByIdOrThrow.mockImplementation((id: string) =>
           Promise.resolve({ ...rowOrThrow(deliveries, id) })
         )
-        mockDeliveryDomainService.updateIfMatches = jest.fn(
-          (id: string, where: any, data: Partial<FakeDelivery>) => {
-            const updated = { ...rowOrThrow(deliveries, id), ...data }
-            deliveries.set(id, updated)
-            return Promise.resolve(true)
-          }
-        )
+        mockDeliveryDomainService.updateIfMatches = jest.fn((id: string, where: any, data: Partial<FakeDelivery>) => {
+          const updated = { ...rowOrThrow(deliveries, id), ...data }
+          deliveries.set(id, updated)
+          return Promise.resolve(true)
+        })
         mockLocationDomainService.getById = jest.fn((id: string) => {
           const location = locations.get(id)
           return Promise.resolve(location ? { ...location } : null)
@@ -1008,7 +1002,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         pickupNotes: opts?.notes ?? 'Pickup notes',
         dropoffNotes: opts?.notes ?? 'Dropoff notes',
         orderReference: 'ORD-152',
-        tipByCustomer: opts?.tipByCustomer ?? 0,
+        ...(opts && 'tipByCustomer' in opts ? { tipByCustomer: opts.tipByCustomer } : {}),
         pickupReadyAt: opts?.pickupReadyAt,
       } as unknown as DeliveryUpdatePartnerInput)
 
@@ -1430,7 +1424,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         pickupNotes: opts?.notes ?? 'Pickup notes',
         dropoffNotes: opts?.notes ?? 'Dropoff notes',
         orderReference: 'ORD-161',
-        tipByCustomer: opts?.tipByCustomer ?? 0,
+        ...(opts && 'tipByCustomer' in opts ? { tipByCustomer: opts.tipByCustomer } : {}),
       } as unknown as DeliveryUpdatePartnerInput)
 
     beforeEach(() => {
@@ -1466,9 +1460,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           // First write attempt loses because status moved
           mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
 
-          await expect(
-            service.update('del-161', partnerId, updateInput({ notes: 'Should not save' }))
-          ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+          await expect(service.update('del-161', partnerId, updateInput({ notes: 'Should not save' }))).rejects.toThrow(
+            new ConflictException(PARTNER_EDIT_SENTENCES.ended)
+          )
 
           // Exactly two reads were made
           expect(mockDeliveryDomainService.getByIdOrThrow).toHaveBeenCalledTimes(2)
@@ -1476,7 +1470,12 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
             'del-161',
-            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared', courierId: null },
+            {
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              tips: 100,
+              dropoffLocationId: 'loc-shared',
+              courierId: null,
+            },
             expect.anything()
           )
           // Nothing written unconditionally, and no event recorded
@@ -1549,7 +1548,12 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
             1,
             'del-161',
-            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared', courierId: null },
+            {
+              status: EnumDeliveryStatus.ASSIGNING_COURIER,
+              tips: 150,
+              dropoffLocationId: 'loc-shared',
+              courierId: null,
+            },
             expect.anything()
           )
 
@@ -1697,9 +1701,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // Every write attempt loses (returns false)
         mockDeliveryDomainService.updateIfMatches.mockResolvedValue(false)
 
-        await expect(
-          service.update('del-161', partnerId, updateInput({ notes: 'Attempt' }))
-        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.changed))
+        await expect(service.update('del-161', partnerId, updateInput({ notes: 'Attempt' }))).rejects.toThrow(
+          new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+        )
 
         // Exactly three reads and three write attempts
         expect(mockDeliveryDomainService.getByIdOrThrow).toHaveBeenCalledTimes(3)
@@ -1746,9 +1750,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Write 1 loses (returns false, e.g. someone moved point A to B)
         // Write 2 succeeds
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const input = updateInput({
           dropoffLatitude: destLat,
@@ -1829,9 +1831,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Write 1 loses (returns false)
         // Write 2 succeeds
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const input = {
           ...updateInput({ notes: 'Updated notes' }),
@@ -1842,10 +1842,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // boxSizeChangeFor was called on each try
         expect(mockDeliveryDomainService.boxSizeChangeFor).toHaveBeenCalledTimes(2)
-        expect(mockDeliveryDomainService.boxSizeChangeFor).toHaveBeenCalledWith(
-          initialDelivery,
-          BoxSize.LARGE
-        )
+        expect(mockDeliveryDomainService.boxSizeChangeFor).toHaveBeenCalledWith(initialDelivery, BoxSize.LARGE)
 
         // recordBoxSizeChanged was called exactly once after the write landed
         expect(mockDeliveryDomainService.recordBoxSizeChanged).toHaveBeenCalledTimes(1)
@@ -1969,7 +1966,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         pickupNotes: opts?.notes ?? 'Pickup notes',
         dropoffNotes: opts?.notes ?? 'Dropoff notes',
         orderReference: 'ORD-166',
-        tipByCustomer: opts?.tipByCustomer ?? 0,
+        ...(opts && 'tipByCustomer' in opts ? { tipByCustomer: opts.tipByCustomer } : {}),
       } as unknown as DeliveryUpdatePartnerInput)
 
     const newPointInput = updateInput({
@@ -2055,9 +2052,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Write 1 loses race (tips mismatch)
         // Write 2 succeeds
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-166', partnerId, newPointInput)
 
@@ -2103,9 +2098,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
       it('deletes the created Location row in finally when an error is thrown inside tryPartnerEdit', async () => {
         const delivery = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER)
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(delivery)
-          .mockResolvedValueOnce(delivery)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(delivery).mockResolvedValueOnce(delivery)
 
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
         // On try 1, drift check passes; on try 2, drift check fails unexpectedly
@@ -2129,9 +2122,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // updateIfMatches throws an unexpected database error
         mockDeliveryDomainService.updateIfMatches.mockRejectedValueOnce(new Error('Database disk error'))
 
-        await expect(service.update('del-166', partnerId, newPointInput)).rejects.toThrow(
-          'Database disk error'
-        )
+        await expect(service.update('del-166', partnerId, newPointInput)).rejects.toThrow('Database disk error')
 
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
         expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
@@ -2142,9 +2133,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const delivery = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER)
         const otherDelivery = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { partnerId: 'other-partner' })
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(delivery)
-          .mockResolvedValueOnce(otherDelivery)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(delivery).mockResolvedValueOnce(otherDelivery)
 
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
 
@@ -2188,9 +2177,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Write 1 loses race
         // Write 2 succeeds
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-166', partnerId, newPointInput)
 
@@ -2255,9 +2242,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Write 1 loses
         // Write 2 succeeds
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const input = updateInput({
           dropoffLatitude: targetLat,
@@ -2311,9 +2296,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(deliveryB)
           .mockResolvedValueOnce({ ...deliveryB, dropoffLocationId: 'loc-copy-B' })
 
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-166', partnerId, newPointInput)
 
@@ -2376,16 +2359,12 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(deliveryB)
           .mockResolvedValueOnce({ ...deliveryB, dropoffLocationId: 'loc-copy-B' })
 
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-166', partnerId, newPointInput)
 
         // In use log line was written
-        expect(logSpy).toHaveBeenCalledWith(
-          'Drop off point loc-copy-A is in use by another record, so it stays'
-        )
+        expect(logSpy).toHaveBeenCalledWith('Drop off point loc-copy-A is in use by another record, so it stays')
         // Saved delivery is still returned!
         expect(result).toBeDefined()
         expect(result.dropoffLocationId).toBe('loc-copy-B')
@@ -2409,9 +2388,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         // In use log line was written
-        expect(logSpy).toHaveBeenCalledWith(
-          'Drop off point loc-new-1 is in use by another record, so it stays'
-        )
+        expect(logSpy).toHaveBeenCalledWith('Drop off point loc-new-1 is in use by another record, so it stays')
 
         logSpy.mockRestore()
       })
@@ -2476,9 +2453,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           matchedCourierId: 'courier-offered',
         })
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(offeredOnRetry)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(offeredOnRetry)
 
         // Try 1 loses write race
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
@@ -2503,16 +2478,14 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           status: EnumDeliveryStatus.CANCELED,
         })
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(endedOnRetry)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(endedOnRetry)
 
         // Try 1 loses write race
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
 
-        await expect(
-          service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
-        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+        await expect(service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)).rejects.toThrow(
+          new ConflictException(PARTNER_EDIT_SENTENCES.ended)
+        )
 
         // No BOX_SIZE_CHANGED event recorded
         expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
@@ -2539,9 +2512,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           pickupNotes: 'New notes',
         }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
 
@@ -2593,9 +2564,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(initial)
           .mockResolvedValueOnce(saved)
 
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
 
@@ -2617,9 +2586,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(saved)
 
         // Try 1 loses write race; Try 2 lands
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-167', partnerId, {
           boxSize: BoxSize.LARGE,
@@ -2671,9 +2638,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(saved)
 
         // Try 1 loses race; Try 2 lands
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         const result = await service.update('del-167', partnerId, {
           boxSize: BoxSize.LARGE,
@@ -2699,10 +2664,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
             data: { boxSize: BoxSize.LARGE, boxUnits: 100, boxSizeAssumed: false },
           })
         )
-        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalledWith(
-          try1Delivery,
-          expect.anything()
-        )
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalledWith(try1Delivery, expect.anything())
 
         expect(result.boxSize).toBe(BoxSize.LARGE)
       })
@@ -2837,9 +2799,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const initial = row167Delivery({ boxSize: BoxSize.SMALL, boxUnits: 30 })
         const saved = { ...initial, boxSize: BoxSize.LARGE, boxUnits: 100, boxSizeAssumed: false }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         const callSequence: string[] = []
         mockDeliveryDomainService.updateIfMatches.mockImplementation(async () => {
@@ -2864,9 +2824,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         mockDeliveryDomainService.updateIfMatches.mockRejectedValueOnce(new Error('DB failure'))
 
-        await expect(
-          service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
-        ).rejects.toThrow('DB failure')
+        await expect(service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)).rejects.toThrow(
+          'DB failure'
+        )
 
         expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
@@ -2875,7 +2835,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
   })
 
   // Row 164: the rider sees a restaurant's edit to a held order
-  describe('Row 164: the rider sees a restaurant\'s edit to a held order', () => {
+  describe("Row 164: the rider sees a restaurant's edit to a held order", () => {
     const sharedDropoffLocation = {
       id: 'loc-shared',
       formattedAddress: 'Iasonos 12, Volos 38221, Greece',
@@ -2896,12 +2856,28 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       orderReference: 'ORD-164',
       matchedCourierId: null,
       courierId: (opts?.courierId as string | null) !== undefined ? (opts?.courierId as string | null) : 'courier-1',
-      pickupNotes: (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
-      dropoffNotes: (opts?.dropoffNotes as string | null) !== undefined ? (opts?.dropoffNotes as string | null) : 'Old dropoff notes',
-      pickupReadyAt: (opts?.pickupReadyAt as Date | null) !== undefined ? (opts?.pickupReadyAt as Date | null) : new Date('2026-11-25T12:00:00.000Z'),
-      pickupDeadlineAt: (opts?.pickupDeadlineAt as Date | null) !== undefined ? (opts?.pickupDeadlineAt as Date | null) : new Date('2026-11-25T12:30:00.000Z'),
-      dropoffReadyAt: (opts?.dropoffReadyAt as Date | null) !== undefined ? (opts?.dropoffReadyAt as Date | null) : new Date('2026-11-25T12:35:00.000Z'),
-      dropoffDeadlineAt: (opts?.dropoffDeadlineAt as Date | null) !== undefined ? (opts?.dropoffDeadlineAt as Date | null) : new Date('2026-11-25T13:00:00.000Z'),
+      pickupNotes:
+        (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
+      dropoffNotes:
+        (opts?.dropoffNotes as string | null) !== undefined
+          ? (opts?.dropoffNotes as string | null)
+          : 'Old dropoff notes',
+      pickupReadyAt:
+        (opts?.pickupReadyAt as Date | null) !== undefined
+          ? (opts?.pickupReadyAt as Date | null)
+          : new Date('2026-11-25T12:00:00.000Z'),
+      pickupDeadlineAt:
+        (opts?.pickupDeadlineAt as Date | null) !== undefined
+          ? (opts?.pickupDeadlineAt as Date | null)
+          : new Date('2026-11-25T12:30:00.000Z'),
+      dropoffReadyAt:
+        (opts?.dropoffReadyAt as Date | null) !== undefined
+          ? (opts?.dropoffReadyAt as Date | null)
+          : new Date('2026-11-25T12:35:00.000Z'),
+      dropoffDeadlineAt:
+        (opts?.dropoffDeadlineAt as Date | null) !== undefined
+          ? (opts?.dropoffDeadlineAt as Date | null)
+          : new Date('2026-11-25T13:00:00.000Z'),
       boxSize: BoxSize.SMALL,
       boxUnits: 30,
       boxSizeAssumed: false,
@@ -2924,14 +2900,12 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       mockDeliveryEventService.notifyJobEdited = jest.fn().mockResolvedValue(undefined)
     })
 
-    describe('clause 1: partner edit that lands and changes held order\'s notes or times calls notifyJobEdited at once', () => {
+    describe("clause 1: partner edit that lands and changes held order's notes or times calls notifyJobEdited at once", () => {
       it('calls notifyJobEdited with NOTES when pickup notes change', async () => {
         const initial = row164Delivery({ pickupNotes: 'Old pickup notes' })
         const saved = { ...initial, pickupNotes: 'New pickup notes' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New pickup notes' }) as any)
 
@@ -2943,9 +2917,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const initial = row164Delivery({ dropoffNotes: 'Old dropoff notes' })
         const saved = { ...initial, dropoffNotes: 'New dropoff notes' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ dropoffNotes: 'New dropoff notes' }) as any)
 
@@ -2958,9 +2930,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const newTime = new Date('2026-11-25T12:45:00.000Z')
         const saved = { ...initial, pickupDeadlineAt: newTime }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ pickupDeadlineAt: newTime }) as any)
 
@@ -2973,9 +2943,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const newTime = new Date('2026-11-25T12:45:00.000Z')
         const saved = { ...initial, pickupNotes: 'New pickup notes', pickupReadyAt: newTime }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update(
           'del-164',
@@ -2996,9 +2964,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const initial = row164Delivery({ courierId: null, status: EnumDeliveryStatus.ASSIGNING_COURIER })
         const saved = { ...initial, pickupNotes: 'New pickup notes' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New pickup notes' }) as any)
 
@@ -3010,9 +2976,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const initial = row164Delivery({ orderReference: 'REF-1' })
         const saved = { ...initial, orderReference: 'REF-2' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ orderReference: 'REF-2' }) as any)
 
@@ -3026,9 +2990,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const initial = row164Delivery({ pickupNotes: 'Old' })
         const saved = { ...initial, pickupNotes: 'New' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
 
@@ -3052,9 +3014,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(saved)
 
         // First attempt loses race (returns false), second attempt lands (returns true)
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
 
@@ -3069,9 +3029,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
         mockDeliveryDomainService.updateIfMatches.mockResolvedValue(false)
 
-        await expect(
-          service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
-        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.changed))
+        await expect(service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)).rejects.toThrow(
+          new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+        )
 
         expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
       })
@@ -3119,9 +3079,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         // Try 1 loses (courier changed in DB, where.courierId: 'courier-old' doesn't match)
         // Try 2 lands (where.courierId: 'courier-new')
-        mockDeliveryDomainService.updateIfMatches
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true)
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
 
         await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
 
@@ -3147,9 +3105,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const ended = row164Delivery({ status: EnumDeliveryStatus.DROPPED_OFF })
         mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(ended)
 
-        await expect(
-          service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
-        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+        await expect(service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)).rejects.toThrow(
+          new ConflictException(PARTNER_EDIT_SENTENCES.ended)
+        )
 
         expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
       })
@@ -3200,12 +3158,28 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       orderReference: 'ORD-168',
       matchedCourierId: null,
       courierId: (opts?.courierId as string | null) !== undefined ? (opts?.courierId as string | null) : 'courier-1',
-      pickupNotes: (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
-      dropoffNotes: (opts?.dropoffNotes as string | null) !== undefined ? (opts?.dropoffNotes as string | null) : 'Old dropoff notes',
-      pickupReadyAt: (opts?.pickupReadyAt as Date | null) !== undefined ? (opts?.pickupReadyAt as Date | null) : new Date('2026-11-25T12:00:00.000Z'),
-      pickupDeadlineAt: (opts?.pickupDeadlineAt as Date | null) !== undefined ? (opts?.pickupDeadlineAt as Date | null) : new Date('2026-11-25T12:30:00.000Z'),
-      dropoffReadyAt: (opts?.dropoffReadyAt as Date | null) !== undefined ? (opts?.dropoffReadyAt as Date | null) : new Date('2026-11-25T12:35:00.000Z'),
-      dropoffDeadlineAt: (opts?.dropoffDeadlineAt as Date | null) !== undefined ? (opts?.dropoffDeadlineAt as Date | null) : new Date('2026-11-25T13:00:00.000Z'),
+      pickupNotes:
+        (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
+      dropoffNotes:
+        (opts?.dropoffNotes as string | null) !== undefined
+          ? (opts?.dropoffNotes as string | null)
+          : 'Old dropoff notes',
+      pickupReadyAt:
+        (opts?.pickupReadyAt as Date | null) !== undefined
+          ? (opts?.pickupReadyAt as Date | null)
+          : new Date('2026-11-25T12:00:00.000Z'),
+      pickupDeadlineAt:
+        (opts?.pickupDeadlineAt as Date | null) !== undefined
+          ? (opts?.pickupDeadlineAt as Date | null)
+          : new Date('2026-11-25T12:30:00.000Z'),
+      dropoffReadyAt:
+        (opts?.dropoffReadyAt as Date | null) !== undefined
+          ? (opts?.dropoffReadyAt as Date | null)
+          : new Date('2026-11-25T12:35:00.000Z'),
+      dropoffDeadlineAt:
+        (opts?.dropoffDeadlineAt as Date | null) !== undefined
+          ? (opts?.dropoffDeadlineAt as Date | null)
+          : new Date('2026-11-25T13:00:00.000Z'),
       boxSize: BoxSize.SMALL,
       boxUnits: 30,
       boxSizeAssumed: false,
@@ -3244,15 +3218,13 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
       it('setting all four times to null reaches the conditional write data as null for all four', async () => {
         const initial = row168Delivery()
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce({
-            ...initial,
-            pickupReadyAt: null,
-            pickupDeadlineAt: null,
-            dropoffReadyAt: null,
-            dropoffDeadlineAt: null,
-          })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce({
+          ...initial,
+          pickupReadyAt: null,
+          pickupDeadlineAt: null,
+          dropoffReadyAt: null,
+          dropoffDeadlineAt: null,
+        })
 
         await service.update(
           'del-168',
@@ -3275,27 +3247,26 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     })
 
     describe('a time left out of the input is absent (undefined) from conditional write data', () => {
-      it.each(TIME_FIELDS)('a time left out of the input (%s) is absent (undefined) from data so Prisma keeps it', async (field) => {
-        const initial = row168Delivery()
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(initial)
+      it.each(TIME_FIELDS)(
+        'a time left out of the input (%s) is absent (undefined) from data so Prisma keeps it',
+        async (field) => {
+          const initial = row168Delivery()
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
 
-        const input = updateInput({ pickupNotes: 'Updated notes' })
-        delete (input as any)[field]
+          const input = updateInput({ pickupNotes: 'Updated notes' })
+          delete (input as any)[field]
 
-        await service.update('del-168', partnerId, input as any)
+          await service.update('del-168', partnerId, input as any)
 
-        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
-        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
-        expect(data[field]).toBeUndefined()
-      })
+          expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+          const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+          expect(data[field]).toBeUndefined()
+        }
+      )
 
       it('all four times left out of input are absent (undefined) from conditional write data', async () => {
         const initial = row168Delivery()
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(initial)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
 
         const input = updateInput({ pickupNotes: 'Updated notes' })
         for (const field of TIME_FIELDS) {
@@ -3324,9 +3295,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         })
         const saved = { ...initial, pickupNotes: 'New notes' }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         // Times left out of the input; only notes updated
         await service.update('del-168', partnerId, updateInput({ pickupNotes: 'New notes' }) as any)
@@ -3339,9 +3308,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
       it('reports no TIMES when all fields are unchanged and times are left out of input', async () => {
         const initial = row168Delivery()
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(initial)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
 
         await service.update('del-168', partnerId, updateInput() as any)
 
@@ -3355,9 +3322,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         })
         const saved = { ...initial, [field]: null }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update('del-168', partnerId, updateInput({ [field]: null }) as any)
 
@@ -3380,9 +3345,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           dropoffDeadlineAt: null,
         }
 
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(saved)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved)
 
         await service.update(
           'del-168',
@@ -3401,15 +3364,118 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
       it('reports no TIMES when null time is sent for an order whose stored time is already null', async () => {
         const initial = row168Delivery({ pickupReadyAt: null })
-        mockDeliveryDomainService.getByIdOrThrow
-          .mockResolvedValueOnce(initial)
-          .mockResolvedValueOnce(initial)
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
 
         await service.update('del-168', partnerId, updateInput({ pickupReadyAt: null }) as any)
 
         expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
         expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
       })
+    })
+  })
+
+  // Row 169: the portal's edit keeps the tip as it is
+  describe("Row 169: the portal's edit keeps the tip as it is", () => {
+    const sharedDropoffLocation = {
+      id: 'loc-shared',
+      latitude: 39.3621,
+      longitude: 22.9425,
+      addressLine1: 'Iasonos 45',
+      addressLine2: null,
+      city: 'Volos',
+      state: 'Magnesia',
+      street: 'Iasonos',
+      zipCode: '38221',
+      countryCode: 'GR',
+      stateCode: 'THE',
+      houseNumber: '45',
+      formattedAddress: 'Iasonos 45, Volos 38221, Greece',
+    }
+
+    const row169Delivery = (opts?: { status?: EnumDeliveryStatus; tips?: number; courierId?: string | null }) => ({
+      id: 'del-169',
+      partnerId,
+      status: opts?.status ?? EnumDeliveryStatus.CREATED,
+      dropoffLocationId: 'loc-shared',
+      dropoffLocation: { ...sharedDropoffLocation },
+      pickupNotes: 'Old pickup notes',
+      dropoffNotes: 'Old dropoff notes',
+      pickupVerification: null,
+      dropoffVerification: null,
+      deliveryQuoteId: 'quote-1',
+      tips: opts?.tips ?? 300,
+      currencyCode: 'EUR',
+      orderReference: 'ORD-169',
+      matchedCourierId: null,
+      courierId: opts?.courierId ?? null,
+      boxSize: BoxSize.SMALL,
+      boxUnits: 30,
+      boxSizeAssumed: false,
+    })
+
+    // Input helper that does NOT set tipByCustomer by default (the key is completely omitted)
+    const updateInputWithoutTip = (overrides: Record<string, unknown> = {}) =>
+      ({
+        dropoffLatitude: sharedDropoffLocation.latitude,
+        dropoffLongitude: sharedDropoffLocation.longitude,
+        pickupNotes: 'New pickup notes',
+        dropoffNotes: 'New dropoff notes',
+        orderReference: 'ORD-169',
+        ...overrides,
+      } as unknown as DeliveryUpdatePartnerInput)
+
+    beforeEach(() => {
+      mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+        id: 'quote-1',
+        pickupLocationId: 'loc-pickup',
+        dropoffLocationId: 'loc-shared',
+      })
+      mockLocationDomainService.getById = jest.fn().mockResolvedValue(sharedDropoffLocation)
+      mockDeliveryDomainService.updateIfMatches = jest.fn().mockResolvedValue(true)
+      mockDeliveryEventService.recordTipChangedEvent = jest.fn().mockResolvedValue(undefined)
+      mockDeliveryEventService.notifyJobEdited = jest.fn().mockResolvedValue(undefined)
+    })
+
+    describe('not held statuses (CREATED, ASSIGNING_COURIER) with no tip sent', () => {
+      test.each([EnumDeliveryStatus.CREATED, EnumDeliveryStatus.ASSIGNING_COURIER])(
+        'status %s with stored tip 300 and omitted tipByCustomer keeps stored tip and records no TIP_CHANGED event',
+        async (status) => {
+          const initial = row169Delivery({ status, tips: 300, courierId: null })
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+          const input = updateInputWithoutTip({ pickupNotes: 'Updated notes' })
+          expect('tipByCustomer' in input).toBe(false)
+
+          await service.update('del-169', partnerId, input)
+
+          expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+          const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+          expect(where.tips).toBe(300)
+          expect(data.tips).toBe(300)
+          expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+        }
+      )
+    })
+
+    describe('held statuses (DELIVERY_ONGOING_STATUSES) with no tip sent', () => {
+      test.each(DELIVERY_ONGOING_STATUSES)(
+        'held status %s with stored tip 300 and omitted tipByCustomer keeps stored tip and records no TIP_CHANGED event',
+        async (status) => {
+          const initial = row169Delivery({ status, tips: 300, courierId: 'courier-1' })
+          mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+          const input = updateInputWithoutTip({ pickupNotes: 'Updated notes' })
+          expect('tipByCustomer' in input).toBe(false)
+
+          await service.update('del-169', partnerId, input)
+
+          expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+          const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+          expect(where.tips).toBe(300)
+          expect(data.tips).toBe(300)
+          expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+        }
+      )
     })
   })
 })

@@ -58,6 +58,54 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
     })
   })
 
+  // Row 169: the portal's edit keeps the tip as it is (optional tipByCustomer)
+  describe('Row 169: optional tipByCustomer (decision 169.1)', () => {
+    it('a body with no tipByCustomer passes validation and result has no tip (undefined)', async () => {
+      const bodyWithoutTip = { ...validBody }
+      delete (bodyWithoutTip as any).tipByCustomer
+
+      const result = (await pipe.transform(bodyWithoutTip, {
+        type: 'body',
+        metatype: DeliveryUpdatePartnerInput,
+      })) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.tipByCustomer).toBeUndefined()
+    })
+
+    it('refuses tipByCustomer: null with 400 BadRequestException (@ValidateIf checks non-undefined)', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: null }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('refuses non-numeric string "abc" for tipByCustomer with 400 BadRequestException', async () => {
+      await expect(
+        pipe.transform({ ...validBody, tipByCustomer: 'abc' }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('pins current behaviour (deferred): empty string "" for tipByCustomer is implicitly converted to 0', async () => {
+      const result = (await pipe.transform(
+        { ...validBody, tipByCustomer: '' },
+        { type: 'body', metatype: DeliveryUpdatePartnerInput }
+      )) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.tipByCustomer).toBe(0)
+    })
+
+    it('pins current behaviour (deferred): boolean false for tipByCustomer is implicitly converted to 0', async () => {
+      const result = (await pipe.transform(
+        { ...validBody, tipByCustomer: false },
+        { type: 'body', metatype: DeliveryUpdatePartnerInput }
+      )) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.tipByCustomer).toBe(0)
+    })
+  })
+
   // Row 168: the portal's edit keeps the order's times as they are
   describe('Row 168: four times validation (pickupReadyAt, pickupDeadlineAt, dropoffReadyAt, dropoffDeadlineAt)', () => {
     const TIME_FIELDS = ['pickupReadyAt', 'pickupDeadlineAt', 'dropoffReadyAt', 'dropoffDeadlineAt'] as const
@@ -122,10 +170,7 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
     describe('empty string is refused', () => {
       it.each(TIME_FIELDS)('an empty string for %s is refused with BadRequestException', async (field) => {
         await expect(
-          pipe.transform(
-            { ...validBody, [field]: '' },
-            { type: 'body', metatype: DeliveryUpdatePartnerInput }
-          )
+          pipe.transform({ ...validBody, [field]: '' }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
         ).rejects.toThrow(BadRequestException)
       })
     })
@@ -135,10 +180,10 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
         const bodyWithoutField = { ...validBody }
         delete (bodyWithoutField as any)[field]
 
-        const result = (await pipe.transform(
-          bodyWithoutField,
-          { type: 'body', metatype: DeliveryUpdatePartnerInput }
-        )) as DeliveryUpdatePartnerInput
+        const result = (await pipe.transform(bodyWithoutField, {
+          type: 'body',
+          metatype: DeliveryUpdatePartnerInput,
+        })) as DeliveryUpdatePartnerInput
 
         expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
         expect(result[field]).toBeUndefined()
@@ -150,10 +195,10 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
           delete (bodyWithoutTimes as any)[field]
         }
 
-        const result = (await pipe.transform(
-          bodyWithoutTimes,
-          { type: 'body', metatype: DeliveryUpdatePartnerInput }
-        )) as DeliveryUpdatePartnerInput
+        const result = (await pipe.transform(bodyWithoutTimes, {
+          type: 'body',
+          metatype: DeliveryUpdatePartnerInput,
+        })) as DeliveryUpdatePartnerInput
 
         expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
         expect(result.pickupReadyAt).toBeUndefined()
