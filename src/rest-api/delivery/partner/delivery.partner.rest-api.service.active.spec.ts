@@ -428,6 +428,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       createdAt: new Date(),
       dropoffLocationId: 'loc-shared',
       deliveryQuoteId: 'quote-1',
+      tips: 150,
     })
 
     const pickupReadyAt = new Date('2026-11-03T10:00:00Z')
@@ -514,7 +515,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
           'del-own',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: undefined, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared' },
           {
             dropoffLocationId: 'loc-new',
             dropoffCorrectedLatitude: null,
@@ -625,7 +626,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
           'del-own',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: undefined, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared' },
           {
             dropoffLocationId: 'loc-shared',
             ...otherUpdateFields,
@@ -1670,6 +1671,209 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.getByIdOrThrow).toHaveBeenCalledTimes(3)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(3)
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('point race retry (Minor 2)', () => {
+      it('measures move from point B on retry when point was moved from A to B between read and write, with B in where and event', async () => {
+        // Point A: initial dropoff location
+        const locA = { ...sharedLocation, id: 'loc-A', latitude: 39.3621, longitude: 22.9425 }
+        // Point B: someone else moved the point concurrently to B
+        const locB = { ...sharedLocation, id: 'loc-B', latitude: 39.363, longitude: 22.943 }
+        // Destination C in the restaurant update input
+        const destLat = 39.365
+        const destLon = 22.945
+        const locC = { id: 'loc-C' }
+
+        const delivery1 = {
+          ...testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150),
+          dropoffLocationId: 'loc-A',
+        }
+        const delivery2 = {
+          ...testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150),
+          dropoffLocationId: 'loc-B',
+        }
+
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          if (id === 'loc-A') return Promise.resolve(locA)
+          if (id === 'loc-B') return Promise.resolve(locB)
+          if (id === 'loc-shared') return Promise.resolve(sharedLocation)
+          return Promise.resolve(null)
+        })
+        mockLocationDomainService.create = jest.fn().mockResolvedValue(locC)
+
+        // Read 1 sees point A; Read 2 sees point B; Read 3 (after write 2) returns saved delivery
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(delivery1)
+          .mockResolvedValueOnce(delivery2)
+          .mockResolvedValueOnce({ ...delivery2, dropoffLocationId: 'loc-C' })
+
+        // Write 1 loses (returns false, e.g. someone moved point A to B)
+        // Write 2 succeeds
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        const input = updateInput({
+          dropoffLatitude: destLat,
+          dropoffLongitude: destLon,
+        })
+
+        const result = await service.update('del-161', partnerId, input)
+
+        // Two write attempts
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
+
+        // First write matched on point A
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
+          1,
+          'del-161',
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-A' },
+          expect.anything()
+        )
+
+        // Second write carried point B's dropoffLocationId in where
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
+          2,
+          'del-161',
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-B' },
+          expect.objectContaining({
+            dropoffLocationId: 'loc-C',
+            dropoffCorrectedLatitude: null,
+            dropoffCorrectedLongitude: null,
+          })
+        )
+
+        // Exactly one DROPOFF_POINT_CORRECTED event recorded (not two!)
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliveryId: 'del-161',
+            type: EnumDeliveryEventType.DROPOFF_POINT_CORRECTED,
+            messageParams: expect.objectContaining({
+              from: '39.36300, 22.94300',
+              to: '39.36500, 22.94500',
+            }),
+          }),
+          EnumDeliveryStatus.ASSIGNING_COURIER
+        )
+
+        // Event message explicitly names point B as the old point
+        const [recordedEvent] = mockDeliveryEventService.recordDropoffPointCorrectedEvent.mock.calls[0]
+        expect(recordedEvent.message).toContain('39.36300, 22.94300')
+
+        expect(result.dropoffLocationId).toBe('loc-C')
+      })
+    })
+
+    describe('size change then lost write (Minor 2)', () => {
+      it('calls changeBoxSize exactly once over both tries when updateIfMatches loses once and second read already has new boxSize', async () => {
+        const initialDelivery = {
+          ...testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150),
+          boxSize: BoxSize.SMALL,
+        }
+        const deliveryWithNewSize = {
+          ...initialDelivery,
+          boxSize: BoxSize.LARGE,
+        }
+
+        // Read 1: delivery with BoxSize.SMALL
+        // Read 2: delivery already has BoxSize.LARGE (since changeBoxSize ran on attempt 1)
+        // Read 3 (after write 2 succeeds): returns saved delivery
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(deliveryWithNewSize)
+          .mockResolvedValueOnce({
+            ...deliveryWithNewSize,
+            pickupNotes: 'Updated notes',
+          })
+
+        // Write 1 loses (returns false)
+        // Write 2 succeeds
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        const input = {
+          ...updateInput({ notes: 'Updated notes' }),
+          boxSize: BoxSize.LARGE,
+        }
+
+        const result = await service.update('del-161', partnerId, input)
+
+        // changeBoxSize was called exactly once over both tries
+        expect(mockDeliveryDomainService.changeBoxSize).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.changeBoxSize).toHaveBeenCalledWith(
+          initialDelivery,
+          BoxSize.LARGE
+        )
+
+        // updateIfMatches was attempted twice
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
+
+        // The edit succeeds
+        expect(result).toBeDefined()
+        expect(result.boxSize).toBe(BoxSize.LARGE)
+        expect(result.pickupNotes).toBe('Updated notes')
+      })
+    })
+
+    describe('visibility check on retry (Minor 2)', () => {
+      it('refuses with 404 when the second read after a lost write belongs to another restaurant (fails assertVisibleToPartner)', async () => {
+        const initialDelivery = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150)
+        const invisibleDelivery = {
+          ...initialDelivery,
+          partnerId: otherPartnerId,
+        }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(invisibleDelivery)
+
+        // First write attempt loses
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
+
+        await expect(
+          service.update('del-161', partnerId, updateInput({ notes: 'Will fail on retry' }))
+        ).rejects.toThrow(new DeliveryNotFoundException('Delivery not found'))
+
+        // Second updateIfMatches was never called
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
+          'del-161',
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared' },
+          expect.anything()
+        )
+
+        // No event recorded
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+      })
+
+      it('refuses with 404 period sentence when the second read after a lost write is an own old ended delivery past the history cutoff', async () => {
+        const initialDelivery = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150)
+        const oldDate = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+        const oldEndedDelivery = {
+          ...initialDelivery,
+          status: EnumDeliveryStatus.CANCELED,
+          createdAt: oldDate,
+        }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(oldEndedDelivery)
+
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
+
+        await expect(
+          service.update('del-161', partnerId, updateInput({ notes: 'Will fail on retry' }))
+        ).rejects.toThrow(
+          new DeliveryNotFoundException('This order is older than 30 days. The co-op can look it up for you.')
+        )
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
         expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
       })
