@@ -260,15 +260,24 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   (`src/domains/delivery/partner-edit.ts`): an ended order is refused, a held order's point never moves and its tip stays. Tips are rider
   pay and never negative (`@Min(0)` on create and edit). An edit that changes the tip writes `TIP_CHANGED` with both amounts
   (row 160); any new code that writes `tips` must record it the same way.
-  Its write is conditional (`updateIfMatches`, row 161) on `status`, `tips` and `dropoffLocationId` as read; a lost write reads
-  and decides again, up to three tries, then answers `PARTNER_EDIT_CHANGED`. A field the edit starts deciding from joins that
-  `where`, never as `undefined` (Prisma drops the condition).
+  Its write is conditional (`updateIfMatches`, row 161) on `status`, `tips`, `dropoffLocationId` and `courierId` as read (row 164); a
+  lost write reads and decides again, up to three tries, then answers `PARTNER_EDIT_CHANGED`. A field the edit starts deciding from
+  joins that `where`, never as `undefined` (Prisma drops the condition). A new size joins the same write (`boxSizeChangeFor`, then
+  `recordBoxSizeChanged` after it lands; row 167), and every event is written only after the write lands. A landed edit that changes a
+  held order's notes or times sends `JOB_EDITED` to that rider (`riderVisibleEdits`, `notifyJobEdited`; row 164), kinds only, never the
+  notes. Its four times: left out keeps the stored one, `null` clears it (row 168).
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
   never an ADMIN login; the reset switches the API key off (`setPasswordAndRemoveApiKey`) and issues no session.
+  When it switches a key off it notes the time in `User.apiKeyRemovedByResetAt`, shown on the admin restaurant page; every admin
+  write that stores or removes a key clears it (row 162).
 - `OfferEndedMessage` carries `offeredAt` (null when unknown), and a rider's accept or decline sends `OFFER_ENDED` with `ANSWERED` to all
   their phones (rows 154, 155); a new place that ends an offer passes the offer's `offeredAt`.
 - An admin pickup edit makes a new Location row (row 150), never updates one: Locations are shared. Coordinates come back from the
   database rounded in their last digits, so compare points within a tolerance, never with `===`.
+- ⚠ Every foreign key onto `Location` cascades (a delivery, a quote or a note on it is deleted with it; a partner's pickup is set to
+  null). Never delete a Location by id alone: `LocationRepository.deleteIfUnused` asks in the same DELETE that nothing points at it (row 166).
+- A DTO field typed `Date | null` loses class-transformer's implicit conversion (TypeScript records a union as a plain object): give it
+  `@Type(() => Date)` as well, or every ISO string answers 400 (row 168).
 
 ## Agent skills
 
