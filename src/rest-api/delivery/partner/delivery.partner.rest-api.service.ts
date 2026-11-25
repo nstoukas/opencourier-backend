@@ -328,8 +328,8 @@ export class DeliveryPartnerRestApiService {
   }
 
   // Row 161: the edit decides from what it read: the status (row 152's refusals and the tip rule), the tip (row
-  // 160's event) and the drop off point (the move and its event). It then writes only if those three are still
-  // what it read. If another write landed in between (a rider's accept, a second edit of the same order), the
+  // 160's event) and the drop off point (the move and its event), plus, with a new size, that no rider is offered or
+  // holding it and the size (row 167). It then writes only if all of those are still what it read. If another write landed in between (a rider's accept, a second edit of the same order), the
   // delivery's fields, its size among them (row 167), are not written; the edit reads the order again and decides
   // again. So the answer is the one for the order as it is now: row 152's refusal for the new status, or the edit
   // with a held order's tip kept.
@@ -455,11 +455,13 @@ export class DeliveryPartnerRestApiService {
     const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
 
     // Row 161: a conditional write on what the decisions above were made from. The database checks and writes in
-    // one step, so an accept (or another edit) that lands after the read makes this write nothing. All three are
-    // non null columns; never put a value here that can be undefined, or Prisma drops that condition silently.
+    // one step, so an accept (or another edit) that lands after the read makes this write nothing. Status, tips and
+    // point are non null columns; never put a value here that can be undefined, or Prisma drops that condition
+    // silently.
     const written = await this.deliveryDomainService.updateIfMatches(
       delivery.id,
-      // Row 167: with a new size, also still no rider offered or holding, and the size as read.
+      // Row 167: with a new size, also still no rider offered or holding (`null` here is a real "is null" condition,
+      // on purpose), and the size as read.
       {
         status: delivery.status,
         tips: delivery.tips,
