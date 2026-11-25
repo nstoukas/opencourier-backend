@@ -297,6 +297,7 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
       deliveries = {
         getByIdOrThrow: jest.fn().mockResolvedValue(leg()),
         update: jest.fn().mockResolvedValue({ id: 'del-leg-1' }),
+        updateIfMatches: jest.fn().mockResolvedValue(true),
         changeBoxSize: jest.fn(),
       }
       locations = {
@@ -328,6 +329,7 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
       await expect(call).rejects.toMatchObject({ status: 409 })
       expect(locations.create).not.toHaveBeenCalled()
       expect(deliveries.update).not.toHaveBeenCalled()
+      expect(deliveries.updateIfMatches).not.toHaveBeenCalled()
       expect(deliveries.changeBoxSize).not.toHaveBeenCalled()
       expect(events.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
     })
@@ -336,7 +338,11 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
       await service.update('del-leg-1', partnerId, movedBody('order-77'))
 
       expect(locations.create).toHaveBeenCalledTimes(1)
-      expect(deliveries.update).toHaveBeenCalledWith('del-leg-1', expect.objectContaining({ dropoffLocationId: 'loc-new' }))
+      expect(deliveries.updateIfMatches).toHaveBeenCalledWith(
+        'del-leg-1',
+        expect.anything(),
+        expect.objectContaining({ dropoffLocationId: 'loc-new' })
+      )
     })
 
     test("another restaurant's leg still answers 404, not the 409 (visibility comes first)", async () => {

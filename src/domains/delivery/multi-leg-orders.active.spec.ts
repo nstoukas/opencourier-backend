@@ -421,6 +421,7 @@ describe('Multi leg orders (spec 0046)', () => {
       deliveries = {
         getByIdOrThrow: jest.fn().mockResolvedValue(stored()),
         update: jest.fn().mockResolvedValue({ id: 'del-leg-1' }),
+        updateIfMatches: jest.fn().mockResolvedValue(true),
         changeBoxSize: jest.fn(),
       }
       service = new DeliveryPartnerRestApiService(
@@ -444,13 +445,18 @@ describe('Multi leg orders (spec 0046)', () => {
       await expect(call).rejects.toMatchObject({ status: 409, message: LEG_LOCKED })
       expect(LEG_LABELS_LOCKED_SENTENCE).toBe(LEG_LOCKED)
       expect(deliveries.update).not.toHaveBeenCalled()
+      expect(deliveries.updateIfMatches).not.toHaveBeenCalled()
       expect(deliveries.changeBoxSize).not.toHaveBeenCalled()
     })
 
     test('the same orderReference on a leg is updated as usual', async () => {
       await service.update('del-leg-1', partnerId, body('order-77'))
 
-      expect(deliveries.update).toHaveBeenCalledWith('del-leg-1', expect.objectContaining({ orderReference: 'order-77' }))
+      expect(deliveries.updateIfMatches).toHaveBeenCalledWith(
+        'del-leg-1',
+        expect.anything(),
+        expect.objectContaining({ orderReference: 'order-77' })
+      )
     })
 
     test('a single delivery may still change its orderReference', async () => {
@@ -458,8 +464,9 @@ describe('Multi leg orders (spec 0046)', () => {
 
       await service.update('del-leg-1', partnerId, body('another-order'))
 
-      expect(deliveries.update).toHaveBeenCalledWith(
+      expect(deliveries.updateIfMatches).toHaveBeenCalledWith(
         'del-leg-1',
+        expect.anything(),
         expect.objectContaining({ orderReference: 'another-order' })
       )
     })
@@ -467,7 +474,7 @@ describe('Multi leg orders (spec 0046)', () => {
     test('the update never writes a leg number or count (the route does not take them)', async () => {
       await service.update('del-leg-1', partnerId, { ...body('order-77'), legNumber: 2, legCount: 4 })
 
-      const written = deliveries.update.mock.calls[0][1]
+      const written = deliveries.updateIfMatches.mock.calls[0][2]
       expect(written).not.toHaveProperty('legNumber')
       expect(written).not.toHaveProperty('legCount')
     })

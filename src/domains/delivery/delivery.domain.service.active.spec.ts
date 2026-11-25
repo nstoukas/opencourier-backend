@@ -1833,5 +1833,26 @@ describe('DeliveryDomainService', () => {
         expect(result).toBe(mockCharges)
       })
     })
+
+    describe('updateIfMatches (Row 161)', () => {
+      it("passes its three arguments to the repository's updateIfMatches and returns its boolean", async () => {
+        const where = { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100 }
+        const input = { tips: 200 }
+        mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(true)
+
+        const resultTrue = await service.updateIfMatches('del-1', where as any, input as any)
+
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith('del-1', where, input)
+        expect(resultTrue).toBe(true)
+
+        mockDeliveryRepository.updateIfMatches.mockResolvedValueOnce(false)
+        const resultFalse = await service.updateIfMatches('del-1', where as any, input as any)
+
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledTimes(2)
+        expect(mockDeliveryRepository.updateIfMatches).toHaveBeenLastCalledWith('del-1', where, input)
+        expect(resultFalse).toBe(false)
+      })
+    })
   })
 })

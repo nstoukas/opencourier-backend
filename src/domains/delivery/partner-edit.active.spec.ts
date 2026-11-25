@@ -138,9 +138,16 @@ describe('partner-edit rules (Row 152)', () => {
       expect(entry?.[1]).toBe('PARTNER_EDIT_POINT_HELD')
     })
 
+    test('ERROR_SENTENCE_CODES maps PARTNER_EDIT_SENTENCES.changed to PARTNER_EDIT_CHANGED (Row 161)', () => {
+      const entry = ERROR_SENTENCE_CODES.find(([sentence]) => sentence === PARTNER_EDIT_SENTENCES.changed)
+      expect(entry).toBeDefined()
+      expect(entry?.[1]).toBe('PARTNER_EDIT_CHANGED')
+    })
+
     test('en dictionary matches PARTNER_EDIT_SENTENCES in English', () => {
       expect(en.server.error.PARTNER_EDIT_ORDER_ENDED).toBe(PARTNER_EDIT_SENTENCES.ended)
       expect(en.server.error.PARTNER_EDIT_POINT_HELD).toBe(PARTNER_EDIT_SENTENCES.pointHeld)
+      expect(en.server.error.PARTNER_EDIT_CHANGED).toBe(PARTNER_EDIT_SENTENCES.changed)
     })
 
     test('el dictionary provides Greek translations', () => {
@@ -150,6 +157,7 @@ describe('partner-edit rules (Row 152)', () => {
       expect(el.server.error.PARTNER_EDIT_POINT_HELD).toBe(
         'Ένας διανομέας έχει ήδη αναλάβει αυτή την παραγγελία, οπότε το σημείο παράδοσης δεν μετακινείται. Στείλτε μήνυμα στη διανομή για να το αλλάξετε.'
       )
+      expect(el.server.error.PARTNER_EDIT_CHANGED).toBe('Η παραγγελία μόλις άλλαξε. Δείτε την ξανά πριν αποθηκεύσετε.')
     })
   })
 })

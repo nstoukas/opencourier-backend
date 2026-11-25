@@ -282,6 +282,19 @@ describe('HttpExceptionFilter (Row 121, AC-1, AC-2, AC-5)', () => {
         })
       })
 
+      it('adds PARTNER_EDIT_CHANGED code for ConflictException with changed order sentence (Row 161)', () => {
+        const error = new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+        filter.catch(error, mockHost)
+
+        expect(mockResponse.status).toHaveBeenCalledWith(409)
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          statusCode: 409,
+          error: 'Conflict',
+          message: PARTNER_EDIT_SENTENCES.changed,
+          code: 'PARTNER_EDIT_CHANGED',
+        })
+      })
+
       it('preserves code and params when Nest HttpException was thrown with refusalBody', () => {
         const body = refusalBody(HttpStatus.CONFLICT, {
           code: 'LEAVE_TOO_SOON',
