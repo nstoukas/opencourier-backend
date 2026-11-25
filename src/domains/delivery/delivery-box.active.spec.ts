@@ -8,7 +8,7 @@ import {
   EnumDeliveryStatus,
   EnumEventActor,
 } from '@prisma/types'
-import { DeliveryDomainService } from './delivery.domain.service'
+import { DeliveryDomainService, BoxSizeChange } from './delivery.domain.service'
 import { DeliveryEntity } from './entities/delivery.entity'
 import { DeliveryWithLocationsEntity } from './entities/delivery-with-locations.entity'
 import { BOX_SIZE_LOCKED_MESSAGE, BoxOverCapacityException, CantUpdateDeliveryStatusError, ErrorCode } from 'src/errors'
@@ -314,7 +314,7 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
       )
     })
 
-    test('partner update with a new size calls a conditional write requiring matchedCourierId null and courierId null, recopies units, clears boxSizeAssumed, and records BOX_SIZE_CHANGED (actor PARTNER)', async () => {
+    test('boxSizeChangeFor decides the write conditions and fields, recopies units from the setting in force, clears boxSizeAssumed, and writes nothing', async () => {
       mockConfigDomainService.instanceConfig.getBoxUnitsLarge.mockResolvedValue(100)
       const existingDelivery = new DeliveryEntity({
         id: 'del-update-1',
@@ -326,25 +326,86 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
         courierId: null,
       } as any)
 
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(true)
+      const change = await service.boxSizeChangeFor(existingDelivery, BoxSize.LARGE)
 
-      await service.changeBoxSize(existingDelivery, BoxSize.LARGE)
-
-      // Conditional write requires matchedCourierId null and courierId null
-      expect(mockDeliveryRepository.updateIfMatches).toHaveBeenCalledWith(
-        'del-update-1',
-        {
+      // Conditions for the edit's conditional write and fields to write
+      expect(change).toEqual({
+        where: {
           matchedCourierId: null,
           courierId: null,
           boxSize: BoxSize.MEDIUM,
-          status: EnumDeliveryStatus.CREATED,
         },
-        {
+        data: {
           boxSize: BoxSize.LARGE,
           boxUnits: 100,
           boxSizeAssumed: false,
-        }
-      )
+        },
+      })
+
+      // Writes nothing: no repo update, no event
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+    })
+
+    test('boxSizeChangeFor refuses with 409 BOX_SIZE_LOCKED_MESSAGE when a rider has been offered or holds the order, and writes nothing', async () => {
+      const offeredDelivery = new DeliveryEntity({
+        id: 'del-locked-1',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        boxSize: BoxSize.SMALL,
+        boxUnits: 30,
+        boxSizeAssumed: false,
+        matchedCourierId: 'courier-offered',
+        courierId: null,
+      } as any)
+
+      await expect(service.boxSizeChangeFor(offeredDelivery, BoxSize.MEDIUM)).rejects.toThrow(ConflictException)
+      await expect(service.boxSizeChangeFor(offeredDelivery, BoxSize.MEDIUM)).rejects.toThrow(BOX_SIZE_LOCKED_MESSAGE)
+
+      const heldDelivery = new DeliveryEntity({
+        id: 'del-locked-2',
+        status: EnumDeliveryStatus.ACCEPTED,
+        boxSize: BoxSize.SMALL,
+        boxUnits: 30,
+        boxSizeAssumed: false,
+        matchedCourierId: null,
+        courierId: 'courier-assigned',
+      } as any)
+
+      await expect(service.boxSizeChangeFor(heldDelivery, BoxSize.MEDIUM)).rejects.toThrow(ConflictException)
+      await expect(service.boxSizeChangeFor(heldDelivery, BoxSize.MEDIUM)).rejects.toThrow(BOX_SIZE_LOCKED_MESSAGE)
+
+      // Writes nothing
+      expect(mockDeliveryRepository.updateIfMatches).not.toHaveBeenCalled()
+      expect(mockDeliveryRepository.update).not.toHaveBeenCalled()
+      expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+    })
+
+    test('recordBoxSizeChanged records BOX_SIZE_CHANGED naming old and new size and units with actor PARTNER and status', async () => {
+      const existingDelivery = new DeliveryEntity({
+        id: 'del-update-1',
+        status: EnumDeliveryStatus.CREATED,
+        boxSize: BoxSize.MEDIUM,
+        boxUnits: 50,
+        boxSizeAssumed: true,
+        matchedCourierId: null,
+        courierId: null,
+      } as any)
+
+      const change: BoxSizeChange = {
+        where: {
+          matchedCourierId: null,
+          courierId: null,
+          boxSize: BoxSize.MEDIUM,
+        },
+        data: {
+          boxSize: BoxSize.LARGE,
+          boxUnits: 100,
+          boxSizeAssumed: false,
+        },
+      }
+
+      await service.recordBoxSizeChanged(existingDelivery, change)
 
       // Records BOX_SIZE_CHANGED naming old and new
       expect(mockDeliveryEventService.recordBoxEvent).toHaveBeenCalledWith(
@@ -364,27 +425,6 @@ describe('Box Model: Delivery Domain & Partner/Admin Lifecycle (AC-1, AC-3, AC-6
         },
         EnumDeliveryStatus.CREATED
       )
-    })
-
-    test('partner update when conditional write misses (an offer is out or a rider holds it) answers 409 with BOX_SIZE_LOCKED_MESSAGE and records nothing', async () => {
-      const existingDelivery = new DeliveryEntity({
-        id: 'del-locked-1',
-        status: EnumDeliveryStatus.ASSIGNING_COURIER,
-        boxSize: BoxSize.SMALL,
-        boxUnits: 30,
-        boxSizeAssumed: false,
-        matchedCourierId: 'courier-offered',
-        courierId: null,
-      } as any)
-
-      // Misses because matchedCourierId is not null
-      mockDeliveryRepository.updateIfMatches.mockResolvedValue(false)
-
-      await expect(service.changeBoxSize(existingDelivery, BoxSize.MEDIUM)).rejects.toThrow(ConflictException)
-      await expect(service.changeBoxSize(existingDelivery, BoxSize.MEDIUM)).rejects.toThrow(BOX_SIZE_LOCKED_MESSAGE)
-
-      // Records nothing
-      expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
     })
 
     test('processDeliveryEvent refuses each of the three box event types and records a failed row', async () => {

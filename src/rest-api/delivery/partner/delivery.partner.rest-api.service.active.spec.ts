@@ -1,5 +1,10 @@
 import { ConflictException } from '@nestjs/common'
-import { DeliveryLocationDoesntMatchQuoteException, DeliveryNotFoundException, NotFoundException } from 'src/errors'
+import {
+  BOX_SIZE_LOCKED_MESSAGE,
+  DeliveryLocationDoesntMatchQuoteException,
+  DeliveryNotFoundException,
+  NotFoundException,
+} from 'src/errors'
 import {
   BoxSize,
   EnumCancelledBy,
@@ -46,6 +51,21 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         return Promise.resolve(true)
       }),
       cancelDelivery: jest.fn(),
+      boxSizeChangeFor: jest.fn().mockImplementation(async (delivery: any, newSize: BoxSize) => {
+        if (delivery.matchedCourierId !== null || delivery.courierId !== null) {
+          throw new ConflictException(BOX_SIZE_LOCKED_MESSAGE)
+        }
+        const unitsMap: Record<BoxSize, number> = {
+          [BoxSize.SMALL]: 30,
+          [BoxSize.MEDIUM]: 50,
+          [BoxSize.LARGE]: 100,
+        }
+        return {
+          where: { matchedCourierId: null, courierId: null, boxSize: delivery.boxSize },
+          data: { boxSize: newSize, boxUnits: unitsMap[newSize], boxSizeAssumed: false },
+        }
+      }),
+      recordBoxSizeChanged: jest.fn().mockResolvedValue(undefined),
     }
     mockPartnerDomainService = {}
     mockLocationDomainService = {
@@ -57,7 +77,9 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     mockCourierDomainService = {
       getByIdWithSettings: jest.fn(),
     }
-    mockQuoteToDeliveryConversionService = {}
+    mockQuoteToDeliveryConversionService = {
+      isValidDeliveryLocationDrift: jest.fn().mockResolvedValue(true),
+    }
     mockDispatchStopRepository = {
       findOn: jest.fn().mockResolvedValue(null),
     }
@@ -69,6 +91,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     mockDeliveryEventService = {
       recordDropoffPointCorrectedEvent: jest.fn().mockResolvedValue(undefined),
       recordTipChangedEvent: jest.fn().mockResolvedValue(undefined),
+      recordBoxEvent: jest.fn().mockResolvedValue(undefined),
     }
 
     service = new DeliveryPartnerRestApiService(
@@ -280,7 +303,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
 
-      it('boxSize null changes nothing and calls no changeBoxSize', async () => {
+      it('boxSize null changes nothing and calls no boxSizeChangeFor', async () => {
         mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
           id: 'del-update-null-size',
           partnerId,
@@ -294,7 +317,6 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           latitude: 39.36,
           longitude: 22.94,
         })
-        mockDeliveryDomainService.changeBoxSize = jest.fn()
         mockDeliveryDomainService.updateIfMatches.mockResolvedValue(true)
 
         await service.update('del-update-null-size', partnerId, {
@@ -303,7 +325,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           dropoffLongitude: 22.94,
         } as any)
 
-        expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.boxSizeChangeFor).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
           'del-update-null-size',
           expect.anything(),
@@ -312,7 +335,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
 
-      it('the size change runs after the drift check, so an update refused by the drift check leaves the size unchanged (changeBoxSize not called)', async () => {
+      it('the size change runs after the drift check, so an update refused by the drift check leaves the size unchanged (boxSizeChangeFor not called)', async () => {
         mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue({
           id: 'del-update-drift-fail',
           partnerId,
@@ -332,7 +355,6 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           dropoffLocationId: 'loc-quoted',
         })
         mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(false)
-        mockDeliveryDomainService.changeBoxSize = jest.fn()
 
         await expect(
           service.update('del-update-drift-fail', partnerId, {
@@ -343,7 +365,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         ).rejects.toThrow(DeliveryLocationDoesntMatchQuoteException)
 
         expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenCalled()
-        expect(mockDeliveryDomainService.changeBoxSize).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.boxSizeChangeFor).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
     })
@@ -1773,27 +1796,30 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       })
     })
 
-    describe('size change then lost write (Minor 2)', () => {
-      it('calls changeBoxSize exactly once over both tries when updateIfMatches loses once and second read already has new boxSize', async () => {
+    describe('size change then lost write (Row 167)', () => {
+      it('calls boxSizeChangeFor on each try and recordBoxSizeChanged once when updateIfMatches loses once and lands on try 2', async () => {
         const initialDelivery = {
           ...testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, 150),
+          matchedCourierId: null,
+          courierId: null,
           boxSize: BoxSize.SMALL,
+          boxUnits: 30,
         }
-        const deliveryWithNewSize = {
+        const savedDelivery = {
           ...initialDelivery,
           boxSize: BoxSize.LARGE,
+          boxUnits: 100,
+          boxSizeAssumed: false,
+          pickupNotes: 'Updated notes',
         }
 
         // Read 1: delivery with BoxSize.SMALL
-        // Read 2: delivery already has BoxSize.LARGE (since changeBoxSize ran on attempt 1)
+        // Read 2: delivery still has BoxSize.SMALL (since lost write did not write size)
         // Read 3 (after write 2 succeeds): returns saved delivery
         mockDeliveryDomainService.getByIdOrThrow
           .mockResolvedValueOnce(initialDelivery)
-          .mockResolvedValueOnce(deliveryWithNewSize)
-          .mockResolvedValueOnce({
-            ...deliveryWithNewSize,
-            pickupNotes: 'Updated notes',
-          })
+          .mockResolvedValueOnce(initialDelivery)
+          .mockResolvedValueOnce(savedDelivery)
 
         // Write 1 loses (returns false)
         // Write 2 succeeds
@@ -1808,12 +1834,15 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         const result = await service.update('del-161', partnerId, input)
 
-        // changeBoxSize was called exactly once over both tries
-        expect(mockDeliveryDomainService.changeBoxSize).toHaveBeenCalledTimes(1)
-        expect(mockDeliveryDomainService.changeBoxSize).toHaveBeenCalledWith(
+        // boxSizeChangeFor was called on each try
+        expect(mockDeliveryDomainService.boxSizeChangeFor).toHaveBeenCalledTimes(2)
+        expect(mockDeliveryDomainService.boxSizeChangeFor).toHaveBeenCalledWith(
           initialDelivery,
           BoxSize.LARGE
         )
+
+        // recordBoxSizeChanged was called exactly once after the write landed
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).toHaveBeenCalledTimes(1)
 
         // updateIfMatches was attempted twice
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
@@ -2404,6 +2433,333 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect.objectContaining({ dropoffLocationId: 'loc-new-1' })
         )
         expect(result.dropoffLocationId).toBe('loc-new-1')
+      })
+    })
+  })
+
+  describe('Row 167: a box size change lands only with the edit it belongs to', () => {
+    const row167Delivery = (opts?: {
+      status?: EnumDeliveryStatus
+      matchedCourierId?: string | null
+      courierId?: string | null
+      boxSize?: BoxSize
+      boxUnits?: number
+    }) => ({
+      id: 'del-167',
+      partnerId,
+      status: opts?.status ?? EnumDeliveryStatus.ASSIGNING_COURIER,
+      createdAt: new Date(),
+      dropoffLocationId: 'loc-shared',
+      deliveryQuoteId: 'quote-1',
+      tips: 150,
+      currencyCode: 'EUR',
+      orderReference: 'ORD-167',
+      matchedCourierId: opts?.matchedCourierId !== undefined ? opts.matchedCourierId : null,
+      courierId: opts?.courierId !== undefined ? opts.courierId : null,
+      boxSize: opts?.boxSize ?? BoxSize.SMALL,
+      boxUnits: opts?.boxUnits ?? 30,
+      boxSizeAssumed: false,
+    })
+
+    describe('clause 1: an edit refused after a lost write leaves the size and its events as they were', () => {
+      it('refuses with BOX_SIZE_LOCKED when updateIfMatches loses and next try sees a rider offered/holding: records no event and attempts no write other than the conditional one', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.SMALL })
+        const offeredOnRetry = row167Delivery({
+          boxSize: BoxSize.SMALL,
+          matchedCourierId: 'courier-offered',
+        })
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(offeredOnRetry)
+
+        // Try 1 loses write race
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
+
+        await expect(
+          service.update('del-167', partnerId, { boxSize: BoxSize.LARGE, pickupNotes: 'Updated' } as any)
+        ).rejects.toThrow(new ConflictException(BOX_SIZE_LOCKED_MESSAGE))
+
+        // No BOX_SIZE_CHANGED event recorded
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+
+        // No write other than the one conditional attempt was made
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+      })
+
+      it('refuses with ended sentence when updateIfMatches loses and next try sees order ended: records no event and attempts no other write with the size', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.SMALL })
+        const endedOnRetry = row167Delivery({
+          boxSize: BoxSize.SMALL,
+          status: EnumDeliveryStatus.CANCELED,
+        })
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(endedOnRetry)
+
+        // Try 1 loses write race
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
+
+        await expect(
+          service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
+        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+
+        // No BOX_SIZE_CHANGED event recorded
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordBoxEvent).not.toHaveBeenCalled()
+
+        // No other write
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('clause 2: an edit that lands changes the size once with one BOX_SIZE_CHANGED', () => {
+      it('includes size fields in same updateIfMatches data as edit, adds matchedCourierId null, courierId null and boxSize to where, and records event once after write landed', async () => {
+        const initial = row167Delivery({
+          boxSize: BoxSize.SMALL,
+          boxUnits: 30,
+          status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        })
+        const saved = {
+          ...initial,
+          boxSize: BoxSize.LARGE,
+          boxUnits: 100,
+          boxSizeAssumed: false,
+          pickupNotes: 'New notes',
+        }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        const result = await service.update('del-167', partnerId, {
+          boxSize: BoxSize.LARGE,
+          pickupNotes: 'New notes',
+        } as any)
+
+        // updateIfMatches where adds matchedCourierId null, courierId null and old boxSize
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
+          'del-167',
+          expect.objectContaining({
+            status: EnumDeliveryStatus.ASSIGNING_COURIER,
+            tips: 150,
+            dropoffLocationId: 'loc-shared',
+            matchedCourierId: null,
+            courierId: null,
+            boxSize: BoxSize.SMALL,
+          }),
+          expect.objectContaining({
+            boxSize: BoxSize.LARGE,
+            boxUnits: 100,
+            boxSizeAssumed: false,
+            pickupNotes: 'New notes',
+          })
+        )
+
+        // recordBoxSizeChanged runs once, after the write landed, with old delivery and change
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).toHaveBeenCalledWith(
+          initial,
+          expect.objectContaining({
+            where: { matchedCourierId: null, courierId: null, boxSize: BoxSize.SMALL },
+            data: { boxSize: BoxSize.LARGE, boxUnits: 100, boxSizeAssumed: false },
+          })
+        )
+
+        expect(result.boxSize).toBe(BoxSize.LARGE)
+        expect(result.pickupNotes).toBe('New notes')
+      })
+
+      it('records BOX_SIZE_CHANGED once after write lands on retry when try 1 loses race', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.SMALL, boxUnits: 30 })
+        const saved = { ...initial, boxSize: BoxSize.LARGE, boxUnits: 100, boxSizeAssumed: false }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        const result = await service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).toHaveBeenCalledTimes(1)
+        expect(result.boxSize).toBe(BoxSize.LARGE)
+      })
+    })
+
+    describe('clause 3: a size change alone behaves as today', () => {
+      it('refuses with BOX_SIZE_LOCKED when rider is offered (matchedCourierId set), answered before anything is made (no Location created, no write)', async () => {
+        const offered = row167Delivery({ matchedCourierId: 'courier-1', boxSize: BoxSize.SMALL })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(offered)
+
+        // Point move included: verifies that refusal happens before Location is created
+        await expect(
+          service.update('del-167', partnerId, {
+            boxSize: BoxSize.LARGE,
+            dropoffLatitude: 39.37,
+            dropoffLongitude: 22.95,
+          } as any)
+        ).rejects.toThrow(new ConflictException(BOX_SIZE_LOCKED_MESSAGE))
+
+        // Answered before anything is made: no Location created, no write
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+      })
+
+      it('refuses with BOX_SIZE_LOCKED for a size change alone when rider is offered (matchedCourierId set), writing nothing', async () => {
+        const offered = row167Delivery({ matchedCourierId: 'courier-1', boxSize: BoxSize.SMALL })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(offered)
+
+        await expect(
+          service.update('del-167', partnerId, {
+            boxSize: BoxSize.LARGE,
+          } as any)
+        ).rejects.toThrow(new ConflictException(BOX_SIZE_LOCKED_MESSAGE))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+      })
+
+      it('refuses with BOX_SIZE_LOCKED for a size change alone when rider holds order (courierId set), answered before anything is made (no Location created, no write)', async () => {
+        const held = row167Delivery({
+          courierId: 'courier-1',
+          status: EnumDeliveryStatus.ACCEPTED,
+          boxSize: BoxSize.SMALL,
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(held)
+
+        // Size change alone on held order (notes allowed, but size change refused)
+        await expect(
+          service.update('del-167', partnerId, {
+            boxSize: BoxSize.LARGE,
+            pickupNotes: 'Notes allowed on held order',
+          } as any)
+        ).rejects.toThrow(new ConflictException(BOX_SIZE_LOCKED_MESSAGE))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+      })
+
+      it('the same size adds nothing to where or data and calls no boxSizeChangeFor', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.MEDIUM })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce({ ...initial, pickupNotes: 'Same size' })
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        await service.update('del-167', partnerId, {
+          boxSize: BoxSize.MEDIUM,
+          pickupNotes: 'Same size',
+        } as any)
+
+        expect(mockDeliveryDomainService.boxSizeChangeFor).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+
+        const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(where.matchedCourierId).toBeUndefined()
+        expect(where.courierId).toBeUndefined()
+        expect(where.boxSize).toBeUndefined()
+        expect(data.boxSize).toBeUndefined()
+        expect(data.boxUnits).toBeUndefined()
+        expect(data.boxSizeAssumed).toBeUndefined()
+      })
+
+      it('no boxSize (undefined) adds nothing to where or data and calls no boxSizeChangeFor', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.MEDIUM })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce({ ...initial, pickupNotes: 'No size' })
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        await service.update('del-167', partnerId, { pickupNotes: 'No size' } as any)
+
+        expect(mockDeliveryDomainService.boxSizeChangeFor).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+
+        const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(where.matchedCourierId).toBeUndefined()
+        expect(where.courierId).toBeUndefined()
+        expect(where.boxSize).toBeUndefined()
+        expect(data.boxSize).toBeUndefined()
+        expect(data.boxUnits).toBeUndefined()
+      })
+
+      it('JSON null boxSize adds nothing to where or data and calls no boxSizeChangeFor', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.MEDIUM })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce({ ...initial, pickupNotes: 'Null size' })
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        await service.update('del-167', partnerId, { boxSize: null, pickupNotes: 'Null size' } as any)
+
+        expect(mockDeliveryDomainService.boxSizeChangeFor).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+
+        const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(where.matchedCourierId).toBeUndefined()
+        expect(where.courierId).toBeUndefined()
+        expect(where.boxSize).toBeUndefined()
+        expect(data.boxSize).toBeUndefined()
+        expect(data.boxUnits).toBeUndefined()
+      })
+    })
+
+    describe('clause 4: size is written only when edit is known to land', () => {
+      it('fails if size or event is written before updateIfMatches lands: calls recordBoxSizeChanged strictly after landed write', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.SMALL, boxUnits: 30 })
+        const saved = { ...initial, boxSize: BoxSize.LARGE, boxUnits: 100, boxSizeAssumed: false }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        const callSequence: string[] = []
+        mockDeliveryDomainService.updateIfMatches.mockImplementation(async () => {
+          callSequence.push('updateIfMatches')
+          // Verify event has not been recorded before write completes
+          expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+          return true
+        })
+        mockDeliveryDomainService.recordBoxSizeChanged.mockImplementation(async () => {
+          callSequence.push('recordBoxSizeChanged')
+        })
+
+        await service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
+
+        // updateIfMatches ran first, recordBoxSizeChanged ran strictly after
+        expect(callSequence).toEqual(['updateIfMatches', 'recordBoxSizeChanged'])
+      })
+
+      it('does not write size or record event when updateIfMatches throws an error', async () => {
+        const initial = row167Delivery({ boxSize: BoxSize.SMALL, boxUnits: 30 })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial)
+
+        mockDeliveryDomainService.updateIfMatches.mockRejectedValueOnce(new Error('DB failure'))
+
+        await expect(
+          service.update('del-167', partnerId, { boxSize: BoxSize.LARGE } as any)
+        ).rejects.toThrow('DB failure')
+
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
       })
     })
   })
