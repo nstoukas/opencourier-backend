@@ -26,9 +26,10 @@ export class LocationDomainService {
     return this.locationRepository.create(input)
   }
 
-  // Row 166: only for a row this request made and never used (see the partner edit's `update`).
-  async delete(locationId: string): Promise<void> {
-    await this.locationRepository.delete(locationId)
+  // Row 166: removes a row this request made and never used, and only while nothing points at it (see the
+  // repository). Answers whether it was removed.
+  async deleteIfUnused(locationId: string): Promise<boolean> {
+    return this.locationRepository.deleteIfUnused(locationId)
   }
 
   async findOrCreate(input: ILocationFindOrCreate) {

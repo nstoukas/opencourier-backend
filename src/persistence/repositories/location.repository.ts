@@ -119,10 +119,25 @@ export class LocationRepository extends EntityRepository implements ILocationRep
     return this.toDomain(location)
   }
 
-  // Row 166: removes a Location row nothing points at, the one a partner edit made for a point move whose write
-  // never landed. A row in use cannot be removed: the delivery's foreign key refuses it, and Prisma throws.
-  async delete(locationId: string): Promise<void> {
-    await this.prisma.location.delete({ where: { id: locationId } })
+  // Row 166: removes a Location row only if nothing points at it: the one a partner edit made for a point move whose
+  // write never landed. The condition is part of the one DELETE, because the database would not stop a plain delete:
+  // every foreign key onto Location cascades (a quote, a delivery or a note on it would go too), and a partner's
+  // pickup is set to null (Fable review of row 166, major). `findOrCreate` can hand this row to a new quote for the
+  // same address and pin, so "made by this edit" is not enough. Answers whether the row was removed.
+  async deleteIfUnused(locationId: string): Promise<boolean> {
+    const result = await this.prisma.location.deleteMany({
+      where: {
+        id: locationId,
+        // `none: {}`: no row of that relation points here.
+        locationNotes: { none: {} },
+        pickupDelivery: { none: {} },
+        dropoffDelivery: { none: {} },
+        pickupDeliveryQuotes: { none: {} },
+        dropoffDeliveryQuotes: { none: {} },
+        partnerPickups: { none: {} },
+      },
+    })
+    return result.count > 0
   }
 
   async update(locationId: string, data: Exact<ILocationUpdate>) {

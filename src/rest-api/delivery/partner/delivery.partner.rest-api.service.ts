@@ -354,9 +354,11 @@ export class DeliveryPartnerRestApiService {
   }
 
   // Row 166: removing the unused row is tidying, so its failure is logged and never changes the restaurant's answer.
+  // A row something else came to use in the meantime (a quote for the same address and pin) is left, and logged.
   private async removeUnusedPoint(locationId: string) {
     try {
-      await this.locationDomainService.delete(locationId)
+      const removed = await this.locationDomainService.deleteIfUnused(locationId)
+      if (!removed) this.logger.log(`Drop off point ${locationId} is in use by another record, so it stays`)
     } catch (error) {
       this.logger.warn(`Could not remove the unused drop off point ${locationId}: ${describeError(error)}`)
     }
@@ -415,7 +417,7 @@ export class DeliveryPartnerRestApiService {
     // row of its own: the old address with the new coordinates. An unmoved point changes nothing.
     // Row 166: made once per edit. A later try reuses it while the order still has the drop off row it was copied
     // from: the input's point is the same in every try, so the row it would make is the same row. If that row was
-    // replaced in between (another move, an admin's edit), the copy may carry an old address: remove it, make anew.
+    // replaced in between (another restaurant edit moved the point), the copy may be stale: remove it, make anew.
     if (pointMoved && madePoint.id && madePoint.copiedFrom !== delivery.dropoffLocationId) {
       await this.removeUnusedPoint(madePoint.id)
       madePoint.id = null
