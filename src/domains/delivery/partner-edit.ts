@@ -76,6 +76,8 @@ export function riderVisibleEdits(
     dropoffDeadlineAt?: Date | string | null
   }
 ): JobEditedField[] {
+  // Both signals, unlike `riderHoldsOrder`: in an accept's claim window the rider has no job on the phone yet, and the
+  // job they load after ACCEPTED already shows the edit, so there is nothing to tell them (Fable review of 169.2).
   if (!delivery.courierId || !DELIVERY_ONGOING_STATUSES.includes(delivery.status)) return []
   const noteChanged = (sent: string | null | undefined, held: string | null) =>
     sent !== undefined && (sent ?? '') !== (held ?? '')

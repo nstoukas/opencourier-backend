@@ -47,7 +47,8 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
     required: false,
     type: Number,
-    description: 'Left out: the tip stays as it is (row 169). A number: the new tip, before a rider holds the order.',
+    description:
+      'Left out: the tip stays as it is (row 169). Otherwise the new tip in whole cents, sent as a JSON number (text, such as "250", is refused), applied only before a rider holds the order.',
   })
   // Row 169: a left out tip keeps the stored one (the portal has no tip box and used to send 0, zeroing a tip set
   // through the API). `@ValidateIf` checks the rest only when a tip is sent; unlike `@IsOptional()` it still refuses
