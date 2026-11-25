@@ -323,8 +323,10 @@ export class DeliveryPartnerRestApiService {
 
   // Row 161: the edit decides from what it read: the status (row 152's refusals and the tip rule), the tip (row
   // 160's event) and the drop off point (the move and its event). It then writes only if those three are still
-  // what it read. If another write landed in between (a rider's accept, a second edit of the same order), it
-  // writes nothing, reads the order again and decides again. So the answer is the one for the order as it is
+  // what it read. If another write landed in between (a rider's accept, a second edit of the same order), the
+  // delivery's fields are not written; the edit reads the order again and decides again. (Two things a try may
+  // already have done stay: a moved point's new Location row and a size change, which is on the record. See
+  // docs/explain/2026-11-25-backend-partner-edit-conditional-write.md.) So the answer is the one for the order as it is
   // now: row 152's refusal for the new status, or the edit with a held order's tip kept.
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
     for (let attempt = 1; attempt <= PARTNER_EDIT_ATTEMPTS; attempt++) {
@@ -338,14 +340,14 @@ export class DeliveryPartnerRestApiService {
   }
 
   // One try of the restaurant's edit, decided from `delivery` as read. Answers the delivery as saved, or null
-  // when the order changed before the write (then nothing of the delivery is written; see `update`).
+  // when the order changed before the write (then its fields and events are not written; see `update`).
   private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput) {
-    // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind.
+    // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind in this try.
     const endedRefusal = partnerEditRefusal(delivery.status, false)
     if (endedRefusal) throw new ConflictException(endedRefusal)
 
     // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg. First,
-    // so a refusal leaves nothing behind (row 10 review: a moved point had already made its Location row).
+    // so a refusal leaves nothing behind in this try (row 10 review: a moved point had already made its Location row).
     if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
       throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
     }
@@ -419,7 +421,8 @@ export class DeliveryPartnerRestApiService {
     const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
 
     // Row 161: a conditional write on what the decisions above were made from. The database checks and writes in
-    // one step, so an accept (or another edit) that lands after the read makes this write nothing.
+    // one step, so an accept (or another edit) that lands after the read makes this write nothing. All three are
+    // non null columns; never put a value here that can be undefined, or Prisma drops that condition silently.
     const written = await this.deliveryDomainService.updateIfMatches(
       delivery.id,
       { status: delivery.status, tips: delivery.tips, dropoffLocationId: delivery.dropoffLocationId },
@@ -491,6 +494,7 @@ export class DeliveryPartnerRestApiService {
       )
     }
 
+    // A conditional write answers a count, not the row, so the saved delivery is read back.
     return this.deliveryDomainService.getByIdOrThrow(delivery.id)
   }
 
