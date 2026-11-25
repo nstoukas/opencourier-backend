@@ -1434,16 +1434,17 @@ export class DeliveryEventService {
   }
 
   // Row 172: why the sweep gives a take back instead of completing it, or null to complete it. In this order: a
-  // dispatch stop, an accept that kept failing, an active SOS, a deactivation (each a key of the server's
-  // acceptGivenBackReason sentences).
+  // dispatch stop, an active SOS, a deactivation, then age (each a key of the server's acceptGivenBackReason
+  // sentences). Age comes last (Fable's reread): after an outage longer than the limit it would otherwise hide an SOS
+  // or a deactivation on the record.
   private async whyNotCompleteTake(
     delivery: DeliveryEntity,
     courierId: string
   ): Promise<'STOPPED' | 'FAILING' | 'SOS' | 'DEACTIVATED' | null> {
     if (await this.dispatchStopRepository.findOn(new Date())) return 'STOPPED'
-    if (Date.now() - delivery.updatedAt.getTime() > STACK_ACCEPT_GIVE_UP_MS) return 'FAILING'
     if (await this.courierRepository.hasActiveSos(courierId)) return 'SOS'
     if (await this.isCourierDeactivatedAfterTake(courierId)) return 'DEACTIVATED'
+    if (Date.now() - delivery.updatedAt.getTime() > STACK_ACCEPT_GIVE_UP_MS) return 'FAILING'
     return null
   }
 
