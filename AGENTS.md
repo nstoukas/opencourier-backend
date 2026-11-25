@@ -260,6 +260,9 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   (`src/domains/delivery/partner-edit.ts`): an ended order is refused, a held order's point never moves and its tip stays. Tips are rider
   pay and never negative (`@Min(0)` on create and edit). An edit that changes the tip writes `TIP_CHANGED` with both amounts
   (row 160); any new code that writes `tips` must record it the same way.
+  Its write is conditional (`updateIfMatches`, row 161) on `status`, `tips` and `dropoffLocationId` as read; a lost write reads
+  and decides again, up to three tries, then answers `PARTNER_EDIT_CHANGED`. A field the edit starts deciding from joins that
+  `where`, never as `undefined` (Prisma drops the condition).
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
   never an ADMIN login; the reset switches the API key off (`setPasswordAndRemoveApiKey`) and issues no session.
 - `OfferEndedMessage` carries `offeredAt` (null when unknown), and a rider's accept or decline sends `OFFER_ENDED` with `ANSWERED` to all
