@@ -102,6 +102,34 @@ describe('DeliveryEventService job edited (Row 164)', () => {
 
       expect(offerPushService.jobEdited).toHaveBeenCalledTimes(1)
       expect(offerPushService.jobEdited).toHaveBeenCalledWith('courier-1', wsMessage)
+
+      // Exact key set for wsMessage: deliveryId, restaurantName, changed, editedAt
+      expect(Object.keys(wsMessage).sort()).toEqual(['changed', 'deliveryId', 'editedAt', 'restaurantName'])
+      // Push receives the exact same message with the exact same editedAt
+      const pushMessage = offerPushService.jobEdited.mock.calls[0][1]
+      expect(pushMessage.editedAt).toBe(wsMessage.editedAt)
+      expect(Object.keys(pushMessage).sort()).toEqual(['changed', 'deliveryId', 'editedAt', 'restaurantName'])
+    })
+
+    test('live message and push carry the exact same editedAt and no customer or notes details', async () => {
+      const delivery = heldDelivery({
+        pickupNotes: 'Gate code 1234',
+        dropoffNotes: 'Leave at door',
+        dropoffPhoneNumber: '+306911111111',
+        dropoffName: 'Nikos Customer',
+      })
+      await service.notifyJobEdited(delivery, ['NOTES', 'TIMES'])
+
+      const [, wsMessage] = websocketDispatcher.sendJobEdited.mock.calls[0]
+      const [, pushMessage] = offerPushService.jobEdited.mock.calls[0]
+
+      expect(wsMessage.editedAt).toBe(pushMessage.editedAt)
+      expect(Object.keys(wsMessage).sort()).toEqual(['changed', 'deliveryId', 'editedAt', 'restaurantName'])
+      expect(Object.keys(pushMessage).sort()).toEqual(['changed', 'deliveryId', 'editedAt', 'restaurantName'])
+      expect((wsMessage as any).pickupNotes).toBeUndefined()
+      expect((wsMessage as any).dropoffNotes).toBeUndefined()
+      expect((wsMessage as any).dropoffPhoneNumber).toBeUndefined()
+      expect((wsMessage as any).dropoffName).toBeUndefined()
     })
 
     test('sends JOB_EDITED with TIMES when times change', async () => {

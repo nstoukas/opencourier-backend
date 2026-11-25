@@ -822,6 +822,7 @@ describe('OfferPushService - Spec 0003 AC-2, AC-6, AC-7, AC-10 Push Offers & Ins
       )
 
       const payload = mockPushNotificationService.sendData.mock.calls[0]![1]
+      expect(Object.keys(payload).sort()).toEqual(['changed', 'deliveryId', 'editedAt', 'restaurantName', 'type'])
       for (const val of Object.values(payload)) {
         expect(typeof val).toBe('string')
       }

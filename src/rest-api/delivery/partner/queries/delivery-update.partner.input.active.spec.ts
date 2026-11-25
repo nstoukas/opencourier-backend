@@ -57,4 +57,98 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       ).rejects.toThrow(BadRequestException)
     })
   })
+
+  // Row 168: the portal's edit keeps the order's times as they are
+  describe('Row 168: four times validation (pickupReadyAt, pickupDeadlineAt, dropoffReadyAt, dropoffDeadlineAt)', () => {
+    const TIME_FIELDS = ['pickupReadyAt', 'pickupDeadlineAt', 'dropoffReadyAt', 'dropoffDeadlineAt'] as const
+
+    describe('null passes for each time field', () => {
+      it.each(TIME_FIELDS)('null for %s passes validation and remains null', async (field) => {
+        const result = (await pipe.transform(
+          { ...validBody, [field]: null },
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )) as DeliveryUpdatePartnerInput
+
+        expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+        expect(result[field]).toBeNull()
+      })
+
+      it('all four times set to null passes validation and all remain null', async () => {
+        const result = (await pipe.transform(
+          {
+            ...validBody,
+            pickupReadyAt: null,
+            pickupDeadlineAt: null,
+            dropoffReadyAt: null,
+            dropoffDeadlineAt: null,
+          },
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )) as DeliveryUpdatePartnerInput
+
+        expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+        expect(result.pickupReadyAt).toBeNull()
+        expect(result.pickupDeadlineAt).toBeNull()
+        expect(result.dropoffReadyAt).toBeNull()
+        expect(result.dropoffDeadlineAt).toBeNull()
+      })
+    })
+
+    describe('ISO string becomes a Date and passes', () => {
+      it.each(TIME_FIELDS)('an ISO string for %s becomes a Date instance and passes', async (field) => {
+        const isoString = '2026-11-25T14:30:00.000Z'
+        const result = (await pipe.transform(
+          { ...validBody, [field]: isoString },
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )) as DeliveryUpdatePartnerInput
+
+        expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+        expect(result[field]).toBeInstanceOf(Date)
+        expect((result[field] as Date).toISOString()).toBe(isoString)
+      })
+    })
+
+    describe('non date string is refused', () => {
+      it.each(TIME_FIELDS)('a non date string for %s is refused with BadRequestException', async (field) => {
+        await expect(
+          pipe.transform(
+            { ...validBody, [field]: 'not-a-valid-date' },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+    })
+
+    describe('missing time passes (undefined)', () => {
+      it.each(TIME_FIELDS)('omitting %s passes validation with value undefined', async (field) => {
+        const bodyWithoutField = { ...validBody }
+        delete (bodyWithoutField as any)[field]
+
+        const result = (await pipe.transform(
+          bodyWithoutField,
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )) as DeliveryUpdatePartnerInput
+
+        expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+        expect(result[field]).toBeUndefined()
+      })
+
+      it('omitting all four times passes validation with all undefined', async () => {
+        const bodyWithoutTimes = { ...validBody }
+        for (const field of TIME_FIELDS) {
+          delete (bodyWithoutTimes as any)[field]
+        }
+
+        const result = (await pipe.transform(
+          bodyWithoutTimes,
+          { type: 'body', metatype: DeliveryUpdatePartnerInput }
+        )) as DeliveryUpdatePartnerInput
+
+        expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+        expect(result.pickupReadyAt).toBeUndefined()
+        expect(result.pickupDeadlineAt).toBeUndefined()
+        expect(result.dropoffReadyAt).toBeUndefined()
+        expect(result.dropoffDeadlineAt).toBeUndefined()
+      })
+    })
+  })
 })

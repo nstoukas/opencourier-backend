@@ -1476,7 +1476,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
             'del-161',
-            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared' },
+            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared', courierId: null },
             expect.anything()
           )
           // Nothing written unconditionally, and no event recorded
@@ -1549,7 +1549,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
             1,
             'del-161',
-            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared' },
+            { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared', courierId: null },
             expect.anything()
           )
 
@@ -1557,7 +1557,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
             2,
             'del-161',
-            { status: heldStatus, tips: 150, dropoffLocationId: 'loc-shared' },
+            { status: heldStatus, tips: 150, dropoffLocationId: 'loc-shared', courierId: null },
             expect.objectContaining({
               tips: 150,
               pickupNotes: 'Safe notes update',
@@ -1593,7 +1593,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared', courierId: null },
           expect.objectContaining({
             dropoffLocationId: 'loc-new',
             dropoffCorrectedLatitude: null,
@@ -1629,6 +1629,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           status: EnumDeliveryStatus.CREATED,
           tips: 250,
           dropoffLocationId: 'loc-specific',
+          courierId: null,
         })
         expect(calledInput).toBeDefined()
         // Plain unconditional update must never be called
@@ -1671,14 +1672,14 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           1,
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 100, dropoffLocationId: 'loc-shared', courierId: null },
           expect.anything()
         )
         // 2nd attempt matched where tips: 200
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           2,
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 200, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 200, dropoffLocationId: 'loc-shared', courierId: null },
           expect.anything()
         )
 
@@ -1763,7 +1764,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           1,
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-A' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-A', courierId: null },
           expect.anything()
         )
 
@@ -1771,7 +1772,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           2,
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-B' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-B', courierId: null },
           expect.objectContaining({
             dropoffLocationId: 'loc-C',
             dropoffCorrectedLatitude: null,
@@ -1882,7 +1883,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(
           'del-161',
-          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared' },
+          { status: EnumDeliveryStatus.ASSIGNING_COURIER, tips: 150, dropoffLocationId: 'loc-shared', courierId: null },
           expect.anything()
         )
 
@@ -2636,11 +2637,11 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(try1Data.boxUnits).toBe(100)
         expect(try1Data.boxSizeAssumed).toBe(false)
 
-        // Try 2 landed with NO size fields in where or data
+        // Try 2 landed with NO size fields in where or data (courierId remains the rider as read)
         const [, try2Where, try2Data] = mockDeliveryDomainService.updateIfMatches.mock.calls[1]
         expect(try2Where.boxSize).toBeUndefined()
         expect(try2Where.matchedCourierId).toBeUndefined()
-        expect(try2Where.courierId).toBeUndefined()
+        expect(try2Where.courierId).toBeNull()
         expect(try2Data.boxSize).toBeUndefined()
         expect(try2Data.boxUnits).toBeUndefined()
         expect(try2Data.boxSizeAssumed).toBeUndefined()
@@ -2783,7 +2784,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
         expect(where.matchedCourierId).toBeUndefined()
-        expect(where.courierId).toBeUndefined()
+        expect(where.courierId).toBeNull()
         expect(where.boxSize).toBeUndefined()
         expect(data.boxSize).toBeUndefined()
         expect(data.boxUnits).toBeUndefined()
@@ -2804,7 +2805,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
         expect(where.matchedCourierId).toBeUndefined()
-        expect(where.courierId).toBeUndefined()
+        expect(where.courierId).toBeNull()
         expect(where.boxSize).toBeUndefined()
         expect(data.boxSize).toBeUndefined()
         expect(data.boxUnits).toBeUndefined()
@@ -2824,7 +2825,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         const [, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
         expect(where.matchedCourierId).toBeUndefined()
-        expect(where.courierId).toBeUndefined()
+        expect(where.courierId).toBeNull()
         expect(where.boxSize).toBeUndefined()
         expect(data.boxSize).toBeUndefined()
         expect(data.boxUnits).toBeUndefined()
@@ -3071,6 +3072,103 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         await expect(
           service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
         ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.changed))
+
+        expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('clause 5: Minor 1 - courierId matched as read, and reassignment sends notice only to new rider on landed try', () => {
+      it('includes courierId matching the courier as read in updateIfMatches where (null when no rider)', async () => {
+        // Case A: held delivery has courierId 'courier-1'
+        const held = row164Delivery({ courierId: 'courier-1', pickupNotes: 'Old' })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(held)
+          .mockResolvedValueOnce({ ...held, pickupNotes: 'New' })
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+
+        const [, whereHeld] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(whereHeld.courierId).toBe('courier-1')
+
+        // Case B: unheld delivery has courierId null
+        const unheld = row164Delivery({ courierId: null, status: EnumDeliveryStatus.ASSIGNING_COURIER })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(unheld)
+          .mockResolvedValueOnce({ ...unheld, pickupNotes: 'New' })
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(true)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+
+        const [, whereUnheld] = mockDeliveryDomainService.updateIfMatches.mock.calls[1]
+        expect(whereUnheld.courierId).toBeNull()
+      })
+
+      it('reassignment between read and write (updateIfMatches false, fresh read has another courierId) sends JOB_EDITED once to new courier, never old one', async () => {
+        const initial = row164Delivery({ courierId: 'courier-old', pickupNotes: 'Old' })
+        const reassigned = row164Delivery({ courierId: 'courier-new', pickupNotes: 'Old' })
+        const saved = { ...reassigned, pickupNotes: 'New' }
+
+        // Read 1: sees courier-old
+        // Read 2: sees courier-new (reassigned and accepted)
+        // Read 3: post-write read
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(reassigned)
+          .mockResolvedValueOnce(saved)
+
+        // Try 1 loses (courier changed in DB, where.courierId: 'courier-old' doesn't match)
+        // Try 2 lands (where.courierId: 'courier-new')
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        await service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(2)
+
+        // Try 1 matched courier-old
+        const [, where1] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(where1.courierId).toBe('courier-old')
+
+        // Try 2 matched courier-new
+        const [, where2] = mockDeliveryDomainService.updateIfMatches.mock.calls[1]
+        expect(where2.courierId).toBe('courier-new')
+
+        // Exactly one notification sent: to the new courier, NEVER to the old one
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(reassigned, ['NOTES'])
+        expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalledWith(initial, expect.anything())
+      })
+    })
+
+    describe('clause 6: refused edits (ended order, moved point on held order) send nothing', () => {
+      it('sends nothing when edit is refused on an ended order', async () => {
+        const ended = row164Delivery({ status: EnumDeliveryStatus.DROPPED_OFF })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(ended)
+
+        await expect(
+          service.update('del-164', partnerId, updateInput({ pickupNotes: 'New' }) as any)
+        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.ended))
+
+        expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
+      })
+
+      it('sends nothing when point move is refused on a held order', async () => {
+        const held = row164Delivery({ status: EnumDeliveryStatus.ACCEPTED, courierId: 'courier-1' })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(held)
+
+        await expect(
+          service.update(
+            'del-164',
+            partnerId,
+            updateInput({
+              pickupNotes: 'New',
+              dropoffLatitude: 39.364,
+              dropoffLongitude: 22.944,
+            }) as any
+          )
+        ).rejects.toThrow(new ConflictException(PARTNER_EDIT_SENTENCES.pointHeld))
 
         expect(mockDeliveryEventService.notifyJobEdited).not.toHaveBeenCalled()
       })
