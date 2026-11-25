@@ -148,7 +148,8 @@ export interface DeliveryUpdateDetails {
   orderReference: string
   pickupNotes: string
   pickupVerification?: DeliveryVerification
-  tipByCustomer: number
+  // Row 169: left out keeps the stored tip.
+  tipByCustomer?: number
   dropoffLatitude: number
   dropoffLongitude: number
   // Row 168: left out keeps the time, null is "no time"; the columns are nullable.

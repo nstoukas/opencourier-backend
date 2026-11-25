@@ -35,7 +35,9 @@ export function partnerEditRefusal(status: EnumDeliveryStatus, pointMoved: boole
 // keeps the tip it had, and only before a rider holds it does the restaurant's value apply (row 160 records that
 // change as a TIP_CHANGED event). request-web always sends 0 for it (it has no tip field), which this also stops from zeroing a tip
 // set through the API on a held order.
-export function tipAfterPartnerEdit(status: EnumDeliveryStatus, currentTips: number, sentTips: number): number {
+// Row 169: an edit that leaves the tip out keeps it, whatever the status (the portal has no tip box).
+export function tipAfterPartnerEdit(status: EnumDeliveryStatus, currentTips: number, sentTips: number | undefined): number {
+  if (sentTips === undefined) return currentTips
   return DELIVERY_ONGOING_STATUSES.includes(status) ? currentTips : sentTips
 }
 

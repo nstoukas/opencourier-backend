@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
+import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator'
 import { BoxSize } from '@prisma/types'
 import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
@@ -44,13 +44,18 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   pickupVerification: DeliveryVerificationInput
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Number,
+    description: 'Left out: the tip stays as it is (row 169). A number: the new tip, before a rider holds the order.',
   })
+  // Row 169: a left out tip keeps the stored one (the portal has no tip box and used to send 0, zeroing a tip set
+  // through the API). `@ValidateIf` checks the rest only when a tip is sent; unlike `@IsOptional()` it still refuses
+  // null, since the tip column is never null.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.tipByCustomer !== undefined)
   @IsNumber()
   // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
   @Min(0)
-  tipByCustomer: number
+  tipByCustomer?: number
 
   @ApiProperty({
     required: true,
