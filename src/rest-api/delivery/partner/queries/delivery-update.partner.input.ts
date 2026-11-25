@@ -72,8 +72,10 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     nullable: true,
   })
   // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
-  // `@IsOptional()` lets null through and still checks a value that is sent.
+  // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
+  // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
+  @Type(() => Date)
   @IsDate()
   pickupReadyAt: Date | null
 
@@ -83,8 +85,10 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     nullable: true,
   })
   // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
-  // `@IsOptional()` lets null through and still checks a value that is sent.
+  // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
+  // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
+  @Type(() => Date)
   @IsDate()
   pickupDeadlineAt: Date | null
 
@@ -94,8 +98,10 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     nullable: true,
   })
   // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
-  // `@IsOptional()` lets null through and still checks a value that is sent.
+  // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
+  // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
+  @Type(() => Date)
   @IsDate()
   dropoffReadyAt: Date | null
 
@@ -105,8 +111,10 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     nullable: true,
   })
   // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
-  // `@IsOptional()` lets null through and still checks a value that is sent.
+  // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
+  // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
+  @Type(() => Date)
   @IsDate()
   dropoffDeadlineAt: Date | null
 
