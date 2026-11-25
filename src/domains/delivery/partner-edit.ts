@@ -1,6 +1,7 @@
 import { EnumDeliveryStatus } from '@prisma/types'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
+import { JobEditedField } from 'src/shared-types/notification'
 
 // Row 152: what a restaurant's edit of its own delivery (`POST partner deliveries/:id`) may change, by the
 // delivery's status. request-web offers Edit on every order that has not ended, and restaurant systems call
@@ -36,4 +37,50 @@ export function partnerEditRefusal(status: EnumDeliveryStatus, pointMoved: boole
 // set through the API on a held order.
 export function tipAfterPartnerEdit(status: EnumDeliveryStatus, currentTips: number, sentTips: number): number {
   return DELIVERY_ONGOING_STATUSES.includes(status) ? currentTips : sentTips
+}
+
+// Row 164: what a landed edit changed that the rider holding the order reads on the job: the notes (pickup or drop
+// off) and the times (the pickup and drop off windows). Empty when no rider holds the order, so an edit before then
+// tells no rider anything. A field the edit leaves out (`undefined`) is not written, so it is not a change. Empty
+// notes and no notes are the same to the rider.
+export function riderVisibleEdits(
+  delivery: {
+    status: EnumDeliveryStatus
+    courierId: string | null
+    pickupNotes: string | null
+    dropoffNotes: string | null
+    pickupReadyAt: Date | null
+    pickupDeadlineAt: Date | null
+    dropoffReadyAt: Date | null
+    dropoffDeadlineAt: Date | null
+  },
+  input: {
+    pickupNotes?: string | null
+    dropoffNotes?: string | null
+    pickupReadyAt?: Date | string | null
+    pickupDeadlineAt?: Date | string | null
+    dropoffReadyAt?: Date | string | null
+    dropoffDeadlineAt?: Date | string | null
+  }
+): JobEditedField[] {
+  if (!delivery.courierId || !DELIVERY_ONGOING_STATUSES.includes(delivery.status)) return []
+  const noteChanged = (sent: string | null | undefined, held: string | null) =>
+    sent !== undefined && (sent ?? '') !== (held ?? '')
+  // A time may arrive as a Date or as ISO text; compared as milliseconds, so the same moment is no change.
+  const timeOf = (at: Date | string | null) => (at === null ? null : new Date(at).getTime())
+  const timeChanged = (sent: Date | string | null | undefined, held: Date | null) =>
+    sent !== undefined && timeOf(sent) !== timeOf(held)
+  const changed: JobEditedField[] = []
+  if (noteChanged(input.pickupNotes, delivery.pickupNotes) || noteChanged(input.dropoffNotes, delivery.dropoffNotes)) {
+    changed.push('NOTES')
+  }
+  if (
+    timeChanged(input.pickupReadyAt, delivery.pickupReadyAt) ||
+    timeChanged(input.pickupDeadlineAt, delivery.pickupDeadlineAt) ||
+    timeChanged(input.dropoffReadyAt, delivery.dropoffReadyAt) ||
+    timeChanged(input.dropoffDeadlineAt, delivery.dropoffDeadlineAt)
+  ) {
+    changed.push('TIMES')
+  }
+  return changed
 }

@@ -1,4 +1,9 @@
-import { PARTNER_EDIT_SENTENCES, partnerEditRefusal, tipAfterPartnerEdit } from 'src/domains/delivery/partner-edit'
+import {
+  PARTNER_EDIT_SENTENCES,
+  partnerEditRefusal,
+  riderVisibleEdits,
+  tipAfterPartnerEdit,
+} from 'src/domains/delivery/partner-edit'
 import {
   BadRequestException,
   ConflictException,
@@ -543,6 +548,10 @@ export class DeliveryPartnerRestApiService {
         delivery.status
       )
     }
+
+    // Row 164: a rider holding the order is told at once that its notes or times changed. Decided from the order as
+    // read, which the landed write proved is still how it was; nothing is sent before a rider holds it.
+    await this.deliveryEventService.notifyJobEdited(delivery, riderVisibleEdits(delivery, input))
 
     // A conditional write answers a count, not the row, so the saved delivery is read back.
     return this.deliveryDomainService.getByIdOrThrow(delivery.id)

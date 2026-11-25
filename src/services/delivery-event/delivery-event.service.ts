@@ -27,6 +27,8 @@ import type {
 import { splitWaitMinutes } from 'src/domains/split/split'
 import { SplitRequestRepository } from 'src/persistence/repositories/split-request.repository'
 import type {
+  JobEditedField,
+  JobEditedMessage,
   JobReadyUpdatedMessage,
   RemovalRequestDecidedMessage,
   SplitRequestDecidedMessage,
@@ -3417,6 +3419,29 @@ export class DeliveryEventService {
       )
     }
     this.offerPushService.jobReadyUpdated(delivery.courierId, message)
+  }
+
+  // Row 164: tells the rider holding this job that its restaurant changed the notes or the times, over the live
+  // connection and by push, as `notifyReadyUpdated` does. Never throws: the edit already happened. No read or seen
+  // record is kept (binding value 5).
+  async notifyJobEdited(delivery: DeliveryEntity, changed: JobEditedField[]): Promise<void> {
+    if (!delivery.courierId || changed.length === 0) return
+    const message: JobEditedMessage = {
+      deliveryId: delivery.id,
+      restaurantName: delivery.pickupBusinessName,
+      changed,
+    }
+    try {
+      const courier = await this.courierRepository.findById(delivery.courierId)
+      if (courier?.userId) {
+        await this.websocketDispatcher.sendJobEdited(courier.userId, message)
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not tell the rider of delivery ${delivery.id} its restaurant changed it: ${errorSummaryForLog(error)}`
+      )
+    }
+    this.offerPushService.jobEdited(delivery.courierId, message)
   }
 
   private async endDelivery(

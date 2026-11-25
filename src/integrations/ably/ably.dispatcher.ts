@@ -6,7 +6,7 @@ import { DeliveryCourierDto } from 'src/rest-api/delivery/courier/dtos/delivery.
 import {
   EnumDeliveryStatus,
   NotificationEventType,
-  JobReadyUpdatedMessage, OfferEndedMessage, RemovalRequestDecidedMessage, SplitRequestDecidedMessage,
+  JobEditedMessage, JobReadyUpdatedMessage, OfferEndedMessage, RemovalRequestDecidedMessage, SplitRequestDecidedMessage,
   ChatMessageToCourier, ChatReadByDispatchMessage,
   courierNotificationChannel,
 } from 'src/shared-types/index'
@@ -63,6 +63,12 @@ export class AblyDispatcher extends WebsocketDispatcher {
   async sendJobReadyUpdated(userId: string, message: JobReadyUpdatedMessage) {
     this.logger.log(`emitting ${NotificationEventType.JOB_READY_UPDATED} for delivery ${message.deliveryId}`)
     await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.JOB_READY_UPDATED, message)
+  }
+
+  // Row 164. Logged by delivery id only (the message carries a business name).
+  async sendJobEdited(userId: string, message: JobEditedMessage) {
+    this.logger.log(`emitting ${NotificationEventType.JOB_EDITED} for delivery ${message.deliveryId}`)
+    await this.publishMessage(courierNotificationChannel(userId), NotificationEventType.JOB_EDITED, message)
   }
 
   // Spec 0047: logged by delivery id only; the admin's sentence is never logged.

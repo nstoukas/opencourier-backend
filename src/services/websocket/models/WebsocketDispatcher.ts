@@ -5,6 +5,7 @@ import {
   ChatMessageToDispatch,
   ChatReadByDispatchMessage,
   ChatThreadReadMessage,
+  JobEditedMessage,
   JobReadyUpdatedMessage,
   OfferEndedMessage,
   RemovalRequestDecidedMessage,
@@ -23,6 +24,8 @@ export abstract class WebsocketDispatcher {
   abstract sendOfferEnded(courierUserId: string, message: OfferEndedMessage): Promise<void> | void
   // Tells the rider holding a job that its ready time moved or the food is ready (spec 0023).
   abstract sendJobReadyUpdated(courierUserId: string, message: JobReadyUpdatedMessage): Promise<void> | void
+  // Tells the rider holding a job that its restaurant changed the notes or the times (row 164).
+  abstract sendJobEdited(courierUserId: string, message: JobEditedMessage): Promise<void> | void
   // Tells a rider dispatch's answer to their removal request (spec 0035).
   abstract sendRemovalRequestDecided(courierUserId: string, message: RemovalRequestDecidedMessage): Promise<void> | void
   // Tells a rider dispatch's answer to their split request (spec 0047).

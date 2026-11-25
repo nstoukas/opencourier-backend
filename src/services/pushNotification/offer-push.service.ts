@@ -5,6 +5,7 @@ import { BullMQService } from 'src/integrations/bullMQ/bullMQ.service'
 import { CourierDeviceRepository } from 'src/persistence/repositories/courier-device.repository'
 import { DeliveryRepository } from 'src/persistence/repositories/delivery.repository'
 import {
+  JobEditedMessage,
   JobReadyUpdatedMessage,
   NotificationEventType,
   OfferEndedMessage,
@@ -122,6 +123,34 @@ export class OfferPushService {
       await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_READY_UPDATED, result)
     } catch (error) {
       this.logger.error(`Ready updated push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
+    }
+  }
+
+  // Row 164: the restaurant changed the notes or the times of a job this rider holds. The same fields as the live
+  // message, as strings (`changed` joined with commas), so a locked phone can word its notice. Fire and forget,
+  // never throws.
+  jobEdited(courierId: string, message: JobEditedMessage): void {
+    if (!this.pushNotificationService.isEnabled()) return
+    void this.sendJobEdited(courierId, message).catch((error) =>
+      this.logger.error(`Job edited push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
+    )
+  }
+
+  async sendJobEdited(courierId: string, message: JobEditedMessage): Promise<void> {
+    if (!this.pushNotificationService.isEnabled()) return
+    try {
+      const tokens = await this.courierDeviceRepository.findTokensForCourier(courierId)
+      if (tokens.length === 0) return
+      const data: Record<string, string> = {
+        type: NotificationEventType.JOB_EDITED,
+        deliveryId: message.deliveryId,
+        restaurantName: message.restaurantName,
+        changed: message.changed.join(','),
+      }
+      const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
+      await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_EDITED, result)
+    } catch (error) {
+      this.logger.error(`Job edited push for delivery ${message.deliveryId} failed: ${errorSummaryForLog(error)}`)
     }
   }
 

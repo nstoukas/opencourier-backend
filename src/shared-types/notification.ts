@@ -19,6 +19,8 @@ export enum NotificationEventType {
   JOB_CANCELLED = 'JOB_CANCELLED',
   // The restaurant moved the ready time of a job this rider holds, or marked the food ready (spec 0023).
   JOB_READY_UPDATED = 'JOB_READY_UPDATED',
+  // Row 164: the restaurant changed the notes or the times of a job this rider holds.
+  JOB_EDITED = 'JOB_EDITED',
   // A rider's removal request was answered (spec 0035): the app refetches and shows the outcome.
   REMOVAL_REQUEST_DECIDED = 'REMOVAL_REQUEST_DECIDED',
   // Spec 0047: dispatch confirmed or refused this rider's split request.
@@ -55,6 +57,18 @@ export interface OfferEndedMessage {
 
 // Spec 0023 (AC-6): what a rider holding a job is told when its readiness changes. Ids, the
 // restaurant's business name and times only: no customer detail, no position.
+// Row 164: what a restaurant's edit changed that the rider reads on the job: the notes, the times, or both.
+export type JobEditedField = 'NOTES' | 'TIMES'
+
+// Row 164: what a rider holding a job is told when its restaurant edits it. Ids, the restaurant's business name and
+// which kinds changed, never the notes themselves: the app reads the job again for those. Nothing reports back
+// whether the rider saw it (binding value 5).
+export interface JobEditedMessage {
+  deliveryId: string
+  restaurantName: string
+  changed: JobEditedField[]
+}
+
 export interface JobReadyUpdatedMessage {
   deliveryId: string
   restaurantName: string
