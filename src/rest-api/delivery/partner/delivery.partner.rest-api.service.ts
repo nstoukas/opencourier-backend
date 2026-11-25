@@ -1,4 +1,4 @@
-import { partnerEditRefusal, tipAfterPartnerEdit } from 'src/domains/delivery/partner-edit'
+import { PARTNER_EDIT_SENTENCES, partnerEditRefusal, tipAfterPartnerEdit } from 'src/domains/delivery/partner-edit'
 import {
   BadRequestException,
   ConflictException,
@@ -47,6 +47,7 @@ import {
 import { DeliveryCreatePartnerInput } from './queries/delivery-create.partner.input'
 import { LocationDomainService } from 'src/domains/location/location.domain.service'
 import { DeliveryDomainService } from 'src/domains/delivery/delivery.domain.service'
+import { DeliveryEntity } from 'src/domains/delivery/entities/delivery.entity'
 import { EnumDeliverableAction, EnumUndeliverableAction } from '@prisma/types'
 import { JsonValue } from 'src/shared-types/index'
 import { CourierDomainService } from 'src/domains/courier/courier.domain.service'
@@ -58,6 +59,10 @@ function optionalText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? ''
   return trimmed === '' ? null : trimmed
 }
+
+// Row 161: how many times an edit is tried when the order changes between its read and its write. A second try
+// covers a rider's accept landing mid edit; a third loss in a row means the order is changing too fast to edit.
+const PARTNER_EDIT_ATTEMPTS = 3
 
 @Injectable()
 export class DeliveryPartnerRestApiService {
@@ -316,10 +321,25 @@ export class DeliveryPartnerRestApiService {
     }
   }
 
+  // Row 161: the edit decides from what it read: the status (row 152's refusals and the tip rule), the tip (row
+  // 160's event) and the drop off point (the move and its event). It then writes only if those three are still
+  // what it read. If another write landed in between (a rider's accept, a second edit of the same order), it
+  // writes nothing, reads the order again and decides again. So the answer is the one for the order as it is
+  // now: row 152's refusal for the new status, or the edit with a held order's tip kept.
   async update(deliveryId: string, partnerId: string, input: DeliveryUpdatePartnerInput) {
-    const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
-    await this.assertVisibleToPartner(delivery, partnerId)
+    for (let attempt = 1; attempt <= PARTNER_EDIT_ATTEMPTS; attempt++) {
+      const delivery = await this.deliveryDomainService.getByIdOrThrow(deliveryId)
+      await this.assertVisibleToPartner(delivery, partnerId)
+      const updated = await this.tryPartnerEdit(delivery, input)
+      if (updated) return updated
+    }
+    // The order changed under the edit every time. Stop and ask the restaurant to look again, rather than loop.
+    throw new ConflictException(PARTNER_EDIT_SENTENCES.changed)
+  }
 
+  // One try of the restaurant's edit, decided from `delivery` as read. Answers the delivery as saved, or null
+  // when the order changed before the write (then nothing of the delivery is written; see `update`).
+  private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput) {
     // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind.
     const endedRefusal = partnerEditRefusal(delivery.status, false)
     if (endedRefusal) throw new ConflictException(endedRefusal)
@@ -329,7 +349,6 @@ export class DeliveryPartnerRestApiService {
     if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
       throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
     }
-
 
     const dropoffLocation = await this.locationDomainService.getById(delivery.dropoffLocationId)
     if (!dropoffLocation) {
@@ -399,26 +418,33 @@ export class DeliveryPartnerRestApiService {
     // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
     const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
 
-    const updatedDelivery = await this.deliveryDomainService.update(delivery.id, {
-      dropoffLocationId,
-      // Spec 0053 (row 82 review): the newest move wins. A restaurant's move after a rider's clears the
-      // rider's corrected point, so the notes and the route both follow the restaurant's new point.
-      // `dropoffPointCorrectedAt` stays: it is spec 0016's "already moved once" mark, not a point.
-      ...(pointMoved ? { dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null } : {}),
-      pickupNotes: input.pickupNotes,
-      pickupVerification: input.pickupVerification as any as JsonValue,
-      pickupReadyAt: input.pickupReadyAt,
-      pickupDeadlineAt: input.pickupDeadlineAt,
+    // Row 161: a conditional write on what the decisions above were made from. The database checks and writes in
+    // one step, so an accept (or another edit) that lands after the read makes this write nothing.
+    const written = await this.deliveryDomainService.updateIfMatches(
+      delivery.id,
+      { status: delivery.status, tips: delivery.tips, dropoffLocationId: delivery.dropoffLocationId },
+      {
+        dropoffLocationId,
+        // Spec 0053 (row 82 review): the newest move wins. A restaurant's move after a rider's clears the
+        // rider's corrected point, so the notes and the route both follow the restaurant's new point.
+        // `dropoffPointCorrectedAt` stays: it is spec 0016's "already moved once" mark, not a point.
+        ...(pointMoved ? { dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null } : {}),
+        pickupNotes: input.pickupNotes,
+        pickupVerification: input.pickupVerification as any as JsonValue,
+        pickupReadyAt: input.pickupReadyAt,
+        pickupDeadlineAt: input.pickupDeadlineAt,
 
-      dropoffNotes: input.dropoffNotes,
-      dropoffReadyAt: input.dropoffReadyAt,
-      dropoffDeadlineAt: input.dropoffDeadlineAt,
-      dropoffVerification: input.dropoffVerification as any as JsonValue,
+        dropoffNotes: input.dropoffNotes,
+        dropoffReadyAt: input.dropoffReadyAt,
+        dropoffDeadlineAt: input.dropoffDeadlineAt,
+        dropoffVerification: input.dropoffVerification as any as JsonValue,
 
-      orderReference: input.orderReference,
+        orderReference: input.orderReference,
 
-      tips: newTips,
-    })
+        tips: newTips,
+      }
+    )
+    if (!written) return null
 
     // Row 160 (value 1): the tip is rider pay, so a change is on the record, with both amounts. An edit that
     // leaves it as it was writes nothing. No status change, so never through processDeliveryEvent.
@@ -465,7 +491,7 @@ export class DeliveryPartnerRestApiService {
       )
     }
 
-    return updatedDelivery
+    return this.deliveryDomainService.getByIdOrThrow(delivery.id)
   }
 
   // Spec 0032, AC-3: the restaurant's report, once the order is delivered.

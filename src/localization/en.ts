@@ -226,6 +226,7 @@ export const en = {
       PARTNER_EDIT_ORDER_ENDED: 'This order has ended, so it can no longer be changed.',
       PARTNER_EDIT_POINT_HELD:
         "A rider is already on this order, so its drop off point can't move. Message dispatch to change it.",
+      PARTNER_EDIT_CHANGED: 'This order just changed. Look again before you save.',
       LEG_REFERENCE_REQUIRED: 'A leg needs an orderReference: it is what ties the legs of an order together.',
       SIBLING_LEG_HELD: 'This rider already carries another leg of the same order. Each leg goes to a different rider.',
       READY_ALREADY_READY: 'The food is already marked ready.',

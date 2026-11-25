@@ -180,6 +180,16 @@ export class DeliveryDomainService {
     return delivery
   }
 
+  // Row 161: the repository's conditional write (spec 0002's race rule), for a caller outside this domain that
+  // decided from what it read: writes `input` only if the delivery still matches `where`, and says whether it did.
+  async updateIfMatches(
+    deliveryId: string,
+    where: Prisma.DeliveryWhereInput,
+    input: IDeliveryUpdate
+  ): Promise<boolean> {
+    return this.deliveryRepository.updateIfMatches(deliveryId, where, input)
+  }
+
   // Spec 0033: what the rider's job card needs from the co-op's settings.
   async getCourierWaitRules(): Promise<CourierWaitRules> {
     const config = this.configDomainService.instanceConfig

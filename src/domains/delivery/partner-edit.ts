@@ -17,6 +17,8 @@ import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
 export const PARTNER_EDIT_SENTENCES = {
   ended: 'This order has ended, so it can no longer be changed.',
   pointHeld: "A rider is already on this order, so its drop off point can't move. Message dispatch to change it.",
+  // Row 161: the order changed under the edit three times running, so the edit stops rather than try forever.
+  changed: 'This order just changed. Look again before you save.',
 }
 
 // The sentence to refuse the edit with, or null when it may go ahead. `pointMoved` is whether this edit
