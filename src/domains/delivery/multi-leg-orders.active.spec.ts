@@ -413,6 +413,8 @@ describe('Multi leg orders (spec 0046)', () => {
       orderReference: 'order-77',
       legNumber: 1,
       legCount: 2,
+      matchedCourierId: null,
+      courierId: null,
       ...overrides,
     })
     const body = (orderReference: string): any => ({ orderReference, dropoffLatitude: 39.36, dropoffLongitude: 22.94 })
@@ -422,7 +424,8 @@ describe('Multi leg orders (spec 0046)', () => {
         getByIdOrThrow: jest.fn().mockResolvedValue(stored()),
         update: jest.fn().mockResolvedValue({ id: 'del-leg-1' }),
         updateIfMatches: jest.fn().mockResolvedValue(true),
-        changeBoxSize: jest.fn(),
+        boxSizeChangeFor: jest.fn(),
+        recordBoxSizeChanged: jest.fn(),
       }
       service = new DeliveryPartnerRestApiService(
         { getByIdOrThrow: jest.fn() } as any,
@@ -446,7 +449,8 @@ describe('Multi leg orders (spec 0046)', () => {
       expect(LEG_LABELS_LOCKED_SENTENCE).toBe(LEG_LOCKED)
       expect(deliveries.update).not.toHaveBeenCalled()
       expect(deliveries.updateIfMatches).not.toHaveBeenCalled()
-      expect(deliveries.changeBoxSize).not.toHaveBeenCalled()
+      expect(deliveries.boxSizeChangeFor).not.toHaveBeenCalled()
+      expect(deliveries.recordBoxSizeChanged).not.toHaveBeenCalled()
     })
 
     test('the same orderReference on a leg is updated as usual', async () => {

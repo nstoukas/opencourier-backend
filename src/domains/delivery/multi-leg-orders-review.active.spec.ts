@@ -288,6 +288,8 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
       orderReference: 'order-77',
       legNumber: 1,
       legCount: 2,
+      matchedCourierId: null,
+      courierId: null,
       ...overrides,
     })
     // The stored point is 39.36, 22.94; this body moves it.
@@ -298,7 +300,8 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
         getByIdOrThrow: jest.fn().mockResolvedValue(leg()),
         update: jest.fn().mockResolvedValue({ id: 'del-leg-1' }),
         updateIfMatches: jest.fn().mockResolvedValue(true),
-        changeBoxSize: jest.fn(),
+        boxSizeChangeFor: jest.fn(),
+        recordBoxSizeChanged: jest.fn(),
       }
       locations = {
         getById: jest.fn().mockResolvedValue({ id: 'loc-1', latitude: 39.36, longitude: 22.94 }),
@@ -330,7 +333,8 @@ describe('Multi leg orders: review fixes (spec 0046)', () => {
       expect(locations.create).not.toHaveBeenCalled()
       expect(deliveries.update).not.toHaveBeenCalled()
       expect(deliveries.updateIfMatches).not.toHaveBeenCalled()
-      expect(deliveries.changeBoxSize).not.toHaveBeenCalled()
+      expect(deliveries.boxSizeChangeFor).not.toHaveBeenCalled()
+      expect(deliveries.recordBoxSizeChanged).not.toHaveBeenCalled()
       expect(events.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
     })
 
