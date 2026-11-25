@@ -8,9 +8,9 @@ import { JobEditedField } from 'src/shared-types/notification'
 // the route directly, so the rule lives here, on the server.
 //
 // - An ended order (delivered, cancelled, failed) is never changed: its record is what happened.
-// - Once a rider holds the order (accepted until the drop off), the drop off point may not move. The rider
-//   accepted a ride to that place, and the fee is fixed on the quote, so a move would change the work for
-//   the same pay (binding value 4). The restaurant messages dispatch, who can reassign or cancel it.
+// - Once a rider holds the order (taken, then accepted until the drop off; `riderHoldsOrder`), the drop off point
+//   may not move. The rider accepted a ride to that place, and the fee is fixed on the quote, so a move would change
+//   the work for the same pay (binding value 4). The restaurant messages dispatch, who can reassign or cancel it.
 //   Notes and times may still change, as before. The tip is rider pay, so it stays as it was (see
 //   `tipAfterPartnerEdit`).
 // - Before a rider holds it, everything may change, within the existing drift check.
@@ -22,12 +22,22 @@ export const PARTNER_EDIT_SENTENCES = {
   changed: 'This order just changed. Look again before you save.',
 }
 
+// The two fields of an order that say whether a rider holds it.
+type HeldOrder = { status: EnumDeliveryStatus; courierId: string | null }
+
+// Whether a rider holds the order. agy's review of row 169: accepting an offer first writes the rider's id
+// (`courierId`) while the status is still ASSIGNING_COURIER, and two more checks run before ACCEPTED. An edit that
+// reads in between must already see the order as held. Row 167's size check (`boxSizeChangeFor`) reads it the same way.
+export function riderHoldsOrder(order: HeldOrder): boolean {
+  return order.courierId !== null || DELIVERY_ONGOING_STATUSES.includes(order.status)
+}
+
 // The sentence to refuse the edit with, or null when it may go ahead. `pointMoved` is whether this edit
 // moves the drop off point.
-export function partnerEditRefusal(status: EnumDeliveryStatus, pointMoved: boolean): string | null {
+export function partnerEditRefusal(order: HeldOrder, pointMoved: boolean): string | null {
   // The ended set the restaurant's ready signals use (review of row 152: one list, not a copy).
-  if (PARTNER_ENDED_STATUSES.includes(status)) return PARTNER_EDIT_SENTENCES.ended
-  if (pointMoved && DELIVERY_ONGOING_STATUSES.includes(status)) return PARTNER_EDIT_SENTENCES.pointHeld
+  if (PARTNER_ENDED_STATUSES.includes(order.status)) return PARTNER_EDIT_SENTENCES.ended
+  if (pointMoved && riderHoldsOrder(order)) return PARTNER_EDIT_SENTENCES.pointHeld
   return null
 }
 
@@ -36,13 +46,9 @@ export function partnerEditRefusal(status: EnumDeliveryStatus, pointMoved: boole
 // change as a TIP_CHANGED event).
 // Row 169: an edit that leaves the tip out keeps it, whatever the status. request-web has no tip box and now sends none
 // (it used to send 0, which zeroed a tip set through the API before a rider held the order).
-export function tipAfterPartnerEdit(
-  status: EnumDeliveryStatus,
-  currentTips: number,
-  sentTips: number | undefined
-): number {
+export function tipAfterPartnerEdit(order: HeldOrder, currentTips: number, sentTips: number | undefined): number {
   if (sentTips === undefined) return currentTips
-  return DELIVERY_ONGOING_STATUSES.includes(status) ? currentTips : sentTips
+  return riderHoldsOrder(order) ? currentTips : sentTips
 }
 
 // Row 164: what a landed edit changed that the rider holding the order reads on the job: the notes (pickup or drop

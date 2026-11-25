@@ -372,7 +372,7 @@ export class DeliveryPartnerRestApiService {
   // when the order changed before the write (then its fields and events are not written; see `update`).
   private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput, madePoint: MadePoint) {
     // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind in this try.
-    const endedRefusal = partnerEditRefusal(delivery.status, false)
+    const endedRefusal = partnerEditRefusal(delivery, false)
     if (endedRefusal) throw new ConflictException(endedRefusal)
 
     // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg. First,
@@ -393,7 +393,7 @@ export class DeliveryPartnerRestApiService {
       dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
     // Row 152: once a rider holds the order its drop off point stays where they accepted it. Before any
     // write, like the checks above.
-    const heldRefusal = partnerEditRefusal(delivery.status, pointMoved)
+    const heldRefusal = partnerEditRefusal(delivery, pointMoved)
     if (heldRefusal) throw new ConflictException(heldRefusal)
     if (pointMoved) {
       const quote = await this.deliveryQuoteDomainService.getByIdOrThrow(delivery.deliveryQuoteId)
@@ -457,7 +457,7 @@ export class DeliveryPartnerRestApiService {
     const dropoffLocationId = pointMoved && madePoint.id ? madePoint.id : delivery.dropoffLocationId
 
     // Row 152 review: a held order's tip (rider pay) is not changed by an edit.
-    const newTips = tipAfterPartnerEdit(delivery.status, delivery.tips, input.tipByCustomer)
+    const newTips = tipAfterPartnerEdit(delivery, delivery.tips, input.tipByCustomer)
 
     // Row 161: a conditional write on what the decisions above were made from. The database checks and writes in
     // one step, so an accept (or another edit) that lands after the read makes this write nothing. Status, tips and

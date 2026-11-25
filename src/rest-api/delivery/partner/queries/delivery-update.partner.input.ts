@@ -1,9 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator'
+import { IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator'
 import { BoxSize } from '@prisma/types'
 import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
 import { DeliveryUpdateDetails } from 'src/shared-types/index'
+import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
 
 export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
@@ -52,7 +53,11 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   // through the API). `@ValidateIf` checks the rest only when a tip is sent; unlike `@IsOptional()` it still refuses
   // null, since the tip column is never null.
   @ValidateIf((input: DeliveryUpdatePartnerInput) => input.tipByCustomer !== undefined)
-  @IsNumber()
+  // agy's review of row 169: a tip must arrive as a JSON number. Without this the pipe reads "" and false as 0 and true
+  // as 1, so an empty box would zero the rider's tip (backend AGENTS.md: every number a client sends needs it).
+  @RefuseIfNotSentAsNumber()
+  // Cents, and the column is a whole number: 2.5 would otherwise pass here and fail at the write with a 500.
+  @IsInt()
   // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
   @Min(0)
   tipByCustomer?: number
