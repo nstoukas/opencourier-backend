@@ -266,6 +266,9 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `recordBoxSizeChanged` after it lands; row 167), and every event is written only after the write lands. A landed edit that changes a
   held order's notes or times sends `JOB_EDITED` to that rider (`riderVisibleEdits`, `notifyJobEdited`; row 164), kinds only, never the
   notes. Its four times: left out keeps the stored one, `null` clears it (row 168).
+  Its tip: left out keeps the stored one, `null` is refused, and it must arrive as a JSON number in whole cents (row 169).
+  "A rider holds the order" is `riderHoldsOrder`: a rider's id set, or an ongoing status, because an accept writes the id
+  before `ACCEPTED` (decision 169.2). Use it, not the status alone, for any new held check.
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
   never an ADMIN login; the reset switches the API key off (`setPasswordAndRemoveApiKey`) and issues no session.
   When it switches a key off it notes the time in `User.apiKeyRemovedByResetAt`, shown on the admin restaurant page; every admin
