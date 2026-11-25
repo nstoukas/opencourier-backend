@@ -27,7 +27,8 @@ model User {
   apiKeyCreatedAt DateTime?
   // Row 162: when the restaurant's own password reset by email switched its key off (row 153), so the
   // admin page can say why the restaurant's system stopped. Null when no key was made since, or never.
-  // Cleared by every admin key write: a key an admin made, replaced or removed never carries it.
+  // Cleared by every admin write that stores or removes a key, so a key never shows beside it. An admin
+  // Remove or new password on a login with no key writes nothing, and the note (still true) stays.
   apiKeyRemovedByResetAt DateTime?
 
   // When the password was last set by an admin (spec 0013). Every token issued before it is

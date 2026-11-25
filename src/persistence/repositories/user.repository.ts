@@ -47,7 +47,8 @@ export class UserRepository extends EntityRepository implements IUserRepository 
   // whether a key was there before, for the log line. The first write only matches a login that has a
   // key; if it matched nothing, the second gives the login its first key. No read before the write.
   // A Remove landing between the two writes is overwritten by the new key: the last admin action wins,
-  // as spec 0037 accepts (the admin did ask for a new key).
+  // as spec 0037 accepts (the admin did ask for a new key). Both writes clear row 162's reset note: the page
+  // then shows the key, not why an older one went.
   async replaceApiKeyHash(userId: string, apiKeyHash: string, apiKeyCreatedAt: Date): Promise<{ replaced: boolean }> {
     const replaced = await this.prisma.user.updateMany({
       where: { id: userId, apiKeyHash: { not: null } },
@@ -56,7 +57,6 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     if (replaced.count > 0) {
       return { replaced: true }
     }
-    // A new key ends the reset's note (row 162): the page then shows the key, not why the old one went.
     await this.prisma.user.update({
       where: { id: userId },
       data: { apiKeyHash, apiKeyCreatedAt, apiKeyRemovedByResetAt: null },
@@ -65,7 +65,8 @@ export class UserRepository extends EntityRepository implements IUserRepository 
   }
 
   // An admin's Remove key (spec 0037). Answers whether there was a key to remove, for the log line.
-  // An admin's removal is not the reset's, so it never carries row 162's note.
+  // An admin's removal is not the reset's, so it clears row 162's note. With no key it matches nothing, and a
+  // reset's note (still the reason there is no key) stays.
   async removeApiKey(userId: string): Promise<{ removed: boolean }> {
     const result = await this.prisma.user.updateMany({
       where: { id: userId, apiKeyHash: { not: null } },
