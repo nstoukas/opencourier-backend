@@ -67,56 +67,64 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   dropoffLongitude: number
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Date,
     nullable: true,
+    description: 'Left out: the time stays as it is. null: the order has no such time.',
   })
-  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // Row 168: left out (undefined) keeps the time as it is, `null` is "no time" (the column is nullable). Both were
+  // refused with 400, so the portal invented a deadline and sent every time back.
   // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
   // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  pickupReadyAt: Date | null
+  pickupReadyAt?: Date | null
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Date,
     nullable: true,
+    description: 'Left out: the time stays as it is. null: the order has no such time.',
   })
-  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // Row 168: left out (undefined) keeps the time as it is, `null` is "no time" (the column is nullable). Both were
+  // refused with 400, so the portal invented a deadline and sent every time back.
   // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
   // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  pickupDeadlineAt: Date | null
+  pickupDeadlineAt?: Date | null
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Date,
     nullable: true,
+    description: 'Left out: the time stays as it is. null: the order has no such time.',
   })
-  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // Row 168: left out (undefined) keeps the time as it is, `null` is "no time" (the column is nullable). Both were
+  // refused with 400, so the portal invented a deadline and sent every time back.
   // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
   // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  dropoffReadyAt: Date | null
+  dropoffReadyAt?: Date | null
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Date,
     nullable: true,
+    description: 'Left out: the time stays as it is. null: the order has no such time.',
   })
-  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // Row 168: left out (undefined) keeps the time as it is, `null` is "no time" (the column is nullable). Both were
+  // refused with 400, so the portal invented a deadline and sent every time back.
   // `@IsOptional()` lets null through and still checks a value that is sent. `@Type(() => Date)` turns the sent text
   // into a Date: with `Date | null` TypeScript records the type as a plain object, so the implicit conversion stops.
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  dropoffDeadlineAt: Date | null
+  dropoffDeadlineAt?: Date | null
 
   // Spec 0043 (AC-3): a new size, only while no rider has been offered or holds the order (409 after).
   @ApiProperty({ required: false, enum: BoxSize })
