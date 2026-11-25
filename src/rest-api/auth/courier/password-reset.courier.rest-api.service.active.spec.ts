@@ -54,6 +54,7 @@ describe('PasswordResetCourierRestApiService (Spec 0039 AC-7, AC-10, AC-12, AC-1
     username: null,
     apiKeyHash: null,
     apiKeyCreatedAt: null,
+    apiKeyRemovedByResetAt: null,
     credentialsChangedAt: null,
     language: 'el',
     createdAt: new Date('2026-01-01T00:00:00Z'),

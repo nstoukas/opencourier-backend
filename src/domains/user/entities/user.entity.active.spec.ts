@@ -13,6 +13,7 @@ describe('UserEntity language (Spec 0054, AC-1, AC-2)', () => {
     username: null,
     apiKeyHash: null,
     apiKeyCreatedAt: null,
+    apiKeyRemovedByResetAt: null,
     credentialsChangedAt: null,
     createdAt: new Date('2026-11-20T10:00:00Z'),
     updatedAt: new Date('2026-11-20T10:00:00Z'),

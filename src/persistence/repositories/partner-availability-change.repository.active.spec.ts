@@ -48,7 +48,7 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
     createdAt: NOW,
     updatedAt: NOW,
     // Included relations (spec 0029, AC-10; spec 0037, AC-5)
-    user: { email: 'kitchen@volos.gr', apiKeyCreatedAt: null },
+    user: { email: 'kitchen@volos.gr', apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
     pickupLocation: sampleLocationDbRow,
   }
 
@@ -90,7 +90,7 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
       expect(mockPrisma.partner.update).toHaveBeenCalledWith({
         where: { id: 'partner-1' },
         data: partnerData,
-        include: { user: { select: { email: true, apiKeyCreatedAt: true } }, pickupLocation: true },
+        include: { user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } }, pickupLocation: true },
       })
       expect(mockPrisma.partnerAvailabilityChange.create).toHaveBeenCalledWith({
         data: {
@@ -108,9 +108,32 @@ describe('PartnerAvailabilityChangeRepository (spec 0029, AC-9, AC-10)', () => {
       expect(result.busyExtraMinutes).toBe(15)
       // Spec 0029, agy bug 1: update include hydrates userEmail and pickupLocation
       expect(result.userEmail).toBe('kitchen@volos.gr')
+      // Row 162: userApiKeyRemovedByResetAt hydrated from user relation
+      expect(result.userApiKeyRemovedByResetAt).toBeNull()
       expect(result.pickupLocation).toBeDefined()
       expect(result.pickupLocation?.id).toBe('loc-1')
       expect(result.pickupLocation?.formattedAddress).toBe('Iasonos 12, Volos')
+    })
+
+    test('Row 162: applyChange hydrates userApiKeyRemovedByResetAt when reset removed the key', async () => {
+      const partnerData = { pausedUntil: new Date('2026-11-25T15:00:00Z') }
+      const changeData = {
+        action: EnumPartnerAvailabilityAction.PAUSED,
+        actorUserId: 'user-1',
+        actorRole: EnumUserRole.PARTNER,
+      }
+      const resetTime = new Date('2026-11-25T14:05:00Z')
+      const rowWithReset = {
+        ...samplePartnerDbRow,
+        user: { email: 'kitchen@volos.gr', apiKeyCreatedAt: null, apiKeyRemovedByResetAt: resetTime },
+      }
+      mockPrisma.partner.update.mockReturnValue('update-p')
+      mockPrisma.partnerAvailabilityChange.create.mockReturnValue('create-p')
+      mockPrisma.$transaction.mockResolvedValue([rowWithReset, { id: 'ch-2' }])
+
+      const result = await repository.applyChange('partner-1', partnerData, changeData)
+
+      expect(result.userApiKeyRemovedByResetAt).toEqual(resetTime)
     })
   })
 

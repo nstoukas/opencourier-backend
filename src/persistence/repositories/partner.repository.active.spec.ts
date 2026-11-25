@@ -289,7 +289,7 @@ describe('PartnerRepository.findManyPaginated search (scope row 106)', () => {
   })
 })
 
-describe('PartnerRepository (Spec 0037, AC-5)', () => {
+describe('PartnerRepository (Spec 0037, AC-5; Row 162)', () => {
   let repository: PartnerRepository
   let mockPrisma: any
 
@@ -297,18 +297,21 @@ describe('PartnerRepository (Spec 0037, AC-5)', () => {
     mockPrisma = {
       partner: {
         findUniqueOrThrow: jest.fn(),
+        update: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
       },
     }
     repository = new PartnerRepository(mockPrisma as unknown as PrismaService)
   })
 
-  test('selects user email and apiKeyCreatedAt in findByIdOrThrow', async () => {
+  test('selects user email, apiKeyCreatedAt, and apiKeyRemovedByResetAt in findByIdOrThrow', async () => {
     const row = {
       id: 'partner-1',
       name: 'R73',
       usualPrepMinutes: 15,
       userId: 'user-1',
-      user: { email: 'r73@volos.gr', apiKeyCreatedAt: new Date('2026-11-18T10:00:00Z') },
+      user: { email: 'r73@volos.gr', apiKeyCreatedAt: new Date('2026-11-18T10:00:00Z'), apiKeyRemovedByResetAt: null },
       pickupLocation: null,
     }
     mockPrisma.partner.findUniqueOrThrow.mockResolvedValue(row)
@@ -318,10 +321,62 @@ describe('PartnerRepository (Spec 0037, AC-5)', () => {
     expect(mockPrisma.partner.findUniqueOrThrow).toHaveBeenCalledWith({
       where: { id: 'partner-1' },
       include: {
-        user: { select: { email: true, apiKeyCreatedAt: true } },
+        user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
         pickupLocation: true,
       },
     })
     expect(result.userApiKeyCreatedAt).toEqual(new Date('2026-11-18T10:00:00Z'))
+    expect(result.userApiKeyRemovedByResetAt).toBeNull()
+  })
+
+  test('Row 162 Clause 1: findByIdOrThrow hydrates userApiKeyRemovedByResetAt when reset switched key off', async () => {
+    const resetDate = new Date('2026-11-25T14:05:00Z')
+    const row = {
+      id: 'partner-2',
+      name: 'To Steki',
+      usualPrepMinutes: 15,
+      userId: 'user-2',
+      user: {
+        email: 'steki@volos.gr',
+        apiKeyCreatedAt: null,
+        apiKeyRemovedByResetAt: resetDate,
+      },
+      pickupLocation: null,
+    }
+    mockPrisma.partner.findUniqueOrThrow.mockResolvedValue(row)
+
+    const result = await repository.findByIdOrThrow('partner-2')
+
+    expect(result.userApiKeyRemovedByResetAt).toEqual(resetDate)
+    expect(result.userApiKeyCreatedAt).toBeNull()
+  })
+
+  test('Row 162 Clause 1 & 3: partner.update includes apiKeyRemovedByResetAt in user select and hydrates it', async () => {
+    const resetDate = new Date('2026-11-25T14:05:00Z')
+    const row = {
+      id: 'partner-3',
+      name: 'Updated Name',
+      usualPrepMinutes: 20,
+      userId: 'user-3',
+      user: {
+        email: 'up@volos.gr',
+        apiKeyCreatedAt: null,
+        apiKeyRemovedByResetAt: resetDate,
+      },
+      pickupLocation: null,
+    }
+    mockPrisma.partner.update.mockResolvedValue(row)
+
+    const result = await repository.update('partner-3', { name: 'Updated Name' })
+
+    expect(mockPrisma.partner.update).toHaveBeenCalledWith({
+      where: { id: 'partner-3' },
+      data: { name: 'Updated Name' },
+      include: {
+        user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
+        pickupLocation: true,
+      },
+    })
+    expect(result.userApiKeyRemovedByResetAt).toEqual(resetDate)
   })
 })

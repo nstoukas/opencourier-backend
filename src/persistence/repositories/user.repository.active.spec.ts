@@ -98,7 +98,7 @@ describe('UserRepository', () => {
 
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt },
+        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt, apiKeyRemovedByResetAt: null },
       })
       expect(mockPrisma.user.update).not.toHaveBeenCalled()
       expect(result).toEqual({ replaced: true })
@@ -113,11 +113,11 @@ describe('UserRepository', () => {
 
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt },
+        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt, apiKeyRemovedByResetAt: null },
       })
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt },
+        data: { apiKeyHash: 'new-hash-456', apiKeyCreatedAt: createdAt, apiKeyRemovedByResetAt: null },
       })
       expect(result).toEqual({ replaced: false })
     })
@@ -131,7 +131,7 @@ describe('UserRepository', () => {
 
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
       })
       expect(result).toEqual({ removed: true })
     })
@@ -143,7 +143,7 @@ describe('UserRepository', () => {
 
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
       })
       expect(result).toEqual({ removed: false })
     })
@@ -166,7 +166,7 @@ describe('UserRepository', () => {
       })
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: 'new-api-key-hash', apiKeyCreatedAt: now },
+        data: { apiKeyHash: 'new-api-key-hash', apiKeyCreatedAt: now, apiKeyRemovedByResetAt: null },
       })
       expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
       expect(result).toEqual({ apiKeyReplaced: true })
@@ -203,7 +203,7 @@ describe('UserRepository', () => {
       })
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1', apiKeyHash: { not: null } },
-        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: now },
       })
       expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
       expect(result).toEqual({ apiKeyRemoved: true })
@@ -221,6 +221,95 @@ describe('UserRepository', () => {
 
       expect(mockPrisma.$transaction).toHaveBeenCalledWith([updatePromise, updateManyPromise])
       expect(result).toEqual({ apiKeyRemoved: false })
+    })
+  })
+
+  // Row 162: A key switched off by a reset is shown to admins
+  describe('Row 162: reset key note (apiKeyRemovedByResetAt)', () => {
+    test('Clause 1: setPasswordAndRemoveApiKey sets apiKeyRemovedByResetAt to credentialsChangedAt ONLY in the conditional key write where apiKeyHash is not null', async () => {
+      const resetTime = new Date('2026-11-25T14:05:00Z')
+      const updatePromise = Promise.resolve({ id: 'user-p1' })
+      const updateManyPromise = Promise.resolve({ count: 1 })
+      mockPrisma.user.update.mockReturnValue(updatePromise)
+      mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-p1' }, { count: 1 }])
+
+      const result = await repository.setPasswordAndRemoveApiKey('user-p1', 'hashed-pw-reset', resetTime)
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-p1' },
+        data: { password: 'hashed-pw-reset', credentialsChangedAt: resetTime },
+      })
+      // Pin: apiKeyRemovedByResetAt is set to credentialsChangedAt in the conditional write
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-p1', apiKeyHash: { not: null } },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: resetTime },
+      })
+      expect(result).toEqual({ apiKeyRemoved: true })
+    })
+
+    test('Clause 2: a reset of a login with no key does not set apiKeyRemovedByResetAt (lives only in conditional key write)', async () => {
+      const resetTime = new Date('2026-11-25T14:05:00Z')
+      const updatePromise = Promise.resolve({ id: 'user-no-key' })
+      const updateManyPromise = Promise.resolve({ count: 0 })
+      mockPrisma.user.update.mockReturnValue(updatePromise)
+      mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-no-key' }, { count: 0 }])
+
+      const result = await repository.setPasswordAndRemoveApiKey('user-no-key', 'hashed-pw-reset', resetTime)
+
+      // The user update NEVER sets apiKeyRemovedByResetAt
+      const userUpdateCall = mockPrisma.user.update.mock.calls[0][0]
+      expect(userUpdateCall.data).not.toHaveProperty('apiKeyRemovedByResetAt')
+      expect(result).toEqual({ apiKeyRemoved: false })
+    })
+
+    test('Clause 2: admin replaceApiKeyHash sets apiKeyRemovedByResetAt to null (both when key existed and when new key)', async () => {
+      // 1. When key existed: updateMany sets apiKeyRemovedByResetAt to null
+      mockPrisma.user.updateMany.mockResolvedValue({ count: 1 })
+      const createdDate = new Date('2026-11-25T15:00:00Z')
+      const res1 = await repository.replaceApiKeyHash('user-1', 'admin-hash-1', createdDate)
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', apiKeyHash: { not: null } },
+        data: { apiKeyHash: 'admin-hash-1', apiKeyCreatedAt: createdDate, apiKeyRemovedByResetAt: null },
+      })
+      expect(res1).toEqual({ replaced: true })
+
+      // 2. When key did not exist: update sets apiKeyRemovedByResetAt to null
+      mockPrisma.user.updateMany.mockResolvedValue({ count: 0 })
+      mockPrisma.user.update.mockResolvedValue({})
+      const res2 = await repository.replaceApiKeyHash('user-2', 'admin-hash-2', createdDate)
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-2' },
+        data: { apiKeyHash: 'admin-hash-2', apiKeyCreatedAt: createdDate, apiKeyRemovedByResetAt: null },
+      })
+      expect(res2).toEqual({ replaced: false })
+    })
+
+    test('Clause 2: admin removeApiKey sets apiKeyRemovedByResetAt to null', async () => {
+      mockPrisma.user.updateMany.mockResolvedValue({ count: 1 })
+      const res = await repository.removeApiKey('user-1')
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', apiKeyHash: { not: null } },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
+      })
+      expect(res).toEqual({ removed: true })
+    })
+
+    test('Clause 2: admin setPasswordAndReplaceApiKey sets apiKeyRemovedByResetAt to null in key write', async () => {
+      const now = new Date('2026-11-25T15:30:00Z')
+      const updatePromise = Promise.resolve({ id: 'user-1' })
+      const updateManyPromise = Promise.resolve({ count: 1 })
+      mockPrisma.user.update.mockReturnValue(updatePromise)
+      mockPrisma.user.updateMany.mockReturnValue(updateManyPromise)
+      mockPrisma.$transaction.mockResolvedValue([{ id: 'user-1' }, { count: 1 }])
+
+      const res = await repository.setPasswordAndReplaceApiKey('user-1', 'admin-pw', now, 'admin-key-hash')
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', apiKeyHash: { not: null } },
+        data: { apiKeyHash: 'admin-key-hash', apiKeyCreatedAt: now, apiKeyRemovedByResetAt: null },
+      })
+      expect(res).toEqual({ apiKeyReplaced: true })
     })
   })
 

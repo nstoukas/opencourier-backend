@@ -38,6 +38,7 @@ describe('PasswordResetPartnerRestApiService (Row 153, spec 0039 AC-7, AC-10, AC
     username: 'tavernavolos',
     apiKeyHash: 'existing-api-key-hash',
     apiKeyCreatedAt: new Date('2026-07-01T10:00:00Z'),
+    apiKeyRemovedByResetAt: null,
     credentialsChangedAt: null,
     language: 'el',
     createdAt: new Date('2026-01-01T00:00:00Z'),

@@ -23,7 +23,7 @@ describe('PartnerAdminDto', () => {
       pickupLocationId: 'loc-300',
       createdAt,
       updatedAt,
-      user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null },
+      user: { email: 'taverna@volos.gr', apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
       pickupLocation: {
         id: 'loc-300',
         addressLine1: null,
@@ -104,6 +104,7 @@ describe('PartnerAdminDto', () => {
     expect(dto.email).toBeNull()
     expect(dto.pickupAddress).toBeNull()
     expect(dto.apiKeyCreatedAt).toBeNull()
+    expect(dto.apiKeyRemovedByResetAt).toBeNull()
   })
 
   describe('Spec 0037: apiKeyCreatedAt and admin key DTOs (AC-5)', () => {
@@ -124,7 +125,7 @@ describe('PartnerAdminDto', () => {
         pickupLocationId: null,
         createdAt,
         updatedAt,
-        user: { email: 'keyed@volos.gr', apiKeyCreatedAt: keyDate },
+        user: { email: 'keyed@volos.gr', apiKeyCreatedAt: keyDate, apiKeyRemovedByResetAt: null },
       })
 
       const dto = new PartnerAdminDto(entityWithKey)
@@ -150,7 +151,7 @@ describe('PartnerAdminDto', () => {
         pickupLocationId: null,
         createdAt,
         updatedAt,
-        user: { email: 'unkeyed@volos.gr', apiKeyCreatedAt: null },
+        user: { email: 'unkeyed@volos.gr', apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
       })
 
       const dto = new PartnerAdminDto(entityWithoutKey)
@@ -173,6 +174,85 @@ describe('PartnerAdminDto', () => {
 
       const dtoWithoutKey = new PartnerRotatePasswordAdminDto(null)
       expect(dtoWithoutKey.apiKey).toBeNull()
+    })
+
+    describe('Row 162: apiKeyRemovedByResetAt on PartnerAdminDto', () => {
+      test('Clause 1: PartnerAdminDto.apiKeyRemovedByResetAt reflects userApiKeyRemovedByResetAt when reset removed the key', () => {
+        const resetDate = new Date('2026-11-25T14:05:00Z')
+        const entity = new PartnerEntity({
+          id: 'partner-reset-test',
+          name: 'Reset Restaurant',
+          logo: null,
+          phoneNumber: null,
+          webhookUrl: null,
+          usualPrepMinutes: 15,
+          busyExtraMinutes: null,
+          pausedUntil: null,
+          disabledAt: null,
+          disabledReason: null,
+          userId: 'user-reset',
+          pickupLocationId: null,
+          createdAt,
+          updatedAt,
+          user: { email: 'reset@volos.gr', apiKeyCreatedAt: null, apiKeyRemovedByResetAt: resetDate },
+        })
+
+        const dto = new PartnerAdminDto(entity)
+
+        expect(dto.apiKeyRemovedByResetAt).toEqual(resetDate)
+        expect(dto.apiKeyCreatedAt).toBeNull()
+        expect(Object.keys(dto)).not.toContain('apiKeyHash')
+        expect(Object.keys(dto)).not.toContain('apiKey')
+      })
+
+      test('Clause 2: PartnerAdminDto.apiKeyRemovedByResetAt is null when restaurant has a key, never had one, or admin made/replaced/removed it', () => {
+        const entityWithKey = new PartnerEntity({
+          id: 'partner-key-test',
+          name: 'Keyed Restaurant',
+          logo: null,
+          phoneNumber: null,
+          webhookUrl: null,
+          usualPrepMinutes: 15,
+          busyExtraMinutes: null,
+          pausedUntil: null,
+          disabledAt: null,
+          disabledReason: null,
+          userId: 'user-key',
+          pickupLocationId: null,
+          createdAt,
+          updatedAt,
+          user: { email: 'keyed@volos.gr', apiKeyCreatedAt: new Date('2026-11-25T15:00:00Z'), apiKeyRemovedByResetAt: null },
+        })
+
+        const dto = new PartnerAdminDto(entityWithKey)
+
+        expect(dto.apiKeyRemovedByResetAt).toBeNull()
+        expect(dto.apiKeyCreatedAt).toEqual(new Date('2026-11-25T15:00:00Z'))
+      })
+
+      test('Clause 2: PartnerAdminDto.apiKeyRemovedByResetAt is null when PartnerEntity is non-hydrated (user relation undefined)', () => {
+        const nonHydratedEntity = new PartnerEntity({
+          id: 'partner-nonhydrated',
+          name: 'Non Hydrated Restaurant',
+          logo: null,
+          phoneNumber: null,
+          webhookUrl: null,
+          usualPrepMinutes: 15,
+          busyExtraMinutes: null,
+          pausedUntil: null,
+          disabledAt: null,
+          disabledReason: null,
+          userId: null,
+          pickupLocationId: null,
+          createdAt,
+          updatedAt,
+          user: undefined,
+        })
+
+        const dto = new PartnerAdminDto(nonHydratedEntity)
+
+        expect(dto.apiKeyRemovedByResetAt).toBeNull()
+      })
     })
   })
 

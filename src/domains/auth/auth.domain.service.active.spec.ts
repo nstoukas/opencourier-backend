@@ -23,6 +23,7 @@ describe('AuthDomainService (Spec 0013 AC-5, AC-7, AC-8)', () => {
       username: null,
       apiKeyHash: null,
       apiKeyCreatedAt: null,
+      apiKeyRemovedByResetAt: null,
       credentialsChangedAt: null,
       language: 'el',
       createdAt: new Date('2026-01-01T00:00:00Z'),
