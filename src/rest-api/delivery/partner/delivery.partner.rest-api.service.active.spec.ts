@@ -52,7 +52,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       getByIds: jest.fn().mockResolvedValue([]),
       getById: jest.fn().mockResolvedValue({ id: 'loc-1' }),
       create: jest.fn().mockResolvedValue({ id: 'loc-new' }),
-      delete: jest.fn().mockResolvedValue(undefined),
+      deleteIfUnused: jest.fn().mockResolvedValue(true),
     }
     mockCourierDomainService = {
       getByIdWithSettings: jest.fn(),
@@ -480,7 +480,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         })
       mockLocationDomainService.getById = jest.fn().mockResolvedValue({ ...sharedLocation })
       mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new' })
-      mockLocationDomainService.delete = jest.fn().mockResolvedValue(undefined)
+      mockLocationDomainService.deleteIfUnused = jest.fn().mockResolvedValue(true)
       mockLocationDomainService.update = jest.fn()
       mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift = jest.fn().mockResolvedValue(true)
     })
@@ -993,7 +993,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       })
       mockLocationDomainService.getById = jest.fn().mockResolvedValue({ ...sharedLocation })
       mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new' })
-      mockLocationDomainService.delete = jest.fn().mockResolvedValue(undefined)
+      mockLocationDomainService.deleteIfUnused = jest.fn().mockResolvedValue(true)
       mockLocationDomainService.update = jest.fn()
       mockDeliveryDomainService.updateIfMatches = jest
         .fn()
@@ -1411,7 +1411,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       })
       mockLocationDomainService.getById = jest.fn().mockResolvedValue({ ...sharedLocation })
       mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new' })
-      mockLocationDomainService.delete = jest.fn().mockResolvedValue(undefined)
+      mockLocationDomainService.deleteIfUnused = jest.fn().mockResolvedValue(true)
       mockLocationDomainService.update = jest.fn()
       mockDeliveryDomainService.updateIfMatches = jest
         .fn()
@@ -1950,7 +1950,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         return Promise.resolve({ ...sharedLocation, id })
       })
       mockLocationDomainService.create = jest.fn().mockResolvedValue({ id: 'loc-new-1' })
-      mockLocationDomainService.delete = jest.fn().mockResolvedValue(undefined)
+      mockLocationDomainService.deleteIfUnused = jest.fn().mockResolvedValue(true)
       mockDeliveryDomainService.updateIfMatches = jest
         .fn()
         .mockImplementation((id: string, where: any, data: Record<string, unknown>) => {
@@ -1981,8 +1981,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // Location was created once on try 1
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
         // In finally, because write never landed, the unused row was deleted
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
         // No delivery fields or events written
         expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
       })
@@ -1999,8 +1999,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
       })
     })
 
@@ -2037,7 +2037,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           expect.objectContaining({ dropoffLocationId: 'loc-new-1' })
         )
         // Delete was never called because landed write used the row
-        expect(mockLocationDomainService.delete).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.deleteIfUnused).not.toHaveBeenCalled()
         expect(result.dropoffLocationId).toBe('loc-new-1')
       })
     })
@@ -2061,8 +2061,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(3)
         // Deleted in finally
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
       })
 
       it('deletes the created Location row in finally when an error is thrown inside tryPartnerEdit', async () => {
@@ -2082,8 +2082,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
       })
 
       it('deletes the created Location row in finally when updateIfMatches throws an unexpected error on try 1', async () => {
@@ -2098,8 +2098,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
       })
 
       it('deletes the created Location row in finally when assertVisibleToPartner throws on retry', async () => {
@@ -2117,8 +2117,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-new-1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-new-1')
       })
     })
 
@@ -2161,8 +2161,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // Created twice: once for loc-A, once for loc-B
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(2)
         // loc-copy-A was deleted when try 2 noticed dropoffLocationId changed
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-copy-A')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-copy-A')
         // Landed write used loc-copy-B
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           2,
@@ -2186,7 +2186,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         const result = await service.update('del-166', partnerId, input)
 
         expect(mockLocationDomainService.create).not.toHaveBeenCalled()
-        expect(mockLocationDomainService.delete).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.deleteIfUnused).not.toHaveBeenCalled()
         expect(result.dropoffLocationId).toBe('loc-shared')
       })
 
@@ -2234,8 +2234,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // Create was called on try 1
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
         // On try 2 pointMoved was false, so madePoint.used remained false, causing finally to delete loc-unused-try1
-        expect(mockLocationDomainService.delete).toHaveBeenCalledTimes(1)
-        expect(mockLocationDomainService.delete).toHaveBeenCalledWith('loc-unused-try1')
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledTimes(1)
+        expect(mockLocationDomainService.deleteIfUnused).toHaveBeenCalledWith('loc-unused-try1')
         // Landed write kept loc-target
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenNthCalledWith(
           2,
@@ -2264,8 +2264,8 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce({ id: 'loc-copy-A' })
           .mockResolvedValueOnce({ id: 'loc-copy-B' })
 
-        // Deleting loc-copy-A fails
-        mockLocationDomainService.delete.mockRejectedValueOnce(new Error('Foreign key violation or db error'))
+        // Deleting loc-copy-A fails with an unexpected error
+        mockLocationDomainService.deleteIfUnused.mockRejectedValueOnce(new Error('Database disk error'))
 
         const deliveryA = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { dropoffLocationId: 'loc-A' })
         const deliveryB = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { dropoffLocationId: 'loc-B' })
@@ -2300,7 +2300,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
           .mockResolvedValueOnce(testDelivery(EnumDeliveryStatus.ACCEPTED))
 
         mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
-        mockLocationDomainService.delete.mockRejectedValueOnce(new Error('Connection failure'))
+        mockLocationDomainService.deleteIfUnused.mockRejectedValueOnce(new Error('Connection failure'))
 
         await expect(service.update('del-166', partnerId, newPointInput)).rejects.toThrow(
           new ConflictException(PARTNER_EDIT_SENTENCES.pointHeld)
@@ -2311,6 +2311,73 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         )
 
         warnSpy.mockRestore()
+      })
+
+      it('logs that row is in use and still returns saved delivery when deleteIfUnused answers false during landed edit', async () => {
+        const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+
+        const locA = { ...sharedLocation, id: 'loc-A', latitude: 39.3621, longitude: 22.9425 }
+        const locB = { ...sharedLocation, id: 'loc-B', latitude: 39.363, longitude: 22.943 }
+
+        mockLocationDomainService.getById = jest.fn((id: string) => {
+          if (id === 'loc-A') return Promise.resolve(locA)
+          if (id === 'loc-B') return Promise.resolve(locB)
+          return Promise.resolve(sharedLocation)
+        })
+
+        mockLocationDomainService.create
+          .mockResolvedValueOnce({ id: 'loc-copy-A' })
+          .mockResolvedValueOnce({ id: 'loc-copy-B' })
+
+        // deleteIfUnused answers false: loc-copy-A is in use by another record
+        mockLocationDomainService.deleteIfUnused.mockResolvedValueOnce(false)
+
+        const deliveryA = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { dropoffLocationId: 'loc-A' })
+        const deliveryB = testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER, { dropoffLocationId: 'loc-B' })
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(deliveryA)
+          .mockResolvedValueOnce(deliveryB)
+          .mockResolvedValueOnce({ ...deliveryB, dropoffLocationId: 'loc-copy-B' })
+
+        mockDeliveryDomainService.updateIfMatches
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+
+        const result = await service.update('del-166', partnerId, newPointInput)
+
+        // In use log line was written
+        expect(logSpy).toHaveBeenCalledWith(
+          'Drop off point loc-copy-A is in use by another record, so it stays'
+        )
+        // Saved delivery is still returned!
+        expect(result).toBeDefined()
+        expect(result.dropoffLocationId).toBe('loc-copy-B')
+
+        logSpy.mockRestore()
+      })
+
+      it('logs that row is in use and still throws refusal when deleteIfUnused answers false in finally', async () => {
+        const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {})
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(testDelivery(EnumDeliveryStatus.ASSIGNING_COURIER))
+          .mockResolvedValueOnce(testDelivery(EnumDeliveryStatus.ACCEPTED))
+
+        mockDeliveryDomainService.updateIfMatches.mockResolvedValueOnce(false)
+        // deleteIfUnused answers false: loc-new-1 is in use
+        mockLocationDomainService.deleteIfUnused.mockResolvedValueOnce(false)
+
+        await expect(service.update('del-166', partnerId, newPointInput)).rejects.toThrow(
+          new ConflictException(PARTNER_EDIT_SENTENCES.pointHeld)
+        )
+
+        // In use log line was written
+        expect(logSpy).toHaveBeenCalledWith(
+          'Drop off point loc-new-1 is in use by another record, so it stays'
+        )
+
+        logSpy.mockRestore()
       })
     })
 
@@ -2328,7 +2395,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         // Created exactly once
         expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
         // Never deleted
-        expect(mockLocationDomainService.delete).not.toHaveBeenCalled()
+        expect(mockLocationDomainService.deleteIfUnused).not.toHaveBeenCalled()
         // Single write landed
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
         expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledWith(

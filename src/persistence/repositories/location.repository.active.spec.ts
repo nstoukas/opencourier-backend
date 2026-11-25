@@ -12,21 +12,67 @@ describe('LocationRepository (Row 166: delete for unused Location rows)', () => 
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
-        delete: jest.fn().mockResolvedValue({ id: 'loc-1' }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     }
     repository = new LocationRepository(mockPrisma as unknown as PrismaService)
   })
 
-  describe('delete (Row 166)', () => {
-    it('calls prisma.location.delete with where id matching locationId', async () => {
-      const locationId = 'loc-to-delete'
-      await repository.delete(locationId)
+  describe('deleteIfUnused (Row 166)', () => {
+    const locationId = 'loc-to-delete'
 
-      expect(mockPrisma.location.delete).toHaveBeenCalledTimes(1)
-      expect(mockPrisma.location.delete).toHaveBeenCalledWith({
-        where: { id: locationId },
+    it('calls prisma.location.deleteMany with where id matching locationId', async () => {
+      await repository.deleteIfUnused(locationId)
+
+      expect(mockPrisma.location.deleteMany).toHaveBeenCalledTimes(1)
+      const call = mockPrisma.location.deleteMany.mock.calls[0][0]
+      expect(call.where.id).toBe(locationId)
+    })
+
+    const requiredRelations = [
+      'locationNotes',
+      'pickupDelivery',
+      'dropoffDelivery',
+      'pickupDeliveryQuotes',
+      'dropoffDeliveryQuotes',
+      'partnerPickups',
+    ] as const
+
+    for (const relation of requiredRelations) {
+      it(`fails if ${relation} condition is missing from deleteMany where`, async () => {
+        await repository.deleteIfUnused(locationId)
+
+        const call = mockPrisma.location.deleteMany.mock.calls[0][0]
+        expect(call.where[relation]).toEqual({ none: {} })
       })
+    }
+
+    it('requires all six none: {} relation conditions alongside id in deleteMany where', async () => {
+      await repository.deleteIfUnused(locationId)
+
+      expect(mockPrisma.location.deleteMany).toHaveBeenCalledWith({
+        where: {
+          id: locationId,
+          locationNotes: { none: {} },
+          pickupDelivery: { none: {} },
+          dropoffDelivery: { none: {} },
+          pickupDeliveryQuotes: { none: {} },
+          dropoffDeliveryQuotes: { none: {} },
+          partnerPickups: { none: {} },
+        },
+      })
+    })
+
+    it('answers true when deleteMany removes the row (count = 1)', async () => {
+      mockPrisma.location.deleteMany.mockResolvedValueOnce({ count: 1 })
+      const result = await repository.deleteIfUnused(locationId)
+      expect(result).toBe(true)
+    })
+
+    it('answers false when deleteMany finds row in use or already gone (count = 0)', async () => {
+      mockPrisma.location.deleteMany.mockResolvedValueOnce({ count: 0 })
+      const result = await repository.deleteIfUnused(locationId)
+      expect(result).toBe(false)
     })
   })
 })

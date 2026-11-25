@@ -10,19 +10,31 @@ describe('LocationDomainService (Row 166: delete for unused Location rows)', () 
       findById: jest.fn(),
       findByIds: jest.fn(),
       create: jest.fn(),
-      delete: jest.fn().mockResolvedValue(undefined),
+      deleteIfUnused: jest.fn().mockResolvedValue(true),
       findByAddress: jest.fn(),
     }
     service = new LocationDomainService(mockLocationRepository as LocationRepository)
   })
 
-  describe('delete (Row 166)', () => {
-    it('delegates deletion to locationRepository.delete with the given locationId', async () => {
+  describe('deleteIfUnused (Row 166)', () => {
+    it('delegates deletion to locationRepository.deleteIfUnused with the given locationId and answers true', async () => {
       const locationId = 'loc-unused-1'
-      await service.delete(locationId)
+      mockLocationRepository.deleteIfUnused = jest.fn().mockResolvedValue(true)
+      const result = await service.deleteIfUnused(locationId)
 
-      expect(mockLocationRepository.delete).toHaveBeenCalledTimes(1)
-      expect(mockLocationRepository.delete).toHaveBeenCalledWith(locationId)
+      expect(mockLocationRepository.deleteIfUnused).toHaveBeenCalledTimes(1)
+      expect(mockLocationRepository.deleteIfUnused).toHaveBeenCalledWith(locationId)
+      expect(result).toBe(true)
+    })
+
+    it('delegates deletion to locationRepository.deleteIfUnused and answers false when in use', async () => {
+      const locationId = 'loc-in-use-1'
+      mockLocationRepository.deleteIfUnused = jest.fn().mockResolvedValue(false)
+      const result = await service.deleteIfUnused(locationId)
+
+      expect(mockLocationRepository.deleteIfUnused).toHaveBeenCalledTimes(1)
+      expect(mockLocationRepository.deleteIfUnused).toHaveBeenCalledWith(locationId)
+      expect(result).toBe(false)
     })
   })
 })
