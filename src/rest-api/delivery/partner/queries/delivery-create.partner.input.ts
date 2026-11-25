@@ -1,6 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import {
+  IsArray,
+  IsBoolean,
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
+import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 import { DeliveryAddressInput } from './delivery-address-input'
 import { DeliveryCreationDetails } from 'src/shared-types/index'
 import { DeliveryOrderItemInput } from './delivery-order-item.input'
@@ -241,10 +255,17 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   @ApiProperty({
     required: true,
     type: Number,
+    description: 'The tip in whole cents, sent as a JSON number (text, such as "250", is refused).',
   })
-  @IsNumber()
+  // Row 171, as row 169 did for the edit: a tip must arrive as a JSON number. Without this the pipe reads "" and
+  // false as 0 and true as 1 (backend AGENTS.md: every number a client sends needs it).
+  @RefuseIfNotSentAsNumber()
+  // Cents, and the column is a whole number: 2.5 would otherwise pass here and fail at the write with a 500.
+  @IsInt()
   // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
   @Min(0)
+  // Row 171: the column's limit, so a huge tip answers 400, not a 500 at the write.
+  @Max(TIP_CENTS_CEILING)
   tip: number
 
   @ApiProperty({

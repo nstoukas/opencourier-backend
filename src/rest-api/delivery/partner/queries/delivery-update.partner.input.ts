@@ -1,10 +1,22 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsDate, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator'
+import {
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator'
 import { BoxSize } from '@prisma/types'
 import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
 import { DeliveryUpdateDetails } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
+import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 
 export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
@@ -61,6 +73,8 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @IsInt()
   // agy's review of rows 148 to 150: a tip is added to the rider's pay, so it can never be below 0.
   @Min(0)
+  // Row 171: the column's limit, so a huge tip answers 400, not a 500 at the write.
+  @Max(TIP_CENTS_CEILING)
   tipByCustomer?: number
 
   @ApiProperty({
