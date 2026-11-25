@@ -3430,6 +3430,7 @@ export class DeliveryEventService {
       deliveryId: delivery.id,
       restaurantName: delivery.pickupBusinessName,
       changed,
+      editedAt: new Date().toISOString(),
     }
     try {
       const courier = await this.courierRepository.findById(delivery.courierId)

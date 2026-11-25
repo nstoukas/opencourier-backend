@@ -67,6 +67,8 @@ export interface JobEditedMessage {
   deliveryId: string
   restaurantName: string
   changed: JobEditedField[]
+  // When the server sent it (ISO time). The same edit arrives twice (live and by push); the phone shows it once.
+  editedAt: string
 }
 
 export interface JobReadyUpdatedMessage {

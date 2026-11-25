@@ -146,6 +146,7 @@ export class OfferPushService {
         deliveryId: message.deliveryId,
         restaurantName: message.restaurantName,
         changed: message.changed.join(','),
+        editedAt: message.editedAt,
       }
       const result = await this.pushNotificationService.sendData(tokens, data, PUSH_DEFAULT_TTL_SECONDS)
       await this.handleSendResult(message.deliveryId, NotificationEventType.JOB_EDITED, result)
