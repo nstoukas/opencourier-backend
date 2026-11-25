@@ -3423,7 +3423,8 @@ export class DeliveryEventService {
 
   // Row 164: tells the rider holding this job that its restaurant changed the notes or the times, over the live
   // connection and by push, as `notifyReadyUpdated` does. Never throws: the edit already happened. No read or seen
-  // record is kept (binding value 5).
+  // record is kept (binding value 5). The caller decides "held" (`riderVisibleEdits` answers nothing otherwise);
+  // here only a courier and something changed are checked.
   async notifyJobEdited(delivery: DeliveryEntity, changed: JobEditedField[]): Promise<void> {
     if (!delivery.courierId || changed.length === 0) return
     const message: JobEditedMessage = {

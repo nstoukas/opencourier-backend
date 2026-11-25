@@ -471,6 +471,9 @@ export class DeliveryPartnerRestApiService {
         status: delivery.status,
         tips: delivery.tips,
         dropoffLocationId: delivery.dropoffLocationId,
+        // Row 164 (Fable review, minor 1): the rider as read, so the notice below goes to the rider who holds the
+        // order now; a reassignment in between makes this try lose and read again. `null` means "no rider" here.
+        courierId: delivery.courierId,
         ...sizeChange?.where,
       },
       {

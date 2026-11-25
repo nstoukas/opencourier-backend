@@ -55,8 +55,6 @@ export interface OfferEndedMessage {
   offeredAt: string | null
 }
 
-// Spec 0023 (AC-6): what a rider holding a job is told when its readiness changes. Ids, the
-// restaurant's business name and times only: no customer detail, no position.
 // Row 164: what a restaurant's edit changed that the rider reads on the job: the notes, the times, or both.
 export type JobEditedField = 'NOTES' | 'TIMES'
 
@@ -71,6 +69,8 @@ export interface JobEditedMessage {
   editedAt: string
 }
 
+// Spec 0023 (AC-6): what a rider holding a job is told when its readiness changes. Ids, the
+// restaurant's business name and times only: no customer detail, no position.
 export interface JobReadyUpdatedMessage {
   deliveryId: string
   restaurantName: string

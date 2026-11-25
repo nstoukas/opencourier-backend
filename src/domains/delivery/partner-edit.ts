@@ -42,7 +42,8 @@ export function tipAfterPartnerEdit(status: EnumDeliveryStatus, currentTips: num
 // Row 164: what a landed edit changed that the rider holding the order reads on the job: the notes (pickup or drop
 // off) and the times (the pickup and drop off windows). Empty when no rider holds the order, so an edit before then
 // tells no rider anything. A field the edit leaves out (`undefined`) is not written, so it is not a change. Empty
-// notes and no notes are the same to the rider.
+// notes and no notes are the same to the rider. Compared with what this edit read: if two edits of the same order
+// overlap, the second may put the notes back with no notice (Fable review of row 164, minor 2; rare, accepted).
 export function riderVisibleEdits(
   delivery: {
     status: EnumDeliveryStatus
