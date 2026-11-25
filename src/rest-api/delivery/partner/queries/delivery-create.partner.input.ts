@@ -255,6 +255,8 @@ export class DeliveryCreatePartnerInput implements DeliveryCreationDetails {
   @ApiProperty({
     required: true,
     type: Number,
+    minimum: 0,
+    maximum: TIP_CENTS_CEILING,
     description: 'The tip in whole cents, sent as a JSON number (text, such as "250", is refused).',
   })
   // Row 171, as row 169 did for the edit: a tip must arrive as a JSON number. Without this the pipe reads "" and

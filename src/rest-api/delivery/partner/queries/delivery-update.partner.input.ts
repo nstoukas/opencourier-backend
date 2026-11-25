@@ -59,6 +59,8 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
     required: false,
     type: Number,
+    minimum: 0,
+    maximum: TIP_CENTS_CEILING,
     description:
       'Left out: the tip stays as it is (row 169). Otherwise the new tip in whole cents, sent as a JSON number (text, such as "250", is refused), applied only before a rider holds the order.',
   })
