@@ -51,23 +51,25 @@ export class UserRepository extends EntityRepository implements IUserRepository 
   async replaceApiKeyHash(userId: string, apiKeyHash: string, apiKeyCreatedAt: Date): Promise<{ replaced: boolean }> {
     const replaced = await this.prisma.user.updateMany({
       where: { id: userId, apiKeyHash: { not: null } },
-      data: { apiKeyHash, apiKeyCreatedAt },
+      data: { apiKeyHash, apiKeyCreatedAt, apiKeyRemovedByResetAt: null },
     })
     if (replaced.count > 0) {
       return { replaced: true }
     }
+    // A new key ends the reset's note (row 162): the page then shows the key, not why the old one went.
     await this.prisma.user.update({
       where: { id: userId },
-      data: { apiKeyHash, apiKeyCreatedAt },
+      data: { apiKeyHash, apiKeyCreatedAt, apiKeyRemovedByResetAt: null },
     })
     return { replaced: false }
   }
 
   // An admin's Remove key (spec 0037). Answers whether there was a key to remove, for the log line.
+  // An admin's removal is not the reset's, so it never carries row 162's note.
   async removeApiKey(userId: string): Promise<{ removed: boolean }> {
     const result = await this.prisma.user.updateMany({
       where: { id: userId, apiKeyHash: { not: null } },
-      data: { apiKeyHash: null, apiKeyCreatedAt: null },
+      data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: null },
     })
     return { removed: result.count > 0 }
   }
@@ -81,7 +83,8 @@ export class UserRepository extends EntityRepository implements IUserRepository 
     credentialsChangedAt: Date
   ): Promise<{ apiKeyRemoved: boolean }> {
     // One transaction, like setPasswordAndReplaceApiKey below: the key is switched off only where one exists,
-    // and the count says whether it was.
+    // and the count says whether it was. Only then is the time noted for the admin page (row 162): a reset of a
+    // login with no key leaves the note as it was.
     const [, keyWrite] = await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
@@ -89,7 +92,7 @@ export class UserRepository extends EntityRepository implements IUserRepository 
       }),
       this.prisma.user.updateMany({
         where: { id: userId, apiKeyHash: { not: null } },
-        data: { apiKeyHash: null, apiKeyCreatedAt: null },
+        data: { apiKeyHash: null, apiKeyCreatedAt: null, apiKeyRemovedByResetAt: credentialsChangedAt },
       }),
     ])
     return { apiKeyRemoved: keyWrite.count > 0 }
@@ -112,7 +115,7 @@ export class UserRepository extends EntityRepository implements IUserRepository 
       }),
       this.prisma.user.updateMany({
         where: { id: userId, apiKeyHash: { not: null } },
-        data: { apiKeyHash, apiKeyCreatedAt: credentialsChangedAt },
+        data: { apiKeyHash, apiKeyCreatedAt: credentialsChangedAt, apiKeyRemovedByResetAt: null },
       }),
     ])
     return { apiKeyReplaced: keyWrite.count > 0 }

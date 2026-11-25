@@ -39,6 +39,11 @@ export class PartnerAdminDto {
   @ApiProperty({ type: Date, nullable: true })
   apiKeyCreatedAt: Date | null
 
+  // Row 162: when the restaurant's own password reset by email switched its key off. Null when the
+  // restaurant has a key, never had one, or an admin made, replaced or removed it since.
+  @ApiProperty({ type: Date, nullable: true })
+  apiKeyRemovedByResetAt: Date | null
+
   @ApiProperty({ type: LocationAdminDto, nullable: true })
   pickupAddress: LocationAdminDto | null
 
@@ -59,6 +64,7 @@ export class PartnerAdminDto {
     this.userId = data.userId
     this.email = data.userEmail ?? null
     this.apiKeyCreatedAt = data.userApiKeyCreatedAt ?? null
+    this.apiKeyRemovedByResetAt = data.userApiKeyRemovedByResetAt ?? null
     this.pickupAddress = data.pickupLocation ? new LocationAdminDto(data.pickupLocation) : null
     this.createdAt = data.createdAt
     this.updatedAt = data.updatedAt

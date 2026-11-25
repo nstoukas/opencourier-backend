@@ -37,7 +37,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         id: partnerId,
       },
       include: {
-        user: { select: { email: true, apiKeyCreatedAt: true } },
+        user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
         pickupLocation: true,
       },
     })
@@ -100,7 +100,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         where,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { email: true, apiKeyCreatedAt: true } },
+          user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
           pickupLocation: true,
         },
       },
@@ -153,7 +153,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
       include: {
         partner: {
           include: {
-            user: { select: { email: true, apiKeyCreatedAt: true } },
+            user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
             pickupLocation: true,
           },
         },
@@ -179,7 +179,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
         ...(data.usualPrepMinutes !== undefined && { usualPrepMinutes: data.usualPrepMinutes }),
       },
       include: {
-        user: { select: { email: true, apiKeyCreatedAt: true } },
+        user: { select: { email: true, apiKeyCreatedAt: true, apiKeyRemovedByResetAt: true } },
         pickupLocation: true,
       },
     })
@@ -204,7 +204,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
 
   private toDomain(
     data: Partner & {
-      user?: { email: string | null; apiKeyCreatedAt: Date | null } | null
+      user?: { email: string | null; apiKeyCreatedAt: Date | null; apiKeyRemovedByResetAt: Date | null } | null
       pickupLocation?: Location | null
     },
   ) {
@@ -213,7 +213,7 @@ export class PartnerRepository extends EntityRepository implements IPartnerRepos
 
   private toDomainMany(
     data: (Partner & {
-      user?: { email: string | null; apiKeyCreatedAt: Date | null } | null
+      user?: { email: string | null; apiKeyCreatedAt: Date | null; apiKeyRemovedByResetAt: Date | null } | null
       pickupLocation?: Location | null
     })[],
   ) {

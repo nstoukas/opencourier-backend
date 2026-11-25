@@ -25,6 +25,10 @@ model User {
   // When the current key was made, shown on the restaurant's admin page. Null exactly when
   // apiKeyHash is null; both are always written together (spec 0037).
   apiKeyCreatedAt DateTime?
+  // Row 162: when the restaurant's own password reset by email switched its key off (row 153), so the
+  // admin page can say why the restaurant's system stopped. Null when no key was made since, or never.
+  // Cleared by every admin key write: a key an admin made, replaced or removed never carries it.
+  apiKeyRemovedByResetAt DateTime?
 
   // When the password was last set by an admin (spec 0013). Every token issued before it is
   // refused, so a changed password signs the old phone out. Null: never changed.

@@ -23,6 +23,8 @@ export class PartnerEntity implements Partner {
   userEmail?: string | null
   // When the restaurant's current API key was made; null: no key (spec 0037). Never the key's hash.
   userApiKeyCreatedAt?: Date | null
+  // Row 162: when the restaurant's own reset switched its key off; null otherwise.
+  userApiKeyRemovedByResetAt?: Date | null
   pickupLocation?: LocationEntity | null
 
   createdAt: Date
@@ -32,7 +34,7 @@ export class PartnerEntity implements Partner {
     data: Partner & {
       // `apiKeyCreatedAt` is required whenever the user is loaded (spec 0037 review): a query that
       // loads the email but forgets the key's date fails typecheck instead of showing "No API key".
-      user?: { email: string | null; apiKeyCreatedAt: Date | null } | null
+      user?: { email: string | null; apiKeyCreatedAt: Date | null; apiKeyRemovedByResetAt: Date | null } | null
       pickupLocation?: Location | null
     },
   ) {
@@ -53,6 +55,7 @@ export class PartnerEntity implements Partner {
 
     this.userEmail = data.user ? data.user.email : undefined
     this.userApiKeyCreatedAt = data.user ? data.user.apiKeyCreatedAt : undefined
+    this.userApiKeyRemovedByResetAt = data.user ? data.user.apiKeyRemovedByResetAt : undefined
 
     // undefined = relation not loaded; null = loaded, partner has no pickup location
     if (data.pickupLocation) {
