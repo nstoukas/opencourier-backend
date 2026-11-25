@@ -118,6 +118,18 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       })
     })
 
+    // Row 168: empty string '' is refused with 400 (not parsed as null or silently ignored)
+    describe('empty string is refused', () => {
+      it.each(TIME_FIELDS)('an empty string for %s is refused with BadRequestException', async (field) => {
+        await expect(
+          pipe.transform(
+            { ...validBody, [field]: '' },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+    })
+
     describe('missing time passes (undefined)', () => {
       it.each(TIME_FIELDS)('omitting %s passes validation with value undefined', async (field) => {
         const bodyWithoutField = { ...validBody }

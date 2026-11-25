@@ -3174,4 +3174,242 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       })
     })
   })
+
+  // Row 168: time updates in partner edit (decision 168.2)
+  // Left out (undefined) keeps the stored time; null clears it. Empty string was refused by input pipe.
+  describe('Row 168: time updates in partner edit (decision 168.2)', () => {
+    const TIME_FIELDS = ['pickupReadyAt', 'pickupDeadlineAt', 'dropoffReadyAt', 'dropoffDeadlineAt'] as const
+
+    const sharedDropoffLocation = {
+      id: 'loc-shared',
+      formattedAddress: 'Iasonos 12, Volos 38221, Greece',
+      latitude: 39.3621,
+      longitude: 22.9425,
+    }
+
+    const row168Delivery = (opts?: Record<string, unknown>) => ({
+      id: 'del-168',
+      partnerId,
+      pickupBusinessName: 'Nosh Tavern',
+      status: (opts?.status as EnumDeliveryStatus) ?? EnumDeliveryStatus.DISPATCHED,
+      createdAt: new Date(),
+      dropoffLocationId: 'loc-shared',
+      deliveryQuoteId: 'quote-1',
+      tips: 150,
+      currencyCode: 'EUR',
+      orderReference: 'ORD-168',
+      matchedCourierId: null,
+      courierId: (opts?.courierId as string | null) !== undefined ? (opts?.courierId as string | null) : 'courier-1',
+      pickupNotes: (opts?.pickupNotes as string | null) !== undefined ? (opts?.pickupNotes as string | null) : 'Old pickup notes',
+      dropoffNotes: (opts?.dropoffNotes as string | null) !== undefined ? (opts?.dropoffNotes as string | null) : 'Old dropoff notes',
+      pickupReadyAt: (opts?.pickupReadyAt as Date | null) !== undefined ? (opts?.pickupReadyAt as Date | null) : new Date('2026-11-25T12:00:00.000Z'),
+      pickupDeadlineAt: (opts?.pickupDeadlineAt as Date | null) !== undefined ? (opts?.pickupDeadlineAt as Date | null) : new Date('2026-11-25T12:30:00.000Z'),
+      dropoffReadyAt: (opts?.dropoffReadyAt as Date | null) !== undefined ? (opts?.dropoffReadyAt as Date | null) : new Date('2026-11-25T12:35:00.000Z'),
+      dropoffDeadlineAt: (opts?.dropoffDeadlineAt as Date | null) !== undefined ? (opts?.dropoffDeadlineAt as Date | null) : new Date('2026-11-25T13:00:00.000Z'),
+      boxSize: BoxSize.SMALL,
+      boxUnits: 30,
+      boxSizeAssumed: false,
+    })
+
+    const updateInput = (overrides: Record<string, unknown> = {}) => ({
+      dropoffLatitude: 39.3621,
+      dropoffLongitude: 22.9425,
+      ...overrides,
+    })
+
+    beforeEach(() => {
+      mockDeliveryQuoteDomainService.getByIdOrThrow.mockResolvedValue({
+        id: 'quote-1',
+        pickupLocationId: 'loc-pickup',
+        dropoffLocationId: 'loc-shared',
+      })
+      mockLocationDomainService.getById = jest.fn().mockResolvedValue(sharedDropoffLocation)
+      mockDeliveryDomainService.updateIfMatches = jest.fn().mockResolvedValue(true)
+      mockDeliveryEventService.notifyJobEdited = jest.fn().mockResolvedValue(undefined)
+    })
+
+    describe('null time reaches the conditional write data as null', () => {
+      it.each(TIME_FIELDS)('a null time for %s reaches the conditional write data as null', async (field) => {
+        const initial = row168Delivery()
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce({ ...initial, [field]: null })
+
+        await service.update('del-168', partnerId, updateInput({ [field]: null }) as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data[field]).toBeNull()
+      })
+
+      it('setting all four times to null reaches the conditional write data as null for all four', async () => {
+        const initial = row168Delivery()
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce({
+            ...initial,
+            pickupReadyAt: null,
+            pickupDeadlineAt: null,
+            dropoffReadyAt: null,
+            dropoffDeadlineAt: null,
+          })
+
+        await service.update(
+          'del-168',
+          partnerId,
+          updateInput({
+            pickupReadyAt: null,
+            pickupDeadlineAt: null,
+            dropoffReadyAt: null,
+            dropoffDeadlineAt: null,
+          }) as any
+        )
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.pickupReadyAt).toBeNull()
+        expect(data.pickupDeadlineAt).toBeNull()
+        expect(data.dropoffReadyAt).toBeNull()
+        expect(data.dropoffDeadlineAt).toBeNull()
+      })
+    })
+
+    describe('a time left out of the input is absent (undefined) from conditional write data', () => {
+      it.each(TIME_FIELDS)('a time left out of the input (%s) is absent (undefined) from data so Prisma keeps it', async (field) => {
+        const initial = row168Delivery()
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(initial)
+
+        const input = updateInput({ pickupNotes: 'Updated notes' })
+        delete (input as any)[field]
+
+        await service.update('del-168', partnerId, input as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data[field]).toBeUndefined()
+      })
+
+      it('all four times left out of input are absent (undefined) from conditional write data', async () => {
+        const initial = row168Delivery()
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(initial)
+
+        const input = updateInput({ pickupNotes: 'Updated notes' })
+        for (const field of TIME_FIELDS) {
+          delete (input as any)[field]
+        }
+
+        await service.update('del-168', partnerId, input as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.pickupReadyAt).toBeUndefined()
+        expect(data.pickupDeadlineAt).toBeUndefined()
+        expect(data.dropoffReadyAt).toBeUndefined()
+        expect(data.dropoffDeadlineAt).toBeUndefined()
+      })
+    })
+
+    describe('riderVisibleEdits in notifyJobEdited for left out vs null times', () => {
+      it('reports no TIMES when times are left out of the input (stored times kept)', async () => {
+        const initial = row168Delivery({
+          pickupReadyAt: new Date('2026-11-25T12:00:00.000Z'),
+          pickupDeadlineAt: new Date('2026-11-25T12:30:00.000Z'),
+          dropoffReadyAt: new Date('2026-11-25T12:35:00.000Z'),
+          dropoffDeadlineAt: new Date('2026-11-25T13:00:00.000Z'),
+          pickupNotes: 'Old notes',
+        })
+        const saved = { ...initial, pickupNotes: 'New notes' }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        // Times left out of the input; only notes updated
+        await service.update('del-168', partnerId, updateInput({ pickupNotes: 'New notes' }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['NOTES'])
+        const [, changed] = mockDeliveryEventService.notifyJobEdited.mock.calls[0]
+        expect(changed).not.toContain('TIMES')
+      })
+
+      it('reports no TIMES when all fields are unchanged and times are left out of input', async () => {
+        const initial = row168Delivery()
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(initial)
+
+        await service.update('del-168', partnerId, updateInput() as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
+      })
+
+      it.each(TIME_FIELDS)('reports TIMES when null clears stored %s', async (field) => {
+        const initial = row168Delivery({
+          [field]: new Date('2026-11-25T12:00:00.000Z'),
+        })
+        const saved = { ...initial, [field]: null }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update('del-168', partnerId, updateInput({ [field]: null }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['TIMES'])
+      })
+
+      it('reports TIMES only once when all four stored times are cleared with null', async () => {
+        const initial = row168Delivery({
+          pickupReadyAt: new Date('2026-11-25T12:00:00.000Z'),
+          pickupDeadlineAt: new Date('2026-11-25T12:30:00.000Z'),
+          dropoffReadyAt: new Date('2026-11-25T12:35:00.000Z'),
+          dropoffDeadlineAt: new Date('2026-11-25T13:00:00.000Z'),
+        })
+        const saved = {
+          ...initial,
+          pickupReadyAt: null,
+          pickupDeadlineAt: null,
+          dropoffReadyAt: null,
+          dropoffDeadlineAt: null,
+        }
+
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(saved)
+
+        await service.update(
+          'del-168',
+          partnerId,
+          updateInput({
+            pickupReadyAt: null,
+            pickupDeadlineAt: null,
+            dropoffReadyAt: null,
+            dropoffDeadlineAt: null,
+          }) as any
+        )
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['TIMES'])
+      })
+
+      it('reports no TIMES when null time is sent for an order whose stored time is already null', async () => {
+        const initial = row168Delivery({ pickupReadyAt: null })
+        mockDeliveryDomainService.getByIdOrThrow
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValueOnce(initial)
+
+        await service.update('del-168', partnerId, updateInput({ pickupReadyAt: null }) as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
+      })
+    })
+  })
 })
