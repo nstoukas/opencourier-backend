@@ -50,6 +50,8 @@ export const el: Translations = {
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}} ως μία από δύο παραγγελίες που προτάθηκαν μαζί· ολοκληρώθηκε από τον έλεγχο του λεπτού',
       ACCEPTED_ALONE_BY_SWEEP:
         'Ο διανομέας {{courierId}} αποδέχτηκε την παραγγελία {{deliveryId}}· ολοκληρώθηκε από τον έλεγχο του λεπτού',
+      ACCEPT_GIVEN_BACK:
+        'Ο διανομέας {{courierId}} αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε ($t(server.enum.acceptGivenBackReason.{{reason}}))· η παραγγελία περιμένει ξανά διανομέα',
       REJECTED: 'Ο διανομέας {{courierId}} απέρριψε την παραγγελία {{deliveryId}}',
       REJECTED_TOGETHER:
         'Ο διανομέας {{courierId}} απέρριψε την παραγγελία {{deliveryId}}, που προτάθηκε μαζί με την παραγγελία {{otherDeliveryId}}',
@@ -178,6 +180,12 @@ export const el: Translations = {
       boxSize: { SMALL: 'Μικρό', MEDIUM: 'Μεσαίο', LARGE: 'Μεγάλο' },
       cancelledBy: { RESTAURANT: 'το κατάστημα', CUSTOMER: 'τον πελάτη', COOP: 'τον συνεταιρισμό' },
       dispatchStopReason: { HEAT: 'καύσωνας', STORM: 'καταιγίδα', OTHER: 'άλλοι λόγοι' },
+      acceptGivenBackReason: {
+        STOPPED: 'παύση διανομών',
+        FAILING: 'απέτυχε επανειλημμένα',
+        SOS: 'ο διανομέας είναι σε SOS',
+        DEACTIVATED: 'ο διανομέας απενεργοποιήθηκε',
+      },
       arrivalHow: { DETECTED: ' (εντοπίστηκε από την εφαρμογή)', TAPPED: ' (πατήθηκε από τον διανομέα)' },
       savedCustomerOutcome: {
         UPDATED: 'ο αποθηκευμένος πελάτης ενημερώθηκε',

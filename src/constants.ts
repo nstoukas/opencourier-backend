@@ -196,9 +196,10 @@ export const DEFAULT_ADD_ON_MOMENT = 'BEFORE_PICKUP'
 export const DEFAULT_STACK_PAIR_BLOCK_MINUTES = 20
 export const STACK_PAIR_BLOCK_MINUTES_MIN = 0
 export const STACK_PAIR_BLOCK_MINUTES_MAX = 60
-// Review of row 80: a stack accept whose second ACCEPTED keeps failing is given back to waiting after this
-// long (ten tries of the minute sweep), so the sweep never retries one row for ever. A technical limit, not a
-// co-op number.
+// Review of row 80: an accept whose ACCEPTED keeps failing (a pair's second, or since row 172 a single's) is given
+// back to waiting after this long (ten tries of the minute sweep), so the sweep never retries one row for ever. A
+// technical limit, not a co-op number. Its age is measured from the take, so a sweep that was down longer than this
+// also gives it back, recorded as "kept failing".
 export const STACK_ACCEPT_GIVE_UP_MS = 10 * 60 * 1000
 export const DEFAULT_OFFER_EXPIRY_SECONDS = 60
 export const DEFAULT_NO_COURIER_RETRY_SECONDS = 30

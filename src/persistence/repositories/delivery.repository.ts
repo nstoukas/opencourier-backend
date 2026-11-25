@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import {
   Delivery,
@@ -54,6 +54,8 @@ class RollBack extends Error {}
 
 @Injectable()
 export class DeliveryRepository extends EntityRepository implements IDeliveryRepository {
+  private readonly logger = new Logger(DeliveryRepository.name)
+
   constructor(prisma: PrismaService) {
     super(prisma)
   }
@@ -465,7 +467,15 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       orderBy: { updatedAt: 'asc' },
       take: 50,
     })
-    return this.toDomainMany(rows).filter((row) => row.matchedCourierId === row.courierId)
+    const all = this.toDomainMany(rows)
+    // Fable review of row 172: the rider check runs after `take: 50`, so rows that fail it would fill the batch and
+    // hide real ones for good. None is expected (every path back to waiting clears courierId); each one is logged.
+    const notTheTaker = all.filter((row) => row.matchedCourierId !== row.courierId)
+    if (notTheTaker.length > 0) {
+      const ids = notTheTaker.map((row) => row.id).join(', ')
+      this.logger.warn(`Taken deliveries whose rider is not the one offered, left to an admin: ${ids}`)
+    }
+    return all.filter((row) => row.matchedCourierId === row.courierId)
   }
 
   // Spec 0015, AC-10: cancellations from an ongoing status, cancelled between `from` and `to`, still

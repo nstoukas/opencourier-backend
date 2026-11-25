@@ -1366,9 +1366,10 @@ export class DeliveryEventService {
         // deactivation, since the rider's tap gives this order back to waiting instead of a job (value 3: no
         // rider takes work during a stop); so does an accept that has kept failing for STACK_ACCEPT_GIVE_UP_MS,
         // so the sweep does not try one row for ever. The backstop then matches it again.
-        const stopped = await this.dispatchStopRepository.findOn(new Date())
-        const givingUp = Date.now() - delivery.updatedAt.getTime() > STACK_ACCEPT_GIVE_UP_MS
-        if (stopped || givingUp || (await this.isCourierDeactivatedAfterTake(courierId))) {
+        // Row 172 reviews: an active SOS too, as acceptDelivery checks before its take (decision 73.10). The age
+        // test reads updatedAt, which the take stamps; any later write only makes the row look younger.
+        const reason = await this.whyNotCompleteTake(delivery, courierId)
+        if (reason) {
           const givenBack = await this.deliveryRepository.updateIfMatches(
             delivery.id,
             { status: EnumDeliveryStatus.ASSIGNING_COURIER, courierId },
@@ -1382,21 +1383,34 @@ export class DeliveryEventService {
             }
           )
           if (givenBack) {
-            // Decision 172.1: like every give back of a take (the accept's own two, and a pair's here), this writes
-            // no DeliveryEvent: the status never moved, and the order returns to what it was before the take.
             this.logger.warn(
-              `Accept of delivery ${delivery.id} by courier ${courierId} not completed (${
-                stopped ? 'dispatch stopped' : givingUp ? 'it kept failing' : 'rider deactivated'
-              }); the order waits for a rider again`
+              `Accept of delivery ${delivery.id} by courier ${courierId} not completed (${reason}); the order waits for a rider again`
             )
             // agy review of row 80: the other order, already the rider's job, is alone now, so its four stop
             // sequence is cleared too (cross check 6); `delivery` is the row read before the write, so its
             // offerGroupId still names the group.
             if (delivery.offerGroupId) await this.settleStackStops(delivery.offerGroupId, delivery.id)
+            // Decision 172.4 (reversing 172.1, Fable and agy reviews of row 172): the give back is on the record. Nobody
+            // hears of it otherwise, unlike the accept's own give backs, which answer the rider at once. OFFER_EXPIRED
+            // by SYSTEM keeps the status, names the rider and the reason, and starts matching again; it never skip
+            // lists the rider, who did accept.
+            const givenBackEvent: DeliveryOfferExpiredEvent = {
+              deliveryId: delivery.id,
+              type: EnumDeliveryEventType.OFFER_EXPIRED,
+              actor: EnumEventActor.SYSTEM,
+              source: EnumDeliveryEventSource.OPENCOURIER,
+              courierId,
+              ...eventText('ACCEPT_GIVEN_BACK', { courierId, reason }),
+            }
+            await this.processDeliveryEvent(givenBackEvent)
             await this.ensureBackstopIfStillWaiting(delivery.id)
           }
           continue
         }
+        // Fable review of row 172: read the row again just before ACCEPTED, so a give back made meanwhile (another
+        // process, or the accept itself) is not overwritten by this sweep's ACCEPTED.
+        const fresh = await this.deliveryRepository.findById(delivery.id)
+        if (!fresh || fresh.status !== EnumDeliveryStatus.ASSIGNING_COURIER || fresh.courierId !== courierId) continue
         const accepted: DeliveryAcceptedEvent = {
           deliveryId: delivery.id,
           type: EnumDeliveryEventType.ACCEPTED,
@@ -1417,6 +1431,20 @@ export class DeliveryEventService {
       }
     }
     return completed
+  }
+
+  // Row 172: why the sweep gives a take back instead of completing it, or null to complete it. In this order: a
+  // dispatch stop, an accept that kept failing, an active SOS, a deactivation (each a key of the server's
+  // acceptGivenBackReason sentences).
+  private async whyNotCompleteTake(
+    delivery: DeliveryEntity,
+    courierId: string
+  ): Promise<'STOPPED' | 'FAILING' | 'SOS' | 'DEACTIVATED' | null> {
+    if (await this.dispatchStopRepository.findOn(new Date())) return 'STOPPED'
+    if (Date.now() - delivery.updatedAt.getTime() > STACK_ACCEPT_GIVE_UP_MS) return 'FAILING'
+    if (await this.courierRepository.hasActiveSos(courierId)) return 'SOS'
+    if (await this.isCourierDeactivatedAfterTake(courierId)) return 'DEACTIVATED'
+    return null
   }
 
   // Spec 0048 (cross check 6): clears the group's stop sequence once its two deliveries are no longer with

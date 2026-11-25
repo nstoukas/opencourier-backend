@@ -59,6 +59,8 @@ export const EVENT_MESSAGE_CODES = {
   ACCEPTED_BY_SWEEP: ['courierId', 'deliveryId'],
   // Row 172: a single order's accept completed by the minute sweep.
   ACCEPTED_ALONE_BY_SWEEP: ['courierId', 'deliveryId'],
+  // Row 172 reviews: the minute sweep gave a take back to waiting; reason is a key of enum.acceptGivenBackReason.
+  ACCEPT_GIVEN_BACK: ['courierId', 'reason'],
   REJECTED: ['courierId', 'deliveryId'],
   REJECTED_TOGETHER: ['courierId', 'deliveryId', 'otherDeliveryId'],
 

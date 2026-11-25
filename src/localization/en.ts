@@ -47,6 +47,8 @@ export const en = {
       ACCEPTED_BY_SWEEP:
         'Courier {{courierId}} accepted delivery {{deliveryId}} as part of two orders offered together; completed by the minute sweep',
       ACCEPTED_ALONE_BY_SWEEP: 'Courier {{courierId}} accepted delivery {{deliveryId}}; completed by the minute sweep',
+      ACCEPT_GIVEN_BACK:
+        'Courier {{courierId}} accepted, but the accept was not completed ($t(server.enum.acceptGivenBackReason.{{reason}})); the order waits for a rider again',
       REJECTED: 'Courier {{courierId}} rejected delivery {{deliveryId}}',
       REJECTED_TOGETHER:
         'Courier {{courierId}} rejected delivery {{deliveryId}}, offered together with delivery {{otherDeliveryId}}',
@@ -165,6 +167,12 @@ export const en = {
       boxSize: { SMALL: 'Small', MEDIUM: 'Medium', LARGE: 'Large' },
       cancelledBy: { RESTAURANT: 'the restaurant', CUSTOMER: 'the customer', COOP: 'the co-op' },
       dispatchStopReason: { HEAT: 'heat', STORM: 'storm', OTHER: 'other reasons' },
+      acceptGivenBackReason: {
+        STOPPED: 'dispatch stopped',
+        FAILING: 'it kept failing',
+        SOS: 'the rider is in SOS',
+        DEACTIVATED: 'the rider was deactivated',
+      },
       arrivalHow: { DETECTED: ' (detected by the app)', TAPPED: ' (tapped by the rider)' },
       savedCustomerOutcome: {
         UPDATED: 'saved customer updated',
