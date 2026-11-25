@@ -69,30 +69,46 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
     required: true,
     type: Date,
+    nullable: true,
   })
+  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // `@IsOptional()` lets null through and still checks a value that is sent.
+  @IsOptional()
   @IsDate()
-  pickupReadyAt: Date
+  pickupReadyAt: Date | null
 
   @ApiProperty({
     required: true,
     type: Date,
+    nullable: true,
   })
+  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // `@IsOptional()` lets null through and still checks a value that is sent.
+  @IsOptional()
   @IsDate()
-  pickupDeadlineAt: Date
+  pickupDeadlineAt: Date | null
 
   @ApiProperty({
     required: true,
     type: Date,
+    nullable: true,
   })
+  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // `@IsOptional()` lets null through and still checks a value that is sent.
+  @IsOptional()
   @IsDate()
-  dropoffReadyAt: Date
+  dropoffReadyAt: Date | null
 
   @ApiProperty({
     required: true,
     type: Date,
+    nullable: true,
   })
+  // Row 168: `null` is "no time" (the column is nullable); it was refused with 400, so the portal invented one.
+  // `@IsOptional()` lets null through and still checks a value that is sent.
+  @IsOptional()
   @IsDate()
-  dropoffDeadlineAt: Date
+  dropoffDeadlineAt: Date | null
 
   // Spec 0043 (AC-3): a new size, only while no rider has been offered or holds the order (409 after).
   @ApiProperty({ required: false, enum: BoxSize })

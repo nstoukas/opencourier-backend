@@ -151,9 +151,10 @@ export interface DeliveryUpdateDetails {
   tipByCustomer: number
   dropoffLatitude: number
   dropoffLongitude: number
-  pickupReadyAt: Date
-  pickupDeadlineAt: Date
-  dropoffReadyAt: Date
-  dropoffDeadlineAt: Date
+  // Row 168: null is "no time"; the columns are nullable.
+  pickupReadyAt: Date | null
+  pickupDeadlineAt: Date | null
+  dropoffReadyAt: Date | null
+  dropoffDeadlineAt: Date | null
 }
 export { EnumCourierStatus }
