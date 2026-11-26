@@ -420,7 +420,7 @@ describe('riderVisibleEdits (Row 164)', () => {
     })
   })
 
-  // Row 177: the order total column's ceiling constant (decision 177.1)
+  // Row 177: the order total column's ceiling constant (decision 177.3)
   describe('ORDER_TOTAL_CENTS_CEILING (Row 177)', () => {
     test('is 2147483647 (Postgres 32-bit signed integer limit)', () => {
       expect(ORDER_TOTAL_CENTS_CEILING).toBe(2147483647)

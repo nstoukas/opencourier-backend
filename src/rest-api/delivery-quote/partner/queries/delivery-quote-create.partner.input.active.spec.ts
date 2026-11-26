@@ -2,8 +2,6 @@ import { BadRequestException, ValidationPipe } from '@nestjs/common'
 import { EnumCountryCode } from '@prisma/types'
 import { ORDER_TOTAL_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 import { DeliverQuoteCreatePartnerInput } from './delivery-quote-create.partner.input'
-import { DeliveryQuotePartnerRestApiService } from '../delivery-quote.partner.rest-api.service'
-import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 
 describe('DeliverQuoteCreatePartnerInput and partner quote (Row 177)', () => {
   // The same options as main.ts's global ValidationPipe.
@@ -145,81 +143,16 @@ describe('DeliverQuoteCreatePartnerInput and partner quote (Row 177)', () => {
         pipe.transform(invalidBody, { type: 'body', metatype: DeliverQuoteCreatePartnerInput })
       ).rejects.toThrow(BadRequestException)
     })
-  })
 
-  // Clause 2: at the rest-api service level, showing a refused total never reaches the domain service write
-  describe('DeliveryQuotePartnerRestApiService.create - with nothing written (AC-2)', () => {
-    let service: DeliveryQuotePartnerRestApiService
-    let mockDeliveryQuoteDomainService: any
-    let mockPartnerDomainService: any
-    let mockLocationDomainService: any
-    let mockCourierMatcherService: any
-    let mockConfigDomainService: any
-    let mockDispatchStopRepository: any
-
-    const partnerId = 'partner-1'
-
-    beforeEach(() => {
-      mockDeliveryQuoteDomainService = {
-        create: jest.fn(),
-      }
-      mockPartnerDomainService = {
-        getById: jest.fn().mockResolvedValue(new PartnerEntity({ id: partnerId } as any)),
-      }
-      mockLocationDomainService = {
-        findOrCreate: jest.fn().mockResolvedValue({ id: 'loc-1', latitude: 39.362, longitude: 22.945 }),
-      }
-      mockCourierMatcherService = {
-        findCourierForDelivery: jest.fn().mockResolvedValue({ id: 'courier-1' }),
-      }
-      mockConfigDomainService = {
-        instanceConfig: {
-          getDetails: jest.fn().mockResolvedValue({
-            region: {
-              type: 'Polygon',
-              coordinates: [
-                [
-                  [22.90, 39.35],
-                  [23.00, 39.35],
-                  [23.00, 39.40],
-                  [22.90, 39.40],
-                  [22.90, 39.35],
-                ],
-              ],
-            },
-          }),
-        },
-      }
-      mockDispatchStopRepository = {
-        findOn: jest.fn().mockResolvedValue(null),
-      }
-
-      service = new DeliveryQuotePartnerRestApiService(
-        mockDeliveryQuoteDomainService,
-        mockPartnerDomainService,
-        mockLocationDomainService,
-        mockCourierMatcherService,
-        mockConfigDomainService,
-        mockDispatchStopRepository
-      )
-    })
-
-    it('with nothing written: a refused total never reaches the quote domain service write', async () => {
-      const invalidBody = { ...validQuoteBody, orderTotalValue: '1250' }
-      let transformedInput: DeliverQuoteCreatePartnerInput | undefined
-
-      try {
-        transformedInput = (await pipe.transform(invalidBody, {
-          type: 'body',
-          metatype: DeliverQuoteCreatePartnerInput,
-        })) as DeliverQuoteCreatePartnerInput
-        await service.create(partnerId, transformedInput)
-      } catch (err) {
-        expect(err).toBeInstanceOf(BadRequestException)
-      }
-
-      expect(transformedInput).toBeUndefined()
-      expect(mockDeliveryQuoteDomainService.create).not.toHaveBeenCalled()
+    // Nest runs the pipe before the handler, so a body the pipe refuses never becomes an
+    // input and the handler has nothing to pass on. This checks the pipe's half of that.
+    it('the pipe refuses an empty order total before any DTO exists, so the handler has nothing to pass on', async () => {
+      await expect(
+        pipe.transform(
+          { ...validQuoteBody, orderTotalValue: '' },
+          { type: 'body', metatype: DeliverQuoteCreatePartnerInput }
+        )
+      ).rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })

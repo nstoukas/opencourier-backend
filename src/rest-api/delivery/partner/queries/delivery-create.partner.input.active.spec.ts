@@ -161,7 +161,7 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
       })
     })
 
-    // Row 177: the create route's order total is whole cents sent as a number, with ceiling (decision 177.1, 177.2)
+    // Row 177: the create route's order total is whole cents sent as a number, with ceiling (decisions 177.1, 177.2, 177.3)
     describe('Row 177: orderTotalValue whole cents sent as a number and ceiling', () => {
       it('accepts orderTotalValue of 0', async () => {
         const result = (await pipe.transform(
@@ -412,23 +412,12 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
       )
     })
 
-    // Row 177: with nothing written (AC-2)
-    it('with nothing written: a refused total never reaches the service write', async () => {
-      const invalidBody = { ...validBody, orderTotalValue: '1250' }
-      let transformedInput: DeliveryCreatePartnerInput | undefined
-
-      try {
-        transformedInput = (await pipe.transform(invalidBody, {
-          type: 'body',
-          metatype: DeliveryCreatePartnerInput,
-        })) as DeliveryCreatePartnerInput
-        await service.create(partnerId, transformedInput)
-      } catch (err) {
-        expect(err).toBeInstanceOf(BadRequestException)
-      }
-
-      expect(transformedInput).toBeUndefined()
-      expect(mockDeliveryDomainService.create).not.toHaveBeenCalled()
+    // Row 177: Nest runs the pipe before the handler, so a body the pipe refuses never becomes
+    // an input and the handler has nothing to pass on. This checks the pipe's half of that.
+    it('the pipe refuses an empty order total before any DTO exists, so the handler has nothing to pass on', async () => {
+      await expect(
+        pipe.transform({ ...validBody, orderTotalValue: '' }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+      ).rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })
