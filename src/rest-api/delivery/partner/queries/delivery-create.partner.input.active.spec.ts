@@ -152,6 +152,13 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
           pipe.transform({ ...validBody, tip: null }, { type: 'body', metatype: DeliveryCreatePartnerInput })
         ).rejects.toThrow(BadRequestException)
       })
+
+      it('refuses body with tip key omitted with 400 BadRequestException', async () => {
+        const { tip, ...withoutTip } = validBody
+        await expect(
+          pipe.transform(withoutTip, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
     })
 
     it('accepts omitted, undefined or null dropoffFloor and dropoffDoorbell', async () => {
