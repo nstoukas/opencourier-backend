@@ -94,6 +94,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
       recordTipChangedEvent: jest.fn().mockResolvedValue(undefined),
       recordBoxEvent: jest.fn().mockResolvedValue(undefined),
       notifyJobEdited: jest.fn().mockResolvedValue(undefined),
+      processDeliveryEvent: jest.fn().mockResolvedValue(undefined),
     }
 
     service = new DeliveryPartnerRestApiService(
@@ -3529,7 +3530,7 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
     })
   })
 
-  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.4)
+  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.4 and 178.7)
   describe('Row 178: partner edit sends only what changed', () => {
     const row178Delivery = (overrides: Record<string, unknown> = {}) => ({
       id: 'del-178',
@@ -3659,6 +3660,32 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
 
         expect(mockLocationDomainService.create).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+      })
+
+      it('refuses an edit with dropoffLatitude: null and dropoffLongitude: 22.948 with 400 BadRequestException and writes nothing', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+
+        await expect(
+          service.update('del-178', partnerId, { dropoffLatitude: null, dropoffLongitude: 22.948 } as any)
+        ).rejects.toThrow(new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.'))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
+      })
+
+      it('refuses an edit with both dropoffLatitude: null and dropoffLongitude: null with 400 BadRequestException and writes nothing', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+
+        await expect(
+          service.update('del-178', partnerId, { dropoffLatitude: null, dropoffLongitude: null } as any)
+        ).rejects.toThrow(new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.'))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.processDeliveryEvent).not.toHaveBeenCalled()
       })
 
       it('sending both coordinates behaves as usual: moved point creates Location, checks drift, emits event', async () => {

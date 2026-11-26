@@ -241,7 +241,7 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
     })
   })
 
-  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.3)
+  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.3 and 178.6)
   describe('Row 178: optional fields (orderReference, pickupNotes, dropoffNotes, dropoffLatitude, dropoffLongitude, pickupVerification, dropoffVerification)', () => {
     const ROW_178_FIELDS = [
       'orderReference',
@@ -338,7 +338,7 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       )
     })
 
-    describe('one coordinate without the other is refused with 400 BadRequestException (decision 178.3)', () => {
+    describe('one coordinate without the other, or a null coordinate, is refused with 400 BadRequestException (decisions 178.2, 178.3)', () => {
       it('refuses body with dropoffLatitude only (dropoffLongitude missing)', async () => {
         const bodyWithoutLng = { ...validBody }
         delete (bodyWithoutLng as any).dropoffLongitude
@@ -366,6 +366,42 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       it('refuses body with dropoffLongitude: 22.948 alone on an empty body', async () => {
         await expect(
           pipe.transform({ dropoffLongitude: 22.948 }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with both dropoffLatitude: null and dropoffLongitude: null with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform(
+            { ...validBody, dropoffLatitude: null, dropoffLongitude: null },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLatitude: null and dropoffLongitude: null on an empty body with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform(
+            { dropoffLatitude: null, dropoffLongitude: null },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLatitude: null and dropoffLongitude: 22.948 with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform(
+            { ...validBody, dropoffLatitude: null, dropoffLongitude: 22.948 },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLatitude: null and dropoffLongitude: 22.948 on an empty body with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform(
+            { dropoffLatitude: null, dropoffLongitude: 22.948 },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
         ).rejects.toThrow(BadRequestException)
       })
     })

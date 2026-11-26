@@ -449,5 +449,16 @@ describe('riderVisibleEdits (Row 164)', () => {
     test('returns false when both coordinates are sent', () => {
       expect(pointLeftOut({ dropoffLatitude: 39.365, dropoffLongitude: 22.948 })).toBe(false)
     })
+
+    test('returns false when both coordinates are null (null counts as sent)', () => {
+      expect(pointLeftOut({ dropoffLatitude: null, dropoffLongitude: null } as any)).toBe(false)
+    })
+
+    test('returns false when only one coordinate is null', () => {
+      expect(pointLeftOut({ dropoffLatitude: null, dropoffLongitude: 22.948 } as any)).toBe(false)
+      expect(pointLeftOut({ dropoffLatitude: 39.365, dropoffLongitude: null } as any)).toBe(false)
+      expect(pointLeftOut({ dropoffLatitude: null } as any)).toBe(false)
+      expect(pointLeftOut({ dropoffLongitude: null } as any)).toBe(false)
+    })
   })
 })
