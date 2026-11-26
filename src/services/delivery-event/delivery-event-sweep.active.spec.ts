@@ -45,6 +45,7 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
   let mockBullMQService: any
   let mockOfferReasonRepo: any
   let mockCompensationRepo: any
+  let mockMatchingService: any
 
   const makeDelivery = (id: string, opts: Partial<DeliveryEntity> = {}): DeliveryEntity =>
     new DeliveryEntity({
@@ -145,6 +146,7 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
         getBoxUnitsLarge: jest.fn().mockResolvedValue(100),
         getReassignmentPayoutPolicies: jest.fn().mockResolvedValue({ FULL_COMPENSATION: 100 }),
         getReassignmentPayoutDefaultPolicy: jest.fn().mockResolvedValue('FULL_COMPENSATION'),
+        getNoCourierRetrySeconds: jest.fn().mockResolvedValue(30),
       },
     }
 
@@ -174,6 +176,10 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
       findApprovedUnsettled: jest.fn().mockResolvedValue([]),
     }
 
+    mockMatchingService = {
+      findCourierForDelivery: jest.fn().mockResolvedValue(null),
+    }
+
     deliveryEventService = new DeliveryEventService(
       { get: jest.fn() } as any,
       mockWebsocketDispatcher,
@@ -183,7 +189,7 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
       { registerTaskHandler: jest.fn() } as any,
       { registerTaskHandler: jest.fn() } as any,
       { sendWebhookIfSubscribed: jest.fn().mockResolvedValue(undefined) } as any,
-      { findCourierForDelivery: jest.fn() } as any,
+      mockMatchingService,
       mockCalculationService,
       mockBullMQService,
       mockConfigService,
@@ -471,7 +477,7 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
       rearmSpy.mockRestore()
     })
 
-    it('checks reasons in order: failing (>10m) wins over active SOS', async () => {
+    it('checks reasons in order: active SOS wins over failing (>10m) (an old take whose rider is in SOS gives SOS, not FAILING)', async () => {
       const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
       const delSingle = makeDelivery('del-failing-vs-sos', {
         status: EnumDeliveryStatus.ASSIGNING_COURIER,
@@ -491,10 +497,76 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
 
       await deliveryEventService.completeTakenAccepts(new Date())
 
-      // FAILING must win over SOS
+      // Active SOS must win over FAILING (reread of row 172: age is the last check)
       expect(processSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           deliveryId: 'del-failing-vs-sos',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'SOS' },
+        })
+      )
+      rearmSpy.mockRestore()
+    })
+
+    it('checks reasons in order: deactivation wins over failing (>10m)', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delSingle = makeDelivery('del-failing-vs-deact', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: null,
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingle])
+      // No dispatch stop, no SOS, but both deactivation AND failing are true
+      mockDispatchStopRepo.findOn.mockResolvedValueOnce(null)
+      mockCourierRepo.hasActiveSos.mockResolvedValueOnce(false)
+      mockCourierRepo.isDeactivatedWaitingForLock.mockResolvedValueOnce(true)
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
+      const rearmSpy = jest
+        .spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting')
+        .mockResolvedValue(undefined)
+
+      await deliveryEventService.completeTakenAccepts(new Date())
+
+      // DEACTIVATED must win over FAILING
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-failing-vs-deact',
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'DEACTIVATED' },
+        })
+      )
+      rearmSpy.mockRestore()
+    })
+
+    it('checks reasons in order: an old take with no other reason gives FAILING', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const delSingle = makeDelivery('del-old-take-no-other-reason', {
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        offerGroupId: null,
+        updatedAt: elevenMinutesAgo,
+      })
+      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([delSingle])
+      // No dispatch stop, no SOS, no deactivation
+      mockDispatchStopRepo.findOn.mockResolvedValueOnce(null)
+      mockCourierRepo.hasActiveSos.mockResolvedValueOnce(false)
+      mockCourierRepo.isDeactivatedWaitingForLock.mockResolvedValueOnce(false)
+      mockDeliveryRepo.updateIfMatches.mockResolvedValueOnce(true)
+      const processSpy = jest.spyOn(deliveryEventService, 'processDeliveryEvent').mockResolvedValue(undefined)
+      const rearmSpy = jest
+        .spyOn(deliveryEventService as any, 'ensureBackstopIfStillWaiting')
+        .mockResolvedValue(undefined)
+
+      await deliveryEventService.completeTakenAccepts(new Date())
+
+      // An old take with no other reason gives FAILING
+      expect(processSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deliveryId: 'del-old-take-no-other-reason',
           type: EnumDeliveryEventType.OFFER_EXPIRED,
           messageCode: 'ACCEPT_GIVEN_BACK',
           messageParams: { courierId, reason: 'FAILING' },
@@ -870,6 +942,88 @@ describe('DeliveryEventService - minute sweep of taken unaccepted orders (spec 0
           type: EnumDeliveryEventType.ACCEPTED,
         })
       )
+    })
+  })
+
+  // =========================================================================
+  // Fable minor 2: Real processDeliveryEvent pipeline for give back
+  // =========================================================================
+  describe('Fable minor 2: Real processDeliveryEvent pipeline for give back', () => {
+    it('runs the REAL processDeliveryEvent on give back: after conditional write cleared courierId and matchedCourierId, saved event is OFFER_EXPIRED, not failed, actor SYSTEM with ACCEPT_GIVEN_BACK, status stays ASSIGNING_COURIER, and matching runs again', async () => {
+      const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000)
+      const deliveryState = {
+        id: 'del-giveback-real-pipeline',
+        partnerId,
+        pickupLocationId: 'loc-p1',
+        dropoffLocationId: 'loc-d-del-giveback-real-pipeline',
+        status: EnumDeliveryStatus.ASSIGNING_COURIER,
+        courierId,
+        matchedCourierId: courierId,
+        offeredAt,
+        offerExpiresAt,
+        offerGroupId: null,
+        boxUnits: 30,
+        totalCompensation: 450,
+        currencyCode: 'EUR',
+        updatedAt: elevenMinutesAgo,
+        stopSequence: null,
+      }
+
+      mockDeliveryRepo.findTakenNotAccepted.mockResolvedValueOnce([new DeliveryEntity(deliveryState as any)])
+
+      // Simulate repository where updateIfMatches conditionally writes data into deliveryState
+      mockDeliveryRepo.updateIfMatches.mockImplementation(async (id: string, where: any, data: any) => {
+        if (id === deliveryState.id) {
+          if (where.status && deliveryState.status !== where.status) return false
+          if (where.courierId && deliveryState.courierId !== where.courierId) return false
+          Object.assign(deliveryState, data)
+          return true
+        }
+        return false
+      })
+
+      // When processDeliveryEvent reads the delivery fresh via findByIdOrThrow and findById
+      mockDeliveryRepo.findByIdOrThrow.mockImplementation(async (id: string) => {
+        if (id === deliveryState.id) {
+          return new DeliveryEntity(deliveryState as any)
+        }
+        throw new Error(`Delivery ${id} not found`)
+      })
+      mockDeliveryRepo.findById.mockImplementation(async (id: string) => {
+        if (id === deliveryState.id) {
+          return new DeliveryEntity(deliveryState as any)
+        }
+        return null
+      })
+
+      // Real processDeliveryEvent runs: no jest.spyOn on processDeliveryEvent
+      const completed = await deliveryEventService.completeTakenAccepts(new Date())
+
+      expect(completed).toBe(0)
+
+      // 1. After the conditional write cleared courierId and matchedCourierId, status stays ASSIGNING_COURIER
+      expect(deliveryState.courierId).toBeNull()
+      expect(deliveryState.matchedCourierId).toBeNull()
+      expect(deliveryState.status).toBe(EnumDeliveryStatus.ASSIGNING_COURIER)
+
+      // 2. The saved event row is OFFER_EXPIRED, not failed (transitionSuccessful: true),
+      // actor SYSTEM, with the rider's courierId and messageCode ACCEPT_GIVEN_BACK
+      expect(mockDeliveryEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: EnumDeliveryEventType.OFFER_EXPIRED,
+          transitionSuccessful: true,
+          actor: EnumEventActor.SYSTEM,
+          courierId,
+          deliveryId: deliveryState.id,
+          messageCode: 'ACCEPT_GIVEN_BACK',
+          messageParams: { courierId, reason: 'FAILING' },
+          oldStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+          newStatus: EnumDeliveryStatus.ASSIGNING_COURIER,
+        })
+      )
+
+      // 3. Matching is asked to run again
+      expect(mockMatchingService.findCourierForDelivery).toHaveBeenCalledWith(deliveryState.id)
     })
   })
 })

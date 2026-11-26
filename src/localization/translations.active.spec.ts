@@ -277,9 +277,9 @@ describe('Server translations (spec 0054, AC-8)', () => {
       {
         reason: 'FAILING',
         enExpected:
-          'Courier courier-r172 accepted, but the accept was not completed (it kept failing); the order waits for a rider again',
+          'Courier courier-r172 accepted, but the accept was not completed (not completed within ten minutes); the order waits for a rider again',
         elExpected:
-          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (απέτυχε επανειλημμένα)· η παραγγελία περιμένει ξανά διανομέα',
+          'Ο διανομέας courier-r172 αποδέχτηκε, αλλά η αποδοχή δεν ολοκληρώθηκε (δεν ολοκληρώθηκε μέσα σε δέκα λεπτά)· η παραγγελία περιμένει ξανά διανομέα',
       },
       {
         reason: 'SOS',
