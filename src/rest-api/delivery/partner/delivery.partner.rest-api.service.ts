@@ -1,6 +1,7 @@
 import {
   PARTNER_EDIT_SENTENCES,
   partnerEditRefusal,
+  pointLeftOut,
   riderVisibleEdits,
   tipAfterPartnerEdit,
 } from 'src/domains/delivery/partner-edit'
@@ -64,6 +65,14 @@ import { QuoteToDeliveryConversionService } from 'src/services/quote-to-delivery
 function optionalText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? ''
   return trimmed === '' ? null : trimmed
+}
+
+// Row 178: both coordinates of a sent drop off point, or a 400 when only one was sent.
+function bothCoordinates(input: { dropoffLatitude?: number; dropoffLongitude?: number }) {
+  if (input.dropoffLatitude === undefined || input.dropoffLongitude === undefined) {
+    throw new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.')
+  }
+  return { latitude: input.dropoffLatitude, longitude: input.dropoffLongitude }
 }
 
 // Row 166: the Location row an edit's point move made, kept across its tries. `id` is null until a try makes one;
@@ -371,13 +380,23 @@ export class DeliveryPartnerRestApiService {
   // One try of the restaurant's edit, decided from `delivery` as read. Answers the delivery as saved, or null
   // when the order changed before the write (then its fields and events are not written; see `update`).
   private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput, madePoint: MadePoint) {
+    // Row 178: the point this edit sends, or null when it leaves the point out, which keeps the point where it is (no
+    // move, no drift check, no record line). Half a point is no point: the input check already answers 400 for one
+    // coordinate alone; this repeats it for a caller that skips that check.
+    const sentPoint = pointLeftOut(input) ? null : bothCoordinates(input)
+
     // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind in this try.
     const endedRefusal = partnerEditRefusal(delivery, false)
     if (endedRefusal) throw new ConflictException(endedRefusal)
 
     // Spec 0046 (cross check 2): the reference that ties a leg to its order cannot change on a leg. First,
     // so a refusal leaves nothing behind in this try (row 10 review: a moved point had already made its Location row).
-    if (delivery.legCount != null && input.orderReference !== delivery.orderReference) {
+    // Row 178: only when the edit sends a reference; a left out one keeps the stored reference, so it changes nothing.
+    if (
+      delivery.legCount != null &&
+      input.orderReference !== undefined &&
+      input.orderReference !== delivery.orderReference
+    ) {
       throw new ConflictException(LEG_LABELS_LOCKED_SENTENCE)
     }
 
@@ -389,8 +408,11 @@ export class DeliveryPartnerRestApiService {
     // Row 102 (agy review): how far a restaurant may move the point is measured from the point the fee
     // was worked out on, the quote's, and only when the point really moves. Measured from the last
     // edit instead, many small moves would walk the door far from what the rider is paid for.
+    // Row 178: `sentPoint !== null` inside this const lets TypeScript know `sentPoint` is a real point wherever
+    // `if (pointMoved)` holds below (it follows a check stored in a const), so no `!` is needed there.
     const pointMoved =
-      dropoffLocation.latitude !== input.dropoffLatitude || dropoffLocation.longitude !== input.dropoffLongitude
+      sentPoint !== null &&
+      (dropoffLocation.latitude !== sentPoint.latitude || dropoffLocation.longitude !== sentPoint.longitude)
     // Row 152: once a rider holds the order its drop off point stays where they accepted it. Before any
     // write, like the checks above.
     const heldRefusal = partnerEditRefusal(delivery, pointMoved)
@@ -406,10 +428,7 @@ export class DeliveryPartnerRestApiService {
           latitude: quotedDropoff.latitude,
           longitude: quotedDropoff.longitude,
         },
-        toLocation: {
-          latitude: input.dropoffLatitude,
-          longitude: input.dropoffLongitude,
-        },
+        toLocation: sentPoint,
       })
       if (!isValidDropoffLocationDrift) {
         throw new DeliveryLocationDoesntMatchQuoteException("Delivery dropoff location doesn't match quote location")
@@ -449,8 +468,8 @@ export class DeliveryPartnerRestApiService {
           stateCode: dropoffLocation.stateCode,
           houseNumber: dropoffLocation.houseNumber,
           formattedAddress: dropoffLocation.formattedAddress,
-          latitude: input.dropoffLatitude,
-          longitude: input.dropoffLongitude,
+          latitude: sentPoint.latitude,
+          longitude: sentPoint.longitude,
         })
       ).id
     }
@@ -483,6 +502,8 @@ export class DeliveryPartnerRestApiService {
         // rider's corrected point, so the notes and the route both follow the restaurant's new point.
         // `dropoffPointCorrectedAt` stays: it is spec 0016's "already moved once" mark, not a point.
         ...(pointMoved ? { dropoffCorrectedLatitude: null, dropoffCorrectedLongitude: null } : {}),
+        // Row 178: a field the edit leaves out is undefined here, and Prisma leaves a column it is given undefined
+        // as it is (null would clear it). So the notes, verification rules and reference keep their stored values.
         pickupNotes: input.pickupNotes,
         pickupVerification: input.pickupVerification as any as JsonValue,
         pickupReadyAt: input.pickupReadyAt,
@@ -531,13 +552,13 @@ export class DeliveryPartnerRestApiService {
     // processDeliveryEvent. The fee stays on the quote and does not move with it.
     if (pointMoved) {
       const oldPoint = `${dropoffLocation.latitude.toFixed(5)}, ${dropoffLocation.longitude.toFixed(5)}`
-      const newPoint = `${input.dropoffLatitude.toFixed(5)}, ${input.dropoffLongitude.toFixed(5)}`
+      const newPoint = `${sentPoint.latitude.toFixed(5)}, ${sentPoint.longitude.toFixed(5)}`
       const metres = Math.round(
         haversineDistanceInMetres(
           dropoffLocation.latitude,
           dropoffLocation.longitude,
-          input.dropoffLatitude,
-          input.dropoffLongitude
+          sentPoint.latitude,
+          sentPoint.longitude
         )
       )
       await this.deliveryEventService.recordDropoffPointCorrectedEvent(

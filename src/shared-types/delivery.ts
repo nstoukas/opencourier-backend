@@ -143,15 +143,16 @@ export interface DeliveryCreationDetails {
 }
 
 export interface DeliveryUpdateDetails {
-  dropoffNotes: string
-  dropoffVerification: DeliveryVerification
-  orderReference: string
-  pickupNotes: string
+  // Row 178: every field is optional; a left out one keeps the stored value (the point: both coordinates or neither).
+  dropoffNotes?: string
+  dropoffVerification?: DeliveryVerification
+  orderReference?: string
+  pickupNotes?: string
   pickupVerification?: DeliveryVerification
   // Row 169: left out keeps the stored tip.
   tipByCustomer?: number
-  dropoffLatitude: number
-  dropoffLongitude: number
+  dropoffLatitude?: number
+  dropoffLongitude?: number
   // Row 168: left out keeps the time, null is "no time"; the columns are nullable.
   pickupReadyAt?: Date | null
   pickupDeadlineAt?: Date | null

@@ -16,45 +16,62 @@ import { DeliveryVerificationInput } from './delivery-verification.input'
 import { Type } from 'class-transformer'
 import { DeliveryUpdateDetails } from 'src/shared-types/index'
 import { RefuseIfNotSentAsNumber } from 'src/decorators/refuseIfNotSentAsNumber.decorator'
-import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
+import { pointLeftOut, TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 
 export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   @ApiProperty({
-    required: true,
+    required: false,
     type: String,
+    description: 'Left out: stays as it is (row 178).',
   })
+  // Row 178: left out (undefined) keeps the stored value, so the portal can send only what the restaurant changed.
+  // `@ValidateIf` skips the checks below only for a left out field; a field that is sent, null included, is checked
+  // as before (null was refused and still is). Unlike `@IsOptional()`, which would let null through to the write.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.dropoffNotes !== undefined)
   @IsString()
-  dropoffNotes: string
+  dropoffNotes?: string
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: DeliveryVerificationInput,
+    description: 'Left out: stays as it is (row 178).',
   })
+  // Row 178: left out keeps the stored value; a sent value (null included) is checked as before. See dropoffNotes.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.dropoffVerification !== undefined)
   @ValidateNested()
   @Type(() => DeliveryVerificationInput)
-  dropoffVerification: DeliveryVerificationInput
+  dropoffVerification?: DeliveryVerificationInput
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: String,
+    description: 'Left out: stays as it is (row 178).',
   })
+  // Row 178: left out keeps the stored value; a sent value (null included) is checked as before. See dropoffNotes.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.orderReference !== undefined)
   @IsString()
-  orderReference: string
+  orderReference?: string
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: String,
+    description: 'Left out: stays as it is (row 178).',
   })
+  // Row 178: left out keeps the stored value; a sent value (null included) is checked as before. See dropoffNotes.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.pickupNotes !== undefined)
   @IsString()
-  pickupNotes: string
+  pickupNotes?: string
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: DeliveryVerificationInput,
+    description: 'Left out: stays as it is (row 178).',
   })
+  // Row 178: left out keeps the stored value; a sent value (null included) is checked as before. See dropoffNotes.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => input.pickupVerification !== undefined)
   @ValidateNested()
   @Type(() => DeliveryVerificationInput)
-  pickupVerification: DeliveryVerificationInput
+  pickupVerification?: DeliveryVerificationInput
 
   @ApiProperty({
     required: false,
@@ -80,18 +97,28 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   tipByCustomer?: number
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Number,
+    description: 'Left out together with the other coordinate: the point is not moved (row 178). Never one alone.',
   })
+  // Row 178: the drop off point is the two coordinates together. Both left out: the point is not moved. One sent
+  // without the other answers 400, since half a point is no point: this check runs on both as soon as either is sent,
+  // so the missing one fails `@IsNumber()`.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => !pointLeftOut(input))
   @IsNumber()
-  dropoffLatitude: number
+  dropoffLatitude?: number
 
   @ApiProperty({
-    required: true,
+    required: false,
     type: Number,
+    description: 'Left out together with the other coordinate: the point is not moved (row 178). Never one alone.',
   })
+  // Row 178: the drop off point is the two coordinates together. Both left out: the point is not moved. One sent
+  // without the other answers 400, since half a point is no point: this check runs on both as soon as either is sent,
+  // so the missing one fails `@IsNumber()`.
+  @ValidateIf((input: DeliveryUpdatePartnerInput) => !pointLeftOut(input))
   @IsNumber()
-  dropoffLongitude: number
+  dropoffLongitude?: number
 
   @ApiProperty({
     required: false,

@@ -41,6 +41,12 @@ export function partnerEditRefusal(order: HeldOrder, pointMoved: boolean): strin
   return null
 }
 
+// Row 178: whether an edit leaves the drop off point out entirely (neither coordinate sent), so it does not move the
+// point. The edit's input check (one coordinate alone answers 400) and the service read this same rule.
+export function pointLeftOut(input: { dropoffLatitude?: number; dropoffLongitude?: number }): boolean {
+  return input.dropoffLatitude === undefined && input.dropoffLongitude === undefined
+}
+
 // Row 171: the highest tip either partner route accepts, in cents. It is the tips column's own limit (a Postgres
 // integer), not a pay rule: a bigger number would fail at the write with a 500 instead of a clear 400.
 export const TIP_CENTS_CEILING = 2147483647
