@@ -3,6 +3,7 @@ import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
 import {
   PARTNER_EDIT_SENTENCES,
+  ORDER_TOTAL_CENTS_CEILING,
   TIP_CENTS_CEILING,
   partnerEditRefusal,
   riderHoldsOrder,
@@ -416,6 +417,13 @@ describe('riderVisibleEdits (Row 164)', () => {
   describe('TIP_CENTS_CEILING (Row 171)', () => {
     test('is 2147483647 (Postgres 32-bit signed integer limit)', () => {
       expect(TIP_CENTS_CEILING).toBe(2147483647)
+    })
+  })
+
+  // Row 177: the order total column's ceiling constant (decision 177.1)
+  describe('ORDER_TOTAL_CENTS_CEILING (Row 177)', () => {
+    test('is 2147483647 (Postgres 32-bit signed integer limit)', () => {
+      expect(ORDER_TOTAL_CENTS_CEILING).toBe(2147483647)
     })
   })
 })

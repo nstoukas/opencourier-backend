@@ -3,7 +3,7 @@ import { DeliveryCreatePartnerInput } from './delivery-create.partner.input'
 import { DeliveryPartnerRestApiService } from '../delivery.partner.rest-api.service'
 import { PartnerEntity } from 'src/domains/partner/entities/partner.entity'
 import { EnumDeliverableAction } from '@prisma/types'
-import { TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
+import { ORDER_TOTAL_CENTS_CEILING, TIP_CENTS_CEILING } from 'src/domains/delivery/partner-edit'
 
 describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () => {
   const pipe = new ValidationPipe({
@@ -157,6 +157,95 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
         const { tip, ...withoutTip } = validBody
         await expect(
           pipe.transform(withoutTip, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+    })
+
+    // Row 177: the create route's order total is whole cents sent as a number, with ceiling (decision 177.1, 177.2)
+    describe('Row 177: orderTotalValue whole cents sent as a number and ceiling', () => {
+      it('accepts orderTotalValue of 0', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, orderTotalValue: 0 },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.orderTotalValue).toBe(0)
+      })
+
+      it('accepts orderTotalValue of 1250', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, orderTotalValue: 1250 },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.orderTotalValue).toBe(1250)
+      })
+
+      it('accepts orderTotalValue equal to ORDER_TOTAL_CENTS_CEILING (2147483647)', async () => {
+        const result = (await pipe.transform(
+          { ...validBody, orderTotalValue: ORDER_TOTAL_CENTS_CEILING },
+          { type: 'body', metatype: DeliveryCreatePartnerInput }
+        )) as DeliveryCreatePartnerInput
+        expect(result.orderTotalValue).toBe(ORDER_TOTAL_CENTS_CEILING)
+      })
+
+      it('refuses empty string "" for orderTotalValue with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: '' }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses boolean false for orderTotalValue with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: false }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses boolean true for orderTotalValue with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: true }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses numeric string "1250" for orderTotalValue with 400 BadRequestException (@RefuseIfNotSentAsNumber)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: '1250' }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses fractional number 12.5 for orderTotalValue with 400 BadRequestException (@IsInt)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: 12.5 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses negative orderTotalValue -1 with 400 BadRequestException (@Min)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: -1 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses orderTotalValue above ORDER_TOTAL_CENTS_CEILING (2147483648) with 400 BadRequestException (@Max)', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: 2147483648 }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses orderTotalValue: null with 400 BadRequestException', async () => {
+        await expect(
+          pipe.transform({ ...validBody, orderTotalValue: null }, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with orderTotalValue key omitted with 400 BadRequestException', async () => {
+        const { orderTotalValue, ...withoutOrderTotal } = validBody
+        await expect(
+          pipe.transform(withoutOrderTotal, { type: 'body', metatype: DeliveryCreatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('with nothing written: a refused total never becomes a DTO (pipe rejects with BadRequestException)', async () => {
+        const invalidBody = { ...validBody, orderTotalValue: '1250' }
+        await expect(
+          pipe.transform(invalidBody, { type: 'body', metatype: DeliveryCreatePartnerInput })
         ).rejects.toThrow(BadRequestException)
       })
     })
@@ -321,6 +410,25 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
           dropoffDoorbell: null,
         })
       )
+    })
+
+    // Row 177: with nothing written (AC-2)
+    it('with nothing written: a refused total never reaches the service write', async () => {
+      const invalidBody = { ...validBody, orderTotalValue: '1250' }
+      let transformedInput: DeliveryCreatePartnerInput | undefined
+
+      try {
+        transformedInput = (await pipe.transform(invalidBody, {
+          type: 'body',
+          metatype: DeliveryCreatePartnerInput,
+        })) as DeliveryCreatePartnerInput
+        await service.create(partnerId, transformedInput)
+      } catch (err) {
+        expect(err).toBeInstanceOf(BadRequestException)
+      }
+
+      expect(transformedInput).toBeUndefined()
+      expect(mockDeliveryDomainService.create).not.toHaveBeenCalled()
     })
   })
 })
