@@ -1988,8 +1988,8 @@ export class DeliveryEventService {
 
     // No matcher offers work to a rider in an active SOS (spec 0022, AC-7; decision 73.11). The two
     // automatic matchers already leave such riders out in their SQL; this one check also covers the
-    // STATIC matcher, which returns its configured rider without asking whether they are free. The
-    // delivery then waits as if no rider were free, and the backstop retry tries again.
+    // STATIC matcher, which returns its hard coded test rider without asking whether they are free.
+    // The delivery then waits as if no rider were free, and the backstop retry tries again.
     const riderInSos = match ? await this.courierRepository.hasActiveSos(match.courier.id) : false
 
     // Spec 0048 (row 81, AC-6, AC-3): with Add on offers on, one more order for a rider already on a job.
