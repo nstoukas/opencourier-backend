@@ -172,11 +172,12 @@ describe('DeliveryOrderItemInput.kind on partner delivery create (spec 0028 AC-1
     let prismaDeliveryCreate: jest.Mock
     let service: DeliveryPartnerRestApiService
 
-    const futureDate = new Date(Date.now() + 60_000)
     const pickupLocation = { id: 'loc-pickup-1', latitude: 39.362, longitude: 22.945 }
     const dropoffLocation = { id: 'loc-dropoff-1', latitude: 39.365, longitude: 22.948 }
 
     beforeEach(() => {
+      // Row 173: compute quote expiry relative to each test's clock so a slow suite run cannot expire it.
+      const futureDate = new Date(Date.now() + 60_000)
       // The real repository and domain service, so the test follows orderItems all the way to
       // the data handed to Prisma; only Prisma itself and the event service are fakes.
       prismaDeliveryCreate = jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'del-new', ...data }))
