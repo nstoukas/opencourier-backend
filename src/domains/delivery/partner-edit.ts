@@ -45,6 +45,10 @@ export function partnerEditRefusal(order: HeldOrder, pointMoved: boolean): strin
 // integer), not a pay rule: a bigger number would fail at the write with a 500 instead of a clear 400.
 export const TIP_CENTS_CEILING = 2147483647
 
+// Row 177: the highest order total the create and quote routes accept, in cents. Like the tip's, it is the column's
+// own limit (orderTotalValue is a Postgres integer on both tables), so a bigger number answers 400, not a 500.
+export const ORDER_TOTAL_CENTS_CEILING = 2147483647
+
 // Review of row 152: the tip is rider pay (spec 0042's earnings count it). So while a rider holds the order the edit
 // keeps the tip it had, and only before a rider holds it does the restaurant's value apply (row 160 records that
 // change as a TIP_CHANGED event).
