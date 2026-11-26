@@ -132,6 +132,10 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   for every matcher (STATIC included), and `refuseIfCourierInSos` (409) in the admin hand offer, reassign and the rider's own
   accept. A new way to give a rider work must call it too. `SosLocationPoint` is read only by the SOS repository and its
   admin DTO; no log line or error may name a coordinate (value 5), and nothing in the SOS module touches a delivery or pay.
+- An accept takes the offer (writes `courierId`) before its checks and `ACCEPTED`. The minute sweep's `completeTakenAccepts`
+  (row 172) finishes or gives back any take left behind, a pair's or a single's: it completes with `ACCEPTED` by SYSTEM, or
+  gives back for a dispatch stop, an SOS, a deactivation or age, recording `OFFER_EXPIRED` with `ACCEPT_GIVEN_BACK`
+  (decision 172.4). A new step between the take and `ACCEPTED` needs the same reason in `whyNotCompleteTake`.
 
 - Restaurant delay pay (spec 0033) lives in `src/domains/delivery/wait-pay.ts`: `waitPaidFrom` and `waitLeaveFrom` are the whole rule, called by every path that pays, blocks or displays, so never restate it. `promisedReadyAt` is the first promise and is never moved. A write that takes a rider off a delivery must null `arrivedAtPickupAt` too. `waitPayOwedAt` is the marker that pay is owed: it is set in the status write and cleared only once the rider's row, the event and the charge exist, and the `cancellation-award-sweep` retries it for 24 h. `PartnerCharge` has no unique on `deliveryId`: use `cancellationOf` or `waitOf`. A rider's own taps are trusted (decision 23.19): no checks aimed at riders.
 
@@ -266,7 +270,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   `recordBoxSizeChanged` after it lands; row 167), and every event is written only after the write lands. A landed edit that changes a
   held order's notes or times sends `JOB_EDITED` to that rider (`riderVisibleEdits`, `notifyJobEdited`; row 164), kinds only, never the
   notes. Its four times: left out keeps the stored one, `null` clears it (row 168).
-  Its tip: left out keeps the stored one, `null` is refused, and it must arrive as a JSON number in whole cents (row 169).
+  Its tip, and the create route's (row 171): a JSON number in whole cents, from 0 to `TIP_CENTS_CEILING` (the column's
+  limit); on an edit, left out keeps the stored one and `null` is refused (row 169).
   "A rider holds the order" is `riderHoldsOrder`: a rider's id set, or an ongoing status, because an accept writes the id
   before `ACCEPTED` (decision 169.2). Use it, not the status alone, for any new held check.
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
