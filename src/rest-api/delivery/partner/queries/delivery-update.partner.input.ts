@@ -103,7 +103,7 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
   })
   // Row 178: the drop off point is the two coordinates together. Both left out: the point is not moved. One sent
   // without the other answers 400, since half a point is no point: this check runs on both as soon as either is sent,
-  // so the missing one fails `@IsNumber()`.
+  // so the missing one fails `@IsNumber()`. A null counts as sent, so one or both null fail `@IsNumber()` too.
   @ValidateIf((input: DeliveryUpdatePartnerInput) => !pointLeftOut(input))
   @IsNumber()
   dropoffLatitude?: number
@@ -113,9 +113,7 @@ export class DeliveryUpdatePartnerInput implements DeliveryUpdateDetails {
     type: Number,
     description: 'Left out together with the other coordinate: the point is not moved (row 178). Never one alone.',
   })
-  // Row 178: the drop off point is the two coordinates together. Both left out: the point is not moved. One sent
-  // without the other answers 400, since half a point is no point: this check runs on both as soon as either is sent,
-  // so the missing one fails `@IsNumber()`.
+  // Row 178: the same rule as dropoffLatitude. See there.
   @ValidateIf((input: DeliveryUpdatePartnerInput) => !pointLeftOut(input))
   @IsNumber()
   dropoffLongitude?: number

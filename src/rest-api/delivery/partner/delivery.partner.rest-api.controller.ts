@@ -161,7 +161,7 @@ export class DeliveryPartnerRestApiController {
   @swagger.ApiForbiddenResponse({
     type: errors.ForbiddenException,
   })
-  @swagger.ApiOperation({ summary: 'Create delivery' })
+  @swagger.ApiOperation({ summary: 'Edit delivery (a left out field keeps its stored value)' })
   @ApiKeyAuth()
   @Roles(EnumUserRole.PARTNER)
   async updateDelivery(

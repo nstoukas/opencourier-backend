@@ -67,9 +67,12 @@ function optionalText(value: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-// Row 178: both coordinates of a sent drop off point, or a 400 when only one was sent.
+// Row 178: both coordinates of a sent drop off point, or a 400 when either one is missing or not a number.
+// Decision 178.7: a null coordinate is refused here too, the same as one sent alone, so a caller that skips the
+// input check never reaches the drift check or `Location.create` with a null. The types say number, so TypeScript
+// cannot see a null here; `typeof` checks the real value at run time.
 function bothCoordinates(input: { dropoffLatitude?: number; dropoffLongitude?: number }) {
-  if (input.dropoffLatitude === undefined || input.dropoffLongitude === undefined) {
+  if (typeof input.dropoffLatitude !== 'number' || typeof input.dropoffLongitude !== 'number') {
     throw new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.')
   }
   return { latitude: input.dropoffLatitude, longitude: input.dropoffLongitude }
@@ -382,7 +385,7 @@ export class DeliveryPartnerRestApiService {
   private async tryPartnerEdit(delivery: DeliveryEntity, input: DeliveryUpdatePartnerInput, madePoint: MadePoint) {
     // Row 178: the point this edit sends, or null when it leaves the point out, which keeps the point where it is (no
     // move, no drift check, no record line). Half a point is no point: the input check already answers 400 for one
-    // coordinate alone; this repeats it for a caller that skips that check.
+    // coordinate alone or a null one; this repeats it for a caller that skips that check.
     const sentPoint = pointLeftOut(input) ? null : bothCoordinates(input)
 
     // Row 152: an ended order is never changed. First, so a refusal leaves nothing behind in this try.
