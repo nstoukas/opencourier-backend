@@ -221,11 +221,12 @@ describe('DeliveryCreatePartnerInput and partner create (Spec 0016 AC-2)', () =>
     let mockDispatchStopRepository: any
 
     const partnerId = 'partner-1'
-    const futureDate = new Date(Date.now() + 60000)
     const quotePickupLocation = { id: 'loc-pickup-1', latitude: 39.362, longitude: 22.945 }
     const quoteDropoffLocation = { id: 'loc-dropoff-1', latitude: 39.365, longitude: 22.948 }
 
     beforeEach(() => {
+      // Row 173: compute quote expiry relative to each test's clock so a slow suite run cannot expire it.
+      const futureDate = new Date(Date.now() + 60000)
       mockPartnerDomainService = {
         getById: jest.fn().mockResolvedValue(new PartnerEntity({ id: partnerId } as any)),
       }
