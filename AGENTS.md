@@ -272,6 +272,8 @@ Listed in the workspace rulebook under `opencourier-backend`. Yarn 4 via Corepac
   notes. Its four times: left out keeps the stored one, `null` clears it (row 168).
   Its tip, and the create route's (row 171): a JSON number in whole cents, from 0 to `TIP_CENTS_CEILING` (the column's
   limit); on an edit, left out keeps the stored one and `null` is refused (row 169).
+  Its reference, both notes, both verification rules and the two coordinates (row 178): left out keeps the stored value,
+  `null` is refused; a left out point is not moved, and one coordinate alone, or a null one, is 400 (`pointLeftOut`).
   "A rider holds the order" is `riderHoldsOrder`: a rider's id set, or an ongoing status, because an accept writes the id
   before `ACCEPTED` (decision 169.2). Use it, not the status alone, for any new held check.
 - Restaurant password reset by email (row 153) shares `PasswordResetService` with the riders' (`findRestaurant`, `claimRestaurantCode`):
