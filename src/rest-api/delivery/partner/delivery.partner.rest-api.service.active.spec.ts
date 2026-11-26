@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import {
   BOX_SIZE_LOCKED_MESSAGE,
   DeliveryLocationDoesntMatchQuoteException,
@@ -20,6 +20,7 @@ import { DeliveryUpdatePartnerInput } from './queries/delivery-update.partner.in
 import { PARTNER_EDIT_SENTENCES } from 'src/domains/delivery/partner-edit'
 import { DELIVERY_ONGOING_STATUSES } from 'src/shared-types/stateMachine'
 import { PARTNER_ENDED_STATUSES } from 'src/domains/delivery/ready-signals'
+import { LEG_LABELS_LOCKED_SENTENCE } from 'src/domains/delivery/legs'
 
 describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
   let service: DeliveryPartnerRestApiService
@@ -3524,6 +3525,357 @@ describe('DeliveryPartnerRestApiService (Spec 0017, AC-2 & AC-3)', () => {
         expect(mockDeliveryDomainService.update).not.toHaveBeenCalled()
         expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
         expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+      })
+    })
+  })
+
+  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.4)
+  describe('Row 178: partner edit sends only what changed', () => {
+    const row178Delivery = (overrides: Record<string, unknown> = {}) => ({
+      id: 'del-178',
+      partnerId,
+      status: EnumDeliveryStatus.CREATED,
+      deliveryQuoteId: 'quote-1',
+      pickupLocationId: 'loc-pickup',
+      dropoffLocationId: 'loc-dropoff',
+      orderReference: 'ORD-STORED-178',
+      pickupNotes: 'Stored pickup notes',
+      dropoffNotes: 'Stored dropoff notes',
+      pickupVerification: { signature: true } as any,
+      dropoffVerification: { picture: true } as any,
+      tips: 300,
+      currencyCode: 'EUR',
+      boxSize: BoxSize.SMALL,
+      boxUnits: 30,
+      boxSizeAssumed: false,
+      legNumber: null,
+      legCount: null,
+      matchedCourierId: null,
+      courierId: null,
+      dropoffCorrectedLatitude: null,
+      dropoffCorrectedLongitude: null,
+      dropoffPointCorrectedAt: null,
+      pickupReadyAt: new Date('2026-11-26T12:00:00Z'),
+      pickupDeadlineAt: new Date('2026-11-26T12:30:00Z'),
+      dropoffReadyAt: new Date('2026-11-26T12:35:00Z'),
+      dropoffDeadlineAt: new Date('2026-11-26T13:00:00Z'),
+      ...overrides,
+    })
+
+    const dropoffLocationRecord = {
+      id: 'loc-dropoff',
+      latitude: 39.3625,
+      longitude: 22.943,
+      addressLine1: 'Iasonos 12',
+      addressLine2: '3rd floor',
+      city: 'Volos',
+      state: 'Magnesia',
+      street: 'Iasonos',
+      zipCode: '38221',
+      countryCode: 'GR',
+      stateCode: 'THE',
+      houseNumber: '12',
+      formattedAddress: 'Iasonos 12, Volos',
+    }
+
+    beforeEach(() => {
+      mockLocationDomainService.getById.mockImplementation(async (id: string) => {
+        if (id === 'loc-dropoff') return dropoffLocationRecord
+        if (id === 'loc-shared') return dropoffLocationRecord
+        return { id, latitude: 39.3625, longitude: 22.943 }
+      })
+    })
+
+    describe('Clause 2: the point (dropoffLatitude, dropoffLongitude)', () => {
+      it('an edit that leaves both coordinates out does NOT move the point on an unassigned order', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Updated pickup' } as any)
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.dropoffLocationId).toBe('loc-dropoff')
+        expect(data.dropoffCorrectedLatitude).toBeUndefined()
+        expect(data.dropoffCorrectedLongitude).toBeUndefined()
+      })
+
+      it('an edit that leaves both coordinates out on a held order (status ACCEPTED, courierId set) is NOT refused with pointHeld 409', async () => {
+        const initial = row178Delivery({
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: 'courier-held-1',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Updated pickup notes while held' } as any)
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.dropoffLocationId).toBe('loc-dropoff')
+        expect(data.pickupNotes).toBe('Updated pickup notes while held')
+      })
+
+      it('an edit that leaves both coordinates out does not clear existing dropoffCorrectedLatitude / dropoffCorrectedLongitude', async () => {
+        const initial = row178Delivery({
+          dropoffCorrectedLatitude: 39.366,
+          dropoffCorrectedLongitude: 22.945,
+          dropoffPointCorrectedAt: new Date(),
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Updated notes' } as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.dropoffCorrectedLatitude).toBeUndefined()
+        expect(data.dropoffCorrectedLongitude).toBeUndefined()
+      })
+
+      it('refuses an edit with dropoffLatitude alone with 400 BadRequestException and writes nothing', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+
+        await expect(
+          service.update('del-178', partnerId, { dropoffLatitude: 39.37 } as any)
+        ).rejects.toThrow(new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.'))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+      })
+
+      it('refuses an edit with dropoffLongitude alone with 400 BadRequestException and writes nothing', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+
+        await expect(
+          service.update('del-178', partnerId, { dropoffLongitude: 22.95 } as any)
+        ).rejects.toThrow(new BadRequestException('Send dropoffLatitude and dropoffLongitude together, or leave both out.'))
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+      })
+
+      it('sending both coordinates behaves as usual: moved point creates Location, checks drift, emits event', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+        mockLocationDomainService.create.mockResolvedValueOnce({ id: 'loc-new-point' })
+
+        await service.update('del-178', partnerId, {
+          dropoffLatitude: 39.37,
+          dropoffLongitude: 22.95,
+        } as any)
+
+        expect(mockLocationDomainService.create).toHaveBeenCalledTimes(1)
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.dropoffLocationId).toBe('loc-new-point')
+        expect(data.dropoffCorrectedLatitude).toBeNull()
+        expect(data.dropoffCorrectedLongitude).toBeNull()
+      })
+
+      it('sending both coordinates with the same values as stored does NOT move point (no new Location, no event)', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, {
+          dropoffLatitude: dropoffLocationRecord.latitude,
+          dropoffLongitude: dropoffLocationRecord.longitude,
+          pickupNotes: 'Updated notes',
+        } as any)
+
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.dropoffLocationId).toBe('loc-dropoff')
+      })
+    })
+
+    describe('Clause 3: the leg check (orderReference)', () => {
+      it('on a leg (legCount set), an edit that leaves orderReference out is NOT refused and writes no orderReference', async () => {
+        const initial = row178Delivery({
+          legCount: 2,
+          legNumber: 1,
+          orderReference: 'LEG-REF-100',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Kitchen door' } as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.orderReference).toBeUndefined()
+        expect(data.pickupNotes).toBe('Kitchen door')
+      })
+
+      it('on a leg (legCount set), an edit that sends a differing orderReference is refused with 409 LEG_LABELS_LOCKED', async () => {
+        const initial = row178Delivery({
+          legCount: 2,
+          legNumber: 1,
+          orderReference: 'LEG-REF-100',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValue(initial)
+
+        await expect(
+          service.update('del-178', partnerId, { orderReference: 'LEG-REF-DIFF' } as any)
+        ).rejects.toThrow(new ConflictException(LEG_LABELS_LOCKED_SENTENCE))
+
+        expect(mockDeliveryDomainService.updateIfMatches).not.toHaveBeenCalled()
+      })
+
+      it('on a leg (legCount set), an edit that sends the same orderReference passes and writes it', async () => {
+        const initial = row178Delivery({
+          legCount: 2,
+          legNumber: 1,
+          orderReference: 'LEG-REF-100',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { orderReference: 'LEG-REF-100', pickupNotes: 'Updated' } as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.orderReference).toBe('LEG-REF-100')
+        expect(data.pickupNotes).toBe('Updated')
+      })
+    })
+
+    describe('Clause 4: left out fields keep stored values', () => {
+      it('data passed to updateIfMatches has undefined for left out fields among pickupNotes, dropoffNotes, orderReference, pickupVerification, dropoffVerification', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        // Empty input: no fields sent
+        await service.update('del-178', partnerId, {} as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.pickupNotes).toBeUndefined()
+        expect(data.dropoffNotes).toBeUndefined()
+        expect(data.orderReference).toBeUndefined()
+        expect(data.pickupVerification).toBeUndefined()
+        expect(data.dropoffVerification).toBeUndefined()
+      })
+
+      it('sent fields are passed through to updateIfMatches data', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        const sentVerification = { signature: true, barcodes: ['12345'] } as any
+        await service.update('del-178', partnerId, {
+          pickupNotes: 'New pickup note',
+          dropoffNotes: 'New dropoff note',
+          orderReference: 'NEW-REF-77',
+          pickupVerification: sentVerification,
+          dropoffVerification: sentVerification,
+        } as any)
+
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [, , data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(data.pickupNotes).toBe('New pickup note')
+        expect(data.dropoffNotes).toBe('New dropoff note')
+        expect(data.orderReference).toBe('NEW-REF-77')
+        expect(data.pickupVerification).toEqual(sentVerification)
+        expect(data.dropoffVerification).toEqual(sentVerification)
+      })
+
+      it('emits no TIP_CHANGED, no BOX_SIZE_CHANGED, and no DROPOFF_POINT_CORRECTED for fields not sent', async () => {
+        const initial = row178Delivery()
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Only note edit' } as any)
+
+        expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+      })
+
+      it('notifyJobEdited gets an empty list [] for an edit that leaves notes and times out on a held order', async () => {
+        const initial = row178Delivery({
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: 'courier-1',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        // Neither notes nor times sent
+        await service.update('del-178', partnerId, { orderReference: 'ORD-SAME' } as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, [])
+      })
+
+      it('notifyJobEdited gets [NOTES] when a changed note is sent on a held order', async () => {
+        const initial = row178Delivery({
+          status: EnumDeliveryStatus.ACCEPTED,
+          courierId: 'courier-1',
+          pickupNotes: 'Initial pickup note',
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(initial).mockResolvedValueOnce(initial)
+
+        await service.update('del-178', partnerId, { pickupNotes: 'Changed pickup note' } as any)
+
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledTimes(1)
+        expect(mockDeliveryEventService.notifyJobEdited).toHaveBeenCalledWith(initial, ['NOTES'])
+      })
+    })
+
+    describe('Clause 5: End-to-end proof of Done when at service level', () => {
+      it('stored delivery has values X (as if changed through API); an edit sending only pickupNotes leaves every other field out of the write', async () => {
+        const storedX = row178Delivery({
+          id: 'del-x',
+          pickupNotes: 'API Pickup Notes X',
+          dropoffNotes: 'API Dropoff Notes X',
+          orderReference: 'API-REF-X',
+          pickupVerification: { signature: true, minAge: 21 } as any,
+          dropoffVerification: { picture: true } as any,
+          dropoffLocationId: 'loc-dropoff',
+          dropoffCorrectedLatitude: 39.368,
+          dropoffCorrectedLongitude: 22.946,
+          tips: 450,
+          boxSize: BoxSize.MEDIUM,
+          boxUnits: 50,
+        })
+        mockDeliveryDomainService.getByIdOrThrow.mockResolvedValueOnce(storedX).mockResolvedValueOnce(storedX)
+
+        // Restaurant portal sends ONLY pickupNotes
+        const portalEditInput = { pickupNotes: 'Portal edited pickup note' }
+
+        await service.update('del-x', partnerId, portalEditInput as any)
+
+        // Verify updateIfMatches call
+        expect(mockDeliveryDomainService.updateIfMatches).toHaveBeenCalledTimes(1)
+        const [targetId, where, data] = mockDeliveryDomainService.updateIfMatches.mock.calls[0]
+        expect(targetId).toBe('del-x')
+        expect(where.status).toBe(storedX.status)
+        expect(where.tips).toBe(450)
+        expect(where.dropoffLocationId).toBe('loc-dropoff')
+
+        // Data written: pickupNotes updated, everything else left out (undefined) or kept as stored
+        expect(data.pickupNotes).toBe('Portal edited pickup note')
+        expect(data.dropoffNotes).toBeUndefined()
+        expect(data.orderReference).toBeUndefined()
+        expect(data.pickupVerification).toBeUndefined()
+        expect(data.dropoffVerification).toBeUndefined()
+        expect(data.dropoffLocationId).toBe('loc-dropoff')
+        expect(data.dropoffCorrectedLatitude).toBeUndefined()
+        expect(data.dropoffCorrectedLongitude).toBeUndefined()
+        expect(data.tips).toBe(450)
+
+        // No side effects triggered for untouched fields
+        expect(mockLocationDomainService.create).not.toHaveBeenCalled()
+        expect(mockQuoteToDeliveryConversionService.isValidDeliveryLocationDrift).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordDropoffPointCorrectedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryEventService.recordTipChangedEvent).not.toHaveBeenCalled()
+        expect(mockDeliveryDomainService.recordBoxSizeChanged).not.toHaveBeenCalled()
       })
     })
   })

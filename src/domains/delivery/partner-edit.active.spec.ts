@@ -6,6 +6,7 @@ import {
   ORDER_TOTAL_CENTS_CEILING,
   TIP_CENTS_CEILING,
   partnerEditRefusal,
+  pointLeftOut,
   riderHoldsOrder,
   riderVisibleEdits,
   tipAfterPartnerEdit,
@@ -424,6 +425,29 @@ describe('riderVisibleEdits (Row 164)', () => {
   describe('ORDER_TOTAL_CENTS_CEILING (Row 177)', () => {
     test('is 2147483647 (Postgres 32-bit signed integer limit)', () => {
       expect(ORDER_TOTAL_CENTS_CEILING).toBe(2147483647)
+    })
+  })
+
+  // Row 178: whether an edit leaves the drop off point out entirely
+  describe('pointLeftOut (Row 178)', () => {
+    test('returns true when neither coordinate is present ({})', () => {
+      expect(pointLeftOut({})).toBe(true)
+    })
+
+    test('returns true when both coordinates are undefined', () => {
+      expect(pointLeftOut({ dropoffLatitude: undefined, dropoffLongitude: undefined })).toBe(true)
+    })
+
+    test('returns false when dropoffLatitude is sent alone', () => {
+      expect(pointLeftOut({ dropoffLatitude: 39.365 })).toBe(false)
+    })
+
+    test('returns false when dropoffLongitude is sent alone', () => {
+      expect(pointLeftOut({ dropoffLongitude: 22.948 })).toBe(false)
+    })
+
+    test('returns false when both coordinates are sent', () => {
+      expect(pointLeftOut({ dropoffLatitude: 39.365, dropoffLongitude: 22.948 })).toBe(false)
     })
   })
 })

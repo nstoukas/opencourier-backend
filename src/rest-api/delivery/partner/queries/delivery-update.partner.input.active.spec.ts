@@ -240,4 +240,203 @@ describe('DeliveryUpdatePartnerInput class-validator validation', () => {
       })
     })
   })
+
+  // Row 178: the portal's edit sends only what the restaurant changed (decisions 178.1 to 178.3)
+  describe('Row 178: optional fields (orderReference, pickupNotes, dropoffNotes, dropoffLatitude, dropoffLongitude, pickupVerification, dropoffVerification)', () => {
+    const ROW_178_FIELDS = [
+      'orderReference',
+      'pickupNotes',
+      'dropoffNotes',
+      'dropoffLatitude',
+      'dropoffLongitude',
+      'pickupVerification',
+      'dropoffVerification',
+    ] as const
+
+    it('an entirely empty body {} passes validation with all fields undefined', async () => {
+      const result = (await pipe.transform(
+        {},
+        {
+          type: 'body',
+          metatype: DeliveryUpdatePartnerInput,
+        }
+      )) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.orderReference).toBeUndefined()
+      expect(result.pickupNotes).toBeUndefined()
+      expect(result.dropoffNotes).toBeUndefined()
+      expect(result.dropoffLatitude).toBeUndefined()
+      expect(result.dropoffLongitude).toBeUndefined()
+      expect(result.pickupVerification).toBeUndefined()
+      expect(result.dropoffVerification).toBeUndefined()
+      expect(result.tipByCustomer).toBeUndefined()
+      expect(result.pickupReadyAt).toBeUndefined()
+      expect(result.pickupDeadlineAt).toBeUndefined()
+      expect(result.dropoffReadyAt).toBeUndefined()
+      expect(result.dropoffDeadlineAt).toBeUndefined()
+    })
+
+    it('a body with only pickupNotes passes validation and other fields are undefined', async () => {
+      const result = (await pipe.transform(
+        { pickupNotes: 'Ring doorbell twice' },
+        { type: 'body', metatype: DeliveryUpdatePartnerInput }
+      )) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.pickupNotes).toBe('Ring doorbell twice')
+      expect(result.dropoffNotes).toBeUndefined()
+      expect(result.orderReference).toBeUndefined()
+      expect(result.dropoffLatitude).toBeUndefined()
+      expect(result.dropoffLongitude).toBeUndefined()
+      expect(result.pickupVerification).toBeUndefined()
+      expect(result.dropoffVerification).toBeUndefined()
+    })
+
+    it.each([
+      'orderReference',
+      'pickupNotes',
+      'dropoffNotes',
+      'pickupVerification',
+      'dropoffVerification',
+    ] as const)('omitting %s passes validation with value undefined', async (field) => {
+      const body = { ...validBody }
+      delete (body as any)[field]
+
+      const result = (await pipe.transform(body, {
+        type: 'body',
+        metatype: DeliveryUpdatePartnerInput,
+      })) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result[field]).toBeUndefined()
+    })
+
+    it('omitting both coordinates together passes validation with both undefined', async () => {
+      const body = { ...validBody }
+      delete (body as any).dropoffLatitude
+      delete (body as any).dropoffLongitude
+
+      const result = (await pipe.transform(body, {
+        type: 'body',
+        metatype: DeliveryUpdatePartnerInput,
+      })) as DeliveryUpdatePartnerInput
+
+      expect(result).toBeInstanceOf(DeliveryUpdatePartnerInput)
+      expect(result.dropoffLatitude).toBeUndefined()
+      expect(result.dropoffLongitude).toBeUndefined()
+    })
+
+    describe('null is refused for each of the seven fields', () => {
+      it.each(ROW_178_FIELDS)(
+        'refuses %s: null with 400 BadRequestException (@ValidateIf checks non-undefined)',
+        async (field) => {
+          await expect(
+            pipe.transform({ ...validBody, [field]: null }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+          ).rejects.toThrow(BadRequestException)
+        }
+      )
+    })
+
+    describe('one coordinate without the other is refused with 400 BadRequestException (decision 178.3)', () => {
+      it('refuses body with dropoffLatitude only (dropoffLongitude missing)', async () => {
+        const bodyWithoutLng = { ...validBody }
+        delete (bodyWithoutLng as any).dropoffLongitude
+
+        await expect(
+          pipe.transform(bodyWithoutLng, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLongitude only (dropoffLatitude missing)', async () => {
+        const bodyWithoutLat = { ...validBody }
+        delete (bodyWithoutLat as any).dropoffLatitude
+
+        await expect(
+          pipe.transform(bodyWithoutLat, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLatitude: 39.365 alone on an empty body', async () => {
+        await expect(
+          pipe.transform({ dropoffLatitude: 39.365 }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses body with dropoffLongitude: 22.948 alone on an empty body', async () => {
+        await expect(
+          pipe.transform({ dropoffLongitude: 22.948 }, { type: 'body', metatype: DeliveryUpdatePartnerInput })
+        ).rejects.toThrow(BadRequestException)
+      })
+    })
+
+    describe('sent fields keep their type checks', () => {
+      it('refuses non-number string "abc" for dropoffLatitude', async () => {
+        await expect(
+          pipe.transform(
+            { ...validBody, dropoffLatitude: 'abc' },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses non-number string "abc" for dropoffLongitude', async () => {
+        await expect(
+          pipe.transform(
+            { ...validBody, dropoffLongitude: 'abc' },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses malformed pickupVerification object (e.g. nested identification.minAge is not a number)', async () => {
+        const malformed = {
+          ...validVerification,
+          identification: {
+            ...validVerification.identification,
+            minAge: null,
+          },
+        }
+        await expect(
+          pipe.transform(
+            { ...validBody, pickupVerification: malformed },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses malformed dropoffVerification object (e.g. nested identification.minAge is not a number)', async () => {
+        const malformed = {
+          ...validVerification,
+          identification: {
+            ...validVerification.identification,
+            minAge: null,
+          },
+        }
+        await expect(
+          pipe.transform(
+            { ...validBody, dropoffVerification: malformed },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+
+      it('refuses malformed verification object with invalid nested signatureRequirement (e.g. enabled is null)', async () => {
+        const malformed = {
+          ...validVerification,
+          signatureRequirement: {
+            enabled: null,
+            collectSignerName: false,
+            collectSignerRelationship: false,
+          },
+        }
+        await expect(
+          pipe.transform(
+            { ...validBody, pickupVerification: malformed },
+            { type: 'body', metatype: DeliveryUpdatePartnerInput }
+          )
+        ).rejects.toThrow(BadRequestException)
+      })
+    })
+  })
 })
