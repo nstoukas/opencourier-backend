@@ -32,7 +32,7 @@ export const EL_WORDS: WorkRulesWords = {
     NEAREST_COURIER: nearestEl,
     COURIER_SENIORITY: (distance) =>
       `Κάθε παραγγελία προτείνεται στον ελεύθερο διανομέα, ${ONLINE_OR_LAST_CALL}, με τον παλαιότερο λογαριασμό, σε απόσταση έως ${distance} από το κατάστημα.`,
-    STATIC: () => 'Ο συντονισμός διαλέγει με το χέρι τον διανομέα για κάθε παραγγελία.',
+    STATIC: () => 'Κάθε παραγγελία προτείνεται στον διανομέα δοκιμών, ελεύθερο ή όχι. Μόνο για δοκιμές.',
   },
   nearest: nearestEl,
   fairness: (settings, distance) => [

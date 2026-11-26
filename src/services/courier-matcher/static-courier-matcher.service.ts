@@ -21,7 +21,7 @@ export class StaticCourierMatcherService implements ICourierMatcherService {
     return Promise.resolve({
       courierId: StaticCourierMatcherService.courierId,
       distance: 1,
-      // Spec 0044 (AC-6): the configured rider, chosen by hand (a testing tool).
+      // Spec 0044 (AC-6): the one test rider hard coded above, free or not (a testing tool, row 185).
       reason: { strategy: EnumCourierMatcherType.STATIC, values: {} },
     })
   }

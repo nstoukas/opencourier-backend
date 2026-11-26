@@ -22,7 +22,7 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const MATCHER_NAMES: Record<string, string> = {
   NEAREST_COURIER: 'the nearest free rider',
   COURIER_SENIORITY: 'the free rider with the oldest account',
-  STATIC: 'chosen by hand',
+  STATIC: 'the fixed test courier',
   FAIRNESS: 'a fair share: road time, earnings today and waiting, weighed as the co-op set',
 }
 

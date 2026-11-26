@@ -54,12 +54,13 @@ const nearestSentence = (distance: string) =>
 
 // Checked against the matchers' queries (courier.repository.ts): both offer only to riders who are
 // Online or on Last Call, hold no job and no open offer, have no active SOS, and are within the
-// distance of the restaurant. STATIC is the admin's override.
+// distance of the restaurant. STATIC is a testing tool, not the admin's override: it offers every order
+// to one test rider hard coded in the matcher (`testing-courier`), free or not (row 185).
 const MATCHER_SENTENCES: Record<string, (distance: string) => string> = {
   NEAREST_COURIER: (distance) => nearestSentence(distance),
   COURIER_SENIORITY: (distance) =>
     `Each order is offered to the free rider, Online or on Last Call, whose account is the oldest, within ${distance} of the restaurant.`,
-  STATIC: () => 'Dispatch chooses the rider for each order by hand.',
+  STATIC: () => 'Each order is offered to the fixed test courier, free or not. Testing only.',
 }
 
 // Spec 0044 (rows 12 and 13): the fairness matcher, worded from the live settings, so a change the
@@ -308,8 +309,8 @@ export class WorkRulesService {
     // rider reads that an add on is answered only when stopped, and that one offered with food in the box
     // never rings insistently and gets twice the usual time. Review fixes: WHENEVER_FITS says plainly that an
     // add on can come while a free rider is available, and the add on's own deadline (decision 81.14) is
-    // given in seconds, since it applies whether Offer expiry is on or off. Not said while dispatch chooses
-    // every rider by hand (STATIC), when no add on is ever offered (review fix, the locked override).
+    // given in seconds, since it applies whether Offer expiry is on or off. Not said while the matcher is
+    // STATIC (the fixed test courier), when no add on is ever offered (review fix, decision 81.15).
     if (settings.addOnOffersEnabled && settings.courierMatcherType !== EnumCourierMatcherType.STATIC) {
       const moment =
         settings.addOnMoment === EnumAddOnMoment.BEFORE_DROPOFF

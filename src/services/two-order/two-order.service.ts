@@ -179,10 +179,10 @@ export class TwoOrderService {
         config.getMaxAssignmentDistanceInKM(),
         config.getCourierMatcherTypeSetting(),
       ])
-      // Review fix (AGENTS.md, locked: "STATIC matcher = the override"): while the matcher setting is STATIC,
-      // every order goes to the rider the admin named, and nobody else, exactly as an ordinary offer does. An
-      // add on would send it to some other rider on a job (under WHENEVER_FITS, or when the named rider is in
-      // an SOS), so there is none.
+      // Review fix (decision 81.15; row 185): while the matcher setting is STATIC, every order goes to the one
+      // test rider hard coded in the matcher (`testing-courier`), and nobody else, exactly as an ordinary offer
+      // does. An add on would send it to some other rider on a job (under WHENEVER_FITS, or when the test rider
+      // is in an SOS), so there is none.
       if (strategy === EnumCourierMatcherType.STATIC) return null
       if (freeRiderFound && policy === EnumTwoOrderPolicy.SHORTAGE_ONLY) return null
       const jobStatuses = addOnJobStatuses(moment)

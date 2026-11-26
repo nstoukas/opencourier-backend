@@ -167,7 +167,7 @@ export class DeliveryRepository extends EntityRepository implements IDeliveryRep
       // passes it (a stack is the only way to two, and two is the most). This delivery itself is left out, so
       // re-offering it to a rider who already has its offer is not counted twice. Counted with the matchers'
       // own busy rule (review of row 80), so a rider the automatic matchers choose (busy with nothing) is never
-      // refused here; only a rider named by hand or by the Static matcher can be.
+      // refused here; only a rider an admin offers to by hand, or the Static matcher's fixed test courier, can be.
       const count = await tx.$queryRaw<Array<{ held: number }>>(
         Prisma.sql`SELECT (${liveDeliveryCountSql(Prisma.sql`${courierId}`, deliveryId)}) AS "held"`
       )
