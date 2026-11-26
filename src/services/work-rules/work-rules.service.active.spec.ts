@@ -185,14 +185,17 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       expect(result.offers[0]).toContain('whose account is the oldest')
     })
 
-    it('updates matcher sentence when courierMatcherType is STATIC', async () => {
+    it('updates matcher sentence when courierMatcherType is STATIC (row 185)', async () => {
       ;(mockConfigDomainService.instanceConfig.getInstanceConfigSettings as jest.Mock).mockResolvedValue({
         ...baseSettings,
         courierMatcherType: EnumCourierMatcherType.STATIC,
       })
 
       const result = await service.howItWorks()
-      expect(result.offers[0]).toBe('Dispatch chooses the rider for each order by hand.')
+      expect(result.offers[0]).toBe('Each order is offered to the fixed test courier, free or not. Testing only.')
+      expect(result.offers[0]).not.toContain('by hand')
+      expect(result.offers[0]).not.toContain('Dispatch chooses')
+      expect(result.offers[0]).not.toBe('Dispatch chooses the rider for each order by hand.')
     })
 
     it('includes timed offer sentence when offerTimingEnabled is true', async () => {
@@ -277,7 +280,10 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       })
       result = await service.howItWorks()
       expect(result.offers.some((line) => line.includes('45 seconds'))).toBe(true)
-      expect(result.offers[0]).toBe('Dispatch chooses the rider for each order by hand.')
+      expect(result.offers[0]).toBe('Each order is offered to the fixed test courier, free or not. Testing only.')
+      expect(result.offers[0]).not.toContain('by hand')
+      expect(result.offers[0]).not.toContain('Dispatch chooses')
+      expect(result.offers[0]).not.toBe('Dispatch chooses the rider for each order by hand.')
     })
   })
 
@@ -466,6 +472,16 @@ describe('WorkRulesService (spec 0038, AC-11, AC-13)', () => {
       )
       expect(format({}, context)).toBe('none')
       expect(format(null, context)).toBe('not set')
+    })
+
+    it('formats courierMatcherType STATIC as the fixed test courier (row 185)', () => {
+      const context = { distanceUnit: 'KILOMETERS', currency: 'EUR' }
+      const format = RIDER_FACING_SETTINGS.courierMatcherType!.format
+      const formatted = format('STATIC', context)
+      expect(formatted).toBe('the fixed test courier')
+      expect(formatted).not.toBe('chosen by hand')
+      expect(formatted).not.toContain('by hand')
+      expect(formatted).not.toContain('Dispatch chooses')
     })
   })
 })

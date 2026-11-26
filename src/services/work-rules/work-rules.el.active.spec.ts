@@ -209,10 +209,13 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
       })
     })
 
-    describe('matcher.STATIC', () => {
-      it('returns Greek sentence for STATIC manual dispatch', () => {
+    describe('matcher.STATIC (row 185)', () => {
+      it('returns Greek sentence for STATIC fixed test courier', () => {
         const sentence = EL_WORDS.matcher.STATIC!('20 km')
-        expect(sentence).toBe('Ο συντονισμός διαλέγει με το χέρι τον διανομέα για κάθε παραγγελία.')
+        expect(sentence).toBe('Κάθε παραγγελία προτείνεται στον διανομέα δοκιμών, ελεύθερο ή όχι. Μόνο για δοκιμές.')
+        expect(sentence).not.toContain('με το χέρι')
+        expect(sentence).not.toContain('διαλέγει')
+        expect(sentence).not.toBe('Ο συντονισμός διαλέγει με το χέρι τον διανομέα για κάθε παραγγελία.')
         expect(GREEK_REGEX.test(sentence)).toBe(true)
       })
     })
@@ -391,7 +394,10 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
         const el = await service.howItWorks('el')
 
         assertGreekParity(el, en)
-        expect(el.offers[0]).toBe('Ο συντονισμός διαλέγει με το χέρι τον διανομέα για κάθε παραγγελία.')
+        expect(el.offers[0]).toBe('Κάθε παραγγελία προτείνεται στον διανομέα δοκιμών, ελεύθερο ή όχι. Μόνο για δοκιμές.')
+        expect(el.offers[0]).not.toContain('με το χέρι')
+        expect(el.offers[0]).not.toContain('διαλέγει')
+        expect(el.offers[0]).not.toBe('Ο συντονισμός διαλέγει με το χέρι τον διανομέα για κάθε παραγγελία.')
         expect(el.offers[1]).toBe(EL_WORDS.seeWhy)
       })
 
@@ -976,6 +982,18 @@ describe('WorkRules Greek "How offers and pay work" (row 137, problem 15)', () =
 
       expect([result.data[0]?.oldText, result.data[0]?.newText]).toEqual(['20 μίλια', '12 μίλια'])
       expect([result.data[1]?.oldText, result.data[1]?.newText]).toEqual(['1,50 USD ανά μίλι', '1,80 USD ανά μίλι'])
+    })
+
+    it('formats courierMatcherType STATIC change in Greek (row 185)', async () => {
+      pageOf(change('courierMatcherType', 'NEAREST_COURIER', 'STATIC'))
+
+      const result = await service.riderChanges({}, 'el')
+
+      expect(result.data[0]?.label).toBe(RIDER_FACING_SETTINGS_EL['courierMatcherType']?.label)
+      expect(result.data[0]?.newText).toBe('ο διανομέας δοκιμών')
+      expect(result.data[0]?.newText).not.toBe('επιλογή με το χέρι')
+      expect(result.data[0]?.newText).not.toContain('με το χέρι')
+      expect(result.data[0]?.newText).not.toContain('διαλέγει')
     })
 
     it('names every weekday of a shift slot in Greek', async () => {

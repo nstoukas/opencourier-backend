@@ -104,6 +104,21 @@ describe('RIDER_FACING_SETTINGS_EL (row 137 review)', () => {
       expect(format('reassignmentPayoutDefaultPolicy', 'NO_COMPENSATION')).toBe('καμία αποζημίωση')
     })
 
+    it('formats courierMatcherType STATIC as the fixed test courier in Greek and English (row 185)', () => {
+      const elText = format('courierMatcherType', 'STATIC')
+      const enText = RIDER_FACING_SETTINGS.courierMatcherType!.format('STATIC', context)
+
+      expect(elText).toBe('ο διανομέας δοκιμών')
+      expect(elText).not.toBe('επιλογή με το χέρι')
+      expect(elText).not.toContain('με το χέρι')
+      expect(elText).not.toContain('διαλέγει')
+
+      expect(enText).toBe('the fixed test courier')
+      expect(enText).not.toBe('chosen by hand')
+      expect(enText).not.toContain('by hand')
+      expect(enText).not.toContain('Dispatch chooses')
+    })
+
     it('never answers a set value of a Config key with the "not set" wording', () => {
       const samples: Record<string, unknown> = {
         courierMatcherType: 'FAIRNESS',

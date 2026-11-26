@@ -250,7 +250,7 @@ describe('Add-on co-op settings (spec 0048, AC-1, row 81)', () => {
       )
     })
 
-    it('omits add on sentence when courierMatcherType is STATIC (Decision 81.15, locked override)', async () => {
+    it('omits add on sentence when courierMatcherType is STATIC (Decision 81.15, row 185)', async () => {
       mockConfigDomainService.instanceConfig.getInstanceConfigSettings.mockResolvedValueOnce({
         ...mockBaseSettings,
         addOnOffersEnabled: true,

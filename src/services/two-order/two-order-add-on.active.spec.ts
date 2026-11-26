@@ -188,7 +188,7 @@ describe('TwoOrderService add-on offers (spec 0048, row 81)', () => {
     })
   })
 
-  describe('STATIC matcher override (Decision 81.15, locked override in AGENTS.md)', () => {
+  describe('STATIC matcher (Decision 81.15, row 185)', () => {
     it('returns null immediately without searching candidates when courierMatcherType is STATIC', async () => {
       mockConfigService.instanceConfig.getCourierMatcherTypeSetting.mockResolvedValueOnce(
         EnumCourierMatcherType.STATIC
